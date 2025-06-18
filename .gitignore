@@ -1,0 +1,33 @@
+# Ignore certificates
+certs/
+*.pem
+*.key
+*.crt
+
+# Ignore certbot installation files
+certbot-auto
+certbot
+
+# Ignore binary files
+/tunn
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Go workspace file
+go.work
+
+# Dependency directories (remove these if you want to check in your vendor folder)
+vendor/
+
+# OS specific files
+.DS_Store
+Thumbs.db

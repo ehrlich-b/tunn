@@ -1,3 +1,6 @@
+# fly.toml.dist
+# Copy this file to fly.toml and fill in your secrets.
+
 app = "tunn"
 primary_region = "sjc" # Silicon Valley
 kill_signal = "SIGINT"
@@ -8,7 +11,7 @@ kill_timeout = 5
 
 [env]
   PORT = "443"
-  TOKEN = "secret" # Change this in production using fly secrets set TOKEN=your-secret-token
+  TOKEN = "slide_peops"
 
 [http_service]
   internal_port = 443

@@ -7,11 +7,14 @@ Tunnels stuff
 Http stuff for now:
 
 ```
+make build
 TOKEN=<super_secret> ./bin/tunn -to http://127.0.0.1:8000
 🔗 https://<tunnel_id>.tunn.to → 127.0.0.1:8000
 ```
 
 Works for https too!
+
+Ask Bryan for the super secret password.
 
 ### How could it be?
 
@@ -28,13 +31,3 @@ MVP quality, todo if this ends up being useful:
 ### Is it secure?
 
 Definitely maybe - use at your own risk.
-
-### Quick start
-
-```
-make build
-```
-
-TOKEN=<super_secret> ./bin/tunn -to http://127.0.0.1:8000
-
-Ask Bryan for the super secret password.

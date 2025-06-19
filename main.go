@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	neturl "net/url"
+	"os"
 	"strings"
 	"sync"
 
@@ -25,8 +26,8 @@ var (
 	mode  = flag.String("mode", "host", "host | client")
 	port  = flag.Int("port", 8080, "local service port (client mode)")
 	id    = flag.String("id", "", "tunnel ID (client); blank → random")
-	token = flag.String("token", "secret", "shared bearer token")
 	dom   = flag.String("domain", "tunn.to", "public apex domain")
+	token string
 )
 
 /* ---------------- host logic ---------------- */
@@ -56,7 +57,7 @@ func runHost() {
 	mux := http.NewServeMux()
 
 	// /announce endpoint - this is where clients establish reverse connections
-	mux.Handle("/announce", auth(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("/revdial", auth(func(w http.ResponseWriter, r *http.Request) {
 		// Let the reverse pool handle the connection
 		revPool.ServeHTTP(w, r)
 
@@ -68,6 +69,7 @@ func runHost() {
 	// catch-all proxy for *.tunn.to
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		sub := strings.Split(r.Host, ".")[0] // <id> from <id>.tunn.to
+		log.Printf("proxy: received request for host %s with path %s", r.Host, r.URL.Path)
 		if sub == *dom || sub == "www" {
 			http.Error(w, "no id", 404)
 			return
@@ -76,18 +78,25 @@ func runHost() {
 		// Get the dialer for this subdomain
 		dialer := revPool.GetDialer(sub)
 		if dialer == nil {
+			log.Printf("proxy: no dialer for subdomain %s", sub)
 			http.Error(w, "tunnel offline", 503)
 			return
 		}
+		log.Printf("proxy: found dialer for subdomain %s, proxying request to path: %s", sub, r.URL.Path)
 
-		// Create the URL path for the proxy
-		proxyPath := "/proxy/" + sub + "/"
-
-		// We'll redirect to the proxy endpoint of the ReversePool
-		r.URL.Path = proxyPath
-
-		// Let the ReversePool handle the proxy request
-		revPool.ServeHTTP(w, r)
+		target, err := neturl.Parse("http://localhost")
+		if err != nil {
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		proxy := httputil.NewSingleHostReverseProxy(target)
+		// The h2rev2.Dialer can be used as a custom dialer for the proxy's transport.
+		// This makes the proxy connect to the client over the reverse connection.
+		proxy.Transport = &http.Transport{
+			DialContext:       dialer.Dial,
+			DisableKeepAlives: true,
+		}
+		proxy.ServeHTTP(w, r)
 	})
 
 	srv := &http.Server{
@@ -102,10 +111,19 @@ func runHost() {
 
 func auth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer "+*token {
+		receivedAuth := r.Header.Get("Authorization")
+		expectedAuth := "Bearer " + token
+
+		log.Printf("auth: checking token for %s", r.RemoteAddr)
+		log.Printf("auth: received token: '%s'", receivedAuth)
+		log.Printf("auth: expected token: '%s'", expectedAuth)
+
+		if receivedAuth != expectedAuth {
+			log.Printf("auth: INVALID TOKEN for %s - '%s' != '%s'", r.RemoteAddr, receivedAuth, expectedAuth)
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
+		log.Printf("auth: valid token for %s", r.RemoteAddr)
 		next(w, r)
 	}
 }
@@ -116,6 +134,7 @@ func runClient() {
 	if *id == "" {
 		*id = randID(7)
 	}
+	log.Printf("client: starting with id %s", *id)
 
 	// Create an HTTP client with HTTP/2 support
 	client := &http.Client{
@@ -127,20 +146,18 @@ func runClient() {
 	}
 
 	// Add authorization header to requests
-	baseURL := "https://" + *dom + "/announce"
-
-	// Set the URL with query parameter for ID
-	url := baseURL + "?id=" + *id
+	baseURL := "https://" + *dom
+	log.Printf("client: announcing to %s", baseURL)
 
 	// Create a request interceptor to add Authorization header
 	originalTransport := client.Transport
 	client.Transport = &authTransport{
 		transport: originalTransport,
-		token:     *token,
+		token:     token,
 	}
 
 	// Create the listener with proper URL
-	ln, err := h2rev2.NewListener(client, url, *id)
+	ln, err := h2rev2.NewListener(client, baseURL, *id)
 	if err != nil {
 		log.Fatalf("failed to create listener: %v", err)
 	}
@@ -204,6 +221,15 @@ func randID(n int) string {
 
 func main() {
 	flag.Parse()
+
+	envToken := os.Getenv("TOKEN")
+	if envToken != "" {
+		token = envToken
+		log.Printf("Using token from TOKEN environment variable")
+	} else {
+		log.Fatal("Please set the TOKEN environment variable")
+	}
+
 	switch *mode {
 	case "host":
 		runHost()
@@ -223,5 +249,15 @@ type authTransport struct {
 // RoundTrip implements the http.RoundTripper interface
 func (t *authTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	req.Header.Set("Authorization", "Bearer "+t.token)
-	return t.transport.RoundTrip(req)
+	log.Printf("client: sending request to %s with token: '%s'", req.URL, t.token)
+	resp, err := t.transport.RoundTrip(req)
+	if err != nil {
+		log.Printf("client: request to %s failed: %v", req.URL, err)
+	} else {
+		log.Printf("client: response from %s: %s", req.URL, resp.Status)
+		if resp.StatusCode == http.StatusUnauthorized {
+			log.Printf("client: AUTH FAILURE - token '%s' was rejected", t.token)
+		}
+	}
+	return resp, err
 }

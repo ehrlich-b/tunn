@@ -34,3 +34,5 @@ Thumbs.db
 
 # Ignore fly.toml (use fly.toml.dist as template)
 fly.toml
+
+bin/

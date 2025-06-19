@@ -2,19 +2,18 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/tls"
+	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"log"
-	"net"
 	"net/http"
 	"net/http/httputil"
 	neturl "net/url"
 	"os"
 	"strings"
-	"sync"
 
 	"github.com/aojea/h2rev2"
 	"golang.org/x/net/http2"
@@ -23,8 +22,8 @@ import (
 /* ---------------- shared flags ---------------- */
 
 var (
-	mode  = flag.String("mode", "host", "host | client")
-	port  = flag.Int("port", 8080, "local service port (client mode)")
+	mode  = flag.String("mode", "client", "host | client")
+	to    = flag.String("to", "http://127.0.0.1:8000", "URL to forward to")
 	id    = flag.String("id", "", "tunnel ID (client); blank → random")
 	dom   = flag.String("domain", "tunn.to", "public apex domain")
 	token string
@@ -69,7 +68,6 @@ func runHost() {
 	// catch-all proxy for *.tunn.to
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		sub := strings.Split(r.Host, ".")[0] // <id> from <id>.tunn.to
-		log.Printf("proxy: received request for host %s with path %s", r.Host, r.URL.Path)
 		if sub == *dom || sub == "www" {
 			http.Error(w, "no id", 404)
 			return
@@ -78,25 +76,15 @@ func runHost() {
 		// Get the dialer for this subdomain
 		dialer := revPool.GetDialer(sub)
 		if dialer == nil {
-			log.Printf("proxy: no dialer for subdomain %s", sub)
 			http.Error(w, "tunnel offline", 503)
 			return
 		}
-		log.Printf("proxy: found dialer for subdomain %s, proxying request to path: %s", sub, r.URL.Path)
 
-		target, err := neturl.Parse("http://localhost")
-		if err != nil {
-			http.Error(w, "internal server error", http.StatusInternalServerError)
-			return
-		}
-		proxy := httputil.NewSingleHostReverseProxy(target)
-		// The h2rev2.Dialer can be used as a custom dialer for the proxy's transport.
-		// This makes the proxy connect to the client over the reverse connection.
-		proxy.Transport = &http.Transport{
-			DialContext:       dialer.Dial,
-			DisableKeepAlives: true,
-		}
-		proxy.ServeHTTP(w, r)
+		// We'll redirect to the proxy endpoint of the ReversePool
+		r.URL.Path = "/proxy/" + sub + r.URL.Path
+
+		// Let the ReversePool handle the proxy request
+		revPool.ServeHTTP(w, r)
 	})
 
 	srv := &http.Server{
@@ -164,46 +152,56 @@ func runClient() {
 	defer ln.Close()
 
 	pubURL := fmt.Sprintf("https://%s.%s", *id, *dom)
-	log.Printf("🔗 %s → 127.0.0.1:%d", pubURL, *port)
 
-	upstream, _ := neturl.Parse(fmt.Sprintf("http://127.0.0.1:%d", *port))
-	proxy := httputil.NewSingleHostReverseProxy(upstream)
+	upstream, err := neturl.Parse(*to)
+	if err != nil {
+		log.Fatalf("invalid upstream URL %q: %v", *to, err)
+	}
+	log.Printf("🔗 %s → %s", pubURL, upstream.Host)
+	prefix := "/proxy/" + *id + "/"
+	proxy := &httputil.ReverseProxy{
+		FlushInterval: -1,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				//InsecureSkipVerify: true, // Make this configurable
+			},
+		},
+		Director: func(req *http.Request) {
+			// point at the local server
+			req.URL.Scheme = upstream.Scheme
+			req.URL.Host = upstream.Host
 
-	for {
-		conn, err := ln.Accept()
-		if err != nil {
-			log.Fatalf("listener closed: %v", err)
+			// strip the /proxy/<id>/ prefix
+			if strings.HasPrefix(req.URL.Path, prefix) {
+				req.URL.Path = strings.TrimPrefix(req.URL.Path, prefix)
+			}
+			if !strings.HasPrefix(req.URL.Path, "/") {
+				req.URL.Path = "/" + req.URL.Path
+			}
+
+			// make the Host header match the upstream (optional but polite)
+			req.Host = req.URL.Host
+		},
+	}
+	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+		// context.Canceled is a common error when the client closes the connection
+		// before the response is fully written. It's not a server-side error.
+		if err == context.Canceled {
+			log.Printf("client: request canceled by remote: %s", r.RemoteAddr)
+			return
 		}
-		go func(c net.Conn) {
-			defer c.Close()
-			http.Serve(&singleConnListener{c: c}, proxy)
-		}(conn)
+		log.Printf("client: reverse proxy error for request %s to %s: %v", r.URL.String(), upstream.String(), err)
+		http.Error(w, "Proxy Error", http.StatusBadGateway)
+	}
+
+	srv := &http.Server{
+		Handler: proxy,
+	}
+
+	if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Fatalf("proxy server error: %v", err)
 	}
 }
-
-/* ---------------- helpers ---------------- */
-
-// one-shot listener so we can feed a single net.Conn into http.Serve
-type singleConnListener struct {
-	c    net.Conn
-	once sync.Once
-}
-
-func (l *singleConnListener) Accept() (net.Conn, error) {
-	var n net.Conn
-	l.once.Do(func() { n, l.c = l.c, nil })
-	if n == nil {
-		return nil, io.EOF
-	}
-	return n, nil
-}
-func (l *singleConnListener) Close() error   { return nil }
-func (l *singleConnListener) Addr() net.Addr { return dummyAddr{} }
-
-type dummyAddr struct{}
-
-func (dummyAddr) Network() string { return "tcp" }
-func (dummyAddr) String() string  { return "single" }
 
 func randID(n int) string {
 	const letters = "abcdefghijklmnopqrstuvwxyz0123456789"
@@ -236,7 +234,7 @@ func main() {
 	case "client":
 		runClient()
 	default:
-		log.Fatalf("unknown mode %q", *mode)
+		runClient()
 	}
 }
 

@@ -16,7 +16,7 @@ all: build
 # Build the binary
 build:
 	@echo "Building $(BINARY_NAME)..."
-	go build -ldflags="-s -w" -o $(BINARY_NAME) .
+	go build -ldflags="-s -w" -o ./bin/$(BINARY_NAME) .
 
 # Build for different platforms
 build-all: build-linux build-mac build-windows
@@ -71,7 +71,7 @@ fly-setup:
 
 fly-deploy:
 	@echo "Deploying to Fly.io..."
-	fly deploy
+	fly deploy --local-only
 
 fly-logs:
 	@echo "Showing Fly.io logs..."

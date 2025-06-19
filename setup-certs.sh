@@ -23,11 +23,11 @@ fi
 DOMAIN="tunn.to"
 
 echo "[+] Running certbot with DNS challenge for *.${DOMAIN}..."
-echo "[!] You will need to create TXT records in Namecheap."
+echo "[!] You will need to create TXT records in DNS."
 echo "[!] Note: Wildcard certificates require DNS validation."
 
 # Run certbot with manual DNS challenge
-certbot certonly --manual --preferred-challenges dns \
+sudo certbot certonly --manual --preferred-challenges dns \
   --agree-tos --email "$EMAIL" -d "*.${DOMAIN}" -d "${DOMAIN}"
 
 # Copy certificates to the certs directory

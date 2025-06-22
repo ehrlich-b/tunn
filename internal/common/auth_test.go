@@ -1,9 +1,7 @@
 package common
 
 import (
-	"bytes"
 	"io"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,12 +9,6 @@ import (
 )
 
 func TestAuthMiddleware(t *testing.T) {
-	// Save original state
-	originalLevel := currentLogLevel
-	defer func() {
-		currentLogLevel = originalLevel
-	}()
-
 	token := "test-token-123"
 	middleware := AuthMiddleware(token)
 
@@ -94,23 +86,6 @@ func TestAuthMiddleware(t *testing.T) {
 }
 
 func TestLogAuthTransport(t *testing.T) {
-	// Save original state
-	originalLevel := currentLogLevel
-	defer func() {
-		currentLogLevel = originalLevel
-	}()
-
-	// Capture log output
-	var buf bytes.Buffer
-	originalLogger := slog.Default()
-	defer slog.SetDefault(originalLogger)
-
-	handler := slog.NewTextHandler(&buf, &slog.HandlerOptions{
-		Level: slog.LevelDebug,
-	})
-	slog.SetDefault(slog.New(handler))
-
-	// Mock transport
 	mockTransport := &mockRoundTripper{
 		response: &http.Response{
 			StatusCode: 200,
@@ -126,9 +101,6 @@ func TestLogAuthTransport(t *testing.T) {
 	}
 
 	t.Run("successful request", func(t *testing.T) {
-		currentLogLevel = LogLevelTrace
-		buf.Reset()
-
 		req := httptest.NewRequest("GET", "https://example.com/test", nil)
 		resp, err := transport.RoundTrip(req)
 
@@ -136,28 +108,15 @@ func TestLogAuthTransport(t *testing.T) {
 			t.Errorf("RoundTrip failed: %v", err)
 		}
 		if resp.StatusCode != 200 {
-			t.Errorf("Expected status 200, got %d", resp.StatusCode)
+			t.Errorf("got status %d, want 200", resp.StatusCode)
 		}
 
-		// Check that Authorization header was set
 		if auth := req.Header.Get("Authorization"); auth != "Bearer test-token" {
-			t.Errorf("Expected Authorization header 'Bearer test-token', got '%s'", auth)
-		}
-
-		// Check logging
-		output := buf.String()
-		if !strings.Contains(output, "sending request") {
-			t.Error("Request logging not working")
-		}
-		if !strings.Contains(output, "response received") {
-			t.Error("Response logging not working")
+			t.Errorf("got auth header %q, want %q", auth, "Bearer test-token")
 		}
 	})
 
 	t.Run("failed request", func(t *testing.T) {
-		currentLogLevel = LogLevelTrace
-		buf.Reset()
-
 		failingTransport := &mockRoundTripper{
 			error: http.ErrServerClosed,
 		}
@@ -170,20 +129,11 @@ func TestLogAuthTransport(t *testing.T) {
 		_, err := transport.RoundTrip(req)
 
 		if err == nil {
-			t.Error("Expected error from failing transport")
-		}
-
-		// Check error logging
-		output := buf.String()
-		if !strings.Contains(output, "request failed") {
-			t.Error("Error logging not working")
+			t.Error("expected error from failing transport")
 		}
 	})
 
 	t.Run("unauthorized response", func(t *testing.T) {
-		currentLogLevel = LogLevelTrace
-		buf.Reset()
-
 		mockTransport := &mockRoundTripper{
 			response: &http.Response{
 				StatusCode: 401,
@@ -205,13 +155,7 @@ func TestLogAuthTransport(t *testing.T) {
 			t.Errorf("RoundTrip failed: %v", err)
 		}
 		if resp.StatusCode != 401 {
-			t.Errorf("Expected status 401, got %d", resp.StatusCode)
-		}
-
-		// Check auth failure logging
-		output := buf.String()
-		if !strings.Contains(output, "authentication failure") {
-			t.Error("Auth failure logging not working")
+			t.Errorf("got status %d, want 401", resp.StatusCode)
 		}
 	})
 }

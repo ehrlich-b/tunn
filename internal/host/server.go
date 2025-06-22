@@ -32,32 +32,32 @@ func (s *Server) CreateHandler(revPool ReversePoolInterface) http.Handler {
 
 	// /announce endpoint - this is where clients establish reverse connections
 	auth := common.AuthMiddleware(s.Token)
-	mux.Handle("/revdial", common.HTTPLoggingMiddleware(auth(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("/revdial", auth(func(w http.ResponseWriter, r *http.Request) {
 		clientID := r.URL.Query().Get("id")
 		if clientID == "" {
 			http.Error(w, "missing client id", 400)
 			return
 		}
-		
+
 		// Let the reverse pool handle the connection
 		revPool.ServeHTTP(w, r)
 		common.LogInfo("client announced", "id", clientID)
-	})))
+	}))
 
 	// catch-all proxy for *.tunn.to
-	mux.Handle("/", common.HTTPLoggingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Check if this is the apex domain first
 		if r.Host == s.Domain {
 			http.Error(w, "no id", 404)
 			return
 		}
-		
+
 		parts := strings.Split(r.Host, ".")
 		if len(parts) == 0 {
 			http.Error(w, "invalid host", 400)
 			return
 		}
-		
+
 		sub := parts[0]
 		if sub == "www" {
 			http.Error(w, "no id", 404)
@@ -71,12 +71,14 @@ func (s *Server) CreateHandler(revPool ReversePoolInterface) http.Handler {
 			return
 		}
 
-		// We'll redirect to the proxy endpoint of the ReversePool
-		r.URL.Path = "/proxy/" + sub + r.URL.Path
+		// Rewrite the path for the proxy endpoint
+		// Store original path for the client to handle
+		originalPath := r.URL.Path
+		r.URL.Path = "/proxy/" + sub + "/" + strings.TrimPrefix(originalPath, "/")
 
 		// Let the ReversePool handle the proxy request
 		revPool.ServeHTTP(w, r)
-	})))
+	}))
 
 	return mux
 }

@@ -14,7 +14,7 @@ var (
 	to         = flag.String("to", "http://127.0.0.1:8000", "target to forward to (port, host:port, or full URL)")
 	id         = flag.String("id", "", "tunnel ID (client); blank → random")
 	domain     = flag.String("domain", "tunn.to", "public apex domain")
-	verbosity  = flag.String("verbosity", "error", "log level: none, error, request, trace")
+	verbosity  = flag.String("verbosity", "request", "log level: none, error, request, trace")
 	skipVerify = flag.Bool("skip-tls-verify", false, "skip TLS certificate verification (insecure)")
 	certFile   = flag.String("cert", "/app/certs/fullchain.pem", "TLS certificate file (host mode)")
 	keyFile    = flag.String("key", "/app/certs/privkey.pem", "TLS private key file (host mode)")
@@ -26,7 +26,7 @@ func main() {
 	// Setup logging
 	logLevel := common.ParseLogLevel(*verbosity)
 	common.SetLogLevel(logLevel)
-	
+
 	token := os.Getenv("TOKEN")
 	if token != "" {
 		common.LogInfo("using token from environment variable")

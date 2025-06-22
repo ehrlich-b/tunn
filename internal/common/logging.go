@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"time"
 )
 
 // LogLevel represents the verbosity level
@@ -44,7 +43,7 @@ func GetCurrentLogLevel() LogLevel {
 // SetLogLevel sets the global log level and configures slog
 func SetLogLevel(level LogLevel) {
 	currentLogLevel = level
-	
+
 	var slogLevel slog.Level
 	switch level {
 	case LogLevelNone:
@@ -56,7 +55,7 @@ func SetLogLevel(level LogLevel) {
 	case LogLevelTrace:
 		slogLevel = slog.LevelDebug
 	}
-	
+
 	opts := &slog.HandlerOptions{
 		Level: slogLevel,
 	}
@@ -79,35 +78,6 @@ func LogDebug(msg string, args ...any) {
 	slog.Debug(msg, args...)
 }
 
-// HTTPLoggingMiddleware logs HTTP requests
-func HTTPLoggingMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-		wrapped := &responseWriter{ResponseWriter: w, statusCode: 200}
-		
-		next.ServeHTTP(wrapped, r)
-		
-		LogInfo("HTTP request",
-			"method", r.Method,
-			"url", r.URL.String(),
-			"remote_addr", r.RemoteAddr,
-			"status", wrapped.statusCode,
-			"duration", time.Since(start),
-		)
-	})
-}
-
-// responseWriter wraps http.ResponseWriter to capture status code
-type responseWriter struct {
-	http.ResponseWriter
-	statusCode int
-}
-
-func (rw *responseWriter) WriteHeader(code int) {
-	rw.statusCode = code
-	rw.ResponseWriter.WriteHeader(code)
-}
-
 // LogAuthTransport wraps http.RoundTripper with logging
 type LogAuthTransport struct {
 	Transport http.RoundTripper
@@ -117,17 +87,28 @@ type LogAuthTransport struct {
 func (t *LogAuthTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	req.Header.Set("Authorization", "Bearer "+t.Token)
 	LogDebug("sending request", "url", req.URL, "method", req.Method)
-	
+
 	resp, err := t.Transport.RoundTrip(req)
 	if err != nil {
 		LogError("request failed", "url", req.URL, "error", err)
 		return resp, err
 	}
-	
+
 	LogDebug("response received", "url", req.URL, "status", resp.Status)
 	if resp.StatusCode == http.StatusUnauthorized {
 		LogError("authentication failure", "url", req.URL)
 	}
-	
+
 	return resp, err
+}
+
+// CancelRequest implements the requestCanceler interface, which is needed
+// for the http.Client to properly handle request cancellation.
+func (t *LogAuthTransport) CancelRequest(req *http.Request) {
+	type canceler interface {
+		CancelRequest(*http.Request)
+	}
+	if cr, ok := t.Transport.(canceler); ok {
+		cr.CancelRequest(req)
+	}
 }

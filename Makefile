@@ -8,7 +8,7 @@ GO_FILES := $(wildcard *.go)
 DOCKER_IMAGE := $(APP_NAME):latest
 FLY_APP_NAME := $(APP_NAME)
 
-.PHONY: all build clean docker docker-build docker-run cert-setup cert-renew fly-setup fly-deploy fly-logs help
+.PHONY: all build clean test test-verbose test-coverage docker docker-build docker-run cert-setup cert-renew fly-setup fly-deploy fly-logs help
 
 # Default target
 all: build
@@ -38,6 +38,25 @@ clean:
 	@echo "Cleaning up..."
 	rm -f $(BINARY_NAME) $(BINARY_NAME)-linux $(BINARY_NAME)-mac $(BINARY_NAME).exe
 	rm -rf ./bin
+
+# Testing targets
+test:
+	@echo "Running tests..."
+	go test ./...
+
+test-verbose:
+	@echo "Running tests with verbose output..."
+	go test -v ./...
+
+test-coverage:
+	@echo "Running tests with coverage..."
+	go test -coverprofile=coverage.out ./...
+	go tool cover -html=coverage.out -o coverage.html
+	@echo "Coverage report saved to coverage.html"
+
+test-race:
+	@echo "Running tests with race detection..."
+	go test -race ./...
 
 # Docker targets
 docker: docker-build
@@ -93,6 +112,10 @@ help:
 	@echo "  make build         - Build the binary for current OS"
 	@echo "  make build-all     - Build for Linux, macOS, and Windows"
 	@echo "  make clean         - Remove build artifacts"
+	@echo "  make test          - Run all tests"
+	@echo "  make test-verbose  - Run tests with verbose output"
+	@echo "  make test-coverage - Run tests with coverage report"
+	@echo "  make test-race     - Run tests with race detection"
 	@echo "  make docker        - Build Docker image"
 	@echo "  make docker-run    - Run Docker container locally"
 	@echo "  make cert-setup    - Set up SSL certificates"

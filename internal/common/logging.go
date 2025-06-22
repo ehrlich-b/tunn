@@ -39,6 +39,11 @@ func ParseLogLevel(level string) LogLevel {
 
 var currentLogLevel LogLevel = LogLevelError
 
+// GetCurrentLogLevel returns the current log level (useful for testing)
+func GetCurrentLogLevel() LogLevel {
+	return currentLogLevel
+}
+
 // SetLogLevel sets the global log level and configures slog
 func SetLogLevel(level LogLevel) {
 	currentLogLevel = level

@@ -25,11 +25,45 @@ type Client struct {
 	Token  string
 }
 
-// Run starts the client
-func (c *Client) Run() {
+// ValidateConfig validates the client configuration
+func (c *Client) ValidateConfig() error {
+	if c.Token == "" {
+		return errors.New("token is required")
+	}
+	if c.Domain == "" {
+		return errors.New("domain is required")
+	}
+	if c.To == "" {
+		return errors.New("target URL is required")
+	}
+	
+	// Validate target URL
+	_, err := neturl.Parse(c.To)
+	if err != nil {
+		return fmt.Errorf("invalid target URL: %w", err)
+	}
+	
+	return nil
+}
+
+// GetPublicURL returns the public URL for this tunnel
+func (c *Client) GetPublicURL() string {
+	if c.ID == "" {
+		return ""
+	}
+	return fmt.Sprintf("https://%s.%s", c.ID, c.Domain)
+}
+
+// GenerateIDIfEmpty generates a random ID if one is not set
+func (c *Client) GenerateIDIfEmpty() {
 	if c.ID == "" {
 		c.ID = common.RandID(7)
 	}
+}
+
+// Run starts the client
+func (c *Client) Run() {
+	c.GenerateIDIfEmpty()
 	common.LogInfo("client starting", "id", c.ID)
 
 	// Create an HTTP client with HTTP/2 support

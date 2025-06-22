@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"net/http/httputil"
 	neturl "net/url"
@@ -31,7 +30,7 @@ func (c *Client) Run() {
 	if c.ID == "" {
 		c.ID = common.RandID(7)
 	}
-	slog.Info("client starting", "id", c.ID)
+	common.LogInfo("client starting", "id", c.ID)
 
 	// Create an HTTP client with HTTP/2 support
 	client := &http.Client{
@@ -44,11 +43,11 @@ func (c *Client) Run() {
 
 	// Add authorization header to requests
 	baseURL := "https://" + c.Domain
-	slog.Info("client announcing", "url", baseURL)
+	common.LogInfo("client announcing", "url", baseURL)
 
 	// Create a request interceptor to add Authorization header
 	originalTransport := client.Transport
-	client.Transport = &common.AuthTransport{
+	client.Transport = &common.LogAuthTransport{
 		Transport: originalTransport,
 		Token:     c.Token,
 	}
@@ -56,7 +55,7 @@ func (c *Client) Run() {
 	// Create the listener with proper URL
 	ln, err := h2rev2.NewListener(client, baseURL, c.ID)
 	if err != nil {
-		slog.Error("failed to create listener", "error", err)
+		common.LogError("failed to create listener", "error", err)
 		os.Exit(1)
 	}
 	defer ln.Close()
@@ -65,10 +64,10 @@ func (c *Client) Run() {
 
 	upstream, err := neturl.Parse(c.To)
 	if err != nil {
-		slog.Error("invalid upstream URL", "url", c.To, "error", err)
+		common.LogError("invalid upstream URL", "url", c.To, "error", err)
 		os.Exit(1)
 	}
-	slog.Info("tunnel established", "public_url", pubURL, "upstream", upstream.Host)
+	common.LogInfo("tunnel established", "public_url", pubURL, "upstream", upstream.Host)
 	prefix := "/proxy/" + c.ID + "/"
 	proxy := &httputil.ReverseProxy{
 		FlushInterval: -1,
@@ -98,10 +97,10 @@ func (c *Client) Run() {
 		// context.Canceled is a common error when the client closes the connection
 		// before the response is fully written. It's not a server-side error.
 		if err == context.Canceled {
-			slog.Debug("request canceled by remote", "remote_addr", r.RemoteAddr)
+			common.LogDebug("request canceled by remote", "remote_addr", r.RemoteAddr)
 			return
 		}
-		slog.Error("reverse proxy error", "request_url", r.URL.String(), "upstream", upstream.String(), "error", err)
+		common.LogError("reverse proxy error", "request_url", r.URL.String(), "upstream", upstream.String(), "error", err)
 		http.Error(w, "Proxy Error", http.StatusBadGateway)
 	}
 
@@ -110,7 +109,7 @@ func (c *Client) Run() {
 	}
 
 	if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		slog.Error("proxy server error", "error", err)
+		common.LogError("proxy server error", "error", err)
 		os.Exit(1)
 	}
 }

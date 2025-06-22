@@ -2,7 +2,6 @@ package host
 
 import (
 	"crypto/tls"
-	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -27,7 +26,7 @@ func (s *Server) Run() {
 
 	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 	if err != nil {
-		slog.Error("loading cert", "error", err)
+		common.LogError("loading cert", "error", err)
 		os.Exit(1)
 	}
 
@@ -44,17 +43,17 @@ func (s *Server) Run() {
 
 	// /announce endpoint - this is where clients establish reverse connections
 	auth := common.AuthMiddleware(s.Token)
-	mux.Handle("/revdial", auth(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("/revdial", common.HTTPLoggingMiddleware(auth(func(w http.ResponseWriter, r *http.Request) {
 		// Let the reverse pool handle the connection
 		revPool.ServeHTTP(w, r)
 
 		// Get the client ID from the URL query parameter
 		clientID := r.URL.Query().Get("id")
-		slog.Info("client announced", "id", clientID)
-	}))
+		common.LogInfo("client announced", "id", clientID)
+	})))
 
 	// catch-all proxy for *.tunn.to
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("/", common.HTTPLoggingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		sub := strings.Split(r.Host, ".")[0] // <id> from <id>.tunn.to
 		if sub == s.Domain || sub == "www" {
 			http.Error(w, "no id", 404)
@@ -73,7 +72,7 @@ func (s *Server) Run() {
 
 		// Let the ReversePool handle the proxy request
 		revPool.ServeHTTP(w, r)
-	})
+	})))
 
 	srv := &http.Server{
 		Addr:      ":443",
@@ -81,9 +80,9 @@ func (s *Server) Run() {
 		TLSConfig: tlsCfg,
 	}
 	http2.ConfigureServer(srv, &http2.Server{})
-	slog.Info("host ready", "port", 443)
+	common.LogInfo("host ready", "port", 443)
 	if err := srv.ListenAndServeTLS("", ""); err != nil {
-		slog.Error("server failed", "error", err)
+		common.LogError("server failed", "error", err)
 		os.Exit(1)
 	}
 }

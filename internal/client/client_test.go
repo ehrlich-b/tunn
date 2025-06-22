@@ -5,6 +5,46 @@ import (
 	"testing"
 )
 
+func TestNormalizeTargetURL(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+		hasError bool
+	}{
+		{"port only", "8000", "http://localhost:8000", false},
+		{"port only leading zero", "08000", "http://localhost:08000", false},
+		{"host and port", "localhost:8000", "http://localhost:8000", false},
+		{"host and port different host", "example.com:3000", "http://example.com:3000", false},
+		{"full http URL", "http://localhost:8000", "http://localhost:8000", false},
+		{"full https URL", "https://example.com:443", "https://example.com:443", false},
+		{"empty string", "", "", true},
+		{"invalid characters", "abc123", "", true},
+		{"mixed invalid", "8000abc", "", true},
+		{"invalid URL", "http://[invalid", "", true},
+	}
+
+	client := &Client{}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := client.NormalizeTargetURL(tt.input)
+			
+			if tt.hasError {
+				if err == nil {
+					t.Errorf("expected error for input %q", tt.input)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("unexpected error for input %q: %v", tt.input, err)
+				}
+				if result != tt.expected {
+					t.Errorf("input %q: got %q, want %q", tt.input, result, tt.expected)
+				}
+			}
+		})
+	}
+}
+
 func TestClientValidateConfig(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -13,10 +53,30 @@ func TestClientValidateConfig(t *testing.T) {
 		errorMsg    string
 	}{
 		{
-			name: "valid config",
+			name: "valid config full URL",
 			client: Client{
 				ID:     "test123",
 				To:     "http://localhost:8000",
+				Domain: "tunn.to",
+				Token:  "test-token",
+			},
+			expectError: false,
+		},
+		{
+			name: "valid config port only",
+			client: Client{
+				ID:     "test123",
+				To:     "8000",
+				Domain: "tunn.to",
+				Token:  "test-token",
+			},
+			expectError: false,
+		},
+		{
+			name: "valid config host:port",
+			client: Client{
+				ID:     "test123",
+				To:     "localhost:8000",
 				Domain: "tunn.to",
 				Token:  "test-token",
 			},
@@ -59,7 +119,7 @@ func TestClientValidateConfig(t *testing.T) {
 			name: "invalid target URL",
 			client: Client{
 				ID:     "test123",
-				To:     "\n\t\x00://invalid",
+				To:     "abc123",
 				Domain: "tunn.to",
 				Token:  "test-token",
 			},
@@ -80,7 +140,9 @@ func TestClientValidateConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.client.ValidateConfig()
+			// Make a copy to avoid modifying the test case
+			client := tt.client
+			err := client.ValidateConfig()
 
 			if tt.expectError {
 				if err == nil {
@@ -91,6 +153,10 @@ func TestClientValidateConfig(t *testing.T) {
 			} else {
 				if err != nil {
 					t.Errorf("Expected no error, got: %v", err)
+				}
+				// For valid configs, check that URL was normalized to full format
+				if !strings.HasPrefix(client.To, "http://") && !strings.HasPrefix(client.To, "https://") {
+					t.Errorf("Expected URL to be normalized to full format, got: %s", client.To)
 				}
 			}
 		})

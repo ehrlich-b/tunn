@@ -38,13 +38,48 @@ func (c *Client) ValidateConfig() error {
 		return errors.New("target URL is required")
 	}
 	
-	// Validate target URL
-	_, err := neturl.Parse(c.To)
+	// Normalize and validate target URL
+	normalized, err := c.NormalizeTargetURL(c.To)
 	if err != nil {
 		return fmt.Errorf("invalid target URL: %w", err)
 	}
+	c.To = normalized
 	
 	return nil
+}
+
+// NormalizeTargetURL converts various input formats to a full URL
+// Accepts: "8000", "localhost:8000", "http://localhost:8000"
+// Always returns: "http://localhost:8000" format
+func (c *Client) NormalizeTargetURL(input string) (string, error) {
+	if input == "" {
+		return "", errors.New("empty target")
+	}
+	
+	// If it's already a full URL, validate and return
+	if strings.HasPrefix(input, "http://") || strings.HasPrefix(input, "https://") {
+		_, err := neturl.Parse(input)
+		if err != nil {
+			return "", err
+		}
+		return input, nil
+	}
+	
+	// Check if it's just a port number
+	if strings.Contains(input, ":") {
+		// Format: "host:port"
+		return "http://" + input, nil
+	}
+	
+	// Check if it's just a port number (digits only)
+	for _, char := range input {
+		if char < '0' || char > '9' {
+			return "", fmt.Errorf("invalid format: %s (expected port, host:port, or full URL)", input)
+		}
+	}
+	
+	// It's just a port number
+	return "http://localhost:" + input, nil
 }
 
 // GetPublicURL returns the public URL for this tunnel
@@ -65,6 +100,13 @@ func (c *Client) GenerateIDIfEmpty() {
 // Run starts the client
 func (c *Client) Run() {
 	c.GenerateIDIfEmpty()
+	
+	// Validate and normalize configuration
+	if err := c.ValidateConfig(); err != nil {
+		common.LogError("invalid configuration", "error", err)
+		os.Exit(1)
+	}
+	
 	common.LogInfo("client starting", "id", c.ID)
 
 	// Create an HTTP client with HTTP/2 support

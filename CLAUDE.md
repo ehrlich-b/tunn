@@ -73,7 +73,10 @@ make cert-renew     # Renew SSL certificates
 
 ### Command Line Flags
 - `-mode`: "host" or "client" (default: "client")
-- `-to`: Target URL for client mode (default: "http://127.0.0.1:8000")
+- `-to`: Target to forward to - accepts flexible formats:
+  - Port only: `8000` → `http://localhost:8000`
+  - Host:port: `localhost:8000` → `http://localhost:8000`
+  - Full URL: `http://localhost:8000` → unchanged
 - `-id`: Tunnel ID for client mode (blank = random)
 - `-domain`: Public domain (default: "tunn.to")
 - `-verbosity`: Log level: none, error, request, trace (default: "error")
@@ -85,7 +88,13 @@ make cert-renew     # Renew SSL certificates
 
 Client mode (typical usage):
 ```bash
-TOKEN=your_secret_token ./bin/tunn -to http://127.0.0.1:8000
+# All of these are equivalent:
+TOKEN=your_secret_token ./bin/tunn -to 8000
+TOKEN=your_secret_token ./bin/tunn -to localhost:8000  
+TOKEN=your_secret_token ./bin/tunn -to http://localhost:8000
+
+# Forward to a different host:
+TOKEN=your_secret_token ./bin/tunn -to example.com:3000
 ```
 
 Host mode (server deployment):

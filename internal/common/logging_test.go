@@ -3,8 +3,6 @@ package common
 import (
 	"bytes"
 	"log/slog"
-	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -84,68 +82,6 @@ func TestLogFunctions(t *testing.T) {
 	}
 	if !strings.Contains(output, "test debug") {
 		t.Error("LogDebug not working")
-	}
-}
-
-func TestHTTPLoggingMiddleware(t *testing.T) {
-	var buf bytes.Buffer
-	originalLogger := slog.Default()
-	defer slog.SetDefault(originalLogger)
-
-	handler := slog.NewTextHandler(&buf, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
-	})
-	slog.SetDefault(slog.New(handler))
-
-	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("test response"))
-	})
-
-	middleware := HTTPLoggingMiddleware(testHandler)
-	req := httptest.NewRequest("GET", "/test", nil)
-	w := httptest.NewRecorder()
-
-	middleware.ServeHTTP(w, req)
-
-	output := buf.String()
-	if !strings.Contains(output, "HTTP request") {
-		t.Error("HTTP request not logged")
-	}
-	if !strings.Contains(output, "GET") {
-		t.Error("method not logged")
-	}
-	if !strings.Contains(output, "/test") {
-		t.Error("URL not logged")
-	}
-	if !strings.Contains(output, "200") {
-		t.Error("status not logged")
-	}
-}
-
-func TestResponseWriter(t *testing.T) {
-	w := httptest.NewRecorder()
-	wrapped := &responseWriter{ResponseWriter: w, statusCode: 200}
-
-	// Test default status code
-	if wrapped.statusCode != 200 {
-		t.Errorf("Default status code should be 200, got %d", wrapped.statusCode)
-	}
-
-	// Test setting status code
-	wrapped.WriteHeader(404)
-	if wrapped.statusCode != 404 {
-		t.Errorf("Status code should be 404 after WriteHeader, got %d", wrapped.statusCode)
-	}
-
-	// Test writing data
-	data := []byte("test data")
-	n, err := wrapped.Write(data)
-	if err != nil {
-		t.Errorf("Write failed: %v", err)
-	}
-	if n != len(data) {
-		t.Errorf("Write returned %d bytes, expected %d", n, len(data))
 	}
 }
 

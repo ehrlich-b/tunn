@@ -119,8 +119,9 @@ func TestServerCreateHandler(t *testing.T) {
 			t.Error("Mock pool should have been called")
 		}
 		lastServed := mockPool.served[len(mockPool.served)-1]
-		if !strings.HasPrefix(lastServed, "/proxy/abc123") {
-			t.Errorf("Path should be rewritten to /proxy/abc123/..., got %s", lastServed)
+		expected := "/proxy/abc123/test-path"
+		if lastServed != expected {
+			t.Errorf("Path should be rewritten to %s, got %s", expected, lastServed)
 		}
 	})
 

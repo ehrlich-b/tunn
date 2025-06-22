@@ -37,14 +37,14 @@ func (c *Client) ValidateConfig() error {
 	if c.To == "" {
 		return errors.New("target URL is required")
 	}
-	
+
 	// Normalize and validate target URL
 	normalized, err := c.NormalizeTargetURL(c.To)
 	if err != nil {
 		return fmt.Errorf("invalid target URL: %w", err)
 	}
 	c.To = normalized
-	
+
 	return nil
 }
 
@@ -55,7 +55,7 @@ func (c *Client) NormalizeTargetURL(input string) (string, error) {
 	if input == "" {
 		return "", errors.New("empty target")
 	}
-	
+
 	// If it's already a full URL, validate and return
 	if strings.HasPrefix(input, "http://") || strings.HasPrefix(input, "https://") {
 		_, err := neturl.Parse(input)
@@ -64,20 +64,20 @@ func (c *Client) NormalizeTargetURL(input string) (string, error) {
 		}
 		return input, nil
 	}
-	
+
 	// Check if it's just a port number
 	if strings.Contains(input, ":") {
 		// Format: "host:port"
 		return "http://" + input, nil
 	}
-	
+
 	// Check if it's just a port number (digits only)
 	for _, char := range input {
 		if char < '0' || char > '9' {
 			return "", fmt.Errorf("invalid format: %s (expected port, host:port, or full URL)", input)
 		}
 	}
-	
+
 	// It's just a port number
 	return "http://localhost:" + input, nil
 }
@@ -100,14 +100,16 @@ func (c *Client) GenerateIDIfEmpty() {
 // Run starts the client
 func (c *Client) Run() {
 	c.GenerateIDIfEmpty()
-	
+
 	// Validate and normalize configuration
 	if err := c.ValidateConfig(); err != nil {
 		common.LogError("invalid configuration", "error", err)
 		os.Exit(1)
 	}
-	
+
+	tunnelURL := c.GetPublicURL()
 	common.LogInfo("client starting", "id", c.ID)
+	common.LogInfo("tunnel URL", "url", tunnelURL)
 
 	// Create an HTTP client with HTTP/2 support
 	client := &http.Client{
@@ -154,6 +156,8 @@ func (c *Client) Run() {
 			},
 		},
 		Director: func(req *http.Request) {
+			originalPath := req.URL.Path
+
 			// point at the local server
 			req.URL.Scheme = upstream.Scheme
 			req.URL.Host = upstream.Host
@@ -162,12 +166,19 @@ func (c *Client) Run() {
 			if strings.HasPrefix(req.URL.Path, prefix) {
 				req.URL.Path = strings.TrimPrefix(req.URL.Path, prefix)
 			}
-			if !strings.HasPrefix(req.URL.Path, "/") {
+
+			// Ensure path starts with /
+			if req.URL.Path == "" || !strings.HasPrefix(req.URL.Path, "/") {
 				req.URL.Path = "/" + req.URL.Path
 			}
 
 			// make the Host header match the upstream (optional but polite)
 			req.Host = req.URL.Host
+
+			common.LogDebug("proxying request",
+				"from", originalPath,
+				"to", req.URL.String(),
+				"method", req.Method)
 		},
 	}
 	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
@@ -177,7 +188,11 @@ func (c *Client) Run() {
 			common.LogDebug("request canceled by remote", "remote_addr", r.RemoteAddr)
 			return
 		}
-		common.LogError("reverse proxy error", "request_url", r.URL.String(), "upstream", upstream.String(), "error", err)
+		common.LogError("reverse proxy error",
+			"request_url", r.URL.String(),
+			"upstream", upstream.String(),
+			"error", err,
+			"method", r.Method)
 		http.Error(w, "Proxy Error", http.StatusBadGateway)
 	}
 
@@ -185,6 +200,7 @@ func (c *Client) Run() {
 		Handler: proxy,
 	}
 
+	common.LogInfo("client proxy listening for connections from host")
 	if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		common.LogError("proxy server error", "error", err)
 		os.Exit(1)

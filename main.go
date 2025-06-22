@@ -11,7 +11,7 @@ import (
 
 var (
 	mode       = flag.String("mode", "client", "host | client")
-	to         = flag.String("to", "http://127.0.0.1:8000", "URL to forward to")
+	to         = flag.String("to", "http://127.0.0.1:8000", "target to forward to (port, host:port, or full URL)")
 	id         = flag.String("id", "", "tunnel ID (client); blank → random")
 	domain     = flag.String("domain", "tunn.to", "public apex domain")
 	verbosity  = flag.String("verbosity", "error", "log level: none, error, request, trace")

@@ -76,6 +76,10 @@ make cert-renew     # Renew SSL certificates
 - `-to`: Target URL for client mode (default: "http://127.0.0.1:8000")
 - `-id`: Tunnel ID for client mode (blank = random)
 - `-domain`: Public domain (default: "tunn.to")
+- `-verbosity`: Log level: none, error, request, trace (default: "error")
+- `-skip-tls-verify`: Skip TLS certificate verification (insecure)
+- `-cert`: TLS certificate file for host mode (default: "/app/certs/fullchain.pem")
+- `-key`: TLS private key file for host mode (default: "/app/certs/privkey.pem")
 
 ### Example Usage
 

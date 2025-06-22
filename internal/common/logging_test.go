@@ -61,83 +61,7 @@ func TestSetLogLevel(t *testing.T) {
 }
 
 func TestLogFunctions(t *testing.T) {
-	// Save original state
-	originalLevel := currentLogLevel
-	defer func() {
-		currentLogLevel = originalLevel
-	}()
-
-	// Capture log output
-	var buf bytes.Buffer
-	originalLogger := slog.Default()
-	defer slog.SetDefault(originalLogger)
-
-	handler := slog.NewTextHandler(&buf, &slog.HandlerOptions{
-		Level: slog.LevelDebug,
-	})
-	logger := slog.New(handler)
-	slog.SetDefault(logger)
-
-	// Test at trace level (should show all logs)
-	currentLogLevel = LogLevelTrace // Set level directly to avoid creating new handler
-	buf.Reset()
-
-	LogError("test error", "key", "value")
-	LogInfo("test info", "key", "value")
-	LogDebug("test debug", "key", "value")
-
-	output := buf.String()
-	if !strings.Contains(output, "test error") {
-		t.Error("LogError not working at trace level")
-	}
-	if !strings.Contains(output, "test info") {
-		t.Error("LogInfo not working at trace level")
-	}
-	if !strings.Contains(output, "test debug") {
-		t.Error("LogDebug not working at trace level")
-	}
-
-	// Test at error level (should only show errors)
-	currentLogLevel = LogLevelError
-	buf.Reset()
-
-	LogError("test error", "key", "value")
-	LogInfo("test info", "key", "value")
-	LogDebug("test debug", "key", "value")
-
-	output = buf.String()
-	if !strings.Contains(output, "test error") {
-		t.Error("LogError not working at error level")
-	}
-	if strings.Contains(output, "test info") {
-		t.Error("LogInfo should not show at error level")
-	}
-	if strings.Contains(output, "test debug") {
-		t.Error("LogDebug should not show at error level")
-	}
-
-	// Test at none level (should show nothing)
-	currentLogLevel = LogLevelNone
-	buf.Reset()
-
-	LogError("test error", "key", "value")
-	LogInfo("test info", "key", "value")
-	LogDebug("test debug", "key", "value")
-
-	output = buf.String()
-	if output != "" {
-		t.Error("No logs should show at none level, got:", output)
-	}
-}
-
-func TestHTTPLoggingMiddleware(t *testing.T) {
-	// Save original state
-	originalLevel := currentLogLevel
-	defer func() {
-		currentLogLevel = originalLevel
-	}()
-
-	// Capture log output
+	// Test that log functions work (now they just call slog directly)
 	var buf bytes.Buffer
 	originalLogger := slog.Default()
 	defer slog.SetDefault(originalLogger)
@@ -147,15 +71,36 @@ func TestHTTPLoggingMiddleware(t *testing.T) {
 	})
 	slog.SetDefault(slog.New(handler))
 
-	// Test handler
+	LogError("test error", "key", "value")
+	LogInfo("test info", "key", "value")
+	LogDebug("test debug", "key", "value")
+
+	output := buf.String()
+	if !strings.Contains(output, "test error") {
+		t.Error("LogError not working")
+	}
+	if !strings.Contains(output, "test info") {
+		t.Error("LogInfo not working")
+	}
+	if !strings.Contains(output, "test debug") {
+		t.Error("LogDebug not working")
+	}
+}
+
+func TestHTTPLoggingMiddleware(t *testing.T) {
+	var buf bytes.Buffer
+	originalLogger := slog.Default()
+	defer slog.SetDefault(originalLogger)
+
+	handler := slog.NewTextHandler(&buf, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	})
+	slog.SetDefault(slog.New(handler))
+
 	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("test response"))
 	})
-
-	// Test at request level
-	currentLogLevel = LogLevelRequest
-	buf.Reset()
 
 	middleware := HTTPLoggingMiddleware(testHandler)
 	req := httptest.NewRequest("GET", "/test", nil)
@@ -165,27 +110,16 @@ func TestHTTPLoggingMiddleware(t *testing.T) {
 
 	output := buf.String()
 	if !strings.Contains(output, "HTTP request") {
-		t.Error("HTTP request logging not working")
+		t.Error("HTTP request not logged")
 	}
 	if !strings.Contains(output, "GET") {
-		t.Error("HTTP method not logged")
+		t.Error("method not logged")
 	}
 	if !strings.Contains(output, "/test") {
-		t.Error("HTTP URL not logged")
+		t.Error("URL not logged")
 	}
 	if !strings.Contains(output, "200") {
-		t.Error("HTTP status not logged")
-	}
-
-	// Test at none level (should not log)
-	currentLogLevel = LogLevelNone
-	buf.Reset()
-
-	middleware.ServeHTTP(w, req)
-
-	output = buf.String()
-	if output != "" {
-		t.Error("HTTP logging should not occur at none level")
+		t.Error("status not logged")
 	}
 }
 

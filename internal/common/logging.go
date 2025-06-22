@@ -1,11 +1,8 @@
 package common
 
 import (
-	"bytes"
-	"io"
 	"log/slog"
 	"net/http"
-	"net/http/httputil"
 	"os"
 	"strings"
 	"time"
@@ -67,71 +64,36 @@ func SetLogLevel(level LogLevel) {
 	slog.SetDefault(slog.New(handler))
 }
 
-// LogError logs at error level (always shown unless none)
+// LogError logs at error level
 func LogError(msg string, args ...any) {
-	if currentLogLevel >= LogLevelError {
-		slog.Error(msg, args...)
-	}
+	slog.Error(msg, args...)
 }
 
-// LogInfo logs at info level (shown at request and trace levels)
+// LogInfo logs at info level
 func LogInfo(msg string, args ...any) {
-	if currentLogLevel >= LogLevelRequest {
-		slog.Info(msg, args...)
-	}
+	slog.Info(msg, args...)
 }
 
-// LogDebug logs at debug level (shown only at trace level)
+// LogDebug logs at debug level
 func LogDebug(msg string, args ...any) {
-	if currentLogLevel >= LogLevelTrace {
-		slog.Debug(msg, args...)
-	}
+	slog.Debug(msg, args...)
 }
 
-// HTTPLoggingMiddleware logs HTTP requests based on the current log level
+// HTTPLoggingMiddleware logs HTTP requests
 func HTTPLoggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if currentLogLevel < LogLevelRequest {
-			next.ServeHTTP(w, r)
-			return
-		}
-
 		start := time.Now()
-		
-		// Capture request details for trace level
-		var requestDump []byte
-		if currentLogLevel >= LogLevelTrace {
-			if dump, err := httputil.DumpRequest(r, true); err == nil {
-				requestDump = dump
-			}
-		}
-
-		// Wrap the response writer to capture status code
 		wrapped := &responseWriter{ResponseWriter: w, statusCode: 200}
 		
 		next.ServeHTTP(wrapped, r)
 		
-		duration := time.Since(start)
-		
-		// Log based on level
-		if currentLogLevel >= LogLevelTrace && len(requestDump) > 0 {
-			LogDebug("HTTP request trace",
-				"method", r.Method,
-				"url", r.URL.String(),
-				"remote_addr", r.RemoteAddr,
-				"status", wrapped.statusCode,
-				"duration", duration,
-				"request_dump", string(requestDump),
-			)
-		} else if currentLogLevel >= LogLevelRequest {
-			LogInfo("HTTP request",
-				"method", r.Method,
-				"url", r.URL.String(),
-				"remote_addr", r.RemoteAddr,
-				"status", wrapped.statusCode,
-				"duration", duration,
-			)
-		}
+		LogInfo("HTTP request",
+			"method", r.Method,
+			"url", r.URL.String(),
+			"remote_addr", r.RemoteAddr,
+			"status", wrapped.statusCode,
+			"duration", time.Since(start),
+		)
 	})
 }
 
@@ -154,35 +116,17 @@ type LogAuthTransport struct {
 
 func (t *LogAuthTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	req.Header.Set("Authorization", "Bearer "+t.Token)
-	
-	// Log at trace level
-	if currentLogLevel >= LogLevelTrace {
-		if dump, err := httputil.DumpRequestOut(req, true); err == nil {
-			LogDebug("outgoing request", "dump", string(dump))
-		}
-	}
-	
 	LogDebug("sending request", "url", req.URL, "method", req.Method)
 	
 	resp, err := t.Transport.RoundTrip(req)
 	if err != nil {
 		LogError("request failed", "url", req.URL, "error", err)
-	} else {
-		LogDebug("response received", "url", req.URL, "status", resp.Status)
-		if resp.StatusCode == http.StatusUnauthorized {
-			LogError("authentication failure", "url", req.URL)
-		}
-		
-		// Log response at trace level
-		if currentLogLevel >= LogLevelTrace {
-			if dump, err := httputil.DumpResponse(resp, true); err == nil {
-				// Create a copy of the response body for logging
-				bodyBytes, _ := io.ReadAll(resp.Body)
-				resp.Body.Close()
-				resp.Body = io.NopCloser(bytes.NewReader(bodyBytes))
-				LogDebug("response trace", "dump", string(dump))
-			}
-		}
+		return resp, err
+	}
+	
+	LogDebug("response received", "url", req.URL, "status", resp.Status)
+	if resp.StatusCode == http.StatusUnauthorized {
+		LogError("authentication failure", "url", req.URL)
 	}
 	
 	return resp, err

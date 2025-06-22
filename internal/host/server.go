@@ -14,8 +14,10 @@ import (
 
 // Server represents the host server
 type Server struct {
-	Domain string
-	Token  string
+	Domain   string
+	Token    string
+	CertFile string
+	KeyFile  string
 }
 
 // ReversePoolInterface defines the interface for reverse proxy pools
@@ -31,21 +33,33 @@ func (s *Server) CreateHandler(revPool ReversePoolInterface) http.Handler {
 	// /announce endpoint - this is where clients establish reverse connections
 	auth := common.AuthMiddleware(s.Token)
 	mux.Handle("/revdial", common.HTTPLoggingMiddleware(auth(func(w http.ResponseWriter, r *http.Request) {
+		clientID := r.URL.Query().Get("id")
+		if clientID == "" {
+			http.Error(w, "missing client id", 400)
+			return
+		}
+		
 		// Let the reverse pool handle the connection
 		revPool.ServeHTTP(w, r)
-
-		// Get the client ID from the URL query parameter
-		clientID := r.URL.Query().Get("id")
 		common.LogInfo("client announced", "id", clientID)
 	})))
 
 	// catch-all proxy for *.tunn.to
 	mux.Handle("/", common.HTTPLoggingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		parts := strings.Split(r.Host, ".")
-		sub := parts[0] // <id> from <id>.tunn.to
+		// Check if this is the apex domain first
+		if r.Host == s.Domain {
+			http.Error(w, "no id", 404)
+			return
+		}
 		
-		// Check if this is the apex domain (tunn.to) or www subdomain
-		if r.Host == s.Domain || sub == "www" {
+		parts := strings.Split(r.Host, ".")
+		if len(parts) == 0 {
+			http.Error(w, "invalid host", 400)
+			return
+		}
+		
+		sub := parts[0]
+		if sub == "www" {
 			http.Error(w, "no id", 404)
 			return
 		}
@@ -69,11 +83,7 @@ func (s *Server) CreateHandler(revPool ReversePoolInterface) http.Handler {
 
 // Run starts the host server
 func (s *Server) Run() {
-	// TLS setup
-	certFile := "/app/certs/fullchain.pem" // baked into the image
-	keyFile := "/app/certs/privkey.pem"
-
-	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+	cert, err := tls.LoadX509KeyPair(s.CertFile, s.KeyFile)
 	if err != nil {
 		common.LogError("loading cert", "error", err)
 		os.Exit(1)

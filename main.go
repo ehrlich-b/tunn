@@ -10,11 +10,14 @@ import (
 )
 
 var (
-	mode      = flag.String("mode", "client", "host | client")
-	to        = flag.String("to", "http://127.0.0.1:8000", "URL to forward to")
-	id        = flag.String("id", "", "tunnel ID (client); blank → random")
-	domain    = flag.String("domain", "tunn.to", "public apex domain")
-	verbosity = flag.String("verbosity", "error", "log level: none, error, request, trace")
+	mode       = flag.String("mode", "client", "host | client")
+	to         = flag.String("to", "http://127.0.0.1:8000", "URL to forward to")
+	id         = flag.String("id", "", "tunnel ID (client); blank → random")
+	domain     = flag.String("domain", "tunn.to", "public apex domain")
+	verbosity  = flag.String("verbosity", "error", "log level: none, error, request, trace")
+	skipVerify = flag.Bool("skip-tls-verify", false, "skip TLS certificate verification (insecure)")
+	certFile   = flag.String("cert", "/app/certs/fullchain.pem", "TLS certificate file (host mode)")
+	keyFile    = flag.String("key", "/app/certs/privkey.pem", "TLS private key file (host mode)")
 )
 
 func main() {
@@ -35,24 +38,19 @@ func main() {
 	switch *mode {
 	case "host":
 		server := &host.Server{
-			Domain: *domain,
-			Token:  token,
+			Domain:   *domain,
+			Token:    token,
+			CertFile: *certFile,
+			KeyFile:  *keyFile,
 		}
 		server.Run()
-	case "client":
-		client := &client.Client{
-			ID:     *id,
-			To:     *to,
-			Domain: *domain,
-			Token:  token,
-		}
-		client.Run()
 	default:
 		client := &client.Client{
-			ID:     *id,
-			To:     *to,
-			Domain: *domain,
-			Token:  token,
+			ID:         *id,
+			To:         *to,
+			Domain:     *domain,
+			Token:      token,
+			SkipVerify: *skipVerify,
 		}
 		client.Run()
 	}

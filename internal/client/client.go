@@ -19,10 +19,11 @@ import (
 
 // Client represents the tunnel client
 type Client struct {
-	ID     string
-	To     string
-	Domain string
-	Token  string
+	ID         string
+	To         string
+	Domain     string
+	Token      string
+	SkipVerify bool
 }
 
 // ValidateConfig validates the client configuration
@@ -70,7 +71,7 @@ func (c *Client) Run() {
 	client := &http.Client{
 		Transport: &http2.Transport{
 			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: true, // Note: In production, use proper certificate validation
+				InsecureSkipVerify: c.SkipVerify,
 			},
 		},
 	}
@@ -107,7 +108,7 @@ func (c *Client) Run() {
 		FlushInterval: -1,
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{
-				//InsecureSkipVerify: true, // Make this configurable
+				InsecureSkipVerify: c.SkipVerify,
 			},
 		},
 		Director: func(req *http.Request) {

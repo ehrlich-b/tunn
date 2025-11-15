@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alexedwards/scs/v2"
 	"github.com/ehrlich-b/tunn/internal/config"
 )
 
@@ -74,8 +75,10 @@ func TestNewProxyServerDevMode(t *testing.T) {
 
 func TestProxyServerHandler(t *testing.T) {
 	proxy := &ProxyServer{
-		Domain: "tunn.to",
-		config: &config.Config{Environment: config.EnvProd},
+		Domain:         "tunn.to",
+		config:         &config.Config{Environment: config.EnvProd},
+		sessionManager: scs.New(),
+		tunnelServer:   NewTunnelServer(),
 	}
 
 	handler := proxy.createHandler()
@@ -100,8 +103,10 @@ func TestProxyServerHandler(t *testing.T) {
 
 func TestProxyServerHealthCheck(t *testing.T) {
 	proxy := &ProxyServer{
-		Domain: "tunn.to",
-		config: &config.Config{Environment: config.EnvProd},
+		Domain:         "tunn.to",
+		config:         &config.Config{Environment: config.EnvProd},
+		sessionManager: scs.New(),
+		tunnelServer:   NewTunnelServer(),
 	}
 
 	handler := proxy.createHandler()

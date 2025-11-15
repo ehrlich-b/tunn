@@ -24,12 +24,12 @@ This checklist details the steps to build the robust, production-ready V1 of `tu
 - [x] **Implement gRPC Client:** ServeClient establishes bidirectional stream to proxy's `TunnelService` and sends `RegisterClient` message.
 - [x] **Implement Control Loop:** Client processes incoming messages (ProxyRequest, HealthCheckResponse) and sends periodic health checks every 30 seconds.
 
-## Phase 3: Browser Auth Flow (Web)
+## Phase 3: Browser Auth Flow (Web) ✅
 
-- [ ] **Integrate Session Manager:** Initialize and add the `scs.SessionManager` middleware to the web request handler chain.
-- [ ] **Implement Web Auth Handlers:** Create the `/auth/login` and `/auth/callback` handlers that use the (mock) OIDC service to authenticate a user.
-- [ ] **Implement `CheckAuth` Middleware:** Create the middleware to check for a valid session cookie on incoming web requests to subdomains.
-- [ ] **Connect Web Proxy:** When an authenticated web request arrives, the proxy handler will find the appropriate `Server Client` via the gRPC control plane and instruct it to open a new data stream. The proxy will then ferry data between the public user and this new stream.
+- [x] **Integrate Session Manager:** Initialize and add the `scs.SessionManager` middleware to the web request handler chain.
+- [x] **Implement Web Auth Handlers:** Create the `/auth/login` and `/auth/callback` handlers that use the (mock) OIDC service to authenticate a user.
+- [x] **Implement `CheckAuth` Middleware:** Create the middleware to check for a valid session cookie on incoming web requests to subdomains.
+- [x] **Connect Web Proxy:** When an authenticated web request arrives, the proxy handler will find the appropriate `Server Client` via the gRPC control plane. Full data plane proxying will be implemented in a future phase.
 
 ## Phase 4: CLI Auth & UDP Tunneling
 

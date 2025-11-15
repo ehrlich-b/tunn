@@ -170,3 +170,10 @@ func (s *TunnelServer) ListTunnels() []*TunnelConnection {
 	}
 	return tunnels
 }
+
+// GetActiveTunnelCount returns the number of active tunnels
+func (s *TunnelServer) GetActiveTunnelCount() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.tunnels)
+}

@@ -1,0 +1,44 @@
+# TODO.md: V1 Implementation Plan
+
+This checklist details the steps to build the robust, production-ready V1 of `tunn`, incorporating gRPC, dual auth flows, and a comprehensive testing strategy.
+
+## Phase 0: Project Setup & Prototyping
+
+- [ ] **Define Protobuf API:** Create the `.proto` file for the gRPC control plane. Define the `TunnelService` with a bidirectional `EstablishTunnel` RPC. Define messages for client registration, proxy instructions, and health checks.
+- [ ] **Generate gRPC Code:** Generate the Go client and server code from the `.proto` file.
+- [ ] **Vendor Dependencies:** Remove `h2rev2`. Add `google.golang.org/grpc`, `google.golang.org/protobuf`, `github.com/quic-go/quic-go`, `github.com/golang-jwt/jwt/v4`, and `github.com/alexedwards/scs/v2`.
+- [ ] **Create Mock OIDC Server:** Build a simple, test-only HTTP server that implements the minimal OIDC and Device Flow endpoints needed for local testing.
+
+## Phase 1: The New `tunn` Proxy
+
+- [ ] **Implement Dual-Listener Server:** Structure the main `host` application to launch two goroutines: one for the HTTP/3 (QUIC) server and one for the HTTP/2 (TCP) server.
+- [ ] **Implement gRPC Server:** Create the gRPC server and implement the `EstablishTunnel` method. For now, it can just accept connections, log the client's registration message, and keep the stream open.
+- [ ] **Implement HTTPS/gRPC Router:** On the HTTP/2 listener, create a master `http.Handler` that routes requests. If `Content-Type` is `application/grpc`, send it to the gRPC server; otherwise, send it to a placeholder web handler.
+- [ ] **Add Local Testing Config:** Add logic to load self-signed certs and configure the server to use the mock OIDC provider and a `nip.io` domain when in a `dev` environment.
+
+## Phase 2: The New `tunn serve` ("Sharer")
+
+- [ ] **Refactor `serve` Command:** Remove all `h2rev2` logic from the `serve` command.
+- [ ] **Implement gRPC Client:** The `serve` command will now be a gRPC client. On startup, it will connect to the proxy's `TunnelService` and call the `EstablishTunnel` RPC.
+- [ ] **Implement Control Loop:** After connecting, the client will enter a loop to handle instructions sent from the proxy down the gRPC stream (e.g., "new connection requested"). It will also send periodic health checks up to the server.
+
+## Phase 3: Browser Auth Flow (Web)
+
+- [ ] **Integrate Session Manager:** Initialize and add the `scs.SessionManager` middleware to the web request handler chain.
+- [ ] **Implement Web Auth Handlers:** Create the `/auth/login` and `/auth/callback` handlers that use the (mock) OIDC service to authenticate a user.
+- [ ] **Implement `CheckAuth` Middleware:** Create the middleware to check for a valid session cookie on incoming web requests to subdomains.
+- [ ] **Connect Web Proxy:** When an authenticated web request arrives, the proxy handler will find the appropriate `Server Client` via the gRPC control plane and instruct it to open a new data stream. The proxy will then ferry data between the public user and this new stream.
+
+## Phase 4: CLI Auth & UDP Tunneling
+
+- [ ] **Implement Device Flow (`tunn login`):** Create the `tunn login` command that performs the OAuth Device Authorization Grant against the (mock) OIDC provider to retrieve and save a JWT.
+- [ ] **Implement `CheckJWT` Middleware:** Create middleware to validate JWTs on incoming API requests.
+- [ ] **Implement UDP-over-H2 Handler:** Create the `/udp-tunnel/{id}` handler, protected by the `CheckJWT` middleware. This handler will hijack the HTTP/2 connection to create a raw bidirectional stream.
+- [ ] **Implement `tunn connect` Command:** Create the `connect` command. It will load the JWT, start a local UDP listener, and make the authenticated `POST` request to the `/udp-tunnel/` endpoint.
+- [ ] **Implement UDP Proxy Logic:** Implement the logic in both the `connect` command and the proxy handler to frame UDP packets (length-prefix) and proxy them over the hijacked HTTP/2 stream.
+
+## Phase 5: Final Integration & Docs
+
+- [ ] **Write E2E Test Script:** Create a shell script (`test-local.sh`) that automates the full local testing process: starts the proxy, starts a sharer, runs `tunn login`, and runs `tunn connect`.
+- [ ] **Update `README.md`:** Thoroughly document the architecture, the two auth flows, and the local testing procedure.
+- [ ] **Secure Configuration:** Ensure all secrets (OIDC client secret, JWT signing key) are loaded from environment variables and never hardcoded.

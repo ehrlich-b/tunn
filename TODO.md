@@ -2,12 +2,14 @@
 
 This checklist details the steps to build the robust, production-ready V1 of `tunn`, incorporating gRPC, dual auth flows, and a comprehensive testing strategy.
 
-## Phase 0: Project Setup & Prototyping
+**Important:** Always use `make` for building and testing. See CLAUDE.md for details.
 
-- [ ] **Define Protobuf API:** Create the `.proto` file for the gRPC control plane. Define the `TunnelService` with a bidirectional `EstablishTunnel` RPC. Define messages for client registration, proxy instructions, and health checks.
-- [ ] **Generate gRPC Code:** Generate the Go client and server code from the `.proto` file.
-- [ ] **Vendor Dependencies:** Remove `h2rev2`. Add `google.golang.org/grpc`, `google.golang.org/protobuf`, `github.com/quic-go/quic-go`, `github.com/golang-jwt/jwt/v4`, and `github.com/alexedwards/scs/v2`.
-- [ ] **Create Mock OIDC Server:** Build a simple, test-only HTTP server that implements the minimal OIDC and Device Flow endpoints needed for local testing.
+## Phase 0: Project Setup & Prototyping ✅
+
+- [x] **Define Protobuf API:** Create the `.proto` file for the gRPC control plane. Define the `TunnelService` with a bidirectional `EstablishTunnel` RPC. Define messages for client registration, proxy instructions, and health checks.
+- [x] **Generate gRPC Code:** Generate the Go client and server code from the `.proto` file.
+- [x] **Vendor Dependencies:** Remove `h2rev2` (will be removed when code is refactored). Add `google.golang.org/grpc`, `google.golang.org/protobuf`, `github.com/quic-go/quic-go`, `github.com/golang-jwt/jwt/v4`, and `github.com/alexedwards/scs/v2`.
+- [x] **Create Mock OIDC Server:** Build a simple, test-only HTTP server that implements the minimal OIDC and Device Flow endpoints needed for local testing.
 
 ## Phase 1: The New `tunn` Proxy
 

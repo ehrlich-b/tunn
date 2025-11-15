@@ -1,0 +1,82 @@
+syntax = "proto3";
+
+package tunn.v1;
+
+option go_package = "github.com/behrlich/tunn/pkg/proto/tunnelv1";
+
+// TunnelService manages the control plane for reverse tunnels between
+// the tunn proxy server and tunn serve clients.
+service TunnelService {
+  // EstablishTunnel creates a bidirectional stream for tunnel control.
+  // The client initiates the stream and sends a RegisterClient message.
+  // The server sends ProxyRequest messages when new connections need to be forwarded.
+  // Both sides can send HealthCheck messages to keep the connection alive.
+  rpc EstablishTunnel(stream TunnelMessage) returns (stream TunnelMessage);
+}
+
+// TunnelMessage is the envelope for all control plane messages.
+// This allows multiple message types to be sent over a single bidirectional stream.
+message TunnelMessage {
+  oneof message {
+    RegisterClient register_client = 1;
+    RegisterResponse register_response = 2;
+    ProxyRequest proxy_request = 3;
+    ProxyResponse proxy_response = 4;
+    HealthCheck health_check = 5;
+    HealthCheckResponse health_check_response = 6;
+  }
+}
+
+// RegisterClient is sent by the client (tunn serve) when it first connects
+// to register a new tunnel with the proxy server.
+message RegisterClient {
+  // tunnel_id is a unique identifier for this tunnel (can be generated client-side)
+  string tunnel_id = 1;
+  // target_url is the local service to forward requests to (e.g., "http://localhost:8000")
+  string target_url = 2;
+  // auth_token is the shared secret for authenticating the tunnel
+  string auth_token = 3;
+}
+
+// RegisterResponse is sent by the server to acknowledge tunnel registration.
+message RegisterResponse {
+  // success indicates whether registration succeeded
+  bool success = 1;
+  // error_message contains details if success is false
+  string error_message = 2;
+  // public_url is the publicly accessible URL for this tunnel (e.g., "https://abc123.tunn.to")
+  string public_url = 3;
+}
+
+// ProxyRequest is sent by the server to instruct the client to open a new
+// data connection for forwarding an incoming request.
+message ProxyRequest {
+  // connection_id uniquely identifies this proxy connection
+  string connection_id = 1;
+  // source_address is the remote client's address (for logging/debugging)
+  string source_address = 2;
+}
+
+// ProxyResponse is sent by the client to acknowledge a ProxyRequest.
+message ProxyResponse {
+  // connection_id matches the ProxyRequest
+  string connection_id = 1;
+  // success indicates whether the client successfully opened the data connection
+  bool success = 2;
+  // error_message contains details if success is false
+  string error_message = 3;
+}
+
+// HealthCheck is a ping message sent by either side to keep the connection alive.
+message HealthCheck {
+  // timestamp is the sender's current time in Unix milliseconds
+  int64 timestamp = 1;
+}
+
+// HealthCheckResponse is a pong message sent in response to a HealthCheck.
+message HealthCheckResponse {
+  // timestamp is the original HealthCheck timestamp (for RTT calculation)
+  int64 timestamp = 1;
+  // response_timestamp is the responder's current time in Unix milliseconds
+  int64 response_timestamp = 2;
+}

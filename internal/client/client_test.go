@@ -28,7 +28,7 @@ func TestNormalizeTargetURL(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := client.NormalizeTargetURL(tt.input)
-			
+
 			if tt.hasError {
 				if err == nil {
 					t.Errorf("expected error for input %q", tt.input)
@@ -238,11 +238,11 @@ func TestClientGenerateIDIfEmpty(t *testing.T) {
 
 	t.Run("generates unique IDs", func(t *testing.T) {
 		ids := make(map[string]bool)
-		
+
 		for i := 0; i < 100; i++ {
 			client := &Client{ID: ""}
 			client.GenerateIDIfEmpty()
-			
+
 			if ids[client.ID] {
 				t.Errorf("Generated duplicate ID: %s", client.ID)
 			}
@@ -278,4 +278,3 @@ func TestClientConfiguration(t *testing.T) {
 		}
 	})
 }
-

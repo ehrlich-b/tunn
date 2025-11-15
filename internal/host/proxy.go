@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/alexedwards/scs/v2"
 	"github.com/quic-go/quic-go/http3"
 	"golang.org/x/net/http2"
 	"google.golang.org/grpc"
@@ -36,6 +38,9 @@ type ProxyServer struct {
 	grpcServer   *grpc.Server
 	tunnelServer *TunnelServer
 
+	// Session manager for web auth
+	sessionManager *scs.SessionManager
+
 	// Configuration
 	config *config.Config
 
@@ -60,16 +65,29 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 	tunnelServer := NewTunnelServer()
 	pb.RegisterTunnelServiceServer(grpcServer, tunnelServer)
 
+	// Create session manager for web auth
+	sessionManager := scs.New()
+	sessionManager.Lifetime = 24 * time.Hour
+	sessionManager.Cookie.Name = "tunn_session"
+	sessionManager.Cookie.Persist = true
+	sessionManager.Cookie.SameSite = http.SameSiteLaxMode
+	sessionManager.Cookie.Secure = true
+
+	// Set cookie domain to allow sharing across subdomains
+	// e.g., .tunn.to allows cookie to be sent to *.tunn.to
+	sessionManager.Cookie.Domain = "." + cfg.Domain
+
 	proxy := &ProxyServer{
-		Domain:       cfg.Domain,
-		CertFile:     cfg.CertFile,
-		KeyFile:      cfg.KeyFile,
-		HTTP2Addr:    ":8443", // Internal HTTP/2 port (Fly.io routes 443/tcp here)
-		HTTP3Addr:    ":8443", // Internal HTTP/3 port (Fly.io routes 443/udp here)
-		tlsConfig:    tlsConfig,
-		grpcServer:   grpcServer,
-		tunnelServer: tunnelServer,
-		config:       cfg,
+		Domain:         cfg.Domain,
+		CertFile:       cfg.CertFile,
+		KeyFile:        cfg.KeyFile,
+		HTTP2Addr:      ":8443", // Internal HTTP/2 port (Fly.io routes 443/tcp here)
+		HTTP3Addr:      ":8443", // Internal HTTP/3 port (Fly.io routes 443/udp here)
+		tlsConfig:      tlsConfig,
+		grpcServer:     grpcServer,
+		tunnelServer:   tunnelServer,
+		sessionManager: sessionManager,
+		config:         cfg,
 	}
 
 	// Set up mock OIDC server in dev mode
@@ -218,17 +236,19 @@ func (p *ProxyServer) createHTTP2Router(httpHandler http.Handler) http.Handler {
 func (p *ProxyServer) createHandler() http.Handler {
 	mux := http.NewServeMux()
 
-	// Placeholder for now - will be implemented in next steps
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, "tunn v1 proxy server\nprotocol: %s\n", r.Proto)
-	})
-
-	// Health check endpoint
+	// Health check endpoint (no auth required)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprint(w, "ok")
 	})
 
-	return mux
+	// Auth endpoints (no auth required on these)
+	mux.HandleFunc("/auth/login", p.handleLogin)
+	mux.HandleFunc("/auth/callback", p.handleCallback)
+
+	// Main handler - check if this is apex domain or a tunnel subdomain
+	mux.HandleFunc("/", p.handleWebProxy)
+
+	// Wrap the mux with session manager middleware
+	return p.sessionManager.LoadAndSave(mux)
 }

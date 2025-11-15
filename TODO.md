@@ -33,7 +33,7 @@ This checklist details the steps to build the robust, production-ready V1 of `tu
 
 ## Phase 4: CLI Auth & UDP Tunneling
 
-- [ ] **Implement Device Flow (`tunn login`):** Create the `tunn login` command that performs the OAuth Device Authorization Grant against the (mock) OIDC provider to retrieve and save a JWT.
+- [x] **Implement Device Flow (`tunn login`):** Create the `tunn login` command that performs the OAuth Device Authorization Grant against the (mock) OIDC provider to retrieve and save a JWT.
 - [ ] **Implement `CheckJWT` Middleware:** Create middleware to validate JWTs on incoming API requests.
 - [ ] **Implement UDP-over-H2 Handler:** Create the `/udp-tunnel/{id}` handler, protected by the `CheckJWT` middleware. This handler will hijack the HTTP/2 connection to create a raw bidirectional stream.
 - [ ] **Implement `tunn connect` Command:** Create the `connect` command. It will load the JWT, start a local UDP listener, and make the authenticated `POST` request to the `/udp-tunnel/` endpoint.

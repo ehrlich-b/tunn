@@ -6,11 +6,20 @@ import (
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/ehrlich-b/tunn/internal/config"
 )
 
 func TestNewProxyServer(t *testing.T) {
 	// Use test certificates from the certs directory
-	proxy, err := NewProxyServer("tunn.to", "../../certs/cert.pem", "../../certs/key.pem")
+	cfg := &config.Config{
+		Environment: config.EnvProd,
+		Domain:      "tunn.to",
+		CertFile:    "../../certs/cert.pem",
+		KeyFile:     "../../certs/key.pem",
+	}
+
+	proxy, err := NewProxyServer(cfg)
 	if err != nil {
 		t.Skipf("Skipping test - certificates not available: %v", err)
 		return
@@ -31,11 +40,42 @@ func TestNewProxyServer(t *testing.T) {
 	if proxy.tlsConfig == nil {
 		t.Error("Expected TLS config to be initialized")
 	}
+
+	if proxy.mockOIDC != nil {
+		t.Error("Expected no mock OIDC in prod mode")
+	}
+}
+
+func TestNewProxyServerDevMode(t *testing.T) {
+	// Test dev mode with mock OIDC
+	cfg := &config.Config{
+		Environment:    config.EnvDev,
+		Domain:         "tunn.local.127.0.0.1.nip.io",
+		CertFile:       "../../certs/cert.pem",
+		KeyFile:        "../../certs/key.pem",
+		MockOIDCAddr:   ":9000",
+		MockOIDCIssuer: "http://localhost:9000",
+	}
+
+	proxy, err := NewProxyServer(cfg)
+	if err != nil {
+		t.Skipf("Skipping test - certificates not available: %v", err)
+		return
+	}
+
+	if proxy.mockOIDC == nil {
+		t.Error("Expected mock OIDC server to be configured in dev mode")
+	}
+
+	if proxy.config.IsDev() != true {
+		t.Error("Expected IsDev to return true")
+	}
 }
 
 func TestProxyServerHandler(t *testing.T) {
 	proxy := &ProxyServer{
 		Domain: "tunn.to",
+		config: &config.Config{Environment: config.EnvProd},
 	}
 
 	handler := proxy.createHandler()
@@ -61,6 +101,7 @@ func TestProxyServerHandler(t *testing.T) {
 func TestProxyServerHealthCheck(t *testing.T) {
 	proxy := &ProxyServer{
 		Domain: "tunn.to",
+		config: &config.Config{Environment: config.EnvProd},
 	}
 
 	handler := proxy.createHandler()
@@ -88,7 +129,14 @@ func TestProxyServerHealthCheck(t *testing.T) {
 
 func TestProxyServerRun(t *testing.T) {
 	// This test verifies that the server can start and stop gracefully
-	proxy, err := NewProxyServer("tunn.to", "../../certs/cert.pem", "../../certs/key.pem")
+	cfg := &config.Config{
+		Environment: config.EnvProd,
+		Domain:      "tunn.to",
+		CertFile:    "../../certs/cert.pem",
+		KeyFile:     "../../certs/key.pem",
+	}
+
+	proxy, err := NewProxyServer(cfg)
 	if err != nil {
 		t.Skipf("Skipping test - certificates not available: %v", err)
 		return

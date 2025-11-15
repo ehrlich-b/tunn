@@ -13,6 +13,8 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/ehrlich-b/tunn/internal/common"
+	"github.com/ehrlich-b/tunn/internal/config"
+	"github.com/ehrlich-b/tunn/internal/mockoidc"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
 )
 
@@ -33,11 +35,17 @@ type ProxyServer struct {
 	// gRPC server for tunnel control plane
 	grpcServer   *grpc.Server
 	tunnelServer *TunnelServer
+
+	// Configuration
+	config *config.Config
+
+	// Mock OIDC server (dev only)
+	mockOIDC *mockoidc.Server
 }
 
 // NewProxyServer creates a new dual-listener proxy server
-func NewProxyServer(domain, certFile, keyFile string) (*ProxyServer, error) {
-	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
+	cert, err := tls.LoadX509KeyPair(cfg.CertFile, cfg.KeyFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load certificates: %w", err)
 	}
@@ -52,22 +60,50 @@ func NewProxyServer(domain, certFile, keyFile string) (*ProxyServer, error) {
 	tunnelServer := NewTunnelServer()
 	pb.RegisterTunnelServiceServer(grpcServer, tunnelServer)
 
-	return &ProxyServer{
-		Domain:       domain,
-		CertFile:     certFile,
-		KeyFile:      keyFile,
+	proxy := &ProxyServer{
+		Domain:       cfg.Domain,
+		CertFile:     cfg.CertFile,
+		KeyFile:      cfg.KeyFile,
 		HTTP2Addr:    ":8443", // Internal HTTP/2 port (Fly.io routes 443/tcp here)
 		HTTP3Addr:    ":8443", // Internal HTTP/3 port (Fly.io routes 443/udp here)
 		tlsConfig:    tlsConfig,
 		grpcServer:   grpcServer,
 		tunnelServer: tunnelServer,
-	}, nil
+		config:       cfg,
+	}
+
+	// Set up mock OIDC server in dev mode
+	if cfg.IsDev() && cfg.MockOIDCAddr != "" {
+		mockOIDC, err := mockoidc.New(mockoidc.Config{
+			Addr:   cfg.MockOIDCAddr,
+			Issuer: cfg.MockOIDCIssuer,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create mock OIDC server: %w", err)
+		}
+		proxy.mockOIDC = mockOIDC
+		common.LogInfo("mock OIDC server configured", "addr", cfg.MockOIDCAddr, "issuer", cfg.MockOIDCIssuer)
+	}
+
+	return proxy, nil
 }
 
 // Run starts both HTTP/2 and HTTP/3 listeners
 func (p *ProxyServer) Run(ctx context.Context) error {
 	var wg sync.WaitGroup
-	errChan := make(chan error, 2)
+	errChan := make(chan error, 3)
+
+	// Start mock OIDC server in dev mode
+	if p.mockOIDC != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			common.LogInfo("starting mock OIDC server", "addr", p.config.MockOIDCAddr)
+			if err := p.mockOIDC.Start(); err != nil {
+				errChan <- fmt.Errorf("mock OIDC server error: %w", err)
+			}
+		}()
+	}
 
 	// Create the HTTP handler (will be used by both servers)
 	handler := p.createHandler()
@@ -90,7 +126,11 @@ func (p *ProxyServer) Run(ctx context.Context) error {
 		}
 	}()
 
-	common.LogInfo("proxy server ready", "http2", p.HTTP2Addr, "http3", p.HTTP3Addr)
+	common.LogInfo("proxy server ready",
+		"http2", p.HTTP2Addr,
+		"http3", p.HTTP3Addr,
+		"domain", p.Domain,
+		"env", p.config.Environment)
 
 	// Wait for either an error or context cancellation
 	select {

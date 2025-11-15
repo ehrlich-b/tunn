@@ -18,11 +18,11 @@ This checklist details the steps to build the robust, production-ready V1 of `tu
 - [x] **Implement HTTPS/gRPC Router:** On the HTTP/2 listener, created a router that examines `Content-Type` header to route between gRPC and HTTPS traffic.
 - [ ] **Add Local Testing Config:** Add logic to load self-signed certs and configure the server to use the mock OIDC provider and a `nip.io` domain when in a `dev` environment.
 
-## Phase 2: The New `tunn serve` ("Sharer")
+## Phase 2: The New `tunn serve` ("Sharer") ✅
 
-- [ ] **Refactor `serve` Command:** Remove all `h2rev2` logic from the `serve` command.
-- [ ] **Implement gRPC Client:** The `serve` command will now be a gRPC client. On startup, it will connect to the proxy's `TunnelService` and call the `EstablishTunnel` RPC.
-- [ ] **Implement Control Loop:** After connecting, the client will enter a loop to handle instructions sent from the proxy down the gRPC stream (e.g., "new connection requested"). It will also send periodic health checks up to the server.
+- [x] **Refactor `serve` Command:** Created new gRPC-based ServeClient in `internal/client/serve.go` (legacy h2rev2 code remains in `client.go` for now).
+- [x] **Implement gRPC Client:** ServeClient establishes bidirectional stream to proxy's `TunnelService` and sends `RegisterClient` message.
+- [x] **Implement Control Loop:** Client processes incoming messages (ProxyRequest, HealthCheckResponse) and sends periodic health checks every 30 seconds.
 
 ## Phase 3: Browser Auth Flow (Web)
 

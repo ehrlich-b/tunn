@@ -1,11 +1,17 @@
 package main
 
 import (
+	"context"
 	"flag"
+	"fmt"
 	"os"
+	"os/signal"
+	"strings"
+	"syscall"
 
 	"github.com/ehrlich-b/tunn/internal/client"
 	"github.com/ehrlich-b/tunn/internal/common"
+	"github.com/ehrlich-b/tunn/internal/config"
 	"github.com/ehrlich-b/tunn/internal/host"
 )
 
@@ -37,21 +43,130 @@ func main() {
 
 	switch *mode {
 	case "host":
-		server := &host.Server{
-			Domain:   *domain,
-			Token:    token,
-			CertFile: *certFile,
-			KeyFile:  *keyFile,
+		// Load config and override with flags
+		cfg, err := config.LoadConfig()
+		if err != nil {
+			common.LogError("failed to load config", "error", err)
+			os.Exit(1)
 		}
-		server.Run()
+
+		// Override config with flags if provided
+		if *domain != "tunn.to" {
+			cfg.Domain = *domain
+		}
+		if *certFile != "/app/certs/fullchain.pem" {
+			cfg.CertFile = *certFile
+		}
+		if *keyFile != "/app/certs/privkey.pem" {
+			cfg.KeyFile = *keyFile
+		}
+
+		// Create proxy server
+		proxy, err := host.NewProxyServer(cfg)
+		if err != nil {
+			common.LogError("failed to create proxy server", "error", err)
+			os.Exit(1)
+		}
+
+		// Set up context with signal handling
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		// Handle shutdown signals
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+		go func() {
+			<-sigChan
+			common.LogInfo("received shutdown signal")
+			cancel()
+		}()
+
+		// Run proxy server
+		if err := proxy.Run(ctx); err != nil && err != context.Canceled {
+			common.LogError("proxy server error", "error", err)
+			os.Exit(1)
+		}
 	default:
-		client := &client.Client{
-			ID:         *id,
-			To:         *to,
-			Domain:     *domain,
-			Token:      token,
-			SkipVerify: *skipVerify,
+		// Load config for server address
+		cfg, err := config.LoadConfig()
+		if err != nil {
+			common.LogError("failed to load config", "error", err)
+			os.Exit(1)
 		}
-		client.Run()
+
+		// Generate tunnel ID if not provided
+		tunnelID := *id
+		if tunnelID == "" {
+			tunnelID = common.RandID(7)
+		}
+
+		// Normalize target URL
+		normalizedTo, err := normalizeTargetURL(*to)
+		if err != nil {
+			common.LogError("invalid target URL", "error", err)
+			os.Exit(1)
+		}
+
+		// Create serve client
+		serveClient := &client.ServeClient{
+			TunnelID:   tunnelID,
+			TargetURL:  normalizedTo,
+			ServerAddr: cfg.ServerAddr,
+			AuthToken:  token,
+			SkipVerify: cfg.SkipVerify,
+		}
+
+		// Override SkipVerify if flag was explicitly set
+		if *skipVerify {
+			serveClient.SkipVerify = true
+		}
+
+		// Set up context with signal handling
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		// Handle shutdown signals
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+		go func() {
+			<-sigChan
+			common.LogInfo("received shutdown signal")
+			cancel()
+		}()
+
+		// Run serve client
+		if err := serveClient.Run(ctx); err != nil && err != context.Canceled {
+			common.LogError("serve client error", "error", err)
+			os.Exit(1)
+		}
 	}
+}
+
+// normalizeTargetURL converts various input formats to a full URL
+// Accepts: "8000", "localhost:8000", "http://localhost:8000"
+// Always returns: "http://localhost:8000" format
+func normalizeTargetURL(input string) (string, error) {
+	if input == "" {
+		return "", fmt.Errorf("empty target")
+	}
+
+	// If it's already a full URL, validate and return
+	if strings.HasPrefix(input, "http://") || strings.HasPrefix(input, "https://") {
+		return input, nil
+	}
+
+	// Check if it's "host:port" format
+	if strings.Contains(input, ":") {
+		return "http://" + input, nil
+	}
+
+	// Check if it's just a port number
+	for _, char := range input {
+		if char < '0' || char > '9' {
+			return "", fmt.Errorf("invalid format: %s (expected port, host:port, or full URL)", input)
+		}
+	}
+
+	// It's just a port number
+	return "http://localhost:" + input, nil
 }

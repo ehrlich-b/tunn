@@ -11,12 +11,12 @@ This checklist details the steps to build the robust, production-ready V1 of `tu
 - [x] **Vendor Dependencies:** Remove `h2rev2` (will be removed when code is refactored). Add `google.golang.org/grpc`, `google.golang.org/protobuf`, `github.com/quic-go/quic-go`, `github.com/golang-jwt/jwt/v4`, and `github.com/alexedwards/scs/v2`.
 - [x] **Create Mock OIDC Server:** Build a simple, test-only HTTP server that implements the minimal OIDC and Device Flow endpoints needed for local testing.
 
-## Phase 1: The New `tunn` Proxy (In Progress)
+## Phase 1: The New `tunn` Proxy ✅
 
 - [x] **Implement Dual-Listener Server:** Structure the main `host` application to launch two goroutines: one for the HTTP/3 (QUIC) server and one for the HTTP/2 (TCP) server.
 - [x] **Implement gRPC Server:** Create the gRPC server and implement the `EstablishTunnel` method. Accepts connections, handles registration, health checks, and maintains active tunnel connections.
 - [x] **Implement HTTPS/gRPC Router:** On the HTTP/2 listener, created a router that examines `Content-Type` header to route between gRPC and HTTPS traffic.
-- [ ] **Add Local Testing Config:** Add logic to load self-signed certs and configure the server to use the mock OIDC provider and a `nip.io` domain when in a `dev` environment.
+- [x] **Add Local Testing Config:** Created config package with dev/prod environments. Dev mode uses nip.io domains, local certs, and automatically starts mock OIDC server on :9000.
 
 ## Phase 2: The New `tunn serve` ("Sharer") ✅
 

@@ -16,7 +16,7 @@ import (
 )
 
 var (
-	mode       = flag.String("mode", "client", "host | client")
+	mode       = flag.String("mode", "client", "host | client | login")
 	to         = flag.String("to", "http://127.0.0.1:8000", "target to forward to (port, host:port, or full URL)")
 	id         = flag.String("id", "", "tunnel ID (client); blank → random")
 	domain     = flag.String("domain", "tunn.to", "public apex domain")
@@ -33,99 +33,29 @@ func main() {
 	logLevel := common.ParseLogLevel(*verbosity)
 	common.SetLogLevel(logLevel)
 
-	token := os.Getenv("TOKEN")
-	if token != "" {
-		common.LogInfo("using token from environment variable")
-	} else {
-		common.LogError("TOKEN environment variable not set")
-		os.Exit(1)
-	}
-
 	switch *mode {
-	case "host":
-		// Load config and override with flags
+	case "login":
+		// Login mode doesn't require TOKEN
 		cfg, err := config.LoadConfig()
 		if err != nil {
 			common.LogError("failed to load config", "error", err)
 			os.Exit(1)
 		}
 
-		// Override config with flags if provided
-		if *domain != "tunn.to" {
-			cfg.Domain = *domain
-		}
-		if *certFile != "/app/certs/fullchain.pem" {
-			cfg.CertFile = *certFile
-		}
-		if *keyFile != "/app/certs/privkey.pem" {
-			cfg.KeyFile = *keyFile
-		}
-
-		// Create proxy server
-		proxy, err := host.NewProxyServer(cfg)
-		if err != nil {
-			common.LogError("failed to create proxy server", "error", err)
-			os.Exit(1)
-		}
-
-		// Set up context with signal handling
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
-		// Handle shutdown signals
-		sigChan := make(chan os.Signal, 1)
-		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-		go func() {
-			<-sigChan
-			common.LogInfo("received shutdown signal")
-			cancel()
-		}()
-
-		// Run proxy server
-		if err := proxy.Run(ctx); err != nil && err != context.Canceled {
-			common.LogError("proxy server error", "error", err)
-			os.Exit(1)
-		}
-	default:
-		// Load config for server address
-		cfg, err := config.LoadConfig()
-		if err != nil {
-			common.LogError("failed to load config", "error", err)
-			os.Exit(1)
-		}
-
-		// Generate tunnel ID if not provided
-		tunnelID := *id
-		if tunnelID == "" {
-			tunnelID = common.RandID(7)
-		}
-
-		// Normalize target URL
-		normalizedTo, err := normalizeTargetURL(*to)
-		if err != nil {
-			common.LogError("invalid target URL", "error", err)
-			os.Exit(1)
-		}
-
-		// Create serve client
-		serveClient := &client.ServeClient{
-			TunnelID:   tunnelID,
-			TargetURL:  normalizedTo,
+		loginClient := &client.LoginClient{
 			ServerAddr: cfg.ServerAddr,
-			AuthToken:  token,
+			OIDCIssuer: cfg.MockOIDCIssuer,
 			SkipVerify: cfg.SkipVerify,
 		}
 
-		// Override SkipVerify if flag was explicitly set
-		if *skipVerify {
-			serveClient.SkipVerify = true
+		// Use production OIDC if not in dev mode
+		if !cfg.IsDev() {
+			loginClient.OIDCIssuer = "https://accounts.google.com"
 		}
 
-		// Set up context with signal handling
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		// Handle shutdown signals
 		sigChan := make(chan os.Signal, 1)
 		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 		go func() {
@@ -134,11 +64,129 @@ func main() {
 			cancel()
 		}()
 
-		// Run serve client
-		if err := serveClient.Run(ctx); err != nil && err != context.Canceled {
-			common.LogError("serve client error", "error", err)
+		if err := loginClient.Run(ctx); err != nil && err != context.Canceled {
+			common.LogError("login failed", "error", err)
 			os.Exit(1)
 		}
+	case "host", "client":
+		// Host and client modes require TOKEN
+		token := os.Getenv("TOKEN")
+		if token != "" {
+			common.LogInfo("using token from environment variable")
+		} else {
+			common.LogError("TOKEN environment variable not set")
+			os.Exit(1)
+		}
+
+		if *mode == "host" {
+			runHost(token)
+		} else {
+			runClient(token)
+		}
+	default:
+		common.LogError("invalid mode", "mode", *mode)
+		os.Exit(1)
+	}
+}
+
+func runHost(token string) {
+	// Load config and override with flags
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		common.LogError("failed to load config", "error", err)
+		os.Exit(1)
+	}
+
+	// Override config with flags if provided
+	if *domain != "tunn.to" {
+		cfg.Domain = *domain
+	}
+	if *certFile != "/app/certs/fullchain.pem" {
+		cfg.CertFile = *certFile
+	}
+	if *keyFile != "/app/certs/privkey.pem" {
+		cfg.KeyFile = *keyFile
+	}
+
+	// Create proxy server
+	proxy, err := host.NewProxyServer(cfg)
+	if err != nil {
+		common.LogError("failed to create proxy server", "error", err)
+		os.Exit(1)
+	}
+
+	// Set up context with signal handling
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Handle shutdown signals
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sigChan
+		common.LogInfo("received shutdown signal")
+		cancel()
+	}()
+
+	// Run proxy server
+	if err := proxy.Run(ctx); err != nil && err != context.Canceled {
+		common.LogError("proxy server error", "error", err)
+		os.Exit(1)
+	}
+}
+
+func runClient(token string) {
+	// Load config for server address
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		common.LogError("failed to load config", "error", err)
+		os.Exit(1)
+	}
+
+	// Generate tunnel ID if not provided
+	tunnelID := *id
+	if tunnelID == "" {
+		tunnelID = common.RandID(7)
+	}
+
+	// Normalize target URL
+	normalizedTo, err := normalizeTargetURL(*to)
+	if err != nil {
+		common.LogError("invalid target URL", "error", err)
+		os.Exit(1)
+	}
+
+	// Create serve client
+	serveClient := &client.ServeClient{
+		TunnelID:   tunnelID,
+		TargetURL:  normalizedTo,
+		ServerAddr: cfg.ServerAddr,
+		AuthToken:  token,
+		SkipVerify: cfg.SkipVerify,
+	}
+
+	// Override SkipVerify if flag was explicitly set
+	if *skipVerify {
+		serveClient.SkipVerify = true
+	}
+
+	// Set up context with signal handling
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Handle shutdown signals
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sigChan
+		common.LogInfo("received shutdown signal")
+		cancel()
+	}()
+
+	// Run serve client
+	if err := serveClient.Run(ctx); err != nil && err != context.Canceled {
+		common.LogError("serve client error", "error", err)
+		os.Exit(1)
 	}
 }
 

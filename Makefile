@@ -8,7 +8,7 @@ GO_FILES := $(wildcard *.go)
 DOCKER_IMAGE := $(APP_NAME):latest
 FLY_APP_NAME := $(APP_NAME)
 
-.PHONY: all build clean test test-verbose test-coverage docker docker-build docker-run cert-setup cert-renew fly-setup fly-deploy fly-logs help
+.PHONY: all build clean proto fmt tidy verify check test test-verbose test-coverage test-race docker docker-build docker-run cert-setup cert-renew fly-setup fly-deploy fly-logs help
 
 # Default target
 all: build
@@ -17,6 +17,35 @@ all: build
 build:
 	@echo "Building $(BINARY_NAME)..."
 	go build -ldflags="-s -w" -o ./bin/$(BINARY_NAME) .
+
+# Generate protobuf and gRPC code
+proto:
+	@echo "Generating protobuf code..."
+	protoc --go_out=. --go-grpc_out=. proto/tunnel.proto
+	@mkdir -p pkg/proto/tunnelv1
+	@if [ -d github.com ]; then \
+		mv github.com/behrlich/tunn/pkg/proto/tunnelv1/*.pb.go pkg/proto/tunnelv1/; \
+		rm -rf github.com; \
+	fi
+	@echo "Protobuf code generated in pkg/proto/tunnelv1/"
+
+# Format Go code
+fmt:
+	@echo "Formatting Go code..."
+	go fmt ./...
+
+# Tidy dependencies
+tidy:
+	@echo "Tidying Go modules..."
+	go mod tidy
+
+# Verify: format check and tests
+verify: fmt test
+	@echo "Verification complete!"
+
+# Comprehensive check: format, tidy, test with race detection
+check: fmt tidy test-race
+	@echo "All checks passed!"
 
 # Build for different platforms
 build-all: build-linux build-mac build-windows
@@ -109,20 +138,37 @@ install: build
 # Show help
 help:
 	@echo "Makefile for $(APP_NAME) - Available targets:"
+	@echo ""
+	@echo "Build & Code Generation:"
 	@echo "  make build         - Build the binary for current OS"
 	@echo "  make build-all     - Build for Linux, macOS, and Windows"
+	@echo "  make proto         - Generate protobuf and gRPC code"
 	@echo "  make clean         - Remove build artifacts"
+	@echo ""
+	@echo "Code Quality:"
+	@echo "  make fmt           - Format Go code"
+	@echo "  make tidy          - Tidy Go module dependencies"
+	@echo "  make verify        - Format code and run tests"
+	@echo "  make check         - Comprehensive check (fmt, tidy, test-race)"
+	@echo ""
+	@echo "Testing:"
 	@echo "  make test          - Run all tests"
 	@echo "  make test-verbose  - Run tests with verbose output"
 	@echo "  make test-coverage - Run tests with coverage report"
 	@echo "  make test-race     - Run tests with race detection"
+	@echo ""
+	@echo "Docker:"
 	@echo "  make docker        - Build Docker image"
 	@echo "  make docker-run    - Run Docker container locally"
+	@echo ""
+	@echo "Deployment:"
 	@echo "  make cert-setup    - Set up SSL certificates"
 	@echo "  make cert-renew    - Renew SSL certificates"
 	@echo "  make fly-setup     - Set up Fly.io application"
 	@echo "  make fly-deploy    - Deploy to Fly.io"
 	@echo "  make fly-logs      - Show Fly.io logs"
+	@echo ""
+	@echo "Other:"
 	@echo "  make dev           - Run in development mode"
 	@echo "  make install       - Install binary to /usr/local/bin"
 	@echo "  make help          - Show this help message"

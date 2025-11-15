@@ -1,4 +1,4 @@
-# GEMINI.md: tunn V1 Architecture Blueprint
+# CLAUDE.md: tunn V1 Architecture Blueprint
 
 This document outlines the robust, production-ready V1 architecture for `tunn`, designed for deployment on Fly.io and full local testability.
 
@@ -61,3 +61,42 @@ The entire system is designed to be testable on a local machine.
 *   **JWTs:** `github.com/golang-jwt/jwt/v4` for stateless CLI authentication.
 *   **HTTP/3:** `github.com/quic-go/quic-go` for the modern web listener.
 *   **Protobuf:** `google.golang.org/protobuf` for defining the gRPC API.
+
+## Build and Test Commands
+
+**CRITICAL: Always use `make` for building and testing. Never run `go` commands directly.**
+
+This project uses a comprehensive Makefile to ensure consistent builds and tests across all environments. Direct use of `go build`, `go test`, or other `go` commands is prohibited.
+
+### Essential Commands
+
+**Building:**
+- `make build` - Build the binary for the current OS
+- `make proto` - Regenerate protobuf/gRPC code (run after modifying `.proto` files)
+- `make clean` - Remove all build artifacts
+
+**Testing:**
+- `make test` - Run all tests (use this by default)
+- `make test-race` - Run tests with race detection (use before commits)
+- `make test-coverage` - Generate HTML coverage report
+
+**Code Quality:**
+- `make fmt` - Format all Go code
+- `make tidy` - Tidy Go module dependencies
+- `make verify` - Format and test (quick pre-commit check)
+- `make check` - Comprehensive check: format, tidy, and test with race detection (thorough pre-commit)
+
+**Common Workflows:**
+- Before committing: `make check`
+- After modifying proto files: `make proto && make test`
+- Quick iteration: `make build && ./bin/tunn`
+- Full verification: `make clean && make check && make build`
+
+### Why Make Only?
+
+1. **Consistency:** Ensures all developers and CI/CD use identical build flags and test configurations
+2. **Protobuf Generation:** The `make proto` target handles code generation and file organization correctly
+3. **Future-Proofing:** As the build process becomes more complex (e.g., embedding assets, multi-stage builds), the Makefile will handle it transparently
+4. **Discoverability:** `make help` shows all available commands
+
+**Exception:** You may use `go mod` commands directly for dependency management when needed, but prefer `make tidy`.

@@ -19,11 +19,11 @@ func TestRandID(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := RandID(tt.length)
-			
+
 			if len(result) != tt.length {
 				t.Errorf("got length %d, want %d", len(result), tt.length)
 			}
-			
+
 			if tt.length > 0 {
 				validChars := regexp.MustCompile("^[a-z0-9]+$")
 				if !validChars.MatchString(result) {
@@ -36,7 +36,7 @@ func TestRandID(t *testing.T) {
 
 func TestRandIDUniqueness(t *testing.T) {
 	results := make(map[string]bool)
-	
+
 	for i := 0; i < 100; i++ {
 		id := RandID(10)
 		if results[id] {

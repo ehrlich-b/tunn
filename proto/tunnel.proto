@@ -14,7 +14,7 @@ service TunnelService {
   rpc EstablishTunnel(stream TunnelMessage) returns (stream TunnelMessage);
 }
 
-// TunnelMessage is the envelope for all control plane messages.
+// TunnelMessage is the envelope for all control plane and data plane messages.
 // This allows multiple message types to be sent over a single bidirectional stream.
 message TunnelMessage {
   oneof message {
@@ -24,6 +24,9 @@ message TunnelMessage {
     ProxyResponse proxy_response = 4;
     HealthCheck health_check = 5;
     HealthCheckResponse health_check_response = 6;
+    HttpRequest http_request = 7;
+    HttpResponse http_response = 8;
+    StreamClosed stream_closed = 9;
   }
 }
 
@@ -34,8 +37,17 @@ message RegisterClient {
   string tunnel_id = 1;
   // target_url is the local service to forward requests to (e.g., "http://localhost:8000")
   string target_url = 2;
-  // auth_token is the shared secret for authenticating the tunnel
+  // auth_token is the JWT from `tunn login` (contains creator's email)
   string auth_token = 3;
+  // creator_email is extracted from the JWT (email of tunnel creator)
+  string creator_email = 4;
+  // allowed_emails is the list of emails that can access this tunnel (Google Doc model)
+  // The creator_email is automatically included
+  repeated string allowed_emails = 5;
+  // tunnel_key is the secret that allows creating tunnels
+  // V1: WELL_KNOWN_KEY (free for everyone)
+  // V2: Remove this, check subscription via tunn-auth instead
+  string tunnel_key = 6;
 }
 
 // RegisterResponse is sent by the server to acknowledge tunnel registration.
@@ -79,4 +91,40 @@ message HealthCheckResponse {
   int64 timestamp = 1;
   // response_timestamp is the responder's current time in Unix milliseconds
   int64 response_timestamp = 2;
+}
+
+// HttpRequest is sent by the server to the client with the full HTTP request
+// that needs to be proxied to the local target.
+message HttpRequest {
+  // connection_id uniquely identifies this HTTP request/response pair
+  string connection_id = 1;
+  // method is the HTTP method (GET, POST, etc.)
+  string method = 2;
+  // path is the HTTP path (e.g., "/api/users")
+  string path = 3;
+  // headers is a map of HTTP header names to values
+  map<string, string> headers = 4;
+  // body is the HTTP request body (may be empty)
+  bytes body = 5;
+}
+
+// HttpResponse is sent by the client to the server with the HTTP response
+// from the local target.
+message HttpResponse {
+  // connection_id matches the HttpRequest
+  string connection_id = 1;
+  // status_code is the HTTP status code (e.g., 200, 404)
+  int32 status_code = 2;
+  // headers is a map of HTTP header names to values
+  map<string, string> headers = 3;
+  // body is the HTTP response body
+  bytes body = 4;
+}
+
+// StreamClosed is sent by either side to indicate a connection has closed.
+message StreamClosed {
+  // connection_id identifies which connection closed
+  string connection_id = 1;
+  // reason describes why the connection closed (for logging)
+  string reason = 2;
 }

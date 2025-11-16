@@ -27,6 +27,10 @@ type TunnelConnection struct {
 	Connected     time.Time
 	CreatorEmail  string
 	AllowedEmails []string // Includes creator_email + any additional allowed emails
+
+	// HTTP request tracking
+	pendingMu       sync.RWMutex
+	pendingRequests map[string]chan *pb.HttpResponse
 }
 
 // NewTunnelServer creates a new gRPC tunnel server
@@ -120,12 +124,13 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 
 	// Create tunnel connection
 	conn := &TunnelConnection{
-		TunnelID:      tunnelID,
-		TargetURL:     targetURL,
-		Stream:        stream,
-		Connected:     time.Now(),
-		CreatorEmail:  creatorEmail,
-		AllowedEmails: allowedEmails,
+		TunnelID:        tunnelID,
+		TargetURL:       targetURL,
+		Stream:          stream,
+		Connected:       time.Now(),
+		CreatorEmail:    creatorEmail,
+		AllowedEmails:   allowedEmails,
+		pendingRequests: make(map[string]chan *pb.HttpResponse),
 	}
 
 	// Register the tunnel
@@ -188,6 +193,30 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		case *pb.TunnelMessage_HealthCheck:
 			// Respond to health check
 			s.handleHealthCheck(stream, m.HealthCheck)
+
+		case *pb.TunnelMessage_HttpResponse:
+			// HTTP response from client - route to waiting request
+			conn.pendingMu.RLock()
+			respChan, exists := conn.pendingRequests[m.HttpResponse.ConnectionId]
+			conn.pendingMu.RUnlock()
+
+			if exists {
+				select {
+				case respChan <- m.HttpResponse:
+					common.LogInfo("routed http response",
+						"tunnel_id", tunnelID,
+						"connection_id", m.HttpResponse.ConnectionId,
+						"status", m.HttpResponse.StatusCode)
+				default:
+					common.LogInfo("response channel full, dropping response",
+						"tunnel_id", tunnelID,
+						"connection_id", m.HttpResponse.ConnectionId)
+				}
+			} else {
+				common.LogInfo("no pending request for http response",
+					"tunnel_id", tunnelID,
+					"connection_id", m.HttpResponse.ConnectionId)
+			}
 
 		case *pb.TunnelMessage_ProxyResponse:
 			// Client acknowledging a proxy request

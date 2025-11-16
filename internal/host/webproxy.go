@@ -1,10 +1,20 @@
 package host
 
 import (
+	"context"
+	"crypto/rand"
+	"crypto/tls"
+	"encoding/hex"
 	"fmt"
+	"io"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
+	"time"
 
 	"github.com/ehrlich-b/tunn/internal/common"
+	internalv1 "github.com/ehrlich-b/tunn/pkg/proto/internalv1"
+	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
 )
 
 // handleWebProxy handles incoming web requests to tunnel subdomains
@@ -18,15 +28,54 @@ func (p *ProxyServer) handleWebProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Look up the tunnel connection
-	tunnel, exists := p.tunnelServer.GetTunnel(tunnelID)
-	if !exists {
-		common.LogInfo("tunnel not found", "tunnel_id", tunnelID, "host", r.Host)
-		http.Error(w, "Tunnel not found or offline", http.StatusServiceUnavailable)
+	// 1. Check if tunnel is local
+	if _, exists := p.tunnelServer.GetTunnel(tunnelID); exists {
+		p.proxyToLocal(w, r, tunnelID)
 		return
 	}
 
-	common.LogInfo("proxying web request",
+	// 2. Check cache for remote tunnel
+	p.cacheMu.RLock()
+	nodeAddr, cached := p.tunnelCache[tunnelID]
+	p.cacheMu.RUnlock()
+
+	if cached {
+		common.LogInfo("proxying to cached node", "tunnel_id", tunnelID, "node_addr", nodeAddr)
+		p.proxyToNode(w, r, nodeAddr)
+		return
+	}
+
+	// 3. Probe other nodes
+	for addr, client := range p.nodeClients {
+		common.LogInfo("probing node for tunnel", "tunnel_id", tunnelID, "node_addr", addr)
+		resp, err := client.FindTunnel(context.Background(), &internalv1.FindTunnelRequest{TunnelId: tunnelID})
+		if err != nil {
+			common.LogError("failed to probe node", "error", err, "node_addr", addr)
+			continue
+		}
+
+		if resp.Found {
+			common.LogInfo("tunnel found on remote node", "tunnel_id", tunnelID, "node_addr", resp.NodeAddress)
+			// Cache the result
+			p.cacheMu.Lock()
+			p.tunnelCache[tunnelID] = resp.NodeAddress
+			p.cacheMu.Unlock()
+
+			p.proxyToNode(w, r, resp.NodeAddress)
+			return
+		}
+	}
+
+	// 4. If not found anywhere, return an error
+	common.LogInfo("tunnel not found on any node", "tunnel_id", tunnelID, "host", r.Host)
+	http.Error(w, "Tunnel not found or offline", http.StatusServiceUnavailable)
+}
+
+// proxyToLocal handles proxying for a tunnel hosted on the current node
+func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunnelID string) {
+	tunnel, _ := p.tunnelServer.GetTunnel(tunnelID)
+
+	common.LogInfo("proxying web request locally",
 		"tunnel_id", tunnelID,
 		"target", tunnel.TargetURL,
 		"path", r.URL.Path,
@@ -53,14 +102,158 @@ func (p *ProxyServer) handleWebProxy(w http.ResponseWriter, r *http.Request) {
 		"tunnel_id", tunnelID,
 		"path", r.URL.Path)
 
-	// TODO: Implement actual data plane proxying
-	// For now, show a placeholder indicating the tunnel is connected
-	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, "tunn v1 - tunnel connected\n")
-	fmt.Fprintf(w, "tunnel_id: %s\n", tunnelID)
-	fmt.Fprintf(w, "target: %s\n", tunnel.TargetURL)
-	fmt.Fprintf(w, "user: %s\n", userEmail)
-	fmt.Fprintf(w, "\nData plane proxying will be implemented in the next phase.\n")
+	// Check if user is on the tunnel's allow-list
+	allowed := false
+	for _, allowedEmail := range tunnel.AllowedEmails {
+		if allowedEmail == userEmail {
+			allowed = true
+			break
+		}
+	}
+
+	if !allowed {
+		common.LogInfo("access denied - user not on allow-list",
+			"email", userEmail,
+			"tunnel_id", tunnelID,
+			"allowed_emails", tunnel.AllowedEmails)
+
+		w.WriteHeader(http.StatusForbidden)
+		fmt.Fprintf(w, "Access Denied\n\n")
+		fmt.Fprintf(w, "You (%s) are not authorized to access this tunnel.\n\n", userEmail)
+		fmt.Fprintf(w, "Contact the tunnel owner to request access.\n")
+		return
+	}
+
+	common.LogInfo("allow-list check passed",
+		"email", userEmail,
+		"tunnel_id", tunnelID)
+
+	// Proxy the HTTP request over gRPC
+	if err := p.proxyHTTPOverGRPC(w, r, tunnel); err != nil {
+		common.LogError("failed to proxy request", "error", err, "tunnel_id", tunnelID)
+		http.Error(w, "Failed to proxy request", http.StatusBadGateway)
+		return
+	}
+}
+
+// proxyHTTPOverGRPC forwards an HTTP request over the gRPC tunnel and writes the response
+func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, tunnel *TunnelConnection) error {
+	// Generate unique connection ID
+	connectionID, err := generateConnectionID()
+	if err != nil {
+		return fmt.Errorf("failed to generate connection ID: %w", err)
+	}
+
+	// Read request body
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read request body: %w", err)
+	}
+	defer r.Body.Close()
+
+	// Convert headers to map
+	headers := make(map[string]string)
+	for key, values := range r.Header {
+		// Join multiple header values with commas
+		headers[key] = values[0]
+	}
+
+	// Create HttpRequest message
+	httpReq := &pb.HttpRequest{
+		ConnectionId: connectionID,
+		Method:       r.Method,
+		Path:         r.URL.RequestURI(),
+		Headers:      headers,
+		Body:         body,
+	}
+
+	// Create response channel and register it
+	respChan := make(chan *pb.HttpResponse, 1)
+	tunnel.pendingMu.Lock()
+	tunnel.pendingRequests[connectionID] = respChan
+	tunnel.pendingMu.Unlock()
+
+	// Cleanup on return
+	defer func() {
+		tunnel.pendingMu.Lock()
+		delete(tunnel.pendingRequests, connectionID)
+		tunnel.pendingMu.Unlock()
+		close(respChan)
+	}()
+
+	// Send HttpRequest to client
+	msg := &pb.TunnelMessage{
+		Message: &pb.TunnelMessage_HttpRequest{
+			HttpRequest: httpReq,
+		},
+	}
+
+	if err := tunnel.Stream.Send(msg); err != nil {
+		return fmt.Errorf("failed to send http request: %w", err)
+	}
+
+	common.LogInfo("sent http request to client",
+		"connection_id", connectionID,
+		"method", r.Method,
+		"path", r.URL.Path)
+
+	// Wait for response with timeout
+	timeout := 30 * time.Second
+	select {
+	case httpResp := <-respChan:
+		// Write response headers
+		for key, value := range httpResp.Headers {
+			w.Header().Set(key, value)
+		}
+
+		// Write status code
+		w.WriteHeader(int(httpResp.StatusCode))
+
+		// Write body
+		if _, err := w.Write(httpResp.Body); err != nil {
+			return fmt.Errorf("failed to write response body: %w", err)
+		}
+
+		common.LogInfo("proxied http response",
+			"connection_id", connectionID,
+			"status", httpResp.StatusCode,
+			"body_size", len(httpResp.Body))
+
+		return nil
+
+	case <-time.After(timeout):
+		return fmt.Errorf("timeout waiting for response after %v", timeout)
+	}
+}
+
+// generateConnectionID creates a random connection ID
+func generateConnectionID() (string, error) {
+	bytes := make([]byte, 16)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(bytes), nil
+}
+
+// proxyToNode handles proxying a request to another node in the cluster
+func (p *ProxyServer) proxyToNode(w http.ResponseWriter, r *http.Request, nodeAddr string) {
+	target, err := url.Parse("https://" + nodeAddr)
+	if err != nil {
+		common.LogError("failed to parse node address", "error", err, "node_addr", nodeAddr)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	proxy := httputil.NewSingleHostReverseProxy(target)
+
+	// We need to create a custom transport to skip TLS verification if needed,
+	// since we are using self-signed certs in development.
+	proxy.Transport = &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: p.config.SkipVerify},
+	}
+
+	common.LogInfo("proxying to remote node", "target", target.String())
+	proxy.ServeHTTP(w, r)
 }
 
 // handleApexDomain handles requests to the apex domain (e.g., tunn.to)
@@ -75,3 +268,4 @@ func (p *ProxyServer) handleApexDomain(w http.ResponseWriter, r *http.Request) {
 	activeTunnels := p.tunnelServer.GetActiveTunnelCount()
 	fmt.Fprintf(w, "\nActive tunnels: %d\n", activeTunnels)
 }
+

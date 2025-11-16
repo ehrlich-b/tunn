@@ -24,6 +24,10 @@ var (
 	skipVerify = flag.Bool("skip-tls-verify", false, "skip TLS certificate verification (insecure)")
 	certFile   = flag.String("cert", "/app/certs/fullchain.pem", "TLS certificate file (host mode)")
 	keyFile    = flag.String("key", "/app/certs/privkey.pem", "TLS private key file (host mode)")
+
+	// Client mode flags
+	allow     = flag.String("allow", "", "comma-separated list of emails allowed to access tunnel (client mode)")
+	tunnelKey = flag.String("tunnel-key", "", "tunnel creation authorization key (client mode); defaults to WELL_KNOWN_KEY env var")
 )
 
 func main() {
@@ -68,8 +72,8 @@ func main() {
 			common.LogError("login failed", "error", err)
 			os.Exit(1)
 		}
-	case "host", "client":
-		// Host and client modes require TOKEN
+	case "host":
+		// Host mode requires TOKEN
 		token := os.Getenv("TOKEN")
 		if token != "" {
 			common.LogInfo("using token from environment variable")
@@ -77,12 +81,10 @@ func main() {
 			common.LogError("TOKEN environment variable not set")
 			os.Exit(1)
 		}
-
-		if *mode == "host" {
-			runHost(token)
-		} else {
-			runClient(token)
-		}
+		runHost(token)
+	case "client":
+		// Client mode loads JWT from token file
+		runClient()
 	default:
 		common.LogError("invalid mode", "mode", *mode)
 		os.Exit(1)
@@ -135,12 +137,39 @@ func runHost(token string) {
 	}
 }
 
-func runClient(token string) {
+func runClient() {
 	// Load config for server address
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		common.LogError("failed to load config", "error", err)
 		os.Exit(1)
+	}
+
+	// Load JWT from token file
+	token, err := client.LoadToken()
+	if err != nil {
+		common.LogError("failed to load JWT token - run 'tunn login' first", "error", err)
+		os.Exit(1)
+	}
+
+	// Get tunnel key from flag or env var
+	key := *tunnelKey
+	if key == "" {
+		key = cfg.WellKnownKey
+		if key == "" {
+			common.LogError("tunnel key not provided - use -tunnel-key or set WELL_KNOWN_KEY env var")
+			os.Exit(1)
+		}
+	}
+
+	// Parse allowed emails from comma-separated list
+	var allowedEmails []string
+	if *allow != "" {
+		allowedEmails = strings.Split(*allow, ",")
+		// Trim whitespace from each email
+		for i, email := range allowedEmails {
+			allowedEmails[i] = strings.TrimSpace(email)
+		}
 	}
 
 	// Generate tunnel ID if not provided
@@ -158,17 +187,25 @@ func runClient(token string) {
 
 	// Create serve client
 	serveClient := &client.ServeClient{
-		TunnelID:   tunnelID,
-		TargetURL:  normalizedTo,
-		ServerAddr: cfg.ServerAddr,
-		AuthToken:  token,
-		SkipVerify: cfg.SkipVerify,
+		TunnelID:      tunnelID,
+		TargetURL:     normalizedTo,
+		ServerAddr:    cfg.ServerAddr,
+		AuthToken:     token,
+		TunnelKey:     key,
+		AllowedEmails: allowedEmails,
+		SkipVerify:    cfg.SkipVerify,
 	}
 
 	// Override SkipVerify if flag was explicitly set
 	if *skipVerify {
 		serveClient.SkipVerify = true
 	}
+
+	common.LogInfo("tunnel configuration",
+		"id", tunnelID,
+		"target", normalizedTo,
+		"allowed_emails", allowedEmails,
+		"tunnel_key", key)
 
 	// Set up context with signal handling
 	ctx, cancel := context.WithCancel(context.Background())

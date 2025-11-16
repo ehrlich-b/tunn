@@ -21,7 +21,7 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// TunnelMessage is the envelope for all control plane messages.
+// TunnelMessage is the envelope for all control plane and data plane messages.
 // This allows multiple message types to be sent over a single bidirectional stream.
 type TunnelMessage struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -33,6 +33,9 @@ type TunnelMessage struct {
 	//	*TunnelMessage_ProxyResponse
 	//	*TunnelMessage_HealthCheck
 	//	*TunnelMessage_HealthCheckResponse
+	//	*TunnelMessage_HttpRequest
+	//	*TunnelMessage_HttpResponse
+	//	*TunnelMessage_StreamClosed
 	Message       isTunnelMessage_Message `protobuf_oneof:"message"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -129,6 +132,33 @@ func (x *TunnelMessage) GetHealthCheckResponse() *HealthCheckResponse {
 	return nil
 }
 
+func (x *TunnelMessage) GetHttpRequest() *HttpRequest {
+	if x != nil {
+		if x, ok := x.Message.(*TunnelMessage_HttpRequest); ok {
+			return x.HttpRequest
+		}
+	}
+	return nil
+}
+
+func (x *TunnelMessage) GetHttpResponse() *HttpResponse {
+	if x != nil {
+		if x, ok := x.Message.(*TunnelMessage_HttpResponse); ok {
+			return x.HttpResponse
+		}
+	}
+	return nil
+}
+
+func (x *TunnelMessage) GetStreamClosed() *StreamClosed {
+	if x != nil {
+		if x, ok := x.Message.(*TunnelMessage_StreamClosed); ok {
+			return x.StreamClosed
+		}
+	}
+	return nil
+}
+
 type isTunnelMessage_Message interface {
 	isTunnelMessage_Message()
 }
@@ -157,6 +187,18 @@ type TunnelMessage_HealthCheckResponse struct {
 	HealthCheckResponse *HealthCheckResponse `protobuf:"bytes,6,opt,name=health_check_response,json=healthCheckResponse,proto3,oneof"`
 }
 
+type TunnelMessage_HttpRequest struct {
+	HttpRequest *HttpRequest `protobuf:"bytes,7,opt,name=http_request,json=httpRequest,proto3,oneof"`
+}
+
+type TunnelMessage_HttpResponse struct {
+	HttpResponse *HttpResponse `protobuf:"bytes,8,opt,name=http_response,json=httpResponse,proto3,oneof"`
+}
+
+type TunnelMessage_StreamClosed struct {
+	StreamClosed *StreamClosed `protobuf:"bytes,9,opt,name=stream_closed,json=streamClosed,proto3,oneof"`
+}
+
 func (*TunnelMessage_RegisterClient) isTunnelMessage_Message() {}
 
 func (*TunnelMessage_RegisterResponse) isTunnelMessage_Message() {}
@@ -169,6 +211,12 @@ func (*TunnelMessage_HealthCheck) isTunnelMessage_Message() {}
 
 func (*TunnelMessage_HealthCheckResponse) isTunnelMessage_Message() {}
 
+func (*TunnelMessage_HttpRequest) isTunnelMessage_Message() {}
+
+func (*TunnelMessage_HttpResponse) isTunnelMessage_Message() {}
+
+func (*TunnelMessage_StreamClosed) isTunnelMessage_Message() {}
+
 // RegisterClient is sent by the client (tunn serve) when it first connects
 // to register a new tunnel with the proxy server.
 type RegisterClient struct {
@@ -177,8 +225,17 @@ type RegisterClient struct {
 	TunnelId string `protobuf:"bytes,1,opt,name=tunnel_id,json=tunnelId,proto3" json:"tunnel_id,omitempty"`
 	// target_url is the local service to forward requests to (e.g., "http://localhost:8000")
 	TargetUrl string `protobuf:"bytes,2,opt,name=target_url,json=targetUrl,proto3" json:"target_url,omitempty"`
-	// auth_token is the shared secret for authenticating the tunnel
-	AuthToken     string `protobuf:"bytes,3,opt,name=auth_token,json=authToken,proto3" json:"auth_token,omitempty"`
+	// auth_token is the JWT from `tunn login` (contains creator's email)
+	AuthToken string `protobuf:"bytes,3,opt,name=auth_token,json=authToken,proto3" json:"auth_token,omitempty"`
+	// creator_email is extracted from the JWT (email of tunnel creator)
+	CreatorEmail string `protobuf:"bytes,4,opt,name=creator_email,json=creatorEmail,proto3" json:"creator_email,omitempty"`
+	// allowed_emails is the list of emails that can access this tunnel (Google Doc model)
+	// The creator_email is automatically included
+	AllowedEmails []string `protobuf:"bytes,5,rep,name=allowed_emails,json=allowedEmails,proto3" json:"allowed_emails,omitempty"`
+	// tunnel_key is the secret that allows creating tunnels
+	// V1: WELL_KNOWN_KEY (free for everyone)
+	// V2: Remove this, check subscription via tunn-auth instead
+	TunnelKey     string `protobuf:"bytes,6,opt,name=tunnel_key,json=tunnelKey,proto3" json:"tunnel_key,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -230,6 +287,27 @@ func (x *RegisterClient) GetTargetUrl() string {
 func (x *RegisterClient) GetAuthToken() string {
 	if x != nil {
 		return x.AuthToken
+	}
+	return ""
+}
+
+func (x *RegisterClient) GetCreatorEmail() string {
+	if x != nil {
+		return x.CreatorEmail
+	}
+	return ""
+}
+
+func (x *RegisterClient) GetAllowedEmails() []string {
+	if x != nil {
+		return x.AllowedEmails
+	}
+	return nil
+}
+
+func (x *RegisterClient) GetTunnelKey() string {
+	if x != nil {
+		return x.TunnelKey
 	}
 	return ""
 }
@@ -519,25 +597,244 @@ func (x *HealthCheckResponse) GetResponseTimestamp() int64 {
 	return 0
 }
 
+// HttpRequest is sent by the server to the client with the full HTTP request
+// that needs to be proxied to the local target.
+type HttpRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// connection_id uniquely identifies this HTTP request/response pair
+	ConnectionId string `protobuf:"bytes,1,opt,name=connection_id,json=connectionId,proto3" json:"connection_id,omitempty"`
+	// method is the HTTP method (GET, POST, etc.)
+	Method string `protobuf:"bytes,2,opt,name=method,proto3" json:"method,omitempty"`
+	// path is the HTTP path (e.g., "/api/users")
+	Path string `protobuf:"bytes,3,opt,name=path,proto3" json:"path,omitempty"`
+	// headers is a map of HTTP header names to values
+	Headers map[string]string `protobuf:"bytes,4,rep,name=headers,proto3" json:"headers,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// body is the HTTP request body (may be empty)
+	Body          []byte `protobuf:"bytes,5,opt,name=body,proto3" json:"body,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HttpRequest) Reset() {
+	*x = HttpRequest{}
+	mi := &file_proto_tunnel_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HttpRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HttpRequest) ProtoMessage() {}
+
+func (x *HttpRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_tunnel_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HttpRequest.ProtoReflect.Descriptor instead.
+func (*HttpRequest) Descriptor() ([]byte, []int) {
+	return file_proto_tunnel_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *HttpRequest) GetConnectionId() string {
+	if x != nil {
+		return x.ConnectionId
+	}
+	return ""
+}
+
+func (x *HttpRequest) GetMethod() string {
+	if x != nil {
+		return x.Method
+	}
+	return ""
+}
+
+func (x *HttpRequest) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *HttpRequest) GetHeaders() map[string]string {
+	if x != nil {
+		return x.Headers
+	}
+	return nil
+}
+
+func (x *HttpRequest) GetBody() []byte {
+	if x != nil {
+		return x.Body
+	}
+	return nil
+}
+
+// HttpResponse is sent by the client to the server with the HTTP response
+// from the local target.
+type HttpResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// connection_id matches the HttpRequest
+	ConnectionId string `protobuf:"bytes,1,opt,name=connection_id,json=connectionId,proto3" json:"connection_id,omitempty"`
+	// status_code is the HTTP status code (e.g., 200, 404)
+	StatusCode int32 `protobuf:"varint,2,opt,name=status_code,json=statusCode,proto3" json:"status_code,omitempty"`
+	// headers is a map of HTTP header names to values
+	Headers map[string]string `protobuf:"bytes,3,rep,name=headers,proto3" json:"headers,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// body is the HTTP response body
+	Body          []byte `protobuf:"bytes,4,opt,name=body,proto3" json:"body,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HttpResponse) Reset() {
+	*x = HttpResponse{}
+	mi := &file_proto_tunnel_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HttpResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HttpResponse) ProtoMessage() {}
+
+func (x *HttpResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_tunnel_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HttpResponse.ProtoReflect.Descriptor instead.
+func (*HttpResponse) Descriptor() ([]byte, []int) {
+	return file_proto_tunnel_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *HttpResponse) GetConnectionId() string {
+	if x != nil {
+		return x.ConnectionId
+	}
+	return ""
+}
+
+func (x *HttpResponse) GetStatusCode() int32 {
+	if x != nil {
+		return x.StatusCode
+	}
+	return 0
+}
+
+func (x *HttpResponse) GetHeaders() map[string]string {
+	if x != nil {
+		return x.Headers
+	}
+	return nil
+}
+
+func (x *HttpResponse) GetBody() []byte {
+	if x != nil {
+		return x.Body
+	}
+	return nil
+}
+
+// StreamClosed is sent by either side to indicate a connection has closed.
+type StreamClosed struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// connection_id identifies which connection closed
+	ConnectionId string `protobuf:"bytes,1,opt,name=connection_id,json=connectionId,proto3" json:"connection_id,omitempty"`
+	// reason describes why the connection closed (for logging)
+	Reason        string `protobuf:"bytes,2,opt,name=reason,proto3" json:"reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StreamClosed) Reset() {
+	*x = StreamClosed{}
+	mi := &file_proto_tunnel_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StreamClosed) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StreamClosed) ProtoMessage() {}
+
+func (x *StreamClosed) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_tunnel_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StreamClosed.ProtoReflect.Descriptor instead.
+func (*StreamClosed) Descriptor() ([]byte, []int) {
+	return file_proto_tunnel_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *StreamClosed) GetConnectionId() string {
+	if x != nil {
+		return x.ConnectionId
+	}
+	return ""
+}
+
+func (x *StreamClosed) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
 var File_proto_tunnel_proto protoreflect.FileDescriptor
 
 const file_proto_tunnel_proto_rawDesc = "" +
 	"\n" +
-	"\x12proto/tunnel.proto\x12\atunn.v1\"\xb6\x03\n" +
+	"\x12proto/tunnel.proto\x12\atunn.v1\"\xed\x04\n" +
 	"\rTunnelMessage\x12B\n" +
 	"\x0fregister_client\x18\x01 \x01(\v2\x17.tunn.v1.RegisterClientH\x00R\x0eregisterClient\x12H\n" +
 	"\x11register_response\x18\x02 \x01(\v2\x19.tunn.v1.RegisterResponseH\x00R\x10registerResponse\x12<\n" +
 	"\rproxy_request\x18\x03 \x01(\v2\x15.tunn.v1.ProxyRequestH\x00R\fproxyRequest\x12?\n" +
 	"\x0eproxy_response\x18\x04 \x01(\v2\x16.tunn.v1.ProxyResponseH\x00R\rproxyResponse\x129\n" +
 	"\fhealth_check\x18\x05 \x01(\v2\x14.tunn.v1.HealthCheckH\x00R\vhealthCheck\x12R\n" +
-	"\x15health_check_response\x18\x06 \x01(\v2\x1c.tunn.v1.HealthCheckResponseH\x00R\x13healthCheckResponseB\t\n" +
-	"\amessage\"k\n" +
+	"\x15health_check_response\x18\x06 \x01(\v2\x1c.tunn.v1.HealthCheckResponseH\x00R\x13healthCheckResponse\x129\n" +
+	"\fhttp_request\x18\a \x01(\v2\x14.tunn.v1.HttpRequestH\x00R\vhttpRequest\x12<\n" +
+	"\rhttp_response\x18\b \x01(\v2\x15.tunn.v1.HttpResponseH\x00R\fhttpResponse\x12<\n" +
+	"\rstream_closed\x18\t \x01(\v2\x15.tunn.v1.StreamClosedH\x00R\fstreamClosedB\t\n" +
+	"\amessage\"\xd6\x01\n" +
 	"\x0eRegisterClient\x12\x1b\n" +
 	"\ttunnel_id\x18\x01 \x01(\tR\btunnelId\x12\x1d\n" +
 	"\n" +
 	"target_url\x18\x02 \x01(\tR\ttargetUrl\x12\x1d\n" +
 	"\n" +
-	"auth_token\x18\x03 \x01(\tR\tauthToken\"p\n" +
+	"auth_token\x18\x03 \x01(\tR\tauthToken\x12#\n" +
+	"\rcreator_email\x18\x04 \x01(\tR\fcreatorEmail\x12%\n" +
+	"\x0eallowed_emails\x18\x05 \x03(\tR\rallowedEmails\x12\x1d\n" +
+	"\n" +
+	"tunnel_key\x18\x06 \x01(\tR\ttunnelKey\"p\n" +
 	"\x10RegisterResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12#\n" +
 	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\x12\x1d\n" +
@@ -554,7 +851,28 @@ const file_proto_tunnel_proto_rawDesc = "" +
 	"\ttimestamp\x18\x01 \x01(\x03R\ttimestamp\"b\n" +
 	"\x13HealthCheckResponse\x12\x1c\n" +
 	"\ttimestamp\x18\x01 \x01(\x03R\ttimestamp\x12-\n" +
-	"\x12response_timestamp\x18\x02 \x01(\x03R\x11responseTimestamp2V\n" +
+	"\x12response_timestamp\x18\x02 \x01(\x03R\x11responseTimestamp\"\xeb\x01\n" +
+	"\vHttpRequest\x12#\n" +
+	"\rconnection_id\x18\x01 \x01(\tR\fconnectionId\x12\x16\n" +
+	"\x06method\x18\x02 \x01(\tR\x06method\x12\x12\n" +
+	"\x04path\x18\x03 \x01(\tR\x04path\x12;\n" +
+	"\aheaders\x18\x04 \x03(\v2!.tunn.v1.HttpRequest.HeadersEntryR\aheaders\x12\x12\n" +
+	"\x04body\x18\x05 \x01(\fR\x04body\x1a:\n" +
+	"\fHeadersEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xe2\x01\n" +
+	"\fHttpResponse\x12#\n" +
+	"\rconnection_id\x18\x01 \x01(\tR\fconnectionId\x12\x1f\n" +
+	"\vstatus_code\x18\x02 \x01(\x05R\n" +
+	"statusCode\x12<\n" +
+	"\aheaders\x18\x03 \x03(\v2\".tunn.v1.HttpResponse.HeadersEntryR\aheaders\x12\x12\n" +
+	"\x04body\x18\x04 \x01(\fR\x04body\x1a:\n" +
+	"\fHeadersEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"K\n" +
+	"\fStreamClosed\x12#\n" +
+	"\rconnection_id\x18\x01 \x01(\tR\fconnectionId\x12\x16\n" +
+	"\x06reason\x18\x02 \x01(\tR\x06reason2V\n" +
 	"\rTunnelService\x12E\n" +
 	"\x0fEstablishTunnel\x12\x16.tunn.v1.TunnelMessage\x1a\x16.tunn.v1.TunnelMessage(\x010\x01B-Z+github.com/behrlich/tunn/pkg/proto/tunnelv1b\x06proto3"
 
@@ -570,7 +888,7 @@ func file_proto_tunnel_proto_rawDescGZIP() []byte {
 	return file_proto_tunnel_proto_rawDescData
 }
 
-var file_proto_tunnel_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_proto_tunnel_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
 var file_proto_tunnel_proto_goTypes = []any{
 	(*TunnelMessage)(nil),       // 0: tunn.v1.TunnelMessage
 	(*RegisterClient)(nil),      // 1: tunn.v1.RegisterClient
@@ -579,21 +897,31 @@ var file_proto_tunnel_proto_goTypes = []any{
 	(*ProxyResponse)(nil),       // 4: tunn.v1.ProxyResponse
 	(*HealthCheck)(nil),         // 5: tunn.v1.HealthCheck
 	(*HealthCheckResponse)(nil), // 6: tunn.v1.HealthCheckResponse
+	(*HttpRequest)(nil),         // 7: tunn.v1.HttpRequest
+	(*HttpResponse)(nil),        // 8: tunn.v1.HttpResponse
+	(*StreamClosed)(nil),        // 9: tunn.v1.StreamClosed
+	nil,                         // 10: tunn.v1.HttpRequest.HeadersEntry
+	nil,                         // 11: tunn.v1.HttpResponse.HeadersEntry
 }
 var file_proto_tunnel_proto_depIdxs = []int32{
-	1, // 0: tunn.v1.TunnelMessage.register_client:type_name -> tunn.v1.RegisterClient
-	2, // 1: tunn.v1.TunnelMessage.register_response:type_name -> tunn.v1.RegisterResponse
-	3, // 2: tunn.v1.TunnelMessage.proxy_request:type_name -> tunn.v1.ProxyRequest
-	4, // 3: tunn.v1.TunnelMessage.proxy_response:type_name -> tunn.v1.ProxyResponse
-	5, // 4: tunn.v1.TunnelMessage.health_check:type_name -> tunn.v1.HealthCheck
-	6, // 5: tunn.v1.TunnelMessage.health_check_response:type_name -> tunn.v1.HealthCheckResponse
-	0, // 6: tunn.v1.TunnelService.EstablishTunnel:input_type -> tunn.v1.TunnelMessage
-	0, // 7: tunn.v1.TunnelService.EstablishTunnel:output_type -> tunn.v1.TunnelMessage
-	7, // [7:8] is the sub-list for method output_type
-	6, // [6:7] is the sub-list for method input_type
-	6, // [6:6] is the sub-list for extension type_name
-	6, // [6:6] is the sub-list for extension extendee
-	0, // [0:6] is the sub-list for field type_name
+	1,  // 0: tunn.v1.TunnelMessage.register_client:type_name -> tunn.v1.RegisterClient
+	2,  // 1: tunn.v1.TunnelMessage.register_response:type_name -> tunn.v1.RegisterResponse
+	3,  // 2: tunn.v1.TunnelMessage.proxy_request:type_name -> tunn.v1.ProxyRequest
+	4,  // 3: tunn.v1.TunnelMessage.proxy_response:type_name -> tunn.v1.ProxyResponse
+	5,  // 4: tunn.v1.TunnelMessage.health_check:type_name -> tunn.v1.HealthCheck
+	6,  // 5: tunn.v1.TunnelMessage.health_check_response:type_name -> tunn.v1.HealthCheckResponse
+	7,  // 6: tunn.v1.TunnelMessage.http_request:type_name -> tunn.v1.HttpRequest
+	8,  // 7: tunn.v1.TunnelMessage.http_response:type_name -> tunn.v1.HttpResponse
+	9,  // 8: tunn.v1.TunnelMessage.stream_closed:type_name -> tunn.v1.StreamClosed
+	10, // 9: tunn.v1.HttpRequest.headers:type_name -> tunn.v1.HttpRequest.HeadersEntry
+	11, // 10: tunn.v1.HttpResponse.headers:type_name -> tunn.v1.HttpResponse.HeadersEntry
+	0,  // 11: tunn.v1.TunnelService.EstablishTunnel:input_type -> tunn.v1.TunnelMessage
+	0,  // 12: tunn.v1.TunnelService.EstablishTunnel:output_type -> tunn.v1.TunnelMessage
+	12, // [12:13] is the sub-list for method output_type
+	11, // [11:12] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_proto_tunnel_proto_init() }
@@ -608,6 +936,9 @@ func file_proto_tunnel_proto_init() {
 		(*TunnelMessage_ProxyResponse)(nil),
 		(*TunnelMessage_HealthCheck)(nil),
 		(*TunnelMessage_HealthCheckResponse)(nil),
+		(*TunnelMessage_HttpRequest)(nil),
+		(*TunnelMessage_HttpResponse)(nil),
+		(*TunnelMessage_StreamClosed)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -615,7 +946,7 @@ func file_proto_tunnel_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_tunnel_proto_rawDesc), len(file_proto_tunnel_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   7,
+			NumMessages:   12,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

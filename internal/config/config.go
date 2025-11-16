@@ -22,9 +22,20 @@ type Config struct {
 	CertFile string
 	KeyFile  string
 
+	// Internal gRPC configuration
+	InternalGRPCPort     string
+	InternalCACertFile   string
+	InternalNodeCertFile string
+	InternalNodeKeyFile  string
+	NodeAddresses        string // Comma-separated list of other node addresses
+	PublicAddr           string
+
 	// Mock OIDC configuration (dev only)
 	MockOIDCAddr   string
 	MockOIDCIssuer string
+
+	// Tunnel creation authorization
+	WellKnownKey string // Free tier key that allows anyone to create tunnels
 
 	// Client configuration
 	ServerAddr string
@@ -61,12 +72,23 @@ func (c *Config) loadDevConfig() {
 	c.CertFile = getEnvOrDefault("CERT_FILE", "./certs/cert.pem")
 	c.KeyFile = getEnvOrDefault("KEY_FILE", "./certs/key.pem")
 
+	// Internal gRPC
+	c.InternalGRPCPort = getEnvOrDefault("INTERNAL_GRPC_PORT", ":50051")
+	c.InternalCACertFile = getEnvOrDefault("INTERNAL_CA_CERT_FILE", "./certs/ca.pem")
+	c.InternalNodeCertFile = getEnvOrDefault("INTERNAL_NODE_CERT_FILE", "./certs/cert.pem")
+	c.InternalNodeKeyFile = getEnvOrDefault("INTERNAL_NODE_KEY_FILE", "./certs/key.pem")
+	c.NodeAddresses = getEnvOrDefault("NODE_ADDRESSES", "localhost:50051")
+	c.PublicAddr = getEnvOrDefault("PUBLIC_ADDR", "localhost:8443")
+
 	// Mock OIDC provider runs locally
 	c.MockOIDCAddr = getEnvOrDefault("MOCK_OIDC_ADDR", ":9000")
 	c.MockOIDCIssuer = getEnvOrDefault("MOCK_OIDC_ISSUER", "http://localhost:9000")
 
 	// Server address for clients
 	c.ServerAddr = getEnvOrDefault("SERVER_ADDR", "localhost:8443")
+
+	// Tunnel creation key (free tier)
+	c.WellKnownKey = getEnvOrDefault("WELL_KNOWN_KEY", "tunn-free-v1-2025")
 
 	// Skip TLS verification in dev
 	c.SkipVerify = true
@@ -81,12 +103,23 @@ func (c *Config) loadProdConfig() {
 	c.CertFile = getEnvOrDefault("CERT_FILE", "/app/certs/fullchain.pem")
 	c.KeyFile = getEnvOrDefault("KEY_FILE", "/app/certs/privkey.pem")
 
+	// Internal gRPC
+	c.InternalGRPCPort = getEnvOrDefault("INTERNAL_GRPC_PORT", ":50051")
+	c.InternalCACertFile = getEnvOrDefault("INTERNAL_CA_CERT_FILE", "/app/certs/ca.pem")
+	c.InternalNodeCertFile = getEnvOrDefault("INTERNAL_NODE_CERT_FILE", "/app/certs/fullchain.pem")
+	c.InternalNodeKeyFile = getEnvOrDefault("INTERNAL_NODE_KEY_FILE", "/app/certs/privkey.pem")
+	c.NodeAddresses = getEnvOrDefault("NODE_ADDRESSES", "") // In prod, this should be discovered via DNS
+	c.PublicAddr = getEnvOrDefault("PUBLIC_ADDR", "tunn.to:443")
+
 	// No mock OIDC in production
 	c.MockOIDCAddr = ""
 	c.MockOIDCIssuer = ""
 
 	// Server address for clients
 	c.ServerAddr = getEnvOrDefault("SERVER_ADDR", "tunn.to:443")
+
+	// Tunnel creation key (free tier)
+	c.WellKnownKey = getEnvOrDefault("WELL_KNOWN_KEY", "tunn-free-v1-2025")
 
 	// Verify TLS in production
 	c.SkipVerify = false

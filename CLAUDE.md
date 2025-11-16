@@ -1,72 +1,215 @@
 # CLAUDE.md: tunn V1 Architecture Blueprint
 
-This document outlines the robust, production-ready V1 architecture for `tunn`, designed for deployment on Fly.io and full local testability.
+**Project Status:** Claude Code is driving implementation to launch.
+
+**Last Updated:** 2025-11-16
+
+This document outlines the production-ready V1 architecture for `tunn`, designed for deployment on Fly.io as a **free, open-source hosted service**.
 
 ## Core Philosophy
 
-`tunn` is a unified platform for creating secure reverse tunnels. It is built on a single, powerful core technology but exposes two distinct access patterns tailored to different use cases: a stateful **Browser Flow** for web apps and a stateless **CLI Flow** for programmatic access to raw TCP/UDP ports.
+`tunn` is a **radically simple, free-forever reverse tunnel service with Google Doc-style sharing**.
+
+Share your local dev server like you'd share a Google Doc:
+```bash
+$ tunn serve -to localhost:8000 --allow alice@gmail.com,bob@company.com
+🔗 https://abc123.tunn.to → localhost:8000
+   Accessible by: you@gmail.com, alice@gmail.com, bob@company.com
+```
+
+**Business Model:** Run it for free. If it gets busy enough to need >4 Fly.io nodes, we'll add optional paid tiers. If not, it stays free forever.
+
+**Abuse Prevention:** Per-tunnel rate limiting (10MiB/month baseline) + Google OAuth prevents free-tier abuse while keeping infrastructure costs near-zero.
+
+## Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                  tunn.to (Free Hosted)                       │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │  Fly.io Edge (443/tcp, 443/udp)                      │   │
+│  └────────┬─────────────────────────────────────────────┘   │
+│           │                                                  │
+│  ┌────────▼─────────────────────────────────────────────┐   │
+│  │  tunn Proxy Nodes (1-4 instances)                    │   │
+│  │  - HTTP/2 + HTTP/3 listeners                         │   │
+│  │  - gRPC control plane                                │   │
+│  │  - Per-IP rate limiting (10MiB/month)                │   │
+│  │  - Full mesh inter-node sync                         │   │
+│  └────────┬─────────────────────────────────────────────┘   │
+│           │ Internal gRPC Mesh                               │
+│  ┌────────▼─────────────────────────────────────────────┐   │
+│  │  Node 1 ←→ Node 2 ←→ Node 3 ←→ Node 4               │   │
+│  │  (Sync: tunnel locations, rate limit usage)          │   │
+│  └──────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────┘
+         ▲ gRPC tunnel
+         │
+    ┌────┴─────┐
+    │   tunn   │  $ tunn serve -to localhost:8000
+    │   serve  │  🔗 https://abc123.tunn.to → localhost:8000
+    └──────────┘
+```
 
 ## Technical Architecture
 
 ### 1. The `tunn` Proxy (Central Server)
 
-The Proxy is the heart of the system. It is a single Go application that runs multiple services.
+The Proxy is a stateless Go application designed to run on Fly.io with 1-4 instances.
 
-*   **Listeners:** The application will listen on two internal ports, with Fly.io's edge routing public `443/tcp` and `443/udp` traffic accordingly.
-    *   **HTTP/3 Server:** Using `quic-go`, it terminates QUIC connections for modern browser clients.
-    *   **HTTP/2 Server:** Terminates standard TLS (TCP) connections. This single listener will serve both gRPC and standard HTTPS traffic by routing requests based on their `Content-Type` header.
-*   **Authentication:** A unified middleware chain inspects incoming requests.
-    *   If a `tunn_session` cookie is present, it's handled by the **Session Service**.
-    *   If an `Authorization: Bearer` header is present, it's handled by the **JWT Service**.
-    *   If neither is present, the user is directed to an authentication entry point (either a web login page or instructions for CLI login).
-*   **Control Plane:** The connection with the `tunn serve` clients is managed via a **gRPC** bidirectional stream over HTTP/2. This replaces the PoC's `h2rev2` library with a production-grade, multiplexed transport for managing tunnels.
+**Listeners:**
+- **HTTP/2 Server (TCP:8443):** Serves gRPC control plane + HTTPS data plane
+- **HTTP/3 Server (UDP:8443):** Modern QUIC-based listener for browser clients
+- **Internal gRPC (TCP:50051):** Node-to-node communication (tunnel discovery + rate limit sync)
 
-### 2. The `tunn` Server Client ("Sharer")
+**Authentication:**
+- **Google OAuth:** Users log in with Google account (browser + CLI device flow)
+- **Email Allow-Lists:** Tunnel creator specifies allowed emails (Google Doc model)
+- **No User Database:** Email validation happens at request time via Google JWT
+- **Session Cookies:** Browser users get session after Google login
+- **JWT Tokens:** CLI users get token after device flow
 
-The `tunn serve` command.
+**Rate Limiting:**
+- **Per-IP bandwidth quota:** 10MiB/month baseline (configurable via env var)
+- **Distributed state:** Each node tracks IPs it sees, syncs with other nodes every 30s
+- **Enforcement:** Proxy rejects requests when IP exceeds quota
+- **Reset:** Monthly on calendar month boundary
 
-*   **Transport:** It establishes a single, persistent gRPC bidirectional stream to the Proxy's control plane endpoint.
-*   **Multiplexing:** All communication, including health checks and the creation of new forwarding connections, is multiplexed over this single gRPC connection. When the Proxy needs to forward a public request, it will instruct the client over the gRPC stream to establish a new data stream.
+**Control Plane:**
+- gRPC bidirectional stream between proxy and `tunn serve` clients
+- Multiplexed: all tunnels and data streams go over one gRPC connection
+- Messages: RegisterClient, ProxyRequest, DataChunk, StreamClosed, HealthCheck
 
-### 3. The `tunn` Client Client ("Accessor")
+### 2. The `tunn serve` Client ("Sharer")
 
-The `tunn login` and `tunn connect` commands.
+**Setup:**
+```bash
+# Private tunnel (only you can access)
+$ tunn serve -to http://localhost:8000
+🔗 https://abc123.tunn.to → localhost:8000
+   Accessible by: you@gmail.com
 
-*   **Authentication:** `tunn login` uses the OAuth 2.0 Device Authorization Grant to get a JWT for the user, which is stored locally.
-*   **UDP Transport:** `tunn connect` establishes a UDP tunnel by making a special `POST` request over **HTTP/2 (on TCP/443)**. This connection is then hijacked to become a raw, bidirectional stream. UDP datagrams are framed with a simple length prefix and sent over this stream, ensuring maximum compatibility with restrictive firewalls.
+# Shared tunnel (Google Doc model)
+$ tunn serve -to http://localhost:8000 --allow alice@gmail.com,bob@company.com
+🔗 https://abc123.tunn.to → localhost:8000
+   Accessible by: you@gmail.com, alice@gmail.com, bob@company.com
+```
 
-### Local End-to-End Testing Strategy
+**Access Control:**
+- Creator must be logged in (`tunn login` first)
+- Creator's email automatically added to allow-list
+- `--allow` flag adds additional emails
+- Visitors must log in with Google and be on the allow-list
+- Unauthorized visitors see "Access denied"
 
-The entire system is designed to be testable on a local machine.
+**Transport:**
+- Single persistent gRPC bidirectional stream to proxy
+- Sends health checks every 30s
+- Receives ProxyRequest messages when public HTTP request arrives
+- Sends DataChunk messages with HTTP response data
 
-1.  **Mock OIDC Provider:** A lightweight, built-in server will simulate the Google login and device flows, allowing for offline authentication testing.
-2.  **Wildcard DNS:** Using a service like `nip.io` (e.g., `*.tunn.local.127.0.0.1.nip.io`) allows for testing subdomain routing on `localhost`.
-3.  **Self-Signed Certificates:** A local CA and self-signed certs will be used to enable TLS for local testing.
+### 3. Local Testing Strategy
 
-## Auth Flow 1: Browser (HTTP, Stateful)
+The entire system is designed to be testable on a single machine:
 
-*   **Mechanism:** Secure session cookies (`alexedwards/scs`).
-*   **Sequence:** User visits a `tunn` URL -> Proxy sees no cookie -> Redirect to Google Login (or mock OIDC provider) -> On success, Proxy sets a session cookie for `.tunn.to` -> User is redirected back and can now access the web app.
+1. **Wildcard DNS:** Use `nip.io` (e.g., `*.tunn.local.127.0.0.1.nip.io`) for subdomain routing on localhost
+2. **Self-Signed Certificates:** Dev mode auto-generates certs for local TLS
+3. **Single Process:** Can run proxy + multiple clients on one machine for testing
 
-## Auth Flow 2: CLI (UDP, Stateless)
+## Data Plane Architecture (Critical Missing Piece)
 
-*   **Mechanism:** JWT Bearer Tokens (`golang-jwt/jwt`).
-*   **Sequence (`login`):** User runs `tunn login` -> Gets a code and URL -> Authenticates in browser -> CLI polls and receives a JWT.
-*   **Sequence (`connect`):** User runs `tunn connect` -> Client makes an HTTP/2 `POST` request with the JWT -> Connection is hijacked into a bidirectional stream -> Local UDP packets are proxied over this stream.
+**Current Status:** Control plane exists, data plane is **stubbed**.
+
+**What Needs Implementation:**
+
+The proxy needs to forward HTTP request/response data through the gRPC tunnel:
+
+1. **Incoming HTTP request** to `https://abc123.tunn.to/foo`
+2. **Proxy finds tunnel** via gRPC TunnelServer
+3. **Proxy sends ProxyRequest** to client over gRPC stream
+4. **Proxy waits for DataChunk messages** from client with HTTP response
+5. **Client receives ProxyRequest**, makes HTTP request to localhost:8000
+6. **Client streams response** back as DataChunk messages
+7. **Proxy reconstructs HTTP response** and sends to original browser
+
+**Protocol Addition Required:**
+
+```protobuf
+message TunnelMessage {
+  oneof message {
+    // ... existing messages ...
+    DataChunk data_chunk = 7;
+    StreamClosed stream_closed = 8;
+  }
+}
+
+message DataChunk {
+  string connection_id = 1;    // Matches ProxyRequest.connection_id
+  bytes data = 2;               // HTTP response bytes
+  bool from_client = 3;         // true = response, false = request
+}
+
+message StreamClosed {
+  string connection_id = 1;
+  string reason = 2;
+}
+```
+
+## Rate Limiting Architecture
+
+**Goal:** Prevent abuse while keeping infrastructure costs ~$0.
+
+**Strategy:** Track bandwidth usage per source IP, sync across nodes.
+
+**Baseline Quota:** 10MiB/month per IP (configurable via `RATE_LIMIT_MB_PER_MONTH`)
+
+**Why 10MiB?**
+- Enough for testing (a few page loads)
+- Not enough for abuse (hosting video streaming, etc.)
+- Keeps bandwidth costs negligible
+- Can be raised if needed
+
+**Implementation:**
+
+Each node maintains in-memory map:
+```go
+map[string]*IPUsage {
+  "1.2.3.4": {
+    BytesThisMonth: 5242880,  // 5 MiB used
+    LastReset: time.Date(2025, 11, 1, ...),
+    MonthlyLimit: 10485760,   // 10 MiB limit
+  }
+}
+```
+
+**Inter-Node Sync:**
+
+Every 30 seconds, each node broadcasts to all other nodes:
+```protobuf
+message SyncUsage {
+  map<string, int64> ip_usage = 1;  // IP -> bytes used this month
+  int64 timestamp = 2;
+}
+```
+
+Nodes merge by taking `max(local, remote)` for each IP. This is eventually consistent and prevents double-counting.
+
+**Full Mesh:** With 1-4 nodes, a full mesh is simple (max 6 connections). If we ever need >4 nodes, we're charging money and can use Redis.
 
 ## Technology Choices
 
-*   **Control Plane:** **gRPC** (over HTTP/2) for robust, multiplexed communication between server and sharer.
-*   **Web Sessions:** `github.com/alexedwards/scs/v2` for stateful browser authentication.
-*   **JWTs:** `github.com/golang-jwt/jwt/v4` for stateless CLI authentication.
-*   **HTTP/3:** `github.com/quic-go/quic-go` for the modern web listener.
-*   **Protobuf:** `google.golang.org/protobuf` for defining the gRPC API.
+- **Control Plane:** gRPC (over HTTP/2) for robust, multiplexed communication
+- **Data Plane:** HTTP reverse proxy over gRPC DataChunk messages
+- **HTTP/3:** `github.com/quic-go/quic-go` for modern browser support
+- **Protobuf:** `google.golang.org/protobuf` for gRPC API definitions
+- **Rate Limiting:** In-memory, synced via gRPC mesh
+- **No Database:** Fully stateless, ephemeral tunnels
 
 ## Build and Test Commands
 
 **CRITICAL: Always use `make` for building and testing. Never run `go` commands directly.**
 
-This project uses a comprehensive Makefile to ensure consistent builds and tests across all environments. Direct use of `go build`, `go test`, or other `go` commands is prohibited.
+This project uses a comprehensive Makefile to ensure consistent builds and tests across all environments.
 
 ### Essential Commands
 
@@ -94,9 +237,103 @@ This project uses a comprehensive Makefile to ensure consistent builds and tests
 
 ### Why Make Only?
 
-1. **Consistency:** Ensures all developers and CI/CD use identical build flags and test configurations
-2. **Protobuf Generation:** The `make proto` target handles code generation and file organization correctly
-3. **Future-Proofing:** As the build process becomes more complex (e.g., embedding assets, multi-stage builds), the Makefile will handle it transparently
+1. **Consistency:** Ensures all builds use identical flags and configurations
+2. **Protobuf Generation:** The `make proto` target handles code generation correctly
+3. **Future-Proofing:** Build complexity is abstracted away
 4. **Discoverability:** `make help` shows all available commands
 
 **Exception:** You may use `go mod` commands directly for dependency management when needed, but prefer `make tidy`.
+
+## Deployment Strategy
+
+**Phase 1: Launch (Now → 2 Weeks)**
+- Deploy single Fly.io node with tunn.to domain
+- Open source the entire codebase on GitHub
+- WELL_KNOWN_KEY hardcoded (or well-known secret)
+- 10MiB/month rate limit per IP
+- Free for everyone
+- No analytics, no tracking, no user accounts
+
+**Phase 2: Scale (If Needed)**
+- Add 2-4 Fly.io nodes as traffic grows
+- Full mesh inter-node communication
+- Shared rate limiting state
+- Still free
+
+**Phase 3: Monetize (If We Get Here)**
+- If sustained >4 nodes for >3 months → add paid tiers
+- Free tier: 10MiB/month (same as now)
+- Paid tier: Higher limits + custom domains + support
+- Implement auth provider (see archive of TODO.md Phase 7)
+
+**Target:** Launch Phase 1 within 1 week.
+
+## What's NOT Included (For Now)
+
+**Removed from V1:**
+- ❌ Billing / Stripe integration (premature)
+- ❌ Custom auth provider (tunn-auth)
+- ❌ User database (stateless via Google OAuth)
+- ❌ UDP tunneling (Phase 5 - defer to v1.1)
+- ❌ Custom domains (can add later if paid tiers)
+
+**What We're Building:**
+- ✅ HTTP/HTTPS tunneling over gRPC
+- ✅ Google OAuth (browser + CLI device flow)
+- ✅ Email allow-lists (Google Doc sharing model)
+- ✅ Session cookies + JWT tokens
+- ✅ Per-tunnel rate limiting
+- ✅ Inter-node sync
+- ✅ Horizontal scaling (1-4 nodes)
+- ✅ Free hosted service at tunn.to
+- ✅ Open source everything
+
+## Implementation Status
+
+**Completed:**
+- ✅ gRPC control plane (bidirectional streaming)
+- ✅ Tunnel registration and management
+- ✅ Health checks
+- ✅ Inter-node tunnel discovery
+- ✅ HTTP/2 + HTTP/3 listeners
+- ✅ Google OAuth browser flow (login, callback, sessions)
+- ✅ Google OAuth device flow (`tunn login` command)
+- ✅ Session cookie management
+- ✅ JWT validation middleware
+- ✅ Dev/prod configuration
+
+**In Progress (Claude Code Driving):**
+- 🚧 Email allow-list protocol (add to RegisterClient)
+- 🚧 Allow-list enforcement (check email in webproxy.go)
+- 🚧 Data plane: HTTP forwarding over gRPC (CRITICAL)
+- 🚧 Per-tunnel rate limiting (10MiB/month)
+- 🚧 Replace mock OIDC with real Google OAuth config
+
+**Next Up:**
+- ⏸ E2E testing
+- ⏸ Fly.io deployment
+- ⏸ Documentation
+- ⏸ Open source launch
+
+## Developer Notes
+
+**This project is now being driven by Claude Code** (as of 2025-11-16).
+
+**Key Decisions:**
+1. **Free forever by default** - monetize only if forced to by scale
+2. **Google Doc sharing model** - share tunnels by email, familiar UX
+3. **Google OAuth only** - no custom auth, no user database
+4. **Per-tunnel rate limiting** - 10MiB/month keeps costs near-zero
+5. **Full mesh <4 nodes** - simple, no distributed system complexity
+6. **OSS everything** - build in public, no secret sauce
+
+**Philosophy:**
+- Launch fast, iterate based on usage
+- Don't build billing until we need it
+- Keep it radically simple
+- If successful → charge, if not → free forever
+
+**Contact:**
+- Owner: behrlich
+- Implementation: Claude Code (Anthropic)
+- Status: Active development

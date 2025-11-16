@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/ehrlich-b/tunn/internal/common"
+	"github.com/golang-jwt/jwt/v4"
 )
 
 // handleLogin initiates the OIDC authentication flow
@@ -207,4 +208,86 @@ func extractTunnelID(hostname, domain string) string {
 	}
 
 	return tunnelID
+}
+
+// CheckJWT is a middleware that validates JWT bearer tokens
+func (p *ProxyServer) CheckJWT(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Extract Authorization header
+		authHeader := r.Header.Get("Authorization")
+		if authHeader == "" {
+			common.LogError("missing authorization header", "path", r.URL.Path)
+			http.Error(w, "Missing Authorization header", http.StatusUnauthorized)
+			return
+		}
+
+		// Check for Bearer token
+		const bearerPrefix = "Bearer "
+		if !strings.HasPrefix(authHeader, bearerPrefix) {
+			common.LogError("invalid authorization header format", "header", authHeader)
+			http.Error(w, "Invalid Authorization header format", http.StatusUnauthorized)
+			return
+		}
+
+		tokenString := strings.TrimPrefix(authHeader, bearerPrefix)
+
+		// Parse and validate token
+		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+			// Verify signing method
+			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+			}
+
+			// Get signing key
+			return p.getJWTSigningKey(), nil
+		})
+
+		if err != nil {
+			common.LogError("failed to parse JWT", "error", err)
+			http.Error(w, "Invalid token", http.StatusUnauthorized)
+			return
+		}
+
+		if !token.Valid {
+			common.LogError("invalid JWT token")
+			http.Error(w, "Invalid token", http.StatusUnauthorized)
+			return
+		}
+
+		// Extract claims
+		claims, ok := token.Claims.(jwt.MapClaims)
+		if !ok {
+			common.LogError("failed to extract JWT claims")
+			http.Error(w, "Invalid token claims", http.StatusUnauthorized)
+			return
+		}
+
+		// Extract user email from claims
+		email, ok := claims["email"].(string)
+		if !ok || email == "" {
+			common.LogError("missing email claim in JWT")
+			http.Error(w, "Invalid token: missing email", http.StatusUnauthorized)
+			return
+		}
+
+		common.LogInfo("authenticated JWT request", "email", email, "path", r.URL.Path)
+
+		// Token is valid, proceed to handler
+		next.ServeHTTP(w, r)
+	})
+}
+
+// getJWTSigningKey returns the signing key for JWT validation
+func (p *ProxyServer) getJWTSigningKey() []byte {
+	// In dev mode, use the mock OIDC's signing key
+	if p.config.IsDev() && p.mockOIDC != nil {
+		return p.mockOIDC.GetSigningKey()
+	}
+
+	// In production, we would:
+	// 1. Fetch JWKS from the OIDC provider, or
+	// 2. Use a configured secret key
+	// For V1, we'll use a configured secret from environment
+	// TODO: Implement JWKS-based validation for production
+	return []byte("TODO_CONFIGURE_JWT_SECRET")
 }

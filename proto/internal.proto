@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package internal;
+
+option go_package = "github.com/ehrlich-b/tunn/pkg/proto/internalv1";
+
+service InternalService {
+  rpc FindTunnel(FindTunnelRequest) returns (FindTunnelResponse);
+}
+
+message FindTunnelRequest {
+  string tunnel_id = 1;
+}
+
+message FindTunnelResponse {
+  bool found = 1;
+  // The address of the node handling the tunnel.
+  // If found is true, this will be the address of the node.
+  // The caller can then use this address to forward the request.
+  string node_address = 2;
+}

@@ -38,9 +38,10 @@ func TestTunnelServerRegistration(t *testing.T) {
 	stream.recvQueue <- &pb.TunnelMessage{
 		Message: &pb.TunnelMessage_RegisterClient{
 			RegisterClient: &pb.RegisterClient{
-				TunnelId:  "test123",
-				TargetUrl: "http://localhost:8000",
-				AuthToken: "secret",
+				TunnelId:     "test123",
+				TargetUrl:    "http://localhost:8000",
+				TunnelKey:    "test-key",
+				CreatorEmail: "test@example.com",
 			},
 		},
 	}
@@ -104,8 +105,10 @@ func TestTunnelServerDuplicateRegistration(t *testing.T) {
 	stream1.recvQueue <- &pb.TunnelMessage{
 		Message: &pb.TunnelMessage_RegisterClient{
 			RegisterClient: &pb.RegisterClient{
-				TunnelId:  "duplicate",
-				TargetUrl: "http://localhost:8000",
+				TunnelId:     "duplicate",
+				TargetUrl:    "http://localhost:8000",
+				TunnelKey:    "test-key",
+				CreatorEmail: "test@example.com",
 			},
 		},
 	}
@@ -127,8 +130,10 @@ func TestTunnelServerDuplicateRegistration(t *testing.T) {
 	stream2.recvQueue <- &pb.TunnelMessage{
 		Message: &pb.TunnelMessage_RegisterClient{
 			RegisterClient: &pb.RegisterClient{
-				TunnelId:  "duplicate",
-				TargetUrl: "http://localhost:9000",
+				TunnelId:     "duplicate",
+				TargetUrl:    "http://localhost:9000",
+				TunnelKey:    "test-key",
+				CreatorEmail: "test@example.com",
 			},
 		},
 	}

@@ -1,0 +1,68 @@
+version: '3.8'
+
+services:
+  # The tunn proxy server
+  proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    container_name: tunn-proxy
+    environment:
+      - ENV=dev
+      - WELL_KNOWN_KEY=tunn-free-v1-2025
+    ports:
+      - "8443:8443"  # HTTP/2 + HTTP/3
+      - "9000:9000"  # Mock OIDC
+    volumes:
+      - ./certs:/app/certs:ro
+    command: ["-mode=host", "-cert=/app/certs/cert.pem", "-key=/app/certs/key.pem"]
+    networks:
+      tunn-test:
+        aliases:
+          - tunn.local
+    healthcheck:
+      test: ["CMD", "curl", "-f", "-k", "https://localhost:8443/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  # Test web server to tunnel to
+  test-web:
+    image: python:3.11-slim
+    container_name: tunn-test-web
+    working_dir: /web
+    volumes:
+      - ./test/web:/web:ro
+    command: ["python", "-m", "http.server", "8000"]
+    networks:
+      - tunn-test
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+  # The tunn client (will be run manually or via script)
+  # Commented out because it needs JWT token from login
+  # client:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.test
+  #   container_name: tunn-client
+  #   environment:
+  #     - ENV=dev
+  #   depends_on:
+  #     proxy:
+  #       condition: service_healthy
+  #     test-web:
+  #       condition: service_healthy
+  #   volumes:
+  #     - ~/.tunn:/root/.tunn:ro  # Mount token directory
+  #   command: ["-mode=client", "-to=http://test-web:8000", "--allow=test@example.com"]
+  #   networks:
+  #     - tunn-test
+
+networks:
+  tunn-test:
+    driver: bridge

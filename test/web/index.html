@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>tunn E2E Test - Success!</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Monaco', 'Courier New', monospace;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .container {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 600px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+        h1 {
+            color: #667eea;
+            font-size: 32px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        .success {
+            font-size: 48px;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .info {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        .info h2 {
+            color: #495057;
+            font-size: 18px;
+            margin-bottom: 15px;
+        }
+        .info pre {
+            background: #1a1a1a;
+            color: #00ff00;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            font-size: 12px;
+            line-height: 1.5;
+        }
+        .badge {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 14px;
+            margin: 5px 5px 5px 0;
+        }
+        .test-list {
+            list-style: none;
+            margin-top: 20px;
+        }
+        .test-list li {
+            padding: 10px;
+            margin: 5px 0;
+            background: #e9ecef;
+            border-radius: 5px;
+            position: relative;
+            padding-left: 35px;
+        }
+        .test-list li:before {
+            content: '✓';
+            position: absolute;
+            left: 10px;
+            color: #28a745;
+            font-weight: bold;
+            font-size: 18px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="success">🎉 ✅ 🚀</div>
+        <h1>tunn E2E Test Success!</h1>
+
+        <div class="info">
+            <h2>What Just Happened?</h2>
+            <ul class="test-list">
+                <li>You logged in with Google OAuth</li>
+                <li>Your email was checked against the tunnel's allow-list</li>
+                <li>HTTP request was proxied over gRPC</li>
+                <li>This page was fetched from localhost and sent back</li>
+                <li>Full end-to-end tunnel working! 🎊</li>
+            </ul>
+        </div>
+
+        <div class="info">
+            <h2>Request Details</h2>
+            <pre id="details"></pre>
+        </div>
+
+        <div class="info">
+            <h2>Architecture Verified</h2>
+            <div>
+                <span class="badge">HTTP-over-gRPC ✓</span>
+                <span class="badge">Google OAuth ✓</span>
+                <span class="badge">Email Allow-Lists ✓</span>
+                <span class="badge">TLS ✓</span>
+                <span class="badge">Session Mgmt ✓</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const details = {
+            url: window.location.href,
+            protocol: window.location.protocol,
+            host: window.location.host,
+            pathname: window.location.pathname,
+            userAgent: navigator.userAgent,
+            timestamp: new Date().toISOString(),
+            cookiesEnabled: navigator.cookieEnabled,
+            language: navigator.language
+        };
+
+        document.getElementById('details').textContent = JSON.stringify(details, null, 2);
+
+        // Add API test endpoint
+        fetch('/api/test')
+            .then(r => r.json())
+            .catch(() => ({ status: 'No API endpoint' }))
+            .then(data => {
+                console.log('API test:', data);
+            });
+    </script>
+</body>
+</html>

@@ -75,6 +75,7 @@ echo -e "${GREEN}✓${NC} Test web server running (PID: $WEBSERVER_PID)"
 # Set environment variables for dev mode
 export ENV=dev
 export WELL_KNOWN_KEY=tunn-free-v1-2025
+export TOKEN=test-token-dev  # Dummy token for host mode
 
 # Start proxy in background
 echo "🚀 Starting tunn proxy (dev mode)..."

@@ -81,52 +81,57 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		"path", r.URL.Path,
 		"method", r.Method)
 
-	// Check authentication (web requests require a session)
-	authenticated := p.sessionManager.GetBool(r.Context(), "authenticated")
-	if !authenticated {
-		// Redirect to login with return_to parameter
-		returnTo := r.URL.String()
-		loginURL := fmt.Sprintf("/auth/login?return_to=%s", returnTo)
+	// Skip auth in public mode
+	if !p.config.PublicMode {
+		// Check authentication (web requests require a session)
+		authenticated := p.sessionManager.GetBool(r.Context(), "authenticated")
+		if !authenticated {
+			// Redirect to login with return_to parameter
+			returnTo := r.URL.String()
+			loginURL := fmt.Sprintf("/auth/login?return_to=%s", returnTo)
 
-		common.LogInfo("unauthenticated tunnel access, redirecting to login",
-			"tunnel_id", tunnelID,
-			"return_to", returnTo)
-		http.Redirect(w, r, loginURL, http.StatusFound)
-		return
-	}
-
-	// User is authenticated, proceed with proxying
-	userEmail := p.sessionManager.GetString(r.Context(), "user_email")
-	common.LogInfo("authenticated tunnel access",
-		"email", userEmail,
-		"tunnel_id", tunnelID,
-		"path", r.URL.Path)
-
-	// Check if user is on the tunnel's allow-list
-	allowed := false
-	for _, allowedEmail := range tunnel.AllowedEmails {
-		if allowedEmail == userEmail {
-			allowed = true
-			break
+			common.LogInfo("unauthenticated tunnel access, redirecting to login",
+				"tunnel_id", tunnelID,
+				"return_to", returnTo)
+			http.Redirect(w, r, loginURL, http.StatusFound)
+			return
 		}
-	}
 
-	if !allowed {
-		common.LogInfo("access denied - user not on allow-list",
+		// User is authenticated, proceed with proxying
+		userEmail := p.sessionManager.GetString(r.Context(), "user_email")
+		common.LogInfo("authenticated tunnel access",
 			"email", userEmail,
 			"tunnel_id", tunnelID,
-			"allowed_emails", tunnel.AllowedEmails)
+			"path", r.URL.Path)
 
-		w.WriteHeader(http.StatusForbidden)
-		fmt.Fprintf(w, "Access Denied\n\n")
-		fmt.Fprintf(w, "You (%s) are not authorized to access this tunnel.\n\n", userEmail)
-		fmt.Fprintf(w, "Contact the tunnel owner to request access.\n")
-		return
+		// Check if user is on the tunnel's allow-list
+		allowed := false
+		for _, allowedEmail := range tunnel.AllowedEmails {
+			if allowedEmail == userEmail {
+				allowed = true
+				break
+			}
+		}
+
+		if !allowed {
+			common.LogInfo("access denied - user not on allow-list",
+				"email", userEmail,
+				"tunnel_id", tunnelID,
+				"allowed_emails", tunnel.AllowedEmails)
+
+			w.WriteHeader(http.StatusForbidden)
+			fmt.Fprintf(w, "Access Denied\n\n")
+			fmt.Fprintf(w, "You (%s) are not authorized to access this tunnel.\n\n", userEmail)
+			fmt.Fprintf(w, "Contact the tunnel owner to request access.\n")
+			return
+		}
+
+		common.LogInfo("allow-list check passed",
+			"email", userEmail,
+			"tunnel_id", tunnelID)
+	} else {
+		common.LogInfo("public mode - skipping auth", "tunnel_id", tunnelID)
 	}
-
-	common.LogInfo("allow-list check passed",
-		"email", userEmail,
-		"tunnel_id", tunnelID)
 
 	// Proxy the HTTP request over gRPC
 	if err := p.proxyHTTPOverGRPC(w, r, tunnel); err != nil {

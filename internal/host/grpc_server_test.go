@@ -11,7 +11,7 @@ import (
 )
 
 func TestNewTunnelServer(t *testing.T) {
-	srv := NewTunnelServer("test-key")
+	srv := NewTunnelServer("test-key", false)
 	if srv == nil {
 		t.Fatal("Expected non-nil server")
 	}
@@ -26,7 +26,7 @@ func TestNewTunnelServer(t *testing.T) {
 }
 
 func TestTunnelServerRegistration(t *testing.T) {
-	srv := NewTunnelServer("test-key")
+	srv := NewTunnelServer("test-key", false)
 
 	// Create a mock stream
 	stream := &mockTunnelStream{
@@ -94,7 +94,7 @@ func TestTunnelServerRegistration(t *testing.T) {
 }
 
 func TestTunnelServerDuplicateRegistration(t *testing.T) {
-	srv := NewTunnelServer("test-key")
+	srv := NewTunnelServer("test-key", false)
 
 	// First stream
 	stream1 := &mockTunnelStream{
@@ -164,7 +164,7 @@ func TestTunnelServerDuplicateRegistration(t *testing.T) {
 }
 
 func TestGetTunnel(t *testing.T) {
-	srv := NewTunnelServer("test-key")
+	srv := NewTunnelServer("test-key", false)
 
 	// Add a tunnel directly
 	conn := &TunnelConnection{
@@ -195,7 +195,7 @@ func TestGetTunnel(t *testing.T) {
 }
 
 func TestListTunnels(t *testing.T) {
-	srv := NewTunnelServer("test-key")
+	srv := NewTunnelServer("test-key", false)
 
 	// Add multiple tunnels
 	for i := 0; i < 3; i++ {

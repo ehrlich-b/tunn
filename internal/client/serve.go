@@ -54,13 +54,19 @@ func (s *ServeClient) Run(ctx context.Context) error {
 
 	common.LogInfo("gRPC stream established")
 
-	// Extract email from JWT
-	creatorEmail, err := common.ExtractEmailFromJWT(s.AuthToken)
-	if err != nil {
-		return fmt.Errorf("failed to extract email from JWT: %w", err)
+	// Extract email from JWT (skip if no token)
+	var creatorEmail string
+	if s.AuthToken != "" {
+		var err error
+		creatorEmail, err = common.ExtractEmailFromJWT(s.AuthToken)
+		if err != nil {
+			return fmt.Errorf("failed to extract email from JWT: %w", err)
+		}
+		common.LogInfo("extracted creator email", "email", creatorEmail)
+	} else {
+		common.LogInfo("no auth token - using public mode")
+		creatorEmail = ""
 	}
-
-	common.LogInfo("extracted creator email", "email", creatorEmail)
 
 	// Send registration message
 	regMsg := &pb.TunnelMessage{

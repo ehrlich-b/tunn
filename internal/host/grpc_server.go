@@ -17,6 +17,7 @@ type TunnelServer struct {
 	mu           sync.RWMutex
 	tunnels      map[string]*TunnelConnection
 	wellKnownKey string // Free tier key that allows tunnel creation
+	publicMode   bool   // Disable auth for testing
 }
 
 // TunnelConnection represents an active tunnel connection
@@ -34,10 +35,11 @@ type TunnelConnection struct {
 }
 
 // NewTunnelServer creates a new gRPC tunnel server
-func NewTunnelServer(wellKnownKey string) *TunnelServer {
+func NewTunnelServer(wellKnownKey string, publicMode bool) *TunnelServer {
 	return &TunnelServer{
 		tunnels:      make(map[string]*TunnelConnection),
 		wellKnownKey: wellKnownKey,
+		publicMode:   publicMode,
 	}
 }
 
@@ -61,66 +63,76 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 
 	common.LogInfo("client registering", "tunnel_id", tunnelID, "target", targetURL)
 
-	// Validate tunnel_key (authorization to create tunnels)
-	if regClient.TunnelKey != s.wellKnownKey {
-		common.LogError("invalid tunnel key", "tunnel_id", tunnelID, "provided_key", regClient.TunnelKey)
-		respMsg := &pb.TunnelMessage{
-			Message: &pb.TunnelMessage_RegisterResponse{
-				RegisterResponse: &pb.RegisterResponse{
-					Success:      false,
-					ErrorMessage: "Invalid tunnel key. Use -key=WELL_KNOWN_KEY to create tunnels.",
-				},
-			},
-		}
-		stream.Send(respMsg)
-		return fmt.Errorf("invalid tunnel key for tunnel %s", tunnelID)
-	}
+	var creatorEmail string
+	var allowedEmails []string
 
-	// Validate and extract email from JWT
-	creatorEmail := regClient.CreatorEmail
-	if creatorEmail == "" {
-		// Try to extract from JWT if not provided
-		if regClient.AuthToken != "" {
-			extractedEmail, err := common.ExtractEmailFromJWT(regClient.AuthToken)
-			if err != nil {
-				common.LogError("failed to extract email from JWT", "error", err)
-				respMsg := &pb.TunnelMessage{
-					Message: &pb.TunnelMessage_RegisterResponse{
-						RegisterResponse: &pb.RegisterResponse{
-							Success:      false,
-							ErrorMessage: "Invalid JWT: cannot extract email",
-						},
-					},
-				}
-				stream.Send(respMsg)
-				return fmt.Errorf("invalid JWT for tunnel %s: %w", tunnelID, err)
-			}
-			creatorEmail = extractedEmail
-		} else {
-			common.LogError("no creator email or JWT provided")
+	// Skip auth in public mode
+	if s.publicMode {
+		common.LogInfo("public mode - skipping auth", "tunnel_id", tunnelID)
+		creatorEmail = "public@tunn.local"
+		allowedEmails = []string{"public@tunn.local"}
+	} else {
+		// Validate tunnel_key (authorization to create tunnels)
+		if regClient.TunnelKey != s.wellKnownKey {
+			common.LogError("invalid tunnel key", "tunnel_id", tunnelID, "provided_key", regClient.TunnelKey)
 			respMsg := &pb.TunnelMessage{
 				Message: &pb.TunnelMessage_RegisterResponse{
 					RegisterResponse: &pb.RegisterResponse{
 						Success:      false,
-						ErrorMessage: "Authentication required. Run 'tunn login' first.",
+						ErrorMessage: "Invalid tunnel key. Use -key=WELL_KNOWN_KEY to create tunnels.",
 					},
 				},
 			}
 			stream.Send(respMsg)
-			return fmt.Errorf("no authentication provided for tunnel %s", tunnelID)
+			return fmt.Errorf("invalid tunnel key for tunnel %s", tunnelID)
 		}
-	}
 
-	// Build complete allow-list (creator + allowed_emails)
-	allowedEmails := make([]string, 0, len(regClient.AllowedEmails)+1)
-	allowedEmails = append(allowedEmails, creatorEmail) // Creator always allowed
-	for _, email := range regClient.AllowedEmails {
-		if email != "" && email != creatorEmail {
-			allowedEmails = append(allowedEmails, email)
+		// Validate and extract email from JWT
+		creatorEmail = regClient.CreatorEmail
+		if creatorEmail == "" {
+			// Try to extract from JWT if not provided
+			if regClient.AuthToken != "" {
+				extractedEmail, err := common.ExtractEmailFromJWT(regClient.AuthToken)
+				if err != nil {
+					common.LogError("failed to extract email from JWT", "error", err)
+					respMsg := &pb.TunnelMessage{
+						Message: &pb.TunnelMessage_RegisterResponse{
+							RegisterResponse: &pb.RegisterResponse{
+								Success:      false,
+								ErrorMessage: "Invalid JWT: cannot extract email",
+							},
+						},
+					}
+					stream.Send(respMsg)
+					return fmt.Errorf("invalid JWT for tunnel %s: %w", tunnelID, err)
+				}
+				creatorEmail = extractedEmail
+			} else {
+				common.LogError("no creator email or JWT provided")
+				respMsg := &pb.TunnelMessage{
+					Message: &pb.TunnelMessage_RegisterResponse{
+						RegisterResponse: &pb.RegisterResponse{
+							Success:      false,
+							ErrorMessage: "Authentication required. Run 'tunn login' first.",
+						},
+					},
+				}
+				stream.Send(respMsg)
+				return fmt.Errorf("no authentication provided for tunnel %s", tunnelID)
+			}
 		}
-	}
 
-	common.LogInfo("tunnel allow-list", "tunnel_id", tunnelID, "creator", creatorEmail, "allowed", allowedEmails)
+		// Build complete allow-list (creator + allowed_emails)
+		allowedEmails = make([]string, 0, len(regClient.AllowedEmails)+1)
+		allowedEmails = append(allowedEmails, creatorEmail) // Creator always allowed
+		for _, email := range regClient.AllowedEmails {
+			if email != "" && email != creatorEmail {
+				allowedEmails = append(allowedEmails, email)
+			}
+		}
+
+		common.LogInfo("tunnel allow-list", "tunnel_id", tunnelID, "creator", creatorEmail, "allowed", allowedEmails)
+	}
 
 	// Create tunnel connection
 	conn := &TunnelConnection{

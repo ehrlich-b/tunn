@@ -37,6 +37,9 @@ type Config struct {
 	// Tunnel creation authorization
 	WellKnownKey string // Free tier key that allows anyone to create tunnels
 
+	// Public mode (testing only - disables all auth)
+	PublicMode bool
+
 	// Client configuration
 	ServerAddr string
 	SkipVerify bool
@@ -89,6 +92,9 @@ func (c *Config) loadDevConfig() {
 
 	// Tunnel creation key (free tier)
 	c.WellKnownKey = getEnvOrDefault("WELL_KNOWN_KEY", "tunn-free-v1-2025")
+
+	// Public mode (disable all auth for testing)
+	c.PublicMode = getEnvOrDefault("PUBLIC_MODE", "") == "true"
 
 	// Skip TLS verification in dev
 	c.SkipVerify = true

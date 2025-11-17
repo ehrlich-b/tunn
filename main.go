@@ -145,11 +145,17 @@ func runClient() {
 		os.Exit(1)
 	}
 
-	// Load JWT from token file
-	token, err := client.LoadToken()
-	if err != nil {
-		common.LogError("failed to load JWT token - run 'tunn login' first", "error", err)
-		os.Exit(1)
+	// Load JWT from token file (skip in public mode)
+	var token string
+	if !cfg.PublicMode {
+		token, err = client.LoadToken()
+		if err != nil {
+			common.LogError("failed to load JWT token - run 'tunn login' first", "error", err)
+			os.Exit(1)
+		}
+	} else {
+		common.LogInfo("public mode - skipping JWT load")
+		token = "" // No token needed in public mode
 	}
 
 	// Get tunnel key from flag or env var

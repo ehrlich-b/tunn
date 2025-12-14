@@ -108,9 +108,9 @@ This checklist details the steps to build the robust, production-ready V1 of `tu
 
 ---
 
-## V1.1: UDP Tunneling - DEFERRED TO POST-LAUNCH 📦
+## V1.1: UDP Tunneling - COMPLETE ✅
 
-**Architectural Decision (2025-11-17):** UDP tunneling requires a 3-binary architecture and adds significant complexity. Deferring to v1.1 to focus on HTTP tunneling launch.
+**Status:** UDP tunneling support has been fully implemented (2025-11-17).
 
 **Architecture:**
 ```
@@ -118,18 +118,30 @@ This checklist details the steps to build the robust, production-ready V1 of `tu
                         ↑ Tunnel ID in path: /udp/abc123, not in packet
 ```
 
-**Why Defer:**
-- HTTP tunneling is the primary use case (dev servers, webhooks, demos)
-- UDP adds complexity: packet framing, connection-less nature, separate `connect` command
-- Want to validate market fit with HTTP first
-- Can launch UDP as a paid feature in v1.1
+**Implementation Complete:**
+- ✅ **Define UDP Protobuf Messages:** Added `UdpPacket` message to `tunnel.proto`
+- ✅ **Implement `tunn connect` Command:** Client-side UDP listener that wraps packets in HTTP/2 (internal/client/connect.go)
+- ✅ **Implement UDP Proxy Handler:** Server-side unwrapping and forwarding (internal/host/udpproxy.go)
+- ✅ **Add UDP Message Routing:** gRPC server routes UDP packets to correct tunnels
+- ✅ **Add UDP Forwarding in Serve Client:** Serve client forwards UDP to local target and returns responses
+- ✅ **Add Protocol Support:** `--protocol` flag supports "http", "udp", or "both"
+- ✅ **Add UDP Target Flag:** `--udp-target` flag specifies local UDP service address
+- ✅ **E2E Test Script:** Created `test-udp-local.sh` for manual testing
 
-**Implementation Tasks (Future):**
-- [ ] **Define UDP Protobuf Messages:** Add `UdpPacket` message with length-prefixed framing
-- [ ] **Implement `tunn connect` Command:** Client-side UDP listener that wraps packets in HTTP/2
-- [ ] **Implement UDP Proxy Handler:** Server-side unwrapping and forwarding
-- [ ] **Add Multi-Tunnel Support:** Allow `tunn connect` to handle multiple tunnels in one process
-- [ ] **Test UDP Tunneling:** Minecraft server, VoIP, game servers
+**Usage:**
+```bash
+# Terminal 1: Start UDP tunnel (serve)
+./bin/tunn -mode=client -id=minecraft -protocol=udp -udp-target=localhost:25565 -tunnel-key=$WELL_KNOWN_KEY
+
+# Terminal 2: Start local UDP proxy (connect)
+./bin/tunn -mode=connect -id=minecraft -local=localhost:25566
+
+# Terminal 3: Connect game client
+# Point your game client to localhost:25566 and it will tunnel through to the server
+```
+
+**Known Limitations:**
+- Single UDP connection per serve client (can be extended to support multiple game servers in future)
 
 ---
 

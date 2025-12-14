@@ -345,6 +345,9 @@ func (p *ProxyServer) createHandler() http.Handler {
 	mux.HandleFunc("/auth/login", p.handleLogin)
 	mux.HandleFunc("/auth/callback", p.handleCallback)
 
+	// UDP proxy endpoint (for tunn connect)
+	mux.HandleFunc("/udp/", p.handleUDPProxy)
+
 	// Main handler - check if this is apex domain or a tunnel subdomain
 	mux.HandleFunc("/", p.handleWebProxy)
 

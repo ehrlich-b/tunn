@@ -19,7 +19,8 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	InternalService_FindTunnel_FullMethodName = "/internal.InternalService/FindTunnel"
+	InternalService_FindTunnel_FullMethodName       = "/internal.InternalService/FindTunnel"
+	InternalService_ForwardUdpPacket_FullMethodName = "/internal.InternalService/ForwardUdpPacket"
 )
 
 // InternalServiceClient is the client API for InternalService service.
@@ -27,6 +28,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type InternalServiceClient interface {
 	FindTunnel(ctx context.Context, in *FindTunnelRequest, opts ...grpc.CallOption) (*FindTunnelResponse, error)
+	ForwardUdpPacket(ctx context.Context, in *ForwardUdpPacketRequest, opts ...grpc.CallOption) (*ForwardUdpPacketResponse, error)
 }
 
 type internalServiceClient struct {
@@ -47,11 +49,22 @@ func (c *internalServiceClient) FindTunnel(ctx context.Context, in *FindTunnelRe
 	return out, nil
 }
 
+func (c *internalServiceClient) ForwardUdpPacket(ctx context.Context, in *ForwardUdpPacketRequest, opts ...grpc.CallOption) (*ForwardUdpPacketResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ForwardUdpPacketResponse)
+	err := c.cc.Invoke(ctx, InternalService_ForwardUdpPacket_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // InternalServiceServer is the server API for InternalService service.
 // All implementations must embed UnimplementedInternalServiceServer
 // for forward compatibility.
 type InternalServiceServer interface {
 	FindTunnel(context.Context, *FindTunnelRequest) (*FindTunnelResponse, error)
+	ForwardUdpPacket(context.Context, *ForwardUdpPacketRequest) (*ForwardUdpPacketResponse, error)
 	mustEmbedUnimplementedInternalServiceServer()
 }
 
@@ -64,6 +77,9 @@ type UnimplementedInternalServiceServer struct{}
 
 func (UnimplementedInternalServiceServer) FindTunnel(context.Context, *FindTunnelRequest) (*FindTunnelResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method FindTunnel not implemented")
+}
+func (UnimplementedInternalServiceServer) ForwardUdpPacket(context.Context, *ForwardUdpPacketRequest) (*ForwardUdpPacketResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ForwardUdpPacket not implemented")
 }
 func (UnimplementedInternalServiceServer) mustEmbedUnimplementedInternalServiceServer() {}
 func (UnimplementedInternalServiceServer) testEmbeddedByValue()                         {}
@@ -104,6 +120,24 @@ func _InternalService_FindTunnel_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _InternalService_ForwardUdpPacket_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ForwardUdpPacketRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InternalServiceServer).ForwardUdpPacket(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InternalService_ForwardUdpPacket_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InternalServiceServer).ForwardUdpPacket(ctx, req.(*ForwardUdpPacketRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // InternalService_ServiceDesc is the grpc.ServiceDesc for InternalService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -114,6 +148,10 @@ var InternalService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "FindTunnel",
 			Handler:    _InternalService_FindTunnel_Handler,
+		},
+		{
+			MethodName: "ForwardUdpPacket",
+			Handler:    _InternalService_ForwardUdpPacket_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

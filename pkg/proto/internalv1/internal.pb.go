@@ -120,6 +120,126 @@ func (x *FindTunnelResponse) GetNodeAddress() string {
 	return ""
 }
 
+type ForwardUdpPacketRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TunnelId      string                 `protobuf:"bytes,1,opt,name=tunnel_id,json=tunnelId,proto3" json:"tunnel_id,omitempty"`
+	SourceAddress string                 `protobuf:"bytes,2,opt,name=source_address,json=sourceAddress,proto3" json:"source_address,omitempty"`
+	Data          []byte                 `protobuf:"bytes,3,opt,name=data,proto3" json:"data,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ForwardUdpPacketRequest) Reset() {
+	*x = ForwardUdpPacketRequest{}
+	mi := &file_proto_internal_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ForwardUdpPacketRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ForwardUdpPacketRequest) ProtoMessage() {}
+
+func (x *ForwardUdpPacketRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ForwardUdpPacketRequest.ProtoReflect.Descriptor instead.
+func (*ForwardUdpPacketRequest) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *ForwardUdpPacketRequest) GetTunnelId() string {
+	if x != nil {
+		return x.TunnelId
+	}
+	return ""
+}
+
+func (x *ForwardUdpPacketRequest) GetSourceAddress() string {
+	if x != nil {
+		return x.SourceAddress
+	}
+	return ""
+}
+
+func (x *ForwardUdpPacketRequest) GetData() []byte {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+type ForwardUdpPacketResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	ResponseData  []byte                 `protobuf:"bytes,2,opt,name=response_data,json=responseData,proto3" json:"response_data,omitempty"`
+	ErrorMessage  string                 `protobuf:"bytes,3,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ForwardUdpPacketResponse) Reset() {
+	*x = ForwardUdpPacketResponse{}
+	mi := &file_proto_internal_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ForwardUdpPacketResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ForwardUdpPacketResponse) ProtoMessage() {}
+
+func (x *ForwardUdpPacketResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ForwardUdpPacketResponse.ProtoReflect.Descriptor instead.
+func (*ForwardUdpPacketResponse) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ForwardUdpPacketResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *ForwardUdpPacketResponse) GetResponseData() []byte {
+	if x != nil {
+		return x.ResponseData
+	}
+	return nil
+}
+
+func (x *ForwardUdpPacketResponse) GetErrorMessage() string {
+	if x != nil {
+		return x.ErrorMessage
+	}
+	return ""
+}
+
 var File_proto_internal_proto protoreflect.FileDescriptor
 
 const file_proto_internal_proto_rawDesc = "" +
@@ -129,10 +249,19 @@ const file_proto_internal_proto_rawDesc = "" +
 	"\ttunnel_id\x18\x01 \x01(\tR\btunnelId\"M\n" +
 	"\x12FindTunnelResponse\x12\x14\n" +
 	"\x05found\x18\x01 \x01(\bR\x05found\x12!\n" +
-	"\fnode_address\x18\x02 \x01(\tR\vnodeAddress2Z\n" +
+	"\fnode_address\x18\x02 \x01(\tR\vnodeAddress\"q\n" +
+	"\x17ForwardUdpPacketRequest\x12\x1b\n" +
+	"\ttunnel_id\x18\x01 \x01(\tR\btunnelId\x12%\n" +
+	"\x0esource_address\x18\x02 \x01(\tR\rsourceAddress\x12\x12\n" +
+	"\x04data\x18\x03 \x01(\fR\x04data\"~\n" +
+	"\x18ForwardUdpPacketResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12#\n" +
+	"\rresponse_data\x18\x02 \x01(\fR\fresponseData\x12#\n" +
+	"\rerror_message\x18\x03 \x01(\tR\ferrorMessage2\xb5\x01\n" +
 	"\x0fInternalService\x12G\n" +
 	"\n" +
-	"FindTunnel\x12\x1b.internal.FindTunnelRequest\x1a\x1c.internal.FindTunnelResponseB0Z.github.com/ehrlich-b/tunn/pkg/proto/internalv1b\x06proto3"
+	"FindTunnel\x12\x1b.internal.FindTunnelRequest\x1a\x1c.internal.FindTunnelResponse\x12Y\n" +
+	"\x10ForwardUdpPacket\x12!.internal.ForwardUdpPacketRequest\x1a\".internal.ForwardUdpPacketResponseB0Z.github.com/ehrlich-b/tunn/pkg/proto/internalv1b\x06proto3"
 
 var (
 	file_proto_internal_proto_rawDescOnce sync.Once
@@ -146,16 +275,20 @@ func file_proto_internal_proto_rawDescGZIP() []byte {
 	return file_proto_internal_proto_rawDescData
 }
 
-var file_proto_internal_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_proto_internal_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_proto_internal_proto_goTypes = []any{
-	(*FindTunnelRequest)(nil),  // 0: internal.FindTunnelRequest
-	(*FindTunnelResponse)(nil), // 1: internal.FindTunnelResponse
+	(*FindTunnelRequest)(nil),        // 0: internal.FindTunnelRequest
+	(*FindTunnelResponse)(nil),       // 1: internal.FindTunnelResponse
+	(*ForwardUdpPacketRequest)(nil),  // 2: internal.ForwardUdpPacketRequest
+	(*ForwardUdpPacketResponse)(nil), // 3: internal.ForwardUdpPacketResponse
 }
 var file_proto_internal_proto_depIdxs = []int32{
 	0, // 0: internal.InternalService.FindTunnel:input_type -> internal.FindTunnelRequest
-	1, // 1: internal.InternalService.FindTunnel:output_type -> internal.FindTunnelResponse
-	1, // [1:2] is the sub-list for method output_type
-	0, // [0:1] is the sub-list for method input_type
+	2, // 1: internal.InternalService.ForwardUdpPacket:input_type -> internal.ForwardUdpPacketRequest
+	1, // 2: internal.InternalService.FindTunnel:output_type -> internal.FindTunnelResponse
+	3, // 3: internal.InternalService.ForwardUdpPacket:output_type -> internal.ForwardUdpPacketResponse
+	2, // [2:4] is the sub-list for method output_type
+	0, // [0:2] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name
 	0, // [0:0] is the sub-list for extension extendee
 	0, // [0:0] is the sub-list for field type_name
@@ -172,7 +305,7 @@ func file_proto_internal_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_internal_proto_rawDesc), len(file_proto_internal_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   2,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -273,4 +273,3 @@ func (p *ProxyServer) handleApexDomain(w http.ResponseWriter, r *http.Request) {
 	activeTunnels := p.tunnelServer.GetActiveTunnelCount()
 	fmt.Fprintf(w, "\nActive tunnels: %d\n", activeTunnels)
 }
-

@@ -32,6 +32,14 @@ type TunnelConnection struct {
 	// HTTP request tracking
 	pendingMu       sync.RWMutex
 	pendingRequests map[string]chan *pb.HttpResponse
+
+	// UDP response tracking
+	mu           sync.RWMutex
+	udpResponses map[string]chan []byte
+
+	// Protocol support
+	Protocol         string // "http", "udp", or "both"
+	UDPTargetAddress string // For UDP tunnels
 }
 
 // NewTunnelServer creates a new gRPC tunnel server
@@ -134,15 +142,24 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		common.LogInfo("tunnel allow-list", "tunnel_id", tunnelID, "creator", creatorEmail, "allowed", allowedEmails)
 	}
 
+	// Determine protocol (default to "http" for backwards compatibility)
+	protocol := regClient.Protocol
+	if protocol == "" {
+		protocol = "http"
+	}
+
 	// Create tunnel connection
 	conn := &TunnelConnection{
-		TunnelID:        tunnelID,
-		TargetURL:       targetURL,
-		Stream:          stream,
-		Connected:       time.Now(),
-		CreatorEmail:    creatorEmail,
-		AllowedEmails:   allowedEmails,
-		pendingRequests: make(map[string]chan *pb.HttpResponse),
+		TunnelID:         tunnelID,
+		TargetURL:        targetURL,
+		Stream:           stream,
+		Connected:        time.Now(),
+		CreatorEmail:     creatorEmail,
+		AllowedEmails:    allowedEmails,
+		pendingRequests:  make(map[string]chan *pb.HttpResponse),
+		udpResponses:     make(map[string]chan []byte),
+		Protocol:         protocol,
+		UDPTargetAddress: regClient.UdpTargetAddress,
 	}
 
 	// Register the tunnel
@@ -236,6 +253,36 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 				"tunnel_id", tunnelID,
 				"connection_id", m.ProxyResponse.ConnectionId,
 				"success", m.ProxyResponse.Success)
+
+		case *pb.TunnelMessage_UdpPacket:
+			// UDP packet from client - route to waiting request if it's a response
+			if m.UdpPacket.FromClient {
+				// This is a response from the serve client to be sent back to tunn connect
+				// Extract connection ID from source address (format: udp-{source}-{timestamp})
+				connID := fmt.Sprintf("udp-%s-%d", m.UdpPacket.DestinationAddress, m.UdpPacket.TimestampMs)
+
+				conn.mu.RLock()
+				respChan, exists := conn.udpResponses[connID]
+				conn.mu.RUnlock()
+
+				if exists {
+					select {
+					case respChan <- m.UdpPacket.Data:
+						common.LogDebug("routed udp response",
+							"tunnel_id", tunnelID,
+							"bytes", len(m.UdpPacket.Data))
+					default:
+						common.LogDebug("udp response channel full, dropping packet",
+							"tunnel_id", tunnelID)
+					}
+				} else {
+					common.LogDebug("no pending request for udp response",
+						"tunnel_id", tunnelID,
+						"destination", m.UdpPacket.DestinationAddress)
+				}
+			} else {
+				common.LogInfo("received UDP packet from proxy (should not happen in this direction)")
+			}
 
 		default:
 			common.LogInfo("unexpected message type", "type", fmt.Sprintf("%T", m))

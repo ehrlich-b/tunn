@@ -16,7 +16,7 @@ import (
 )
 
 var (
-	mode       = flag.String("mode", "client", "host | client | login")
+	mode       = flag.String("mode", "client", "host | client | login | connect")
 	to         = flag.String("to", "http://127.0.0.1:8000", "target to forward to (port, host:port, or full URL)")
 	id         = flag.String("id", "", "tunnel ID (client); blank → random")
 	domain     = flag.String("domain", "tunn.to", "public apex domain")
@@ -28,6 +28,11 @@ var (
 	// Client mode flags
 	allow     = flag.String("allow", "", "comma-separated list of emails allowed to access tunnel (client mode)")
 	tunnelKey = flag.String("tunnel-key", "", "tunnel creation authorization key (client mode); defaults to WELL_KNOWN_KEY env var")
+	protocol  = flag.String("protocol", "http", "tunnel protocol: http, udp, or both (client mode)")
+	udpTarget = flag.String("udp-target", "localhost:25565", "UDP target address for UDP tunnels (client mode)")
+
+	// Connect mode flags
+	localAddr = flag.String("local", "localhost:25566", "local UDP address to listen on (connect mode)")
 )
 
 func main() {
@@ -85,6 +90,9 @@ func main() {
 	case "client":
 		// Client mode loads JWT from token file
 		runClient()
+	case "connect":
+		// Connect mode wraps UDP in HTTP/2
+		runConnect()
 	default:
 		common.LogError("invalid mode", "mode", *mode)
 		os.Exit(1)
@@ -193,13 +201,15 @@ func runClient() {
 
 	// Create serve client
 	serveClient := &client.ServeClient{
-		TunnelID:      tunnelID,
-		TargetURL:     normalizedTo,
-		ServerAddr:    cfg.ServerAddr,
-		AuthToken:     token,
-		TunnelKey:     key,
-		AllowedEmails: allowedEmails,
-		SkipVerify:    cfg.SkipVerify,
+		TunnelID:         tunnelID,
+		TargetURL:        normalizedTo,
+		ServerAddr:       cfg.ServerAddr,
+		AuthToken:        token,
+		TunnelKey:        key,
+		AllowedEmails:    allowedEmails,
+		SkipVerify:       cfg.SkipVerify,
+		Protocol:         *protocol,
+		UDPTargetAddress: *udpTarget,
 	}
 
 	// Override SkipVerify if flag was explicitly set
@@ -229,6 +239,59 @@ func runClient() {
 	// Run serve client
 	if err := serveClient.Run(ctx); err != nil && err != context.Canceled {
 		common.LogError("serve client error", "error", err)
+		os.Exit(1)
+	}
+}
+
+func runConnect() {
+	// Load config for server address
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		common.LogError("failed to load config", "error", err)
+		os.Exit(1)
+	}
+
+	// Tunnel ID is required for connect mode
+	if *id == "" {
+		common.LogError("tunnel ID required for connect mode - use -id flag")
+		os.Exit(1)
+	}
+
+	// Build proxy address from config
+	proxyAddr := cfg.ServerAddr
+	if !strings.HasPrefix(proxyAddr, "http://") && !strings.HasPrefix(proxyAddr, "https://") {
+		proxyAddr = "https://" + proxyAddr
+	}
+
+	// Create connect client
+	connectClient := &client.ConnectClient{
+		TunnelID:   *id,
+		LocalAddr:  *localAddr,
+		ProxyAddr:  proxyAddr,
+		SkipVerify: cfg.SkipVerify || *skipVerify,
+	}
+
+	common.LogInfo("UDP connect configuration",
+		"tunnel_id", *id,
+		"local_addr", *localAddr,
+		"proxy_addr", proxyAddr)
+
+	// Set up context with signal handling
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Handle shutdown signals
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sigChan
+		common.LogInfo("received shutdown signal")
+		cancel()
+	}()
+
+	// Run connect client
+	if err := connectClient.Run(ctx); err != nil && err != context.Canceled {
+		common.LogError("connect client error", "error", err)
 		os.Exit(1)
 	}
 }

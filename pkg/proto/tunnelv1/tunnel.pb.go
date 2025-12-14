@@ -36,6 +36,7 @@ type TunnelMessage struct {
 	//	*TunnelMessage_HttpRequest
 	//	*TunnelMessage_HttpResponse
 	//	*TunnelMessage_StreamClosed
+	//	*TunnelMessage_UdpPacket
 	Message       isTunnelMessage_Message `protobuf_oneof:"message"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -159,6 +160,15 @@ func (x *TunnelMessage) GetStreamClosed() *StreamClosed {
 	return nil
 }
 
+func (x *TunnelMessage) GetUdpPacket() *UdpPacket {
+	if x != nil {
+		if x, ok := x.Message.(*TunnelMessage_UdpPacket); ok {
+			return x.UdpPacket
+		}
+	}
+	return nil
+}
+
 type isTunnelMessage_Message interface {
 	isTunnelMessage_Message()
 }
@@ -199,6 +209,10 @@ type TunnelMessage_StreamClosed struct {
 	StreamClosed *StreamClosed `protobuf:"bytes,9,opt,name=stream_closed,json=streamClosed,proto3,oneof"`
 }
 
+type TunnelMessage_UdpPacket struct {
+	UdpPacket *UdpPacket `protobuf:"bytes,10,opt,name=udp_packet,json=udpPacket,proto3,oneof"`
+}
+
 func (*TunnelMessage_RegisterClient) isTunnelMessage_Message() {}
 
 func (*TunnelMessage_RegisterResponse) isTunnelMessage_Message() {}
@@ -216,6 +230,8 @@ func (*TunnelMessage_HttpRequest) isTunnelMessage_Message() {}
 func (*TunnelMessage_HttpResponse) isTunnelMessage_Message() {}
 
 func (*TunnelMessage_StreamClosed) isTunnelMessage_Message() {}
+
+func (*TunnelMessage_UdpPacket) isTunnelMessage_Message() {}
 
 // RegisterClient is sent by the client (tunn serve) when it first connects
 // to register a new tunnel with the proxy server.
@@ -235,9 +251,15 @@ type RegisterClient struct {
 	// tunnel_key is the secret that allows creating tunnels
 	// V1: WELL_KNOWN_KEY (free for everyone)
 	// V2: Remove this, check subscription via tunn-auth instead
-	TunnelKey     string `protobuf:"bytes,6,opt,name=tunnel_key,json=tunnelKey,proto3" json:"tunnel_key,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	TunnelKey string `protobuf:"bytes,6,opt,name=tunnel_key,json=tunnelKey,proto3" json:"tunnel_key,omitempty"`
+	// protocol specifies what protocol this tunnel supports: "http", "udp", or "both"
+	// Default: "http" for backwards compatibility
+	Protocol string `protobuf:"bytes,7,opt,name=protocol,proto3" json:"protocol,omitempty"`
+	// udp_target_address is the local UDP service to forward packets to (e.g., "localhost:25565")
+	// Only used when protocol is "udp" or "both"
+	UdpTargetAddress string `protobuf:"bytes,8,opt,name=udp_target_address,json=udpTargetAddress,proto3" json:"udp_target_address,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *RegisterClient) Reset() {
@@ -308,6 +330,20 @@ func (x *RegisterClient) GetAllowedEmails() []string {
 func (x *RegisterClient) GetTunnelKey() string {
 	if x != nil {
 		return x.TunnelKey
+	}
+	return ""
+}
+
+func (x *RegisterClient) GetProtocol() string {
+	if x != nil {
+		return x.Protocol
+	}
+	return ""
+}
+
+func (x *RegisterClient) GetUdpTargetAddress() string {
+	if x != nil {
+		return x.UdpTargetAddress
 	}
 	return ""
 }
@@ -809,11 +845,106 @@ func (x *StreamClosed) GetReason() string {
 	return ""
 }
 
+// UdpPacket is sent bidirectionally to tunnel UDP packets through the gRPC stream.
+// The proxy sends packets received from public internet to the serve client.
+// The serve client sends response packets from the local UDP target back to the proxy.
+type UdpPacket struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// tunnel_id identifies which tunnel this packet belongs to
+	TunnelId string `protobuf:"bytes,1,opt,name=tunnel_id,json=tunnelId,proto3" json:"tunnel_id,omitempty"`
+	// source_address is the IP:port of the original UDP sender (for routing responses)
+	// Format: "192.168.1.100:12345"
+	SourceAddress string `protobuf:"bytes,2,opt,name=source_address,json=sourceAddress,proto3" json:"source_address,omitempty"`
+	// destination_address is the IP:port of the destination (for routing on client side)
+	// Format: "localhost:25565"
+	DestinationAddress string `protobuf:"bytes,3,opt,name=destination_address,json=destinationAddress,proto3" json:"destination_address,omitempty"`
+	// data is the raw UDP packet payload
+	Data []byte `protobuf:"bytes,4,opt,name=data,proto3" json:"data,omitempty"`
+	// from_client indicates direction: true = from serve client to proxy, false = from proxy to serve client
+	FromClient bool `protobuf:"varint,5,opt,name=from_client,json=fromClient,proto3" json:"from_client,omitempty"`
+	// timestamp_ms is when the packet was received (Unix milliseconds)
+	TimestampMs   int64 `protobuf:"varint,6,opt,name=timestamp_ms,json=timestampMs,proto3" json:"timestamp_ms,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UdpPacket) Reset() {
+	*x = UdpPacket{}
+	mi := &file_proto_tunnel_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UdpPacket) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UdpPacket) ProtoMessage() {}
+
+func (x *UdpPacket) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_tunnel_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UdpPacket.ProtoReflect.Descriptor instead.
+func (*UdpPacket) Descriptor() ([]byte, []int) {
+	return file_proto_tunnel_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *UdpPacket) GetTunnelId() string {
+	if x != nil {
+		return x.TunnelId
+	}
+	return ""
+}
+
+func (x *UdpPacket) GetSourceAddress() string {
+	if x != nil {
+		return x.SourceAddress
+	}
+	return ""
+}
+
+func (x *UdpPacket) GetDestinationAddress() string {
+	if x != nil {
+		return x.DestinationAddress
+	}
+	return ""
+}
+
+func (x *UdpPacket) GetData() []byte {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+func (x *UdpPacket) GetFromClient() bool {
+	if x != nil {
+		return x.FromClient
+	}
+	return false
+}
+
+func (x *UdpPacket) GetTimestampMs() int64 {
+	if x != nil {
+		return x.TimestampMs
+	}
+	return 0
+}
+
 var File_proto_tunnel_proto protoreflect.FileDescriptor
 
 const file_proto_tunnel_proto_rawDesc = "" +
 	"\n" +
-	"\x12proto/tunnel.proto\x12\atunn.v1\"\xed\x04\n" +
+	"\x12proto/tunnel.proto\x12\atunn.v1\"\xa2\x05\n" +
 	"\rTunnelMessage\x12B\n" +
 	"\x0fregister_client\x18\x01 \x01(\v2\x17.tunn.v1.RegisterClientH\x00R\x0eregisterClient\x12H\n" +
 	"\x11register_response\x18\x02 \x01(\v2\x19.tunn.v1.RegisterResponseH\x00R\x10registerResponse\x12<\n" +
@@ -823,8 +954,11 @@ const file_proto_tunnel_proto_rawDesc = "" +
 	"\x15health_check_response\x18\x06 \x01(\v2\x1c.tunn.v1.HealthCheckResponseH\x00R\x13healthCheckResponse\x129\n" +
 	"\fhttp_request\x18\a \x01(\v2\x14.tunn.v1.HttpRequestH\x00R\vhttpRequest\x12<\n" +
 	"\rhttp_response\x18\b \x01(\v2\x15.tunn.v1.HttpResponseH\x00R\fhttpResponse\x12<\n" +
-	"\rstream_closed\x18\t \x01(\v2\x15.tunn.v1.StreamClosedH\x00R\fstreamClosedB\t\n" +
-	"\amessage\"\xd6\x01\n" +
+	"\rstream_closed\x18\t \x01(\v2\x15.tunn.v1.StreamClosedH\x00R\fstreamClosed\x123\n" +
+	"\n" +
+	"udp_packet\x18\n" +
+	" \x01(\v2\x12.tunn.v1.UdpPacketH\x00R\tudpPacketB\t\n" +
+	"\amessage\"\xa0\x02\n" +
 	"\x0eRegisterClient\x12\x1b\n" +
 	"\ttunnel_id\x18\x01 \x01(\tR\btunnelId\x12\x1d\n" +
 	"\n" +
@@ -834,7 +968,9 @@ const file_proto_tunnel_proto_rawDesc = "" +
 	"\rcreator_email\x18\x04 \x01(\tR\fcreatorEmail\x12%\n" +
 	"\x0eallowed_emails\x18\x05 \x03(\tR\rallowedEmails\x12\x1d\n" +
 	"\n" +
-	"tunnel_key\x18\x06 \x01(\tR\ttunnelKey\"p\n" +
+	"tunnel_key\x18\x06 \x01(\tR\ttunnelKey\x12\x1a\n" +
+	"\bprotocol\x18\a \x01(\tR\bprotocol\x12,\n" +
+	"\x12udp_target_address\x18\b \x01(\tR\x10udpTargetAddress\"p\n" +
 	"\x10RegisterResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12#\n" +
 	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\x12\x1d\n" +
@@ -872,7 +1008,15 @@ const file_proto_tunnel_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"K\n" +
 	"\fStreamClosed\x12#\n" +
 	"\rconnection_id\x18\x01 \x01(\tR\fconnectionId\x12\x16\n" +
-	"\x06reason\x18\x02 \x01(\tR\x06reason2V\n" +
+	"\x06reason\x18\x02 \x01(\tR\x06reason\"\xd8\x01\n" +
+	"\tUdpPacket\x12\x1b\n" +
+	"\ttunnel_id\x18\x01 \x01(\tR\btunnelId\x12%\n" +
+	"\x0esource_address\x18\x02 \x01(\tR\rsourceAddress\x12/\n" +
+	"\x13destination_address\x18\x03 \x01(\tR\x12destinationAddress\x12\x12\n" +
+	"\x04data\x18\x04 \x01(\fR\x04data\x12\x1f\n" +
+	"\vfrom_client\x18\x05 \x01(\bR\n" +
+	"fromClient\x12!\n" +
+	"\ftimestamp_ms\x18\x06 \x01(\x03R\vtimestampMs2V\n" +
 	"\rTunnelService\x12E\n" +
 	"\x0fEstablishTunnel\x12\x16.tunn.v1.TunnelMessage\x1a\x16.tunn.v1.TunnelMessage(\x010\x01B-Z+github.com/behrlich/tunn/pkg/proto/tunnelv1b\x06proto3"
 
@@ -888,7 +1032,7 @@ func file_proto_tunnel_proto_rawDescGZIP() []byte {
 	return file_proto_tunnel_proto_rawDescData
 }
 
-var file_proto_tunnel_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
+var file_proto_tunnel_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_proto_tunnel_proto_goTypes = []any{
 	(*TunnelMessage)(nil),       // 0: tunn.v1.TunnelMessage
 	(*RegisterClient)(nil),      // 1: tunn.v1.RegisterClient
@@ -900,8 +1044,9 @@ var file_proto_tunnel_proto_goTypes = []any{
 	(*HttpRequest)(nil),         // 7: tunn.v1.HttpRequest
 	(*HttpResponse)(nil),        // 8: tunn.v1.HttpResponse
 	(*StreamClosed)(nil),        // 9: tunn.v1.StreamClosed
-	nil,                         // 10: tunn.v1.HttpRequest.HeadersEntry
-	nil,                         // 11: tunn.v1.HttpResponse.HeadersEntry
+	(*UdpPacket)(nil),           // 10: tunn.v1.UdpPacket
+	nil,                         // 11: tunn.v1.HttpRequest.HeadersEntry
+	nil,                         // 12: tunn.v1.HttpResponse.HeadersEntry
 }
 var file_proto_tunnel_proto_depIdxs = []int32{
 	1,  // 0: tunn.v1.TunnelMessage.register_client:type_name -> tunn.v1.RegisterClient
@@ -913,15 +1058,16 @@ var file_proto_tunnel_proto_depIdxs = []int32{
 	7,  // 6: tunn.v1.TunnelMessage.http_request:type_name -> tunn.v1.HttpRequest
 	8,  // 7: tunn.v1.TunnelMessage.http_response:type_name -> tunn.v1.HttpResponse
 	9,  // 8: tunn.v1.TunnelMessage.stream_closed:type_name -> tunn.v1.StreamClosed
-	10, // 9: tunn.v1.HttpRequest.headers:type_name -> tunn.v1.HttpRequest.HeadersEntry
-	11, // 10: tunn.v1.HttpResponse.headers:type_name -> tunn.v1.HttpResponse.HeadersEntry
-	0,  // 11: tunn.v1.TunnelService.EstablishTunnel:input_type -> tunn.v1.TunnelMessage
-	0,  // 12: tunn.v1.TunnelService.EstablishTunnel:output_type -> tunn.v1.TunnelMessage
-	12, // [12:13] is the sub-list for method output_type
-	11, // [11:12] is the sub-list for method input_type
-	11, // [11:11] is the sub-list for extension type_name
-	11, // [11:11] is the sub-list for extension extendee
-	0,  // [0:11] is the sub-list for field type_name
+	10, // 9: tunn.v1.TunnelMessage.udp_packet:type_name -> tunn.v1.UdpPacket
+	11, // 10: tunn.v1.HttpRequest.headers:type_name -> tunn.v1.HttpRequest.HeadersEntry
+	12, // 11: tunn.v1.HttpResponse.headers:type_name -> tunn.v1.HttpResponse.HeadersEntry
+	0,  // 12: tunn.v1.TunnelService.EstablishTunnel:input_type -> tunn.v1.TunnelMessage
+	0,  // 13: tunn.v1.TunnelService.EstablishTunnel:output_type -> tunn.v1.TunnelMessage
+	13, // [13:14] is the sub-list for method output_type
+	12, // [12:13] is the sub-list for method input_type
+	12, // [12:12] is the sub-list for extension type_name
+	12, // [12:12] is the sub-list for extension extendee
+	0,  // [0:12] is the sub-list for field type_name
 }
 
 func init() { file_proto_tunnel_proto_init() }
@@ -939,6 +1085,7 @@ func file_proto_tunnel_proto_init() {
 		(*TunnelMessage_HttpRequest)(nil),
 		(*TunnelMessage_HttpResponse)(nil),
 		(*TunnelMessage_StreamClosed)(nil),
+		(*TunnelMessage_UdpPacket)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -946,7 +1093,7 @@ func file_proto_tunnel_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_tunnel_proto_rawDesc), len(file_proto_tunnel_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   12,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -6,6 +6,7 @@ option go_package = "github.com/ehrlich-b/tunn/pkg/proto/internalv1";
 
 service InternalService {
   rpc FindTunnel(FindTunnelRequest) returns (FindTunnelResponse);
+  rpc ForwardUdpPacket(ForwardUdpPacketRequest) returns (ForwardUdpPacketResponse);
 }
 
 message FindTunnelRequest {
@@ -18,4 +19,16 @@ message FindTunnelResponse {
   // If found is true, this will be the address of the node.
   // The caller can then use this address to forward the request.
   string node_address = 2;
+}
+
+message ForwardUdpPacketRequest {
+  string tunnel_id = 1;
+  string source_address = 2;
+  bytes data = 3;
+}
+
+message ForwardUdpPacketResponse {
+  bool success = 1;
+  bytes response_data = 2;
+  string error_message = 3;
 }

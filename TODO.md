@@ -2,82 +2,119 @@
 
 ## SHIP IT (Ordered)
 
-### Infrastructure
-1. [ ] **Deploy to Fly.io** - Get the app running
-2. [ ] **Set up tunn.to DNS** - Point domain to Fly (Cloudflare DNS-only)
-3. [ ] **Create install.sh** - README promises `curl -fsSL https://tunn.to/install.sh | sh`
-4. [ ] **Serve install.sh from app** - Static route at `/install.sh`
-5. [ ] **GitHub Actions for releases** - Build binaries for darwin-amd64, darwin-arm64, linux-amd64
+### Auth Implementation (GitHub OAuth + Device Flow)
 
-### OAuth (Required for `tunn login` + browser portal)
-6. [ ] **Google Cloud OAuth setup** - Create project, OAuth consent screen, get client ID/secret
-7. [ ] **Fix `exchangeCodeForToken`** - Actually parse Google's token response (currently returns auth code as token)
-8. [ ] **Fix `validateToken`** - Extract real email from Google token (currently returns hardcoded `user@example.com`)
-9. [ ] **Configure JWT signing** - Set real secret via env var (currently hardcoded `TODO_CONFIGURE_JWT_SECRET`)
-10. [ ] **Test `tunn login`** - Verify CLI device flow works with real Google
-11. [ ] **Test browser portal** - Verify visiting tunnel URL prompts Google login, enforces allow-list
+**Architecture Decision:** GitHub OAuth only (not Google). Target audience is developers, GitHub is universal, simpler to set up.
 
-### Sharing (Domain-based teams, no database needed)
-12. [ ] **Add domain suffix matching** - `--allow @slide.com` allows anyone with that email domain
+**CLI Login (`tunn login`) - Device Code Flow:**
+```
+$ tunn login
+Opening browser...
+[browser opens to tunn.to/login?device_code=ABC123, code pre-filled]
+[user clicks "Login with GitHub" in browser]
+Waiting... ✓
+Logged in as alice@example.com
+```
+
+1. CLI: `POST /api/device/code` → server creates device code in SQLite, returns code
+2. CLI: opens browser to `tunn.to/login?device_code=ABC123` (pre-filled, no typing!)
+3. User: clicks "Login with GitHub" in browser → GitHub OAuth flow
+4. Server: on OAuth callback, marks device code as authorized, stores JWT
+5. CLI: polls `GET /api/device/token?code=ABC123` every 3 sec (max 3 min)
+6. Server: returns JWT once device code is authorized
+7. CLI: saves JWT to `~/.tunn/token`, done
+
+**Browser Auth (visiting tunnel URLs):**
+- User visits `https://abc123.tunn.to`
+- If not authenticated, redirect to `/auth/login`
+- User clicks "Login with GitHub" → GitHub OAuth
+- On success, session cookie set, user redirected back to tunnel
+
+**Multi-Node Handling:**
+- Device codes stored in SQLite
+- LiteFS replicates SQLite across all Fly.io nodes (<1 sec)
+- Poll can hit any node, auth can happen on any node - same DB
+- Single node (launch): no replication needed, just works
+
+**Tasks:**
+1. [ ] **GitHub OAuth App setup** - Create OAuth App in GitHub, get client ID/secret
+2. [ ] **Implement device code endpoints** - `POST /api/device/code`, `GET /api/device/token`
+3. [ ] **Update CLI login** - Use device code flow with browser auto-open
+4. [ ] **Browser OAuth flow** - `/auth/login`, `/auth/callback` with GitHub
+5. [ ] **Configure JWT signing** - `JWT_SECRET` env var for signing our JWTs
+6. [ ] **Test CLI login** - Verify device flow works end-to-end
+7. [ ] **Test browser auth** - Verify tunnel access prompts GitHub login
+
+### Code Fixes
+8. [ ] **Add domain suffix matching** - `--allow @slide.com` allows anyone with that email domain
       - Current: exact email match only
       - Change: if allow entry starts with `@`, use `strings.HasSuffix(email, entry)`
       - Example: `tunn 8080 --allow @slide.com,external@gmail.com`
       - **Pro feature:** Free tier limited to 3 exact emails, no @domain wildcards
 
-### User Store (Config-First, No External DB)
-13. [ ] **Implement UserStore interface** - Pluggable user storage
-      - `FileStore`: reads `users.yaml` (self-hosted default)
-      - `SQLiteStore`: reads local `users.db` (self-hosted + tunn.to)
-      - Config file is the primary interface, SQLite is implementation detail
-14. [ ] **Add users.yaml support** - Simple config for self-hosters
-      ```yaml
-      alice@gmail.com:
-        plan: pro
-      "@mycompany.com":  # domain wildcard
-        plan: pro
-      ```
-15. [ ] **Add Stripe webhook handler** - `/webhooks/stripe` (tunn.to only)
-      - Verify Stripe signature with STRIPE_WEBHOOK_SECRET
-      - On subscription.created: add user to SQLite with plan='pro'
-      - On subscription.deleted: update plan='free'
+### CI/CD (Before Infrastructure)
+8. [ ] **GitHub Actions for releases** - Build binaries for darwin-amd64, darwin-arm64, linux-amd64
+9. [ ] **Create install.sh** - README promises `curl -fsSL https://tunn.to/install.sh | sh`
 
-### Cluster Security (One Secret)
-16. [ ] **Replace mTLS with CLUSTER_SECRET auth** - Simpler mesh security
-      - `CLUSTER_SECRET=""` → single node, no mesh (self-hosted default)
-      - `CLUSTER_SECRET=xxx` → mesh enabled, nodes auth with HMAC
-      - Node handshake: `Authorization: Bearer HMAC(timestamp, CLUSTER_SECRET)`
-      - Wrong secret = ignore that node, stop retrying
-
-### Mesh Auto-Discovery (Fly.io)
-17. [ ] **Auto-discover nodes via internal DNS** - No manual NODE_ADDRESSES
-      - Resolve `<appname>.internal` → returns all instance IPs
-      - Filter out self, connect to others
-      - New nodes auto-join mesh on boot
-      - **Fly.io specific** - see vendor lock-in notes below
-
-### LiteFS Replication (tunn.to)
-18. [ ] **Add LiteFS support for SQLite replication** - Fly.io native
-      - Mount `/litefs`, SQLite lives there
-      - Writes go to primary (auto-elected), replicate in <1s
-      - All nodes see same data
-      - **Fly.io specific** - see vendor lock-in notes below
-
-### Subdomain Reservations (Pro Feature)
-19. [ ] **Add subdomain reservation** - Pro users get 4 reserved subdomains
-      - Store in UserStore: `email → [subdomain1, subdomain2, ...]`
-      - `tunn 8080 --subdomain myapp` claims/uses reservation
-      - Validation: 3+ chars, alphanumeric + hyphens, not reserved
-      - Reserved list: www, api, app, admin, auth, static, cdn, etc.
-      - No nesting (x.y.tunn.to) - wildcard certs only cover one level
+### Infrastructure
+10. [ ] **Deploy to Fly.io** - Get the app running
+11. [ ] **Set up tunn.to DNS** - Point domain to Fly (Cloudflare DNS-only)
+12. [ ] **Serve install.sh from app** - Static route at `/install.sh`
 
 ### Marketing & Homepage
-20. [ ] **Create tunn.to homepage** - ntfy.sh inspired, simple dev-focused
+13. [ ] **Create tunn.to homepage** - ntfy.sh inspired, simple dev-focused
       - Hero: one-liner + install command
       - Live demo or GIF
       - Pricing table (Free / Pro $4/mo / Enterprise contact)
       - Code examples
       - Self-host instructions
       - Serve from app at `/` when no tunnel subdomain
+
+### User Store (Config-First, No External DB)
+14. [ ] **Implement UserStore interface** - Pluggable user storage
+      - `FileStore`: reads `users.yaml` (self-hosted default)
+      - `SQLiteStore`: reads local `users.db` (self-hosted + tunn.to)
+      - Config file is the primary interface, SQLite is implementation detail
+15. [ ] **Add users.yaml support** - Simple config for self-hosters
+      ```yaml
+      alice@gmail.com:
+        plan: pro
+      "@mycompany.com":  # domain wildcard
+        plan: pro
+      ```
+16. [ ] **Add Stripe webhook handler** - `/webhooks/stripe` (tunn.to only)
+      - Verify Stripe signature with STRIPE_WEBHOOK_SECRET
+      - On subscription.created: add user to SQLite with plan='pro'
+      - On subscription.deleted: update plan='free'
+
+### Cluster Security (One Secret)
+17. [ ] **Replace mTLS with CLUSTER_SECRET auth** - Simpler mesh security
+      - `CLUSTER_SECRET=""` → single node, no mesh (self-hosted default)
+      - `CLUSTER_SECRET=xxx` → mesh enabled, nodes auth with HMAC
+      - Node handshake: `Authorization: Bearer HMAC(timestamp, CLUSTER_SECRET)`
+      - Wrong secret = ignore that node, stop retrying
+
+### Mesh Auto-Discovery (Fly.io)
+18. [ ] **Auto-discover nodes via internal DNS** - No manual NODE_ADDRESSES
+      - Resolve `<appname>.internal` → returns all instance IPs
+      - Filter out self, connect to others
+      - New nodes auto-join mesh on boot
+      - **Fly.io specific** - see vendor lock-in notes below
+
+### LiteFS Replication (tunn.to)
+19. [ ] **Add LiteFS support for SQLite replication** - Fly.io native
+      - Mount `/litefs`, SQLite lives there
+      - Writes go to primary (auto-elected), replicate in <1s
+      - All nodes see same data
+      - **Fly.io specific** - see vendor lock-in notes below
+
+### Subdomain Reservations (Pro Feature)
+20. [ ] **Add subdomain reservation** - Pro users get 4 reserved subdomains
+      - Store in UserStore: `email → [subdomain1, subdomain2, ...]`
+      - `tunn 8080 --subdomain myapp` claims/uses reservation
+      - Validation: 3+ chars, alphanumeric + hyphens, not reserved
+      - Reserved list: www, api, app, admin, auth, static, cdn, etc.
+      - No nesting (x.y.tunn.to) - wildcard certs only cover one level
 
 **OAuth is blocking if you want real Google login. PUBLIC_MODE=true bypasses auth for testing only.**
 

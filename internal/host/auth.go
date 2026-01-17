@@ -3,6 +3,7 @@ package host
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,8 +14,27 @@ import (
 	"github.com/golang-jwt/jwt/v4"
 )
 
-// handleLogin initiates the OIDC authentication flow
+const (
+	githubAuthorizeURL = "https://github.com/login/oauth/authorize"
+	githubTokenURL     = "https://github.com/login/oauth/access_token"
+	githubUserURL      = "https://api.github.com/user"
+	githubEmailsURL    = "https://api.github.com/user/emails"
+)
+
+// handleLogin initiates the GitHub OAuth flow
 func (p *ProxyServer) handleLogin(w http.ResponseWriter, r *http.Request) {
+	// Check if GitHub OAuth is configured
+	if p.config.GitHubClientID == "" {
+		// Fall back to mock OIDC in dev mode
+		if p.config.IsDev() && p.config.MockOIDCIssuer != "" {
+			p.handleMockLogin(w, r)
+			return
+		}
+		common.LogError("GitHub OAuth not configured")
+		http.Error(w, "OAuth not configured", http.StatusInternalServerError)
+		return
+	}
+
 	// Generate state parameter for CSRF protection
 	state, err := generateRandomState()
 	if err != nil {
@@ -33,21 +53,26 @@ func (p *ProxyServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	p.sessionManager.Put(r.Context(), "return_to", returnTo)
 
-	// Get OIDC issuer URL
-	issuerURL := p.getOIDCIssuerURL()
-
-	// Build authorization URL
-	authURL := fmt.Sprintf("%s/authorize?response_type=code&client_id=tunn&redirect_uri=%s&state=%s",
-		issuerURL,
+	// Build GitHub authorization URL
+	authURL := fmt.Sprintf("%s?client_id=%s&redirect_uri=%s&scope=%s&state=%s",
+		githubAuthorizeURL,
+		url.QueryEscape(p.config.GitHubClientID),
 		url.QueryEscape(p.getCallbackURL()),
-		state)
+		url.QueryEscape("user:email"),
+		url.QueryEscape(state))
 
-	common.LogInfo("redirecting to OIDC provider", "url", authURL)
+	common.LogInfo("redirecting to GitHub", "url", authURL)
 	http.Redirect(w, r, authURL, http.StatusFound)
 }
 
-// handleCallback handles the OIDC callback
+// handleCallback handles the GitHub OAuth callback
 func (p *ProxyServer) handleCallback(w http.ResponseWriter, r *http.Request) {
+	// Check if this is mock OIDC callback
+	if p.config.GitHubClientID == "" && p.config.IsDev() && p.config.MockOIDCIssuer != "" {
+		p.handleMockCallback(w, r)
+		return
+	}
+
 	// Verify state parameter
 	storedState := p.sessionManager.GetString(r.Context(), "oauth_state")
 	receivedState := r.URL.Query().Get("state")
@@ -69,27 +94,27 @@ func (p *ProxyServer) handleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Exchange code for token
-	token, err := p.exchangeCodeForToken(code)
+	// Exchange code for access token
+	accessToken, err := p.exchangeGitHubCode(code)
 	if err != nil {
 		common.LogError("failed to exchange code", "error", err)
 		http.Error(w, "Failed to exchange code", http.StatusInternalServerError)
 		return
 	}
 
-	// Validate and extract user info from token
-	userInfo, err := p.validateToken(token)
+	// Get user email from GitHub
+	email, err := p.getGitHubEmail(accessToken)
 	if err != nil {
-		common.LogError("failed to validate token", "error", err)
-		http.Error(w, "Invalid token", http.StatusUnauthorized)
+		common.LogError("failed to get user email", "error", err)
+		http.Error(w, "Failed to get user info", http.StatusInternalServerError)
 		return
 	}
 
 	// Store user info in session
-	p.sessionManager.Put(r.Context(), "user_email", userInfo["email"])
+	p.sessionManager.Put(r.Context(), "user_email", email)
 	p.sessionManager.Put(r.Context(), "authenticated", true)
 
-	common.LogInfo("user authenticated", "email", userInfo["email"])
+	common.LogInfo("user authenticated via GitHub", "email", email)
 
 	// Redirect to original URL
 	returnTo := p.sessionManager.PopString(r.Context(), "return_to")
@@ -100,19 +125,22 @@ func (p *ProxyServer) handleCallback(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, returnTo, http.StatusFound)
 }
 
-// exchangeCodeForToken exchanges an authorization code for an access token
-func (p *ProxyServer) exchangeCodeForToken(code string) (string, error) {
-	issuerURL := p.getOIDCIssuerURL()
-	tokenURL := issuerURL + "/token"
-
-	// Prepare token request
+// exchangeGitHubCode exchanges an authorization code for an access token
+func (p *ProxyServer) exchangeGitHubCode(code string) (string, error) {
 	data := url.Values{}
-	data.Set("grant_type", "authorization_code")
+	data.Set("client_id", p.config.GitHubClientID)
+	data.Set("client_secret", p.config.GitHubClientSecret)
 	data.Set("code", code)
 	data.Set("redirect_uri", p.getCallbackURL())
-	data.Set("client_id", "tunn")
 
-	resp, err := http.PostForm(tokenURL, data)
+	req, err := http.NewRequest("POST", githubTokenURL, strings.NewReader(data.Encode()))
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("token request failed: %w", err)
 	}
@@ -123,36 +151,150 @@ func (p *ProxyServer) exchangeCodeForToken(code string) (string, error) {
 		return "", fmt.Errorf("token request returned status %d: %s", resp.StatusCode, string(body))
 	}
 
-	// For simplicity in V1, we'll just return the code as the token
-	// In production, parse the JSON response and extract access_token
-	return code, nil
-}
-
-// validateToken validates the token and extracts user information
-func (p *ProxyServer) validateToken(token string) (map[string]string, error) {
-	// In V1 with mock OIDC, we'll just return a mock user
-	// In production, validate JWT signature and extract claims
-	return map[string]string{
-		"email": "user@example.com",
-	}, nil
-}
-
-// getOIDCIssuerURL returns the OIDC issuer URL
-func (p *ProxyServer) getOIDCIssuerURL() string {
-	if p.config.IsDev() && p.config.MockOIDCIssuer != "" {
-		return p.config.MockOIDCIssuer
+	var tokenResp struct {
+		AccessToken string `json:"access_token"`
+		TokenType   string `json:"token_type"`
+		Scope       string `json:"scope"`
+		Error       string `json:"error"`
+		ErrorDesc   string `json:"error_description"`
 	}
-	// In production, use real OIDC provider (e.g., Google)
-	return "https://accounts.google.com"
+
+	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
+		return "", fmt.Errorf("failed to decode token response: %w", err)
+	}
+
+	if tokenResp.Error != "" {
+		return "", fmt.Errorf("GitHub error: %s - %s", tokenResp.Error, tokenResp.ErrorDesc)
+	}
+
+	if tokenResp.AccessToken == "" {
+		return "", fmt.Errorf("no access token in response")
+	}
+
+	return tokenResp.AccessToken, nil
+}
+
+// getGitHubEmail fetches the user's primary email from GitHub
+func (p *ProxyServer) getGitHubEmail(accessToken string) (string, error) {
+	req, err := http.NewRequest("GET", githubEmailsURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Accept", "application/vnd.github+json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("email request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("email request returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var emails []struct {
+		Email    string `json:"email"`
+		Primary  bool   `json:"primary"`
+		Verified bool   `json:"verified"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&emails); err != nil {
+		return "", fmt.Errorf("failed to decode email response: %w", err)
+	}
+
+	// Find primary verified email
+	for _, e := range emails {
+		if e.Primary && e.Verified {
+			return e.Email, nil
+		}
+	}
+
+	// Fall back to first verified email
+	for _, e := range emails {
+		if e.Verified {
+			return e.Email, nil
+		}
+	}
+
+	// Fall back to first email
+	if len(emails) > 0 {
+		return emails[0].Email, nil
+	}
+
+	return "", fmt.Errorf("no email found")
+}
+
+// handleMockLogin handles login via mock OIDC (dev only)
+func (p *ProxyServer) handleMockLogin(w http.ResponseWriter, r *http.Request) {
+	state, err := generateRandomState()
+	if err != nil {
+		common.LogError("failed to generate state", "error", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	p.sessionManager.Put(r.Context(), "oauth_state", state)
+
+	returnTo := r.URL.Query().Get("return_to")
+	if returnTo == "" {
+		returnTo = "/"
+	}
+	p.sessionManager.Put(r.Context(), "return_to", returnTo)
+
+	authURL := fmt.Sprintf("%s/authorize?response_type=code&client_id=tunn&redirect_uri=%s&state=%s",
+		p.config.MockOIDCIssuer,
+		url.QueryEscape(p.getCallbackURL()),
+		state)
+
+	common.LogInfo("redirecting to mock OIDC", "url", authURL)
+	http.Redirect(w, r, authURL, http.StatusFound)
+}
+
+// handleMockCallback handles callback from mock OIDC (dev only)
+func (p *ProxyServer) handleMockCallback(w http.ResponseWriter, r *http.Request) {
+	storedState := p.sessionManager.GetString(r.Context(), "oauth_state")
+	receivedState := r.URL.Query().Get("state")
+
+	if storedState == "" || storedState != receivedState {
+		common.LogError("invalid state parameter", "stored", storedState, "received", receivedState)
+		http.Error(w, "Invalid state parameter", http.StatusBadRequest)
+		return
+	}
+
+	p.sessionManager.Remove(r.Context(), "oauth_state")
+
+	code := r.URL.Query().Get("code")
+	if code == "" {
+		common.LogError("missing authorization code")
+		http.Error(w, "Missing authorization code", http.StatusBadRequest)
+		return
+	}
+
+	// For mock OIDC, just use a test email
+	email := "dev@example.com"
+
+	p.sessionManager.Put(r.Context(), "user_email", email)
+	p.sessionManager.Put(r.Context(), "authenticated", true)
+
+	common.LogInfo("user authenticated via mock OIDC", "email", email)
+
+	returnTo := p.sessionManager.PopString(r.Context(), "return_to")
+	if returnTo == "" {
+		returnTo = "/"
+	}
+
+	http.Redirect(w, r, returnTo, http.StatusFound)
 }
 
 // getCallbackURL returns the callback URL for this server
 func (p *ProxyServer) getCallbackURL() string {
 	scheme := "https"
 	if p.config.IsDev() {
-		scheme = "http"
+		scheme = "https" // Still use https even in dev for OAuth callbacks
 	}
-	return fmt.Sprintf("%s://%s/auth/callback", scheme, p.Domain)
+	return fmt.Sprintf("%s://%s/auth/callback", scheme, p.config.PublicAddr)
 }
 
 // generateRandomState generates a random state parameter for CSRF protection
@@ -279,15 +421,17 @@ func (p *ProxyServer) CheckJWT(next http.Handler) http.Handler {
 
 // getJWTSigningKey returns the signing key for JWT validation
 func (p *ProxyServer) getJWTSigningKey() []byte {
-	// In dev mode, use the mock OIDC's signing key
+	// In dev mode with mock OIDC, use mock signing key
 	if p.config.IsDev() && p.mockOIDC != nil {
 		return p.mockOIDC.GetSigningKey()
 	}
 
-	// In production, we would:
-	// 1. Fetch JWKS from the OIDC provider, or
-	// 2. Use a configured secret key
-	// For V1, we'll use a configured secret from environment
-	// TODO: Implement JWKS-based validation for production
-	return []byte("TODO_CONFIGURE_JWT_SECRET")
+	// Use configured JWT secret
+	if p.config.JWTSecret != "" {
+		return []byte(p.config.JWTSecret)
+	}
+
+	// Fallback for dev (should never happen in prod)
+	common.LogError("JWT_SECRET not configured")
+	return []byte("unconfigured-jwt-secret")
 }

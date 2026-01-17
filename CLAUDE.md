@@ -19,7 +19,7 @@ $ tunn serve -to localhost:8000 --allow alice@gmail.com,bob@company.com
 
 **Business Model:** Run it for free. If it gets busy enough to need >4 Fly.io nodes, we'll add optional paid tiers. If not, it stays free forever.
 
-**Abuse Prevention:** Per-tunnel rate limiting (10MiB/month baseline) + Google OAuth prevents free-tier abuse while keeping infrastructure costs near-zero.
+**Abuse Prevention:** Per-tunnel rate limiting (10MiB/month baseline) + GitHub OAuth prevents free-tier abuse while keeping infrastructure costs near-zero.
 
 ## Architecture Overview
 
@@ -63,11 +63,26 @@ The Proxy is a stateless Go application designed to run on Fly.io with 1-4 insta
 - **Internal gRPC (TCP:50051):** Node-to-node communication (tunnel discovery + rate limit sync)
 
 **Authentication:**
-- **Google OAuth:** Users log in with Google account (browser + CLI device flow)
-- **Email Allow-Lists:** Tunnel creator specifies allowed emails (Google Doc model)
-- **No User Database:** Email validation happens at request time via Google JWT
-- **Session Cookies:** Browser users get session after Google login
-- **JWT Tokens:** CLI users get token after device flow
+- **GitHub OAuth:** Users log in with GitHub (devs all have GitHub, simpler than Google)
+- **Device Code Flow for CLI:** `tunn login` opens browser, user authenticates, CLI polls for token
+- **Email Allow-Lists:** Tunnel creator specifies allowed emails (Google Doc sharing model)
+- **Session Cookies:** Browser users get session cookie after GitHub login
+- **JWT Tokens:** CLI users get JWT after device flow, stored in `~/.tunn/token`
+- **Multi-Node Auth:** Device codes stored in SQLite, replicated via LiteFS across nodes
+
+**CLI Login Flow (`tunn login`):**
+1. CLI: `POST /api/device/code` → server creates device code in SQLite
+2. CLI: opens browser to `tunn.to/login?device_code=ABC123` (pre-filled, no typing)
+3. User: clicks "Login with GitHub" → standard OAuth redirect flow
+4. Server: on callback, marks device code authorized, stores JWT
+5. CLI: polls `GET /api/device/token?code=ABC123` every 3s until authorized
+6. CLI: saves JWT to `~/.tunn/token`
+
+**Browser Auth Flow (visiting tunnels):**
+1. User visits `https://abc123.tunn.to`
+2. If no session, redirect to `/auth/login?return_to=...`
+3. User clicks "Login with GitHub" → GitHub OAuth
+4. On callback, session cookie set, redirect back to tunnel
 
 **Rate Limiting:**
 - **Per-IP bandwidth quota:** 10MiB/month baseline (configurable via env var)
@@ -99,7 +114,7 @@ $ tunn serve -to http://localhost:8000 --allow alice@gmail.com,bob@company.com
 - Creator must be logged in (`tunn login` first)
 - Creator's email automatically added to allow-list
 - `--allow` flag adds additional emails
-- Visitors must log in with Google and be on the allow-list
+- Visitors must log in with GitHub and be on the allow-list
 - Unauthorized visitors see "Access denied"
 
 **Transport:**
@@ -273,14 +288,14 @@ This project uses a comprehensive Makefile to ensure consistent builds and tests
 **Removed from V1:**
 - ❌ Billing / Stripe integration (premature)
 - ❌ Custom auth provider (tunn-auth)
-- ❌ User database (stateless via Google OAuth)
+- ❌ User database (stateless via GitHub OAuth)
 - ❌ UDP tunneling (Phase 5 - defer to v1.1)
 - ❌ Custom domains (can add later if paid tiers)
 
 **What We're Building:**
 - ✅ HTTP/HTTPS tunneling over gRPC
-- ✅ Google OAuth (browser + CLI device flow)
-- ✅ Email allow-lists (Google Doc sharing model)
+- ✅ GitHub OAuth (browser + CLI device flow)
+- ✅ Email allow-lists (sharing by email, like Google Docs)
 - ✅ Session cookies + JWT tokens
 - ✅ Per-tunnel rate limiting
 - ✅ Inter-node sync
@@ -296,8 +311,8 @@ This project uses a comprehensive Makefile to ensure consistent builds and tests
 - ✅ Health checks
 - ✅ Inter-node tunnel discovery
 - ✅ HTTP/2 + HTTP/3 listeners
-- ✅ Google OAuth browser flow (login, callback, sessions)
-- ✅ Google OAuth device flow (`tunn login` command)
+- ✅ GitHub OAuth browser flow (login, callback, sessions)
+- ✅ Device code flow for CLI (`tunn login` command)
 - ✅ Session cookie management
 - ✅ JWT validation middleware
 - ✅ Dev/prod configuration
@@ -307,7 +322,8 @@ This project uses a comprehensive Makefile to ensure consistent builds and tests
 - 🚧 Allow-list enforcement (check email in webproxy.go)
 - 🚧 Data plane: HTTP forwarding over gRPC (CRITICAL)
 - 🚧 Per-tunnel rate limiting (10MiB/month)
-- 🚧 Replace mock OIDC with real Google OAuth config
+- 🚧 Implement device code endpoints for CLI login
+- 🚧 Wire up GitHub OAuth (replace mock OIDC)
 
 **Next Up:**
 - ⏸ E2E testing
@@ -322,7 +338,7 @@ This project uses a comprehensive Makefile to ensure consistent builds and tests
 **Key Decisions:**
 1. **Free forever by default** - monetize only if forced to by scale
 2. **Google Doc sharing model** - share tunnels by email, familiar UX
-3. **Google OAuth only** - no custom auth, no user database
+3. **GitHub OAuth only** - devs all have GitHub, simpler setup than Google
 4. **Per-tunnel rate limiting** - 10MiB/month keeps costs near-zero
 5. **Full mesh <4 nodes** - simple, no distributed system complexity
 6. **OSS everything** - build in public, no secret sauce

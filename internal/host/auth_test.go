@@ -275,7 +275,22 @@ func TestGetJWTSigningKey(t *testing.T) {
 		}
 	})
 
-	t.Run("production mode", func(t *testing.T) {
+	t.Run("production mode with JWT secret", func(t *testing.T) {
+		proxy := &ProxyServer{
+			config: &config.Config{
+				Environment: config.EnvProd,
+				JWTSecret:   "my-prod-secret",
+			},
+			mockOIDC: nil,
+		}
+
+		key := proxy.getJWTSigningKey()
+		if string(key) != "my-prod-secret" {
+			t.Errorf("Expected configured secret, got %s", string(key))
+		}
+	})
+
+	t.Run("production mode without JWT secret", func(t *testing.T) {
 		proxy := &ProxyServer{
 			config:   &config.Config{Environment: config.EnvProd},
 			mockOIDC: nil,
@@ -286,9 +301,9 @@ func TestGetJWTSigningKey(t *testing.T) {
 			t.Error("Expected non-empty signing key in prod mode")
 		}
 
-		// In prod mode, it returns the TODO placeholder
-		if string(key) != "TODO_CONFIGURE_JWT_SECRET" {
-			t.Errorf("Expected TODO placeholder, got %s", string(key))
+		// Without JWT_SECRET, returns fallback
+		if string(key) != "unconfigured-jwt-secret" {
+			t.Errorf("Expected fallback, got %s", string(key))
 		}
 	})
 }

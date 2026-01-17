@@ -40,6 +40,11 @@ type Config struct {
 	// Public mode (testing only - disables all auth)
 	PublicMode bool
 
+	// GitHub OAuth configuration
+	GitHubClientID     string
+	GitHubClientSecret string
+	JWTSecret          string // Secret for signing our own JWTs
+
 	// Client configuration
 	ServerAddr string
 	SkipVerify bool
@@ -96,6 +101,11 @@ func (c *Config) loadDevConfig() {
 	// Public mode (disable all auth for testing)
 	c.PublicMode = getEnvOrDefault("PUBLIC_MODE", "") == "true"
 
+	// GitHub OAuth (optional in dev - uses mock OIDC if not set)
+	c.GitHubClientID = getEnvOrDefault("GITHUB_CLIENT_ID", "")
+	c.GitHubClientSecret = getEnvOrDefault("GITHUB_CLIENT_SECRET", "")
+	c.JWTSecret = getEnvOrDefault("JWT_SECRET", "dev-jwt-secret-do-not-use-in-prod")
+
 	// Skip TLS verification in dev
 	c.SkipVerify = true
 }
@@ -126,6 +136,11 @@ func (c *Config) loadProdConfig() {
 
 	// Tunnel creation key (free tier)
 	c.WellKnownKey = getEnvOrDefault("WELL_KNOWN_KEY", "tunn-free-v1-2025")
+
+	// GitHub OAuth (required in prod)
+	c.GitHubClientID = getEnvOrDefault("GITHUB_CLIENT_ID", "")
+	c.GitHubClientSecret = getEnvOrDefault("GITHUB_CLIENT_SECRET", "")
+	c.JWTSecret = getEnvOrDefault("JWT_SECRET", "") // Must be set in prod
 
 	// Verify TLS in production
 	c.SkipVerify = false

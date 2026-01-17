@@ -236,8 +236,11 @@ func isAllowed(sessionEmail string, allowList []string) bool {
 ```
 
 **Tasks:**
-14. [ ] **Create accounts schema** - SQLite tables for accounts + account_emails
-15. [ ] **Implement account merge on OAuth** - Handle 0/1/2+ account cases
+14. [x] **Create accounts schema** - SQLite tables for accounts + account_emails
+      - Implemented in `internal/store/` with accounts, account_emails, device_codes tables
+      - Auto-detects LiteFS mount at `/litefs/tunn.db`
+15. [x] **Implement account merge on OAuth** - Handle 0/1/2+ account cases
+      - FindOrCreateByEmails handles 0/1/2+ account cases with automatic merge
 16. [ ] **Update allow-list check** - Check against email bucket, not just session email
 17. [ ] **Add users.yaml support** - Simple config for self-hosters
       ```yaml
@@ -265,10 +268,10 @@ func isAllowed(sessionEmail string, allowList []string) bool {
       - **Fly.io specific** - see vendor lock-in notes below
 
 ### LiteFS Replication (tunn.to)
-19. [ ] **Add LiteFS support for SQLite replication** - Fly.io native
-      - Mount `/litefs`, SQLite lives there
-      - Writes go to primary (auto-elected), replicate in <1s
-      - All nodes see same data
+19. [x] **Add LiteFS support for SQLite replication** - Fly.io native
+      - App auto-detects `/litefs` and uses `/litefs/tunn.db`
+      - Falls back to `~/.tunn/tunn.db` for local dev
+      - LiteFS mount configured at Fly.io deploy time (fly.toml)
       - **Fly.io specific** - see vendor lock-in notes below
 
 ### Subdomain Reservations (Pro Feature)

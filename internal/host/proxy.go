@@ -23,6 +23,7 @@ import (
 	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/ehrlich-b/tunn/internal/config"
 	"github.com/ehrlich-b/tunn/internal/mockoidc"
+	"github.com/ehrlich-b/tunn/internal/store"
 	internalv1 "github.com/ehrlich-b/tunn/pkg/proto/internalv1"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
 )
@@ -63,12 +64,19 @@ type ProxyServer struct {
 	// Mock OIDC server (dev only)
 	mockOIDC *mockoidc.Server
 
-	// Device code store for CLI login
-	deviceCodes *DeviceCodeStore
+	// Stores (SQLite-backed)
+	deviceCodes *store.DeviceCodeStore
+	accounts    *store.AccountStore
 }
 
 // NewProxyServer creates a new dual-listener proxy server
 func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
+	// Initialize database
+	db, err := store.DB()
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize database: %w", err)
+	}
+
 	cert, err := tls.LoadX509KeyPair(cfg.CertFile, cfg.KeyFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load certificates: %w", err)
@@ -124,7 +132,8 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 		tunnelCache:        make(map[string]string),
 		config:             cfg,
 		PublicAddr:         cfg.PublicAddr,
-		deviceCodes:        NewDeviceCodeStore(),
+		deviceCodes:        store.NewDeviceCodeStore(db),
+		accounts:           store.NewAccountStore(db),
 	}
 
 	// Create gRPC clients for other nodes

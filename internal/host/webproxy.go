@@ -105,12 +105,21 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 			"tunnel_id", tunnelID,
 			"path", r.URL.Path)
 
-		// Check if user is on the tunnel's allow-list
-		allowed := isEmailAllowed(userEmail, tunnel.AllowedEmails)
+		// Get user's email bucket (all emails associated with their account)
+		userEmails := []string{userEmail}
+		if p.accounts != nil {
+			if bucket, err := p.accounts.GetEmailBucket(userEmail); err == nil {
+				userEmails = bucket
+			}
+		}
+
+		// Check if any email in user's bucket is on the tunnel's allow-list
+		allowed := isEmailBucketAllowed(userEmails, tunnel.AllowedEmails)
 
 		if !allowed {
 			common.LogInfo("access denied - user not on allow-list",
 				"email", userEmail,
+				"bucket", userEmails,
 				"tunnel_id", tunnelID,
 				"allowed_emails", tunnel.AllowedEmails)
 
@@ -302,6 +311,17 @@ func isEmailAllowed(email string, allowList []string) bool {
 			if strings.EqualFold(email, allowed) {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+// isEmailBucketAllowed checks if any email in the bucket is on the allow-list
+// This supports the identity model where users may have multiple verified emails
+func isEmailBucketAllowed(userEmails []string, allowList []string) bool {
+	for _, email := range userEmails {
+		if isEmailAllowed(email, allowList) {
+			return true
 		}
 	}
 	return false

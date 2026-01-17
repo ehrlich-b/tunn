@@ -245,6 +245,69 @@ func TestAllowListCheck(t *testing.T) {
 	}
 }
 
+func TestEmailBucketAllowListCheck(t *testing.T) {
+	tests := []struct {
+		name          string
+		userEmails    []string // Email bucket (multiple emails for one user)
+		allowedEmails []string
+		wantAllowed   bool
+	}{
+		{
+			name:          "single email in bucket - allowed",
+			userEmails:    []string{"alice@example.com"},
+			allowedEmails: []string{"alice@example.com"},
+			wantAllowed:   true,
+		},
+		{
+			name:          "single email in bucket - not allowed",
+			userEmails:    []string{"eve@example.com"},
+			allowedEmails: []string{"alice@example.com"},
+			wantAllowed:   false,
+		},
+		{
+			name:          "multiple emails - first matches",
+			userEmails:    []string{"work@company.com", "personal@gmail.com"},
+			allowedEmails: []string{"work@company.com"},
+			wantAllowed:   true,
+		},
+		{
+			name:          "multiple emails - second matches",
+			userEmails:    []string{"work@company.com", "personal@gmail.com"},
+			allowedEmails: []string{"personal@gmail.com"},
+			wantAllowed:   true,
+		},
+		{
+			name:          "multiple emails - none match",
+			userEmails:    []string{"work@company.com", "personal@gmail.com"},
+			allowedEmails: []string{"alice@example.com"},
+			wantAllowed:   false,
+		},
+		{
+			name:          "bucket email matches domain wildcard",
+			userEmails:    []string{"external@gmail.com", "work@company.com"},
+			allowedEmails: []string{"@company.com"},
+			wantAllowed:   true, // work@company.com matches @company.com
+		},
+		{
+			name:          "empty bucket - not allowed",
+			userEmails:    []string{},
+			allowedEmails: []string{"alice@example.com"},
+			wantAllowed:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			allowed := isEmailBucketAllowed(tt.userEmails, tt.allowedEmails)
+
+			if allowed != tt.wantAllowed {
+				t.Errorf("isEmailBucketAllowed(%v, %v) = %v, want %v",
+					tt.userEmails, tt.allowedEmails, allowed, tt.wantAllowed)
+			}
+		})
+	}
+}
+
 func TestProxyHTTPOverGRPCMultiValueHeaders(t *testing.T) {
 	stream := &mockWebProxyStream{
 		sentMsgs: make([]*pb.TunnelMessage, 0),

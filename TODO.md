@@ -80,13 +80,13 @@ Logged in as alice@example.com
 - This is how Slack, Notion, etc. do it
 
 **Tasks:**
-10. [ ] **Resend integration** - Sign up, get API key, ~15 lines to send email
-11. [ ] **POST /auth/magic endpoint** - Generate magic link JWT, send email
-12. [ ] **GET /auth/verify endpoint** - Verify JWT (type=magic_link), create session
+10. [x] **SMTP integration** - Generic SMTP support (works with AWS SES, Resend, any SMTP provider)
+11. [x] **POST /auth/magic endpoint** - Generate magic link JWT, send email
+12. [x] **GET /auth/verify endpoint** - Verify JWT (type=magic_link), create session
 13. [ ] **Login page update** - Add "Login with Email" option alongside GitHub
 
 **Config:**
-- `RESEND_API_KEY` env var (tunn.to only)
+- `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` env vars
 - Self-hosters: leave empty, magic link disabled
 
 ### Self-Hoster Auth (Simple Shared Secrets)
@@ -247,7 +247,7 @@ func isAllowed(sessionEmail string, allowList []string) bool {
 15. [x] **Implement account merge on OAuth** - Handle 0/1/2+ account cases
       - FindOrCreateByEmails handles 0/1/2+ account cases with automatic merge
 16. [ ] **Update allow-list check** - Check against email bucket, not just session email
-17. [ ] **Add users.yaml support** - Simple config for self-hosters
+17. [x] **Add users.yaml support** - Simple config for self-hosters (implemented in internal/store/users.go)
       ```yaml
       alice@gmail.com:
         plan: pro

@@ -52,6 +52,87 @@ Logged in as alice@example.com
       - Example: `tunn 8080 --allow @slide.com,external@gmail.com`
       - **Pro feature:** Free tier limited to 3 exact emails, no @domain wildcards
 
+9. [ ] **Reserved subdomain list** - Prevent phishing/squatting
+      - Block: www, api, app, admin, auth, login, google, paypal, amazon, etc.
+      - Check on tunnel registration, return error if reserved
+      - ~30 lines of code
+
+### Magic Link Auth (tunn.to)
+
+**Why:** Not everyone has GitHub. Magic link is the simplest "direct" login.
+
+**Stateless Design:** Magic link token is a JWT, not stored anywhere. Any Fly node can verify it.
+
+**Flow:**
+```
+1. User: POST /auth/magic {email: "alice@example.com"}
+2. Server: Generate JWT {email, type: "magic_link", exp: +5min}
+3. Server: Send email via Resend API with link: /auth/verify?token=<JWT>
+4. User: Clicks link (hits ANY node - no coordination needed)
+5. Server: Verify JWT signature + expiry + type="magic_link"
+6. Server: Create session JWT (24hr), set cookie, redirect
+```
+
+**Why stateless:** Multiple Fly machines. No LiteFS needed for magic links. Any node can verify.
+
+**Trade-off:** Link is replayable within 5-min window. Acceptable because:
+- Email is already the weak link (compromised email = game over)
+- 5 minutes is short
+- This is how Slack, Notion, etc. do it
+
+**Tasks:**
+10. [ ] **Resend integration** - Sign up, get API key, ~15 lines to send email
+11. [ ] **POST /auth/magic endpoint** - Generate magic link JWT, send email
+12. [ ] **GET /auth/verify endpoint** - Verify JWT (type=magic_link), create session
+13. [ ] **Login page update** - Add "Login with Email" option alongside GitHub
+
+**Config:**
+- `RESEND_API_KEY` env var (tunn.to only)
+- Self-hosters: leave empty, magic link disabled
+
+### Self-Hoster Auth (Simple Shared Secrets)
+
+**Philosophy:** Self-hosters don't want to set up GitHub OAuth or email. Give them the simplest possible thing.
+
+**Option 1: Master Client Secret (whole team shares one secret)**
+```bash
+# Server config
+CLIENT_SECRET=mysecretkey123
+
+# Client usage
+tunn serve 8080 --secret=mysecretkey123
+# or
+export TUNN_SECRET=mysecretkey123
+tunn serve 8080
+```
+
+Like `NODE_SECRET` but for clients. Entire team uses the same secret. Zero setup.
+
+**Option 2: Per-User Tokens (users.yaml)**
+```yaml
+users:
+  alice@company.com:
+    token: "tunn_sk_abc123..."
+  bob@company.com:
+    token: "tunn_sk_xyz789..."
+```
+
+Admin generates tokens, gives to users. More granular than master secret.
+
+**Auth Priority (server checks in order):**
+1. JWT token (from `tunn login` via OAuth/magic link)
+2. User token (from users.yaml)
+3. Client secret (master key)
+4. Reject
+
+**Tasks:**
+15. [ ] **Add CLIENT_SECRET config** - Master key for all clients
+16. [ ] **Add --secret flag to CLI** - Pass secret on command line or TUNN_SECRET env
+17. [ ] **users.yaml loader** - Parse YAML, check tokens
+18. [ ] **Update auth middleware** - Check JWT → user token → client secret → reject
+
+**tunn.to will NOT set CLIENT_SECRET** - forces real auth (GitHub/magic link).
+
 ### Integration Testing
 
 See **[integration_test_framework.md](integration_test_framework.md)** for full details.

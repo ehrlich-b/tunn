@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/golang-jwt/jwt/v4"
@@ -174,7 +175,8 @@ func (p *ProxyServer) exchangeGitHubCode(code string) (string, error) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("token request failed: %w", err)
 	}
@@ -217,7 +219,8 @@ func (p *ProxyServer) getGitHubEmail(accessToken string) (string, error) {
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Accept", "application/vnd.github+json")
 
-	resp, err := http.DefaultClient.Do(req)
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("email request failed: %w", err)
 	}
@@ -358,11 +361,7 @@ code { background: #161b22; padding: 2px 6px; border-radius: 4px; }
 
 // getCallbackURL returns the callback URL for this server
 func (p *ProxyServer) getCallbackURL() string {
-	scheme := "https"
-	if p.config.IsDev() {
-		scheme = "https" // Still use https even in dev for OAuth callbacks
-	}
-	return fmt.Sprintf("%s://%s/auth/callback", scheme, p.config.PublicAddr)
+	return fmt.Sprintf("https://%s/auth/callback", p.config.PublicAddr)
 }
 
 // generateRandomState generates a random state parameter for CSRF protection

@@ -204,7 +204,9 @@ func (p *ProxyServer) handleDeviceCode(w http.ResponseWriter, r *http.Request) {
 	common.LogInfo("created device code", "user_code", code.UserCode)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		common.LogError("failed to encode device code response", "error", err)
+	}
 }
 
 // handleDeviceToken handles GET /api/device/token - polls for token
@@ -251,11 +253,13 @@ func (p *ProxyServer) handleDeviceToken(w http.ResponseWriter, r *http.Request) 
 	common.LogInfo("device code authorized", "email", code.Email)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"access_token": token,
 		"token_type":   "Bearer",
 		"expires_in":   86400, // 24 hours
-	})
+	}); err != nil {
+		common.LogError("failed to encode token response", "error", err)
+	}
 }
 
 // handleLoginPage handles GET /login - shows login page with device code

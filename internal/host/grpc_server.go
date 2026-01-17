@@ -3,12 +3,51 @@ package host
 import (
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/ehrlich-b/tunn/internal/common"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
 )
+
+// reservedSubdomains are blocked to prevent phishing and squatting
+var reservedSubdomains = map[string]bool{
+	// Infrastructure
+	"www": true, "api": true, "app": true, "admin": true, "auth": true,
+	"login": true, "static": true, "cdn": true, "assets": true, "images": true,
+	"mail": true, "smtp": true, "pop": true, "imap": true, "mx": true,
+	"ns": true, "ns1": true, "ns2": true, "dns": true,
+	"ftp": true, "sftp": true, "ssh": true, "vpn": true,
+	"dev": true, "staging": true, "prod": true, "test": true, "beta": true,
+	"status": true, "health": true, "metrics": true, "monitor": true,
+
+	// Common phishing targets
+	"google": true, "gmail": true, "youtube": true,
+	"facebook": true, "instagram": true, "whatsapp": true, "meta": true,
+	"apple": true, "icloud": true, "itunes": true,
+	"microsoft": true, "outlook": true, "office": true, "azure": true,
+	"amazon": true, "aws": true, "prime": true,
+	"paypal": true, "venmo": true, "cashapp": true, "stripe": true,
+	"chase": true, "bankofamerica": true, "wellsfargo": true, "citi": true,
+	"netflix": true, "spotify": true, "hulu": true, "disney": true,
+	"twitter": true, "x": true, "linkedin": true, "tiktok": true,
+	"github": true, "gitlab": true, "bitbucket": true,
+	"slack": true, "zoom": true, "teams": true, "discord": true,
+	"dropbox": true, "box": true, "drive": true,
+
+	// Security-sensitive
+	"secure": true, "security": true, "account": true, "accounts": true,
+	"billing": true, "payment": true, "pay": true, "checkout": true,
+	"verify": true, "verification": true, "confirm": true, "reset": true,
+	"password": true, "signin": true, "signup": true, "register": true,
+	"support": true, "help": true, "helpdesk": true,
+}
+
+// isReservedSubdomain checks if a tunnel ID is reserved
+func isReservedSubdomain(tunnelID string) bool {
+	return reservedSubdomains[strings.ToLower(tunnelID)]
+}
 
 // TunnelServer implements the gRPC TunnelService
 type TunnelServer struct {
@@ -70,6 +109,21 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 
 	tunnelID := regClient.TunnelId
 	targetURL := regClient.TargetUrl
+
+	// Check for reserved subdomains
+	if isReservedSubdomain(tunnelID) {
+		common.LogError("rejected reserved subdomain", "tunnel_id", tunnelID)
+		respMsg := &pb.TunnelMessage{
+			Message: &pb.TunnelMessage_RegisterResponse{
+				RegisterResponse: &pb.RegisterResponse{
+					Success:      false,
+					ErrorMessage: fmt.Sprintf("Subdomain '%s' is reserved. Please choose a different name.", tunnelID),
+				},
+			},
+		}
+		stream.Send(respMsg)
+		return fmt.Errorf("reserved subdomain: %s", tunnelID)
+	}
 
 	common.LogInfo("client registering", "tunnel_id", tunnelID, "target", targetURL)
 

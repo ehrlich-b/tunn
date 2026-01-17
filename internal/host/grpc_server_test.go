@@ -240,3 +240,86 @@ func (m *mockTunnelStream) SetTrailer(md metadata.MD)       {}
 func (m *mockTunnelStream) Context() context.Context        { return context.Background() }
 func (m *mockTunnelStream) SendMsg(msg interface{}) error   { return nil }
 func (m *mockTunnelStream) RecvMsg(msg interface{}) error   { return nil }
+
+func TestIsReservedSubdomain(t *testing.T) {
+	tests := []struct {
+		subdomain string
+		expected  bool
+	}{
+		// Infrastructure
+		{"www", true},
+		{"api", true},
+		{"admin", true},
+		{"login", true},
+		{"health", true},
+
+		// Phishing targets
+		{"google", true},
+		{"paypal", true},
+		{"github", true},
+		{"amazon", true},
+
+		// Case insensitive
+		{"GOOGLE", true},
+		{"PayPal", true},
+		{"GitHub", true},
+
+		// Allowed
+		{"myapp", false},
+		{"test123", false},
+		{"mycoolproject", false},
+		{"abc123xyz", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.subdomain, func(t *testing.T) {
+			if got := isReservedSubdomain(tt.subdomain); got != tt.expected {
+				t.Errorf("isReservedSubdomain(%q) = %v, want %v", tt.subdomain, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestTunnelServerReservedSubdomain(t *testing.T) {
+	srv := NewTunnelServer("test-key", false, "tunn.to")
+
+	stream := &mockTunnelStream{
+		recvQueue: make(chan *pb.TunnelMessage, 10),
+		sentMsgs:  make([]*pb.TunnelMessage, 0),
+	}
+
+	// Try to register a reserved subdomain
+	stream.recvQueue <- &pb.TunnelMessage{
+		Message: &pb.TunnelMessage_RegisterClient{
+			RegisterClient: &pb.RegisterClient{
+				TunnelId:     "google",
+				TargetUrl:    "http://localhost:8000",
+				TunnelKey:    "test-key",
+				CreatorEmail: "attacker@evil.com",
+			},
+		},
+	}
+	close(stream.recvQueue)
+
+	err := srv.EstablishTunnel(stream)
+	if err == nil {
+		t.Error("Expected error for reserved subdomain")
+	}
+
+	if len(stream.sentMsgs) < 1 {
+		t.Fatal("Expected error response to be sent")
+	}
+
+	regResp := stream.sentMsgs[0].GetRegisterResponse()
+	if regResp == nil {
+		t.Fatal("Expected RegisterResponse message")
+	}
+
+	if regResp.Success {
+		t.Error("Expected registration to fail")
+	}
+
+	if regResp.ErrorMessage == "" {
+		t.Error("Expected error message")
+	}
+}

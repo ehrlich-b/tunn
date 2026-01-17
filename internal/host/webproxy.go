@@ -106,13 +106,7 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 			"path", r.URL.Path)
 
 		// Check if user is on the tunnel's allow-list
-		allowed := false
-		for _, allowedEmail := range tunnel.AllowedEmails {
-			if allowedEmail == userEmail {
-				allowed = true
-				break
-			}
-		}
+		allowed := isEmailAllowed(userEmail, tunnel.AllowedEmails)
 
 		if !allowed {
 			common.LogInfo("access denied - user not on allow-list",
@@ -272,4 +266,23 @@ func (p *ProxyServer) handleApexDomain(w http.ResponseWriter, r *http.Request) {
 	// Show active tunnels count
 	activeTunnels := p.tunnelServer.GetActiveTunnelCount()
 	fmt.Fprintf(w, "\nActive tunnels: %d\n", activeTunnels)
+}
+
+// isEmailAllowed checks if an email is on the allow-list
+// Supports both exact matches ("alice@example.com") and domain wildcards ("@example.com")
+func isEmailAllowed(email string, allowList []string) bool {
+	for _, allowed := range allowList {
+		if strings.HasPrefix(allowed, "@") {
+			// Domain wildcard: check if email ends with this domain
+			if strings.HasSuffix(strings.ToLower(email), strings.ToLower(allowed)) {
+				return true
+			}
+		} else {
+			// Exact match (case-insensitive)
+			if strings.EqualFold(email, allowed) {
+				return true
+			}
+		}
+	}
+	return false
 }

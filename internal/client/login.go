@@ -2,22 +2,24 @@ package client
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/ehrlich-b/tunn/internal/common"
 )
 
-// LoginClient handles the OAuth Device Authorization Grant flow
+// LoginClient handles the device code login flow
 type LoginClient struct {
 	ServerAddr string
-	OIDCIssuer string
 	SkipVerify bool
 }
 
@@ -42,7 +44,7 @@ type TokenResponse struct {
 
 // Run executes the device flow login process
 func (l *LoginClient) Run(ctx context.Context) error {
-	common.LogInfo("starting device flow login", "issuer", l.OIDCIssuer)
+	common.LogInfo("starting device flow login", "server", l.ServerAddr)
 
 	// Step 1: Request device code
 	deviceResp, err := l.requestDeviceCode()
@@ -50,14 +52,13 @@ func (l *LoginClient) Run(ctx context.Context) error {
 		return fmt.Errorf("failed to request device code: %w", err)
 	}
 
-	// Step 2: Display user code and verification URL
-	fmt.Printf("\n")
-	fmt.Printf("To authenticate, visit:\n")
+	// Step 2: Display URL and attempt to open browser
+	fmt.Printf("\nOpening browser...\n")
 	fmt.Printf("  %s\n", deviceResp.VerificationURIComplete)
-	fmt.Printf("\n")
-	fmt.Printf("Or go to %s and enter code: %s\n", deviceResp.VerificationURI, deviceResp.UserCode)
-	fmt.Printf("\n")
-	fmt.Printf("Waiting for authentication...\n")
+	fmt.Printf("\nWaiting for authentication...\n")
+
+	// Try to open browser
+	l.openBrowser(deviceResp.VerificationURIComplete)
 
 	// Step 3: Poll for token
 	token, err := l.pollForToken(ctx, deviceResp)
@@ -71,20 +72,17 @@ func (l *LoginClient) Run(ctx context.Context) error {
 	}
 
 	common.LogInfo("login successful", "token_file", l.getTokenPath())
-	fmt.Printf("\nLogin successful! Token saved to %s\n", l.getTokenPath())
+	fmt.Printf("Logged in successfully!\n")
 
 	return nil
 }
 
-// requestDeviceCode requests a device code from the OIDC provider
+// requestDeviceCode requests a device code from the server
 func (l *LoginClient) requestDeviceCode() (*DeviceCodeResponse, error) {
-	deviceURL := l.OIDCIssuer + "/device/code"
+	deviceURL := fmt.Sprintf("https://%s/api/device/code", l.ServerAddr)
 
-	data := url.Values{}
-	data.Set("client_id", "tunn")
-	data.Set("scope", "openid email")
-
-	resp, err := http.PostForm(deviceURL, data)
+	client := l.httpClient()
+	resp, err := client.Post(deviceURL, "application/json", nil)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
@@ -105,10 +103,9 @@ func (l *LoginClient) requestDeviceCode() (*DeviceCodeResponse, error) {
 
 // pollForToken polls the token endpoint until the user completes authentication
 func (l *LoginClient) pollForToken(ctx context.Context, deviceResp *DeviceCodeResponse) (*TokenResponse, error) {
-	tokenURL := l.OIDCIssuer + "/token"
 	interval := time.Duration(deviceResp.Interval) * time.Second
 	if interval == 0 {
-		interval = 5 * time.Second
+		interval = 3 * time.Second
 	}
 
 	ticker := time.NewTicker(interval)
@@ -123,7 +120,7 @@ func (l *LoginClient) pollForToken(ctx context.Context, deviceResp *DeviceCodeRe
 		case <-timeout:
 			return nil, fmt.Errorf("authentication timed out")
 		case <-ticker.C:
-			token, err := l.checkToken(tokenURL, deviceResp.DeviceCode)
+			token, err := l.checkToken(deviceResp.DeviceCode)
 			if err == nil {
 				return token, nil
 			}
@@ -140,13 +137,11 @@ func (l *LoginClient) pollForToken(ctx context.Context, deviceResp *DeviceCodeRe
 }
 
 // checkToken attempts to exchange the device code for a token
-func (l *LoginClient) checkToken(tokenURL, deviceCode string) (*TokenResponse, error) {
-	data := url.Values{}
-	data.Set("grant_type", "urn:ietf:params:oauth:grant-type:device_code")
-	data.Set("device_code", deviceCode)
-	data.Set("client_id", "tunn")
+func (l *LoginClient) checkToken(deviceCode string) (*TokenResponse, error) {
+	tokenURL := fmt.Sprintf("https://%s/api/device/token?code=%s", l.ServerAddr, url.QueryEscape(deviceCode))
 
-	resp, err := http.PostForm(tokenURL, data)
+	client := l.httpClient()
+	resp, err := client.Get(tokenURL)
 	if err != nil {
 		return nil, fmt.Errorf("token request failed: %w", err)
 	}
@@ -216,4 +211,35 @@ func LoadToken() (string, error) {
 	}
 
 	return string(data), nil
+}
+
+// httpClient returns an HTTP client, optionally skipping TLS verification
+func (l *LoginClient) httpClient() *http.Client {
+	if l.SkipVerify {
+		return &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			},
+		}
+	}
+	return http.DefaultClient
+}
+
+// openBrowser attempts to open the URL in the default browser
+func (l *LoginClient) openBrowser(url string) {
+	var cmd *exec.Cmd
+
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", url)
+	case "linux":
+		cmd = exec.Command("xdg-open", url)
+	case "windows":
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+	default:
+		return
+	}
+
+	// Run in background, ignore errors (user can manually open URL)
+	cmd.Start()
 }

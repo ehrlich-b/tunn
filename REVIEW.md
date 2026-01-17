@@ -1,23 +1,19 @@
 # Code Review: tunn Audit Summary
 
 **Review Date:** 2025-01-17
-**Status:** Core tunneling ready. OAuth needs work for Google login.
+**Status:** Core tunneling ready. GitHub OAuth implemented.
 
 ---
 
 ## Launch Blockers
 
-**Core tunneling:** Ready to ship.
+**None.** Core tunneling and auth are ready to ship.
 
-**OAuth (if you want `tunn login` + Google-protected browser portal):**
+**Requirements before production:**
+1. Create GitHub OAuth App and set `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET`
+2. Set `JWT_SECRET` environment variable for token signing
 
-| Issue | File | Problem |
-|-------|------|---------|
-| `exchangeCodeForToken` | `auth.go:104` | Returns auth code as token, doesn't parse Google response |
-| `validateToken` | `auth.go:132` | Returns hardcoded `user@example.com`, ignores actual user |
-| `getJWTSigningKey` | `auth.go:281` | Returns `TODO_CONFIGURE_JWT_SECRET` in prod |
-
-**Workaround:** Launch with `PUBLIC_MODE=true` to bypass auth entirely. Tunnels work, but no Google login protection.
+**For dev/testing:** Use `PUBLIC_MODE=true` to bypass auth entirely.
 
 See [TODO.md](TODO.md) for full checklist.
 
@@ -54,6 +50,13 @@ Legacy `ProxyRequest`/`ProxyResponse` messages remain in `proto/tunnel.proto` bu
 ---
 
 ## Completed Fixes (2025-01-17)
+
+### Auth Implementation
+
+- **GitHub OAuth:** Browser flow with `/auth/login`, `/auth/callback` endpoints
+- **Device Code Flow:** CLI login via `/api/device/code` and `/api/device/token`
+- **JWT Signing:** `getJWTSigningKey()` now uses `JWT_SECRET` env var (fallback for dev)
+- **Domain Wildcards:** `--allow @company.com` matches any email ending in `@company.com`
 
 ### Bugs Fixed
 
@@ -124,10 +127,11 @@ All tests pass. Race detection passes (`make test-race`).
 | `internal/host/proxy.go` | Clean |
 | `internal/host/grpc_server.go` | Clean |
 | `internal/host/webproxy.go` | Clean |
-| `internal/host/auth.go` | OAuth deferred |
+| `internal/host/auth.go` | Clean (GitHub OAuth) |
+| `internal/host/device.go` | Clean (Device Code Flow) |
 | `internal/host/udpproxy.go` | Clean |
 | `internal/client/serve.go` | Clean |
-| `internal/client/login.go` | Clean |
+| `internal/client/login.go` | Clean (Device Flow) |
 | `internal/client/connect.go` | Clean |
 | `internal/common/auth.go` | JWT validation deferred |
 | `internal/common/logging.go` | Clean |

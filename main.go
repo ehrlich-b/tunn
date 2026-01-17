@@ -189,13 +189,7 @@ func runLogin() {
 
 	loginClient := &client.LoginClient{
 		ServerAddr: cfg.ServerAddr,
-		OIDCIssuer: cfg.MockOIDCIssuer,
-		SkipVerify: cfg.SkipVerify,
-	}
-
-	// Use production OIDC if not in dev mode
-	if !cfg.IsDev() {
-		loginClient.OIDCIssuer = "https://accounts.google.com"
+		SkipVerify: cfg.SkipVerify || *skipVerify,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

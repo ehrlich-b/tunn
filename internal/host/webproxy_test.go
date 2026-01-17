@@ -183,26 +183,62 @@ func TestAllowListCheck(t *testing.T) {
 			wantAllowed:   true,
 		},
 		{
-			name:          "case sensitive email",
+			name:          "case insensitive email",
 			userEmail:     "Alice@Example.com",
 			allowedEmails: []string{"alice@example.com"},
-			wantAllowed:   false, // Emails are case-sensitive in current impl
+			wantAllowed:   true, // Emails are case-insensitive
+		},
+		// Domain wildcard tests
+		{
+			name:          "domain wildcard match",
+			userEmail:     "alice@company.com",
+			allowedEmails: []string{"@company.com"},
+			wantAllowed:   true,
+		},
+		{
+			name:          "domain wildcard no match",
+			userEmail:     "alice@other.com",
+			allowedEmails: []string{"@company.com"},
+			wantAllowed:   false,
+		},
+		{
+			name:          "domain wildcard case insensitive",
+			userEmail:     "alice@COMPANY.COM",
+			allowedEmails: []string{"@company.com"},
+			wantAllowed:   true,
+		},
+		{
+			name:          "mixed exact and wildcard - exact match",
+			userEmail:     "external@gmail.com",
+			allowedEmails: []string{"@company.com", "external@gmail.com"},
+			wantAllowed:   true,
+		},
+		{
+			name:          "mixed exact and wildcard - wildcard match",
+			userEmail:     "alice@company.com",
+			allowedEmails: []string{"@company.com", "external@gmail.com"},
+			wantAllowed:   true,
+		},
+		{
+			name:          "mixed exact and wildcard - no match",
+			userEmail:     "hacker@evil.com",
+			allowedEmails: []string{"@company.com", "external@gmail.com"},
+			wantAllowed:   false,
+		},
+		{
+			name:          "subdomain does not match wildcard",
+			userEmail:     "alice@sub.company.com",
+			allowedEmails: []string{"@company.com"},
+			wantAllowed:   false, // @company.com should not match sub.company.com
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Replicate the allow-list check logic from proxyToLocal
-			allowed := false
-			for _, allowedEmail := range tt.allowedEmails {
-				if allowedEmail == tt.userEmail {
-					allowed = true
-					break
-				}
-			}
+			allowed := isEmailAllowed(tt.userEmail, tt.allowedEmails)
 
 			if allowed != tt.wantAllowed {
-				t.Errorf("allow-list check for %q in %v: got %v, want %v",
+				t.Errorf("isEmailAllowed(%q, %v) = %v, want %v",
 					tt.userEmail, tt.allowedEmails, allowed, tt.wantAllowed)
 			}
 		})

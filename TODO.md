@@ -34,7 +34,6 @@ Logged in as alice@example.com
 - Device codes stored in SQLite
 - LiteFS replicates SQLite across all Fly.io nodes (<1 sec)
 - Poll can hit any node, auth can happen on any node - same DB
-- Single node (launch): no replication needed, just works
 
 **Tasks:**
 1. [ ] **GitHub OAuth App setup** - Create OAuth App in GitHub, get client ID/secret
@@ -252,12 +251,11 @@ func isAllowed(sessionEmail string, allowList []string) bool {
       - On subscription.created: update account plan='pro'
       - On subscription.deleted: update account plan='free'
 
-### Cluster Security (One Secret)
-17. [ ] **Replace mTLS with CLUSTER_SECRET auth** - Simpler mesh security
-      - `CLUSTER_SECRET=""` → single node, no mesh (self-hosted default)
-      - `CLUSTER_SECRET=xxx` → mesh enabled, nodes auth with HMAC
-      - Node handshake: `Authorization: Bearer HMAC(timestamp, CLUSTER_SECRET)`
-      - Wrong secret = ignore that node, stop retrying
+### Cluster Security (One Secret) ✅
+- [x] **Replace mTLS with NODE_SECRET auth** - Done in commit 0569be1
+      - `NODE_SECRET=""` → single node, no mesh (self-hosted default)
+      - `NODE_SECRET=xxx` → mesh enabled, nodes auth with shared secret
+      - IP blacklisting on failed auth attempts
 
 ### Mesh Auto-Discovery (Fly.io)
 18. [ ] **Auto-discover nodes via internal DNS** - No manual NODE_ADDRESSES
@@ -281,7 +279,7 @@ func isAllowed(sessionEmail string, allowList []string) bool {
       - Reserved list: www, api, app, admin, auth, static, cdn, etc.
       - No nesting (x.y.tunn.to) - wildcard certs only cover one level
 
-**OAuth is blocking if you want real Google login. PUBLIC_MODE=true bypasses auth for testing only.**
+**GitHub OAuth is implemented. PUBLIC_MODE=true bypasses auth for testing only.**
 
 ---
 

@@ -764,7 +764,7 @@ input:checked + .slider:before { transform: translateX(20px); }
 
 <section class="opensource">
   <div class="container">
-    <h2>Open Source</h2>
+    <h2>Free Software</h2>
     <p>Run your own tunn server. MIT licensed.</p>
     <div class="code-block">
 <pre><span class="comment"># Self-host on your infrastructure</span>

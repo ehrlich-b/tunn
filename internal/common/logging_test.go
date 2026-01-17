@@ -58,6 +58,31 @@ func TestSetLogLevel(t *testing.T) {
 	}
 }
 
+func TestGetCurrentLogLevel(t *testing.T) {
+	// Save original state
+	originalLevel := currentLogLevel
+	defer func() {
+		currentLogLevel = originalLevel
+	}()
+
+	tests := []LogLevel{
+		LogLevelNone,
+		LogLevelError,
+		LogLevelRequest,
+		LogLevelTrace,
+	}
+
+	for _, level := range tests {
+		t.Run(level.String(), func(t *testing.T) {
+			SetLogLevel(level)
+			got := GetCurrentLogLevel()
+			if got != level {
+				t.Errorf("GetCurrentLogLevel() = %v, want %v", got, level)
+			}
+		})
+	}
+}
+
 func TestLogFunctions(t *testing.T) {
 	// Test that log functions work (now they just call slog directly)
 	var buf bytes.Buffer

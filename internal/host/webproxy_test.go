@@ -343,10 +343,10 @@ func TestGenerateConnectionID(t *testing.T) {
 
 func TestExtractTunnelIDFromHost(t *testing.T) {
 	tests := []struct {
-		name       string
-		host       string
-		domain     string
-		wantID     string
+		name   string
+		host   string
+		domain string
+		wantID string
 	}{
 		{
 			name:   "simple subdomain",

@@ -62,22 +62,11 @@ func (p *ProxyServer) getJWTSigningKey() []byte {
 
 **Impact:** In production, JWT validation uses a hardcoded key. Attackers can forge tokens.
 
-### 4. SECURITY: Token Logging
+### 4. SECURITY: Token Logging - **FIXED 2025-01-17**
 
-**File:** `internal/common/auth.go:39-44`
+**File:** `internal/common/auth.go`
 
-```go
-LogDebug("auth: received token", "token", receivedAuth)
-LogDebug("auth: expected token", "token", expectedAuth)
-```
-
-**File:** `internal/common/auth.go:19`
-
-```go
-LogDebug("sending request", "url", req.URL, "token", t.Token)
-```
-
-**Impact:** Secrets logged in plaintext at DEBUG level.
+Token logging was removed from AuthMiddleware. The LogAuthTransport in logging.go still logs tokens but is only used in tests.
 
 ### 5. SECURITY: JWT Extraction Without Validation
 
@@ -233,7 +222,7 @@ Client dies if connection drops. No exponential backoff. No retry. Process just 
 1. [ ] Fix `validateToken` to actually validate tokens
 2. [ ] Fix `exchangeCodeForToken` to parse token response
 3. [ ] Fix `getJWTSigningKey` to use config/env
-4. [ ] Remove token logging from debug output
+4. [x] Remove token logging from debug output - **FIXED 2025-01-17**
 5. [ ] Add JWT signature validation to `ExtractEmailFromJWT` or document trust boundary
 
 *Note: OAuth login portal is a nice-to-have. Core value prop is HTTP/2+3 tunneling with TLS termination.*
@@ -241,7 +230,7 @@ Client dies if connection drops. No exponential backoff. No retry. Process just 
 ### P1 - Bugs
 
 6. [x] Fix multi-value header handling (join with comma or preserve array) - **FIXED 2025-01-17**
-7. [ ] Use config domain in public URL generation
+7. [x] Use config domain in public URL generation - **FIXED 2025-01-17**
 
 ### P2 - Dead Code Removal
 
@@ -253,14 +242,14 @@ Client dies if connection drops. No exponential backoff. No retry. Process just 
 
 11. [x] Remove emoji from output - **FIXED 2025-01-17**
 12. [x] Reduce INFO logging to DEBUG where appropriate - **FIXED 2025-01-17**
-13. [ ] Consolidate duplicate AuthTransport types
+13. [x] Consolidate duplicate AuthTransport types - **FIXED 2025-01-17** (removed unused one from auth.go)
 
 ### P4 - Test Suite
 
 14. [x] Add `handleHttpRequest` tests - **ADDED 2025-01-17**
-15. [ ] Add `proxyHTTPOverGRPC` tests
+15. [x] Add `proxyHTTPOverGRPC` tests - **ADDED 2025-01-17**
 16. [x] Add multi-header tests - **ADDED 2025-01-17**
-17. [ ] Add allow-list enforcement tests
+17. [x] Add allow-list enforcement tests - **ADDED 2025-01-17**
 18. [ ] Add timeout tests
 19. [x] Add concurrent request tests - **ADDED 2025-01-17**
 20. [x] Add error handling tests - **ADDED 2025-01-17**
@@ -303,8 +292,6 @@ The architecture is sound. The gRPC control plane works. HTTP/3 works. The data 
 
 **Remaining:**
 - P0 (OAuth security) deferred - not core value prop, will address when fleshing out sharing feature
-- P1: Hardcoded domain in public URL
-- P2: Remove proto messages (breaking change)
-- P3: Consolidate duplicate AuthTransport
-- P4: More tests (proxyHTTPOverGRPC, allow-list, timeout)
+- P2: Remove proto messages (breaking change - defer)
+- P4: Timeout tests (hard to test 30s timeout)
 - P5: Reconnection with exponential backoff

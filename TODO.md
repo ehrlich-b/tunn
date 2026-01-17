@@ -83,7 +83,9 @@ Logged in as alice@example.com
 10. [x] **SMTP integration** - Generic SMTP support (works with AWS SES, Resend, any SMTP provider)
 11. [x] **POST /auth/magic endpoint** - Generate magic link JWT, send email
 12. [x] **GET /auth/verify endpoint** - Verify JWT (type=magic_link), create session
-13. [ ] **Login page update** - Add "Login with Email" option alongside GitHub
+13. [x] **Login page update** - Add "Login with Email" option alongside GitHub
+      - /auth/login now shows a login page with both options
+      - /auth/github handles the actual GitHub OAuth redirect
 
 **Config:**
 - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` env vars
@@ -246,7 +248,9 @@ func isAllowed(sessionEmail string, allowList []string) bool {
       - Auto-detects LiteFS mount at `/litefs/tunn.db`
 15. [x] **Implement account merge on OAuth** - Handle 0/1/2+ account cases
       - FindOrCreateByEmails handles 0/1/2+ account cases with automatic merge
-16. [ ] **Update allow-list check** - Check against email bucket, not just session email
+16. [x] **Update allow-list check** - Check against email bucket, not just session email
+      - webproxy.go now gets email bucket via AccountStore.GetEmailBucket()
+      - Checks if ANY email in bucket matches allow-list
 17. [x] **Add users.yaml support** - Simple config for self-hosters (implemented in internal/store/users.go)
       ```yaml
       alice@gmail.com:

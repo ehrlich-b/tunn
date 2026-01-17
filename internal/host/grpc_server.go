@@ -18,6 +18,7 @@ type TunnelServer struct {
 	tunnels      map[string]*TunnelConnection
 	wellKnownKey string // Free tier key that allows tunnel creation
 	publicMode   bool   // Disable auth for testing
+	domain       string // Domain for public URLs (e.g., "tunn.to")
 }
 
 // TunnelConnection represents an active tunnel connection
@@ -43,11 +44,12 @@ type TunnelConnection struct {
 }
 
 // NewTunnelServer creates a new gRPC tunnel server
-func NewTunnelServer(wellKnownKey string, publicMode bool) *TunnelServer {
+func NewTunnelServer(wellKnownKey string, publicMode bool, domain string) *TunnelServer {
 	return &TunnelServer{
 		tunnels:      make(map[string]*TunnelConnection),
 		wellKnownKey: wellKnownKey,
 		publicMode:   publicMode,
+		domain:       domain,
 	}
 }
 
@@ -190,7 +192,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 	}()
 
 	// Send success response
-	publicURL := fmt.Sprintf("https://%s.tunn.to", tunnelID)
+	publicURL := fmt.Sprintf("https://%s.%s", tunnelID, s.domain)
 	respMsg := &pb.TunnelMessage{
 		Message: &pb.TunnelMessage_RegisterResponse{
 			RegisterResponse: &pb.RegisterResponse{

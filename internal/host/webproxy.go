@@ -615,8 +615,8 @@ input:checked + .slider:before { transform: translateX(20px); }
     <nav class="header-nav">
       <a href="#features">Features</a>
       <a href="#pricing">Pricing</a>
-      <a href="https://github.com/ehrlich-b/tunn">Docs</a>
-      <a href="https://github.com/ehrlich-b/tunn" class="header-btn">GitHub</a>
+      <a href="https://github.com/ehrlich-b/tunn">Code</a>
+      <a href="/auth/login" class="header-btn">Login</a>
     </nav>
   </div>
 </header>

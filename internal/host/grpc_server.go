@@ -232,27 +232,20 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 			if exists {
 				select {
 				case respChan <- m.HttpResponse:
-					common.LogInfo("routed http response",
+					common.LogDebug("routed http response",
 						"tunnel_id", tunnelID,
 						"connection_id", m.HttpResponse.ConnectionId,
 						"status", m.HttpResponse.StatusCode)
 				default:
-					common.LogInfo("response channel full, dropping response",
+					common.LogDebug("response channel full, dropping response",
 						"tunnel_id", tunnelID,
 						"connection_id", m.HttpResponse.ConnectionId)
 				}
 			} else {
-				common.LogInfo("no pending request for http response",
+				common.LogDebug("no pending request for http response",
 					"tunnel_id", tunnelID,
 					"connection_id", m.HttpResponse.ConnectionId)
 			}
-
-		case *pb.TunnelMessage_ProxyResponse:
-			// Client acknowledging a proxy request
-			common.LogInfo("proxy response received",
-				"tunnel_id", tunnelID,
-				"connection_id", m.ProxyResponse.ConnectionId,
-				"success", m.ProxyResponse.Success)
 
 		case *pb.TunnelMessage_UdpPacket:
 			// UDP packet from client - route to waiting request if it's a response

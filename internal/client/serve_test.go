@@ -2,6 +2,8 @@ package client
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
@@ -25,46 +27,6 @@ func TestServeClientBasic(t *testing.T) {
 
 	if client.TargetURL != "http://localhost:8000" {
 		t.Errorf("Expected target URL http://localhost:8000, got %s", client.TargetURL)
-	}
-}
-
-func TestHandleProxyRequest(t *testing.T) {
-	client := &ServeClient{
-		TunnelID:  "test123",
-		TargetURL: "http://localhost:8000",
-	}
-
-	stream := &mockEstablishTunnelClient{
-		sentMsgs: make([]*pb.TunnelMessage, 0),
-	}
-
-	req := &pb.ProxyRequest{
-		ConnectionId:  "conn123",
-		SourceAddress: "192.168.1.1",
-	}
-
-	client.handleProxyRequest(stream, req)
-
-	if stream.getSentCount() != 1 {
-		t.Fatalf("Expected 1 message to be sent, got %d", stream.getSentCount())
-	}
-
-	msg := stream.getSentMsg(0)
-	if msg == nil {
-		t.Fatal("Expected message at index 0")
-	}
-
-	resp := msg.GetProxyResponse()
-	if resp == nil {
-		t.Fatal("Expected ProxyResponse message")
-	}
-
-	if resp.ConnectionId != "conn123" {
-		t.Errorf("Expected connection ID conn123, got %s", resp.ConnectionId)
-	}
-
-	if !resp.Success {
-		t.Error("Expected successful proxy response")
 	}
 }
 
@@ -119,6 +81,198 @@ func TestSendHealthChecks(t *testing.T) {
 
 	if hc.Timestamp == 0 {
 		t.Error("Expected non-zero timestamp")
+	}
+}
+
+func TestHandleHttpRequest(t *testing.T) {
+	// Start a mock local server that returns a simple response
+	localServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Echo back some info
+		w.Header().Set("X-Test-Header", "test-value")
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("Hello from local server"))
+	}))
+	defer localServer.Close()
+
+	client := &ServeClient{
+		TunnelID:  "test123",
+		TargetURL: localServer.URL,
+	}
+
+	stream := &mockEstablishTunnelClient{
+		sentMsgs: make([]*pb.TunnelMessage, 0),
+	}
+
+	httpReq := &pb.HttpRequest{
+		ConnectionId: "conn-123",
+		Method:       "GET",
+		Path:         "/test",
+		Headers:      map[string]string{"Accept": "text/plain"},
+		Body:         nil,
+	}
+
+	// Call handleHttpRequest directly
+	client.handleHttpRequest(stream, httpReq)
+
+	// Verify response was sent
+	if stream.getSentCount() != 1 {
+		t.Fatalf("Expected 1 message to be sent, got %d", stream.getSentCount())
+	}
+
+	msg := stream.getSentMsg(0)
+	httpResp := msg.GetHttpResponse()
+	if httpResp == nil {
+		t.Fatal("Expected HttpResponse message")
+	}
+
+	if httpResp.ConnectionId != "conn-123" {
+		t.Errorf("Expected connection ID conn-123, got %s", httpResp.ConnectionId)
+	}
+
+	if httpResp.StatusCode != 200 {
+		t.Errorf("Expected status code 200, got %d", httpResp.StatusCode)
+	}
+
+	if string(httpResp.Body) != "Hello from local server" {
+		t.Errorf("Expected body 'Hello from local server', got '%s'", string(httpResp.Body))
+	}
+
+	if httpResp.Headers["X-Test-Header"] != "test-value" {
+		t.Errorf("Expected X-Test-Header to be 'test-value', got '%s'", httpResp.Headers["X-Test-Header"])
+	}
+}
+
+func TestHandleHttpRequestMultiValueHeaders(t *testing.T) {
+	// Start a mock local server that returns multiple Set-Cookie headers
+	localServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Multiple cookies - Go's httptest combines them with comma in Header map
+		w.Header().Add("Set-Cookie", "cookie1=value1")
+		w.Header().Add("Set-Cookie", "cookie2=value2")
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	}))
+	defer localServer.Close()
+
+	client := &ServeClient{
+		TunnelID:  "test123",
+		TargetURL: localServer.URL,
+	}
+
+	stream := &mockEstablishTunnelClient{
+		sentMsgs: make([]*pb.TunnelMessage, 0),
+	}
+
+	httpReq := &pb.HttpRequest{
+		ConnectionId: "conn-456",
+		Method:       "GET",
+		Path:         "/cookies",
+		Headers:      map[string]string{},
+		Body:         nil,
+	}
+
+	client.handleHttpRequest(stream, httpReq)
+
+	if stream.getSentCount() != 1 {
+		t.Fatalf("Expected 1 message, got %d", stream.getSentCount())
+	}
+
+	msg := stream.getSentMsg(0)
+	httpResp := msg.GetHttpResponse()
+	if httpResp == nil {
+		t.Fatal("Expected HttpResponse message")
+	}
+
+	// After our fix, multi-value headers should be joined with ", "
+	setCookie := httpResp.Headers["Set-Cookie"]
+	if setCookie == "" {
+		t.Error("Expected Set-Cookie header to be present")
+	}
+
+	// Should contain both cookies joined by comma
+	if setCookie != "cookie1=value1, cookie2=value2" {
+		t.Errorf("Expected Set-Cookie to be 'cookie1=value1, cookie2=value2', got '%s'", setCookie)
+	}
+}
+
+func TestHandleHttpRequestError(t *testing.T) {
+	// Client pointing to non-existent server
+	client := &ServeClient{
+		TunnelID:  "test123",
+		TargetURL: "http://127.0.0.1:59999", // Port that shouldn't be listening
+	}
+
+	stream := &mockEstablishTunnelClient{
+		sentMsgs: make([]*pb.TunnelMessage, 0),
+	}
+
+	httpReq := &pb.HttpRequest{
+		ConnectionId: "conn-error",
+		Method:       "GET",
+		Path:         "/test",
+		Headers:      map[string]string{},
+		Body:         nil,
+	}
+
+	client.handleHttpRequest(stream, httpReq)
+
+	// Should send an error response
+	if stream.getSentCount() != 1 {
+		t.Fatalf("Expected 1 message, got %d", stream.getSentCount())
+	}
+
+	msg := stream.getSentMsg(0)
+	httpResp := msg.GetHttpResponse()
+	if httpResp == nil {
+		t.Fatal("Expected HttpResponse message")
+	}
+
+	if httpResp.StatusCode != 502 {
+		t.Errorf("Expected status code 502 (Bad Gateway), got %d", httpResp.StatusCode)
+	}
+}
+
+func TestHandleHttpRequestConcurrent(t *testing.T) {
+	// Test concurrent requests don't interfere with each other
+	localServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Echo the path back to verify correct routing
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(r.URL.Path))
+	}))
+	defer localServer.Close()
+
+	client := &ServeClient{
+		TunnelID:  "test123",
+		TargetURL: localServer.URL,
+	}
+
+	stream := &mockEstablishTunnelClient{
+		sentMsgs: make([]*pb.TunnelMessage, 0),
+	}
+
+	// Send 10 concurrent requests
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			httpReq := &pb.HttpRequest{
+				ConnectionId: "conn-" + string(rune('0'+idx)),
+				Method:       "GET",
+				Path:         "/" + string(rune('0'+idx)),
+				Headers:      map[string]string{},
+				Body:         nil,
+			}
+			client.handleHttpRequest(stream, httpReq)
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Should have received 10 responses
+	if stream.getSentCount() != 10 {
+		t.Errorf("Expected 10 messages, got %d", stream.getSentCount())
 	}
 }
 

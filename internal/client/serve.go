@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -120,7 +121,7 @@ func (s *ServeClient) Run(ctx context.Context) error {
 	}
 
 	common.LogInfo("tunnel registered successfully", "public_url", regResp.PublicUrl)
-	fmt.Printf("🔗 %s → %s\n", regResp.PublicUrl, s.TargetURL)
+	fmt.Printf("%s -> %s\n", regResp.PublicUrl, s.TargetURL)
 
 	// Start health check sender
 	go s.sendHealthChecks(ctx, stream)
@@ -157,9 +158,6 @@ func (s *ServeClient) processMessages(ctx context.Context, stream pb.TunnelServi
 			// Handle UDP packet from proxy - forward to local UDP target and send response
 			go s.handleUdpPacket(stream, m.UdpPacket)
 
-		case *pb.TunnelMessage_ProxyRequest:
-			s.handleProxyRequest(stream, m.ProxyRequest)
-
 		case *pb.TunnelMessage_HealthCheckResponse:
 			// Calculate RTT
 			rtt := time.Now().UnixMilli() - m.HealthCheckResponse.Timestamp
@@ -173,7 +171,7 @@ func (s *ServeClient) processMessages(ctx context.Context, stream pb.TunnelServi
 
 // handleHttpRequest handles an HTTP request from the proxy, makes a request to the local target, and sends back the response
 func (s *ServeClient) handleHttpRequest(stream pb.TunnelService_EstablishTunnelClient, httpReq *pb.HttpRequest) {
-	common.LogInfo("http request received",
+	common.LogDebug("http request received",
 		"connection_id", httpReq.ConnectionId,
 		"method", httpReq.Method,
 		"path", httpReq.Path)
@@ -215,10 +213,10 @@ func (s *ServeClient) handleHttpRequest(stream pb.TunnelService_EstablishTunnelC
 		return
 	}
 
-	// Convert headers to map
+	// Convert headers to map (join multi-value headers per HTTP spec)
 	headers := make(map[string]string)
 	for key, values := range resp.Header {
-		headers[key] = values[0]
+		headers[key] = strings.Join(values, ", ")
 	}
 
 	// Send HttpResponse back
@@ -240,7 +238,7 @@ func (s *ServeClient) handleHttpRequest(stream pb.TunnelService_EstablishTunnelC
 		return
 	}
 
-	common.LogInfo("http response sent",
+	common.LogDebug("http response sent",
 		"connection_id", httpReq.ConnectionId,
 		"status", resp.StatusCode,
 		"body_size", len(body))
@@ -265,28 +263,6 @@ func (s *ServeClient) sendErrorResponse(stream pb.TunnelService_EstablishTunnelC
 
 	if err := stream.Send(msg); err != nil {
 		common.LogError("failed to send error response", "error", err)
-	}
-}
-
-// handleProxyRequest handles a proxy request from the server
-func (s *ServeClient) handleProxyRequest(stream pb.TunnelService_EstablishTunnelClient, req *pb.ProxyRequest) {
-	common.LogInfo("proxy request received",
-		"connection_id", req.ConnectionId,
-		"source", req.SourceAddress)
-
-	// For now, just acknowledge the request
-	// This legacy handler is for the old ProxyRequest message type
-	resp := &pb.TunnelMessage{
-		Message: &pb.TunnelMessage_ProxyResponse{
-			ProxyResponse: &pb.ProxyResponse{
-				ConnectionId: req.ConnectionId,
-				Success:      true,
-			},
-		},
-	}
-
-	if err := stream.Send(resp); err != nil {
-		common.LogError("failed to send proxy response", "error", err)
 	}
 }
 

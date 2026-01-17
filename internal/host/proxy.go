@@ -321,7 +321,7 @@ func (p *ProxyServer) createHTTP2Router(httpHandler http.Handler) http.Handler {
 		contentType := r.Header.Get("Content-Type")
 		if strings.HasPrefix(contentType, "application/grpc") {
 			// Route to gRPC server
-			common.LogInfo("routing to gRPC", "path", r.URL.Path, "content-type", contentType)
+			common.LogDebug("routing to gRPC", "path", r.URL.Path, "content-type", contentType)
 			p.grpcServer.ServeHTTP(w, r)
 			return
 		}

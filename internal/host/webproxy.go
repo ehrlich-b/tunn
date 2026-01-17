@@ -693,12 +693,12 @@ input:checked + .slider:before { transform: translateX(20px); }
             <rect x="126" y="54" width="48" height="30" rx="2" fill="rgba(255,255,255,0.3)"/>
             <rect x="140" y="93" width="20" height="4" fill="rgba(255,255,255,0.4)"/>
             <rect x="132" y="97" width="36" height="3" rx="1" fill="rgba(255,255,255,0.35)"/>
-            <path d="M75 60 L105 60" stroke="rgba(255,255,255,0.4)" stroke-width="2" stroke-dasharray="4 2"/>
-            <polygon points="112,57 104,60 112,63" fill="rgba(255,255,255,0.4)"/>
-            <path d="M75 70 L105 70" stroke="rgba(255,255,255,0.6)" stroke-width="2" stroke-dasharray="4 2"/>
-            <polygon points="112,67 104,70 112,73" fill="rgba(255,255,255,0.6)"/>
-            <path d="M75 80 L105 80" stroke="rgba(255,255,255,0.4)" stroke-width="2" stroke-dasharray="4 2"/>
-            <polygon points="112,77 104,80 112,83" fill="rgba(255,255,255,0.4)"/>
+            <path d="M75 65 L108 58" stroke="rgba(255,255,255,0.4)" stroke-width="2" stroke-dasharray="4 2"/>
+            <polygon points="118,58 108,54 108,62" fill="rgba(255,255,255,0.4)"/>
+            <path d="M75 70 L108 70" stroke="rgba(255,255,255,0.6)" stroke-width="2" stroke-dasharray="4 2"/>
+            <polygon points="118,70 108,66 108,74" fill="rgba(255,255,255,0.6)"/>
+            <path d="M75 75 L108 82" stroke="rgba(255,255,255,0.4)" stroke-width="2" stroke-dasharray="4 2"/>
+            <polygon points="118,82 108,78 108,86" fill="rgba(255,255,255,0.4)"/>
           </svg>
         </div>
         <div class="feature-content">

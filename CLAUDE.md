@@ -34,7 +34,7 @@ $ tunn serve -to localhost:8000 --allow alice@gmail.com,bob@company.com
 │  │  tunn Proxy Nodes (1-4 instances)                    │   │
 │  │  - HTTP/2 + HTTP/3 listeners                         │   │
 │  │  - gRPC control plane                                │   │
-│  │  - Per-IP rate limiting (10MiB/month)                │   │
+│  │  - Per-account rate limiting                         │   │
 │  │  - Full mesh inter-node sync                         │   │
 │  └────────┬─────────────────────────────────────────────┘   │
 │           │ Internal gRPC Mesh                               │
@@ -92,11 +92,13 @@ The Proxy is a stateless Go application designed to run on Fly.io with 1-4 insta
 - Pro status applies to the whole bucket, not individual emails
 - Account merge: if GitHub proves you own emails from 2 different accounts, they merge automatically
 
-**Rate Limiting:**
-- **Per-IP bandwidth quota:** 10MiB/month baseline (configurable via env var)
-- **Distributed state:** Each node tracks IPs it sees, syncs with other nodes every 30s
-- **Enforcement:** Proxy rejects requests when IP exceeds quota
-- **Reset:** Monthly on calendar month boundary
+**Rate Limiting (Per-Account, Not Per-IP):**
+- All bandwidth through a tunnel counts against the **tunnel creator's** account
+- Free tier: 10 MiB/month, Pro tier: 50 GB/month
+- Public tunnel gets hammered? Creator's quota pays for it
+- No per-IP tracking needed - simple per-account model
+- Enforcement: Proxy rejects requests when creator's account exceeds quota
+- Reset: Monthly on calendar month boundary
 
 **Control Plane:**
 - gRPC bidirectional stream between proxy and `tunn serve` clients
@@ -182,42 +184,33 @@ message StreamClosed {
 
 **Goal:** Prevent abuse while keeping infrastructure costs ~$0.
 
-**Strategy:** Track bandwidth usage per source IP, sync across nodes.
+**Strategy:** Track bandwidth usage per account (tunnel creator pays for all traffic).
 
-**Baseline Quota:** 10MiB/month per IP (configurable via `RATE_LIMIT_MB_PER_MONTH`)
+**Quotas:**
+- Free tier: 10 MiB/month
+- Pro tier: 50 GB/month (hard cap, no overage fees)
 
-**Why 10MiB?**
-- Enough for testing (a few page loads)
-- Not enough for abuse (hosting video streaming, etc.)
-- Keeps bandwidth costs negligible
-- Can be raised if needed
+**Key Insight:** All traffic through a tunnel counts against the **tunnel creator's** account. Public tunnel gets hammered? Creator's quota. This is simple and fair - no per-IP tracking needed.
 
 **Implementation:**
 
-Each node maintains in-memory map:
-```go
-map[string]*IPUsage {
-  "1.2.3.4": {
-    BytesThisMonth: 5242880,  // 5 MiB used
-    LastReset: time.Date(2025, 11, 1, ...),
-    MonthlyLimit: 10485760,   // 10 MiB limit
-  }
-}
+Usage tracked in SQLite (replicated via LiteFS):
+```sql
+account_usage:
+  account_id: uuid
+  bytes_this_month: bigint
+  month: string (e.g., "2025-01")
 ```
 
-**Inter-Node Sync:**
+On each proxied request, increment `bytes_this_month` for the tunnel creator's account.
 
-Every 30 seconds, each node broadcasts to all other nodes:
-```protobuf
-message SyncUsage {
-  map<string, int64> ip_usage = 1;  // IP -> bytes used this month
-  int64 timestamp = 2;
-}
-```
+**Enforcement:** Before proxying, check if creator's account has quota remaining. If exceeded, return 429 Too Many Requests.
 
-Nodes merge by taking `max(local, remote)` for each IP. This is eventually consistent and prevents double-counting.
-
-**Full Mesh:** With 1-4 nodes, a full mesh is simple (max 6 connections). If we ever need >4 nodes, we're charging money and can use Redis.
+**Why This Works:**
+- No per-IP tracking complexity
+- No gaming the system with multiple IPs
+- Tunnel creator has skin in the game for public tunnels
+- Simple to implement and understand
 
 ## Technology Choices
 
@@ -272,10 +265,9 @@ This project uses a comprehensive Makefile to ensure consistent builds and tests
 **Phase 1: Launch (Now → 2 Weeks)**
 - Deploy single Fly.io node with tunn.to domain
 - Open source the entire codebase on GitHub
-- WELL_KNOWN_KEY hardcoded (or well-known secret)
-- 10MiB/month rate limit per IP
-- Free for everyone
-- No analytics, no tracking, no user accounts
+- GitHub OAuth for login
+- Free tier: 10 MiB/month per account
+- No analytics, no tracking
 
 **Phase 2: Scale (If Needed)**
 - Add 2-4 Fly.io nodes as traffic grows

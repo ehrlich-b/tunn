@@ -1,170 +1,14 @@
 package host
 
 import (
-	"crypto/rand"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/golang-jwt/jwt/v4"
 )
-
-// DeviceCode represents a pending device authorization
-type DeviceCode struct {
-	Code      string    `json:"device_code"`
-	UserCode  string    `json:"user_code"`
-	ExpiresAt time.Time `json:"-"`
-	Interval  int       `json:"interval"`
-
-	// Set when user completes browser auth
-	Authorized bool   `json:"-"`
-	Email      string `json:"-"`
-}
-
-// DeviceCodeStore manages pending device codes
-// TODO: Replace with SQLite for multi-node support via LiteFS
-type DeviceCodeStore struct {
-	mu    sync.RWMutex
-	codes map[string]*DeviceCode // keyed by device_code
-}
-
-// NewDeviceCodeStore creates a new in-memory device code store
-func NewDeviceCodeStore() *DeviceCodeStore {
-	store := &DeviceCodeStore{
-		codes: make(map[string]*DeviceCode),
-	}
-	// Start cleanup goroutine
-	go store.cleanup()
-	return store
-}
-
-// Create generates a new device code
-func (s *DeviceCodeStore) Create() (*DeviceCode, error) {
-	deviceCode, err := generateSecureCode(32)
-	if err != nil {
-		return nil, err
-	}
-
-	userCode, err := generateUserCode()
-	if err != nil {
-		return nil, err
-	}
-
-	code := &DeviceCode{
-		Code:      deviceCode,
-		UserCode:  userCode,
-		ExpiresAt: time.Now().Add(3 * time.Minute),
-		Interval:  3, // 3 second polling interval
-	}
-
-	s.mu.Lock()
-	s.codes[deviceCode] = code
-	s.mu.Unlock()
-
-	return code, nil
-}
-
-// Get retrieves a device code by its code
-func (s *DeviceCodeStore) Get(deviceCode string) *DeviceCode {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	code := s.codes[deviceCode]
-	if code == nil {
-		return nil
-	}
-
-	// Check expiration
-	if time.Now().After(code.ExpiresAt) {
-		return nil
-	}
-
-	return code
-}
-
-// GetByUserCode retrieves a device code by its user code
-func (s *DeviceCodeStore) GetByUserCode(userCode string) *DeviceCode {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	for _, code := range s.codes {
-		if code.UserCode == userCode && time.Now().Before(code.ExpiresAt) {
-			return code
-		}
-	}
-	return nil
-}
-
-// Authorize marks a device code as authorized with the user's email
-func (s *DeviceCodeStore) Authorize(deviceCode, email string) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	code := s.codes[deviceCode]
-	if code == nil || time.Now().After(code.ExpiresAt) {
-		return false
-	}
-
-	code.Authorized = true
-	code.Email = email
-	return true
-}
-
-// Delete removes a device code
-func (s *DeviceCodeStore) Delete(deviceCode string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	delete(s.codes, deviceCode)
-}
-
-// cleanup periodically removes expired codes
-func (s *DeviceCodeStore) cleanup() {
-	ticker := time.NewTicker(1 * time.Minute)
-	for range ticker.C {
-		s.mu.Lock()
-		now := time.Now()
-		for code, dc := range s.codes {
-			if now.After(dc.ExpiresAt) {
-				delete(s.codes, code)
-			}
-		}
-		s.mu.Unlock()
-	}
-}
-
-// generateSecureCode generates a cryptographically secure random string
-func generateSecureCode(length int) (string, error) {
-	b := make([]byte, length)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return base64.URLEncoding.EncodeToString(b)[:length], nil
-}
-
-// generateUserCode generates a short user-friendly code (e.g., "ABC-123")
-func generateUserCode() (string, error) {
-	// Use uppercase letters and digits, avoiding confusing chars (0, O, I, L)
-	const charset = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
-	b := make([]byte, 6)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-
-	code := make([]byte, 7) // 3 chars + hyphen + 3 chars
-	for i := 0; i < 3; i++ {
-		code[i] = charset[int(b[i])%len(charset)]
-	}
-	code[3] = '-'
-	for i := 0; i < 3; i++ {
-		code[i+4] = charset[int(b[i+3])%len(charset)]
-	}
-
-	return string(code), nil
-}
 
 // handleDeviceCode handles POST /api/device/code - creates a new device code
 func (p *ProxyServer) handleDeviceCode(w http.ResponseWriter, r *http.Request) {
@@ -297,4 +141,3 @@ func (p *ProxyServer) generateJWT(email string) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString(p.getJWTSigningKey())
 }
-

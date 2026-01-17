@@ -18,9 +18,11 @@ type Config struct {
 	Environment Environment
 
 	// Server configuration
-	Domain   string
-	CertFile string
-	KeyFile  string
+	Domain    string
+	CertFile  string
+	KeyFile   string
+	HTTP2Addr string // HTTP/2 (TCP) listener address
+	HTTP3Addr string // HTTP/3 (QUIC) listener address
 
 	// Internal gRPC configuration
 	InternalGRPCPort     string
@@ -80,6 +82,10 @@ func (c *Config) loadDevConfig() {
 	c.CertFile = getEnvOrDefault("CERT_FILE", "./certs/cert.pem")
 	c.KeyFile = getEnvOrDefault("KEY_FILE", "./certs/key.pem")
 
+	// HTTP listener addresses (configurable for integration tests)
+	c.HTTP2Addr = getEnvOrDefault("HTTP2_ADDR", ":8443")
+	c.HTTP3Addr = getEnvOrDefault("HTTP3_ADDR", ":8443")
+
 	// Internal gRPC
 	c.InternalGRPCPort = getEnvOrDefault("INTERNAL_GRPC_PORT", ":50051")
 	c.InternalCACertFile = getEnvOrDefault("INTERNAL_CA_CERT_FILE", "./certs/ca.pem")
@@ -118,6 +124,10 @@ func (c *Config) loadProdConfig() {
 	// Production certificates (Fly.io paths)
 	c.CertFile = getEnvOrDefault("CERT_FILE", "/app/certs/fullchain.pem")
 	c.KeyFile = getEnvOrDefault("KEY_FILE", "/app/certs/privkey.pem")
+
+	// HTTP listener addresses (Fly.io routes 443/tcp and 443/udp to these)
+	c.HTTP2Addr = getEnvOrDefault("HTTP2_ADDR", ":8443")
+	c.HTTP3Addr = getEnvOrDefault("HTTP3_ADDR", ":8443")
 
 	// Internal gRPC
 	c.InternalGRPCPort = getEnvOrDefault("INTERNAL_GRPC_PORT", ":50051")

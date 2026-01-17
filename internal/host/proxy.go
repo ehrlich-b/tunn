@@ -107,8 +107,8 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 		Domain:             cfg.Domain,
 		CertFile:           cfg.CertFile,
 		KeyFile:            cfg.KeyFile,
-		HTTP2Addr:          ":8443", // Internal HTTP/2 port (Fly.io routes 443/tcp here)
-		HTTP3Addr:          ":8443", // Internal HTTP/3 port (Fly.io routes 443/udp here)
+		HTTP2Addr:          cfg.HTTP2Addr,
+		HTTP3Addr:          cfg.HTTP3Addr,
 		tlsConfig:          tlsConfig,
 		grpcServer:         grpcServer,
 		tunnelServer:       tunnelServer,

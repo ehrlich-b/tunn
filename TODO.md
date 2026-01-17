@@ -57,15 +57,18 @@ Logged in as alice@example.com
 See **[integration_test_framework.md](integration_test_framework.md)** for full details.
 
 **Required code changes:**
-- [ ] Make HTTP ports configurable (`HTTP2_ADDR`, `HTTP3_ADDR` env vars)
-- [ ] Add test-only `/api/test/authorize-device` endpoint (dev mode only)
-- [ ] Create `scripts/gen-test-certs.sh` for localhost wildcard certs
+- [x] Make HTTP ports configurable (`HTTP2_ADDR`, `HTTP3_ADDR` env vars)
+- [x] Create `scripts/gen-test-certs.sh` for localhost wildcard certs
 
 **Test scenarios:**
-- [ ] **Smoke test** - Single node, PUBLIC_MODE, basic tunnel flow
-- [ ] **Device login E2E** - Full device code flow without real browser
-- [ ] **Multi-node gRPC** - Two nodes discovering tunnels across mesh
-- [ ] **Full auth flow** - Allow-list enforcement, domain wildcards
+- [x] **Smoke test** - Single node, PUBLIC_MODE, basic tunnel flow
+- [x] **Device login E2E** - Full device code flow without real browser
+- [x] **Multi-node gRPC** - Two nodes discovering tunnels across mesh
+- [x] **Full auth flow** - Allow-list enforcement, domain wildcards
+
+**Run tests:**
+- `make integration-test` - Run all integration tests
+- `make integration-test-smoke` - Run smoke test only
 
 ### CI/CD (Before Infrastructure)
 9. [ ] **GitHub Actions for releases** - Build binaries for darwin-amd64, darwin-arm64, linux-amd64
@@ -78,6 +81,8 @@ See **[integration_test_framework.md](integration_test_framework.md)** for full 
 
 ### Marketing & Homepage
 14. [ ] **Create tunn.to homepage** - ntfy.sh inspired, simple dev-focused
+      - [ ] Refactor HTML responses to use shared Go template (login success, access denied, error pages)
+      - [ ] Light static generation for consistent branding across all pages
       - Hero: one-liner + install command
       - Live demo or GIF
       - Pricing table (Free / Pro $4/mo / Enterprise contact)

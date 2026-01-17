@@ -127,10 +127,23 @@ func (p *ProxyServer) handleCallback(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "text/html")
 			fmt.Fprintf(w, `<!DOCTYPE html>
 <html>
-<head><title>Login Successful</title></head>
-<body style="font-family: system-ui; max-width: 600px; margin: 50px auto; text-align: center;">
-<h1>Login Successful</h1>
-<p>You can close this window and return to your terminal.</p>
+<head>
+<title>tunn - Login Successful</title>
+<style>
+body { font-family: ui-monospace, "SF Mono", Monaco, "Cascadia Code", monospace; background: #0d1117; color: #c9d1d9; margin: 0; padding: 40px; }
+.container { max-width: 500px; margin: 80px auto; }
+.logo { font-size: 24px; font-weight: bold; color: #58a6ff; margin-bottom: 32px; }
+h1 { font-size: 20px; font-weight: normal; margin: 0 0 16px 0; }
+p { color: #8b949e; margin: 0; }
+code { background: #161b22; padding: 2px 6px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<div class="container">
+<div class="logo">tunn</div>
+<h1>Login successful</h1>
+<p>Return to your terminal.</p>
+</div>
 </body>
 </html>`)
 			return
@@ -300,6 +313,40 @@ func (p *ProxyServer) handleMockCallback(w http.ResponseWriter, r *http.Request)
 	p.sessionManager.Put(r.Context(), "authenticated", true)
 
 	common.LogInfo("user authenticated via mock OIDC", "email", email)
+
+	// Check if this is a device code flow (CLI login)
+	deviceUserCode := p.sessionManager.PopString(r.Context(), "device_user_code")
+	if deviceUserCode != "" {
+		dc := p.deviceCodes.GetByUserCode(deviceUserCode)
+		if dc != nil {
+			p.deviceCodes.Authorize(dc.Code, email)
+			common.LogInfo("device code authorized via mock OIDC", "user_code", deviceUserCode, "email", email)
+			// Show success page for device flow
+			w.Header().Set("Content-Type", "text/html")
+			fmt.Fprintf(w, `<!DOCTYPE html>
+<html>
+<head>
+<title>tunn - Login Successful</title>
+<style>
+body { font-family: ui-monospace, "SF Mono", Monaco, "Cascadia Code", monospace; background: #0d1117; color: #c9d1d9; margin: 0; padding: 40px; }
+.container { max-width: 500px; margin: 80px auto; }
+.logo { font-size: 24px; font-weight: bold; color: #58a6ff; margin-bottom: 32px; }
+h1 { font-size: 20px; font-weight: normal; margin: 0 0 16px 0; }
+p { color: #8b949e; margin: 0; }
+code { background: #161b22; padding: 2px 6px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<div class="container">
+<div class="logo">tunn</div>
+<h1>Login successful</h1>
+<p>Return to your terminal.</p>
+</div>
+</body>
+</html>`)
+			return
+		}
+	}
 
 	returnTo := p.sessionManager.PopString(r.Context(), "return_to")
 	if returnTo == "" {

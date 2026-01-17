@@ -135,12 +135,17 @@ rm -f "$COOKIE_JAR"
 - State parameter validation may need to be mocked
 - Session cookies require proper domain handling on localhost
 
-### Workaround for Full E2E
+### Using Mock OIDC for E2E
 
-For complete E2E without mocking, the test can:
-1. Start proxy with `PUBLIC_MODE=true` initially
-2. Manually inject a device code authorization via direct DB/store access
-3. Or expose a test-only endpoint `/api/test/authorize-device?code=xxx&email=test@example.com`
+The codebase includes a mock OIDC server for dev mode. Integration tests use curl to simulate the browser flow through mock OIDC:
+
+1. Start proxy with `ENV=dev` (enables mock OIDC on port 9000)
+2. `POST /api/device/code` → get device_code and user_code
+3. `GET /login?code=USER_CODE` with cookie jar → stores device code in session, redirects to mock OIDC
+4. Follow redirects through mock OIDC → callback sets session and authorizes device code
+5. `GET /api/device/token?code=DEVICE_CODE` → returns JWT
+
+No special test endpoints needed - the mock OIDC server handles the OAuth simulation.
 
 ---
 
@@ -368,42 +373,17 @@ echo "PASS: Authenticated request succeeds"
 
 To support these integration tests on a single machine:
 
-### 1. Configurable HTTP Ports
+### 1. Configurable HTTP Ports (DONE)
+
+**File:** `internal/config/config.go`
+
+Added `HTTP2_ADDR` and `HTTP3_ADDR` environment variables with `:8443` default.
 
 **File:** `internal/host/proxy.go`
 
-```go
-// Change from hardcoded to configurable
-HTTP2Addr: getEnvOrDefault("HTTP2_ADDR", ":8443"),
-HTTP3Addr: getEnvOrDefault("HTTP3_ADDR", ":8443"),
-```
+Updated to use `cfg.HTTP2Addr` and `cfg.HTTP3Addr` from config.
 
-### 2. Test-Only Device Authorization Endpoint (Optional)
-
-For easier testing without full OAuth simulation:
-
-**File:** `internal/host/device.go`
-
-```go
-// Only enabled when ENV=dev
-func (p *ProxyServer) handleTestAuthorizeDevice(w http.ResponseWriter, r *http.Request) {
-    if !p.config.IsDev() {
-        http.Error(w, "Not found", http.StatusNotFound)
-        return
-    }
-
-    code := r.URL.Query().Get("code")
-    email := r.URL.Query().Get("email")
-
-    if p.deviceCodes.Authorize(code, email) {
-        w.Write([]byte("OK"))
-    } else {
-        http.Error(w, "Invalid code", http.StatusBadRequest)
-    }
-}
-```
-
-### 3. Self-Signed Cert Generation Script
+### 2. Self-Signed Cert Generation Script
 
 **File:** `scripts/gen-test-certs.sh`
 

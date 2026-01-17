@@ -129,7 +129,9 @@ Admin generates tokens, gives to users. More granular than master secret.
       - Added to config.go, loaded from CLIENT_SECRET env var
 16. [x] **Add --secret flag to CLI** - Pass secret on command line or TUNN_SECRET env
       - Added --secret flag to serve command, also reads TUNN_SECRET env var
-17. [ ] **users.yaml loader** - Parse YAML, check tokens (deferred to post-launch)
+17. [x] **users.yaml loader** - Parse YAML, check tokens
+      - Set USERS_FILE env var to path to users.yaml
+      - Format: `email: { token: "...", plan: "free|pro" }`
 18. [x] **Update auth middleware** - Check JWT → user token → client secret → reject
       - grpc_server.go checks: public mode → client secret → JWT
 

@@ -87,9 +87,22 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 		NextProtos:   []string{"h2", "http/1.1"}, // HTTP/2 will negotiate via ALPN
 	}
 
+	// Load user tokens from users.yaml if configured
+	var userTokens map[string]string
+	if cfg.UsersFile != "" {
+		userStore, err := store.NewUserStore(cfg.UsersFile)
+		if err != nil {
+			common.LogError("failed to load users file", "path", cfg.UsersFile, "error", err)
+			// Continue without user tokens - not fatal
+		} else {
+			userTokens = userStore.GetTokenMap()
+			common.LogInfo("loaded users file", "path", cfg.UsersFile, "count", userStore.Count())
+		}
+	}
+
 	// Create gRPC server for public tunnel control plane
 	grpcServer := grpc.NewServer()
-	tunnelServer := NewTunnelServer(cfg.WellKnownKey, cfg.PublicMode, cfg.Domain, cfg.ClientSecret)
+	tunnelServer := NewTunnelServer(cfg.WellKnownKey, cfg.PublicMode, cfg.Domain, cfg.ClientSecret, userTokens)
 	pb.RegisterTunnelServiceServer(grpcServer, tunnelServer)
 
 	// Create gRPC server for internal node-to-node communication

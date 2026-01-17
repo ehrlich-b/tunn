@@ -1,6 +1,7 @@
 package store
 
 import (
+	"os"
 	"testing"
 	"time"
 )
@@ -194,6 +195,71 @@ func TestUserCodeFormat(t *testing.T) {
 
 	if code[3] != '-' {
 		t.Errorf("expected hyphen at position 3, got %c", code[3])
+	}
+}
+
+func TestUserStore(t *testing.T) {
+	// Create a temporary users.yaml file
+	content := `
+alice@example.com:
+  token: "tunn_sk_alice123"
+  plan: "pro"
+bob@example.com:
+  token: "tunn_sk_bob456"
+  plan: "free"
+`
+	tmpFile, err := os.CreateTemp("", "users-*.yaml")
+	if err != nil {
+		t.Fatalf("failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	if _, err := tmpFile.WriteString(content); err != nil {
+		t.Fatalf("failed to write temp file: %v", err)
+	}
+	tmpFile.Close()
+
+	// Load the user store
+	store, err := NewUserStore(tmpFile.Name())
+	if err != nil {
+		t.Fatalf("failed to load user store: %v", err)
+	}
+
+	if store.Count() != 2 {
+		t.Errorf("expected 2 users, got %d", store.Count())
+	}
+
+	// Test ValidateToken
+	email, ok := store.ValidateToken("tunn_sk_alice123")
+	if !ok {
+		t.Error("expected token to be valid")
+	}
+	if email != "alice@example.com" {
+		t.Errorf("expected email alice@example.com, got %s", email)
+	}
+
+	// Test invalid token
+	_, ok = store.ValidateToken("invalid-token")
+	if ok {
+		t.Error("expected invalid token to fail")
+	}
+
+	// Test GetUser
+	user := store.GetUser("bob@example.com")
+	if user == nil {
+		t.Fatal("expected to find bob")
+	}
+	if user.Plan != "free" {
+		t.Errorf("expected plan 'free', got %s", user.Plan)
+	}
+
+	// Test GetTokenMap
+	tokenMap := store.GetTokenMap()
+	if len(tokenMap) != 2 {
+		t.Errorf("expected 2 tokens, got %d", len(tokenMap))
+	}
+	if tokenMap["alice@example.com"] != "tunn_sk_alice123" {
+		t.Errorf("expected alice's token, got %s", tokenMap["alice@example.com"])
 	}
 }
 

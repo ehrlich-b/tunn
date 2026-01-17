@@ -637,7 +637,7 @@ input:checked + .slider:before { transform: translateX(20px); }
 <div class="container">
   <section class="pricing" id="pricing">
     <h2>Pricing</h2>
-    <p class="pricing-subtitle">Try for free. Pro for real use, or host it yourself!</p>
+    <p class="pricing-subtitle">Try for free. Go Pro or self-host for real use.</p>
 
     <div class="billing-toggle">
       <span>Monthly</span>

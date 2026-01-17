@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/ehrlich-b/tunn/internal/common"
@@ -75,7 +76,7 @@ func (p *ProxyServer) handleWebProxy(w http.ResponseWriter, r *http.Request) {
 func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunnelID string) {
 	tunnel, _ := p.tunnelServer.GetTunnel(tunnelID)
 
-	common.LogInfo("proxying web request locally",
+	common.LogDebug("proxying web request locally",
 		"tunnel_id", tunnelID,
 		"target", tunnel.TargetURL,
 		"path", r.URL.Path,
@@ -99,7 +100,7 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 
 		// User is authenticated, proceed with proxying
 		userEmail := p.sessionManager.GetString(r.Context(), "user_email")
-		common.LogInfo("authenticated tunnel access",
+		common.LogDebug("authenticated tunnel access",
 			"email", userEmail,
 			"tunnel_id", tunnelID,
 			"path", r.URL.Path)
@@ -126,11 +127,11 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 			return
 		}
 
-		common.LogInfo("allow-list check passed",
+		common.LogDebug("allow-list check passed",
 			"email", userEmail,
 			"tunnel_id", tunnelID)
 	} else {
-		common.LogInfo("public mode - skipping auth", "tunnel_id", tunnelID)
+		common.LogDebug("public mode - skipping auth", "tunnel_id", tunnelID)
 	}
 
 	// Proxy the HTTP request over gRPC
@@ -156,11 +157,10 @@ func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, 
 	}
 	defer r.Body.Close()
 
-	// Convert headers to map
+	// Convert headers to map (join multi-value headers per HTTP spec)
 	headers := make(map[string]string)
 	for key, values := range r.Header {
-		// Join multiple header values with commas
-		headers[key] = values[0]
+		headers[key] = strings.Join(values, ", ")
 	}
 
 	// Create HttpRequest message
@@ -197,7 +197,7 @@ func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, 
 		return fmt.Errorf("failed to send http request: %w", err)
 	}
 
-	common.LogInfo("sent http request to client",
+	common.LogDebug("sent http request to client",
 		"connection_id", connectionID,
 		"method", r.Method,
 		"path", r.URL.Path)
@@ -219,7 +219,7 @@ func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, 
 			return fmt.Errorf("failed to write response body: %w", err)
 		}
 
-		common.LogInfo("proxied http response",
+		common.LogDebug("proxied http response",
 			"connection_id", connectionID,
 			"status", httpResp.StatusCode,
 			"body_size", len(httpResp.Body))

@@ -1,10 +1,49 @@
-# TODO.md: V1 Implementation Plan
+# TODO.md: tunn Reboot
 
-This checklist details the steps to build the robust, production-ready V1 of `tunn`, incorporating gRPC, dual auth flows, and a comprehensive testing strategy.
+## TOP PRIORITY: Fix Issues in REVIEW.md
+
+**Code Audit Date:** 2025-01-17
+
+A comprehensive audit found critical security issues, bugs, and dead code. **See [REVIEW.md](REVIEW.md) for the full list.**
+
+### Quick Summary of REVIEW.md
+
+**P0 - Security (MUST FIX before any public use):**
+- [ ] Fix `validateToken` - currently returns hardcoded `user@example.com`
+- [ ] Fix `exchangeCodeForToken` - currently returns auth code as token
+- [ ] Fix `getJWTSigningKey` - currently returns `"TODO_CONFIGURE_JWT_SECRET"`
+- [ ] Remove token logging from debug output
+- [ ] Fix `ExtractEmailFromJWT` trust boundary
+
+**P1 - Bugs:**
+- [ ] Fix multi-value header handling (Cookie, Set-Cookie broken)
+- [ ] Use config domain in public URL (hardcoded "tunn.to")
+
+**P2 - Dead Code:**
+- [ ] Remove legacy `ProxyResponse` handler
+- [ ] Remove legacy `handleProxyRequest`
+
+**P3 - Code Quality:**
+- [ ] Remove emoji from output
+- [ ] Fix excessive INFO logging
+- [ ] Consolidate duplicate AuthTransport types
+
+**P4 - Test Suite (currently pathetic):**
+- [ ] Add `handleHttpRequest` tests (THE CORE FUNCTIONALITY)
+- [ ] Add `proxyHTTPOverGRPC` tests
+- [ ] Add multi-header tests
+- [ ] Add allow-list enforcement tests
+- [ ] Add timeout/error tests
+- [ ] Add concurrent request tests
+
+**P5 - Features:**
+- [ ] Implement reconnection with exponential backoff
+
+---
+
+## Legacy TODO (Pre-Reboot)
 
 **Important:** Always use `make` for building and testing. See CLAUDE.md for details.
-
-**Code Review:** A comprehensive code review was completed on 2025-11-16. See REVIEW.md for detailed findings, security issues, and recommendations.
 
 ## Phase 0: Project Setup & Prototyping ✅
 

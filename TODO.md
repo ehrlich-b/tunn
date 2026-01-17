@@ -51,10 +51,10 @@ Logged in as alice@example.com
       - Example: `tunn 8080 --allow @slide.com,external@gmail.com`
       - **Pro feature:** Free tier limited to 3 exact emails, no @domain wildcards
 
-9. [ ] **Reserved subdomain list** - Prevent phishing/squatting
+9. [x] **Reserved subdomain list** - Prevent phishing/squatting
       - Block: www, api, app, admin, auth, login, google, paypal, amazon, etc.
       - Check on tunnel registration, return error if reserved
-      - ~30 lines of code
+      - Implemented in `grpc_server.go` with ~60 reserved names
 
 ### Magic Link Auth (tunn.to)
 

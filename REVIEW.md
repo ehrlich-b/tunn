@@ -250,7 +250,7 @@ Client dies if connection drops. No exponential backoff. No retry. Process just 
 15. [x] Add `proxyHTTPOverGRPC` tests - **ADDED 2025-01-17**
 16. [x] Add multi-header tests - **ADDED 2025-01-17**
 17. [x] Add allow-list enforcement tests - **ADDED 2025-01-17**
-18. [ ] Add timeout tests
+18. [x] Add timeout tests - **ADDED 2025-01-17**
 19. [x] Add concurrent request tests - **ADDED 2025-01-17**
 20. [x] Add error handling tests - **ADDED 2025-01-17**
 
@@ -293,4 +293,3 @@ The architecture is sound. The gRPC control plane works. HTTP/3 works. The data 
 **Remaining:**
 - P0 (OAuth security) deferred - not core value prop, will address when fleshing out sharing feature
 - P2: Remove proto messages (breaking change - defer)
-- P4: Timeout tests (hard to test 30s timeout)

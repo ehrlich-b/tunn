@@ -33,7 +33,7 @@ A comprehensive audit found critical security issues, bugs, and dead code. **See
 - [x] Add `proxyHTTPOverGRPC` tests - **ADDED 2025-01-17**
 - [x] Add multi-header tests - **ADDED 2025-01-17**
 - [x] Add allow-list enforcement tests - **ADDED 2025-01-17**
-- [ ] Add timeout tests
+- [x] Add timeout tests - **ADDED 2025-01-17**
 - [x] Add concurrent request tests - **ADDED 2025-01-17**
 
 **P5 - Features:**

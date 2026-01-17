@@ -43,7 +43,8 @@ func (p *ProxyServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html")
 	writePageStart(w, "tunn - Login")
-	fmt.Fprint(w, `<h1>Sign in to continue</h1>
+	fmt.Fprint(w, `<h1 class="page-title">Sign in to tunn</h1>
+<p class="page-subtitle">Access your tunnels and account settings.</p>
 <div id="message"></div>`)
 
 	if hasGitHub {

@@ -158,13 +158,16 @@ See **[integration_test_framework.md](integration_test_framework.md)** for full 
 - `make integration-test-smoke` - Run smoke test only
 
 ### CI/CD (Before Infrastructure)
-9. [ ] **GitHub Actions for releases** - Build binaries for darwin-amd64, darwin-arm64, linux-amd64
-10. [ ] **Create install.sh** - README promises `curl -fsSL https://tunn.to/install.sh | sh`
+9. [x] **GitHub Actions for releases** - Build binaries for darwin-amd64, darwin-arm64, linux-amd64
+      - `.github/workflows/release.yml` - triggers on v* tags
+10. [x] **Create install.sh** - README promises `curl -fsSL https://tunn.to/install.sh | sh`
+      - Script in repo root + served from app at `/install.sh`
 
 ### Infrastructure
 11. [ ] **Deploy to Fly.io** - Get the app running
 12. [ ] **Set up tunn.to DNS** - Point domain to Fly (Cloudflare DNS-only)
-13. [ ] **Serve install.sh from app** - Static route at `/install.sh`
+13. [x] **Serve install.sh from app** - Static route at `/install.sh`
+      - proxy.go handleInstallScript serves embedded script
 
 ### Marketing & Homepage
 14. [ ] **Create tunn.to homepage** - ntfy.sh inspired, simple dev-focused

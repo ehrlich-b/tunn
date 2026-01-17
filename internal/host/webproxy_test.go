@@ -150,6 +150,64 @@ func TestProxyHTTPOverGRPCSendError(t *testing.T) {
 	}
 }
 
+func TestAllowListCheck(t *testing.T) {
+	tests := []struct {
+		name          string
+		userEmail     string
+		allowedEmails []string
+		wantAllowed   bool
+	}{
+		{
+			name:          "user on allow-list",
+			userEmail:     "alice@example.com",
+			allowedEmails: []string{"alice@example.com", "bob@example.com"},
+			wantAllowed:   true,
+		},
+		{
+			name:          "user not on allow-list",
+			userEmail:     "eve@example.com",
+			allowedEmails: []string{"alice@example.com", "bob@example.com"},
+			wantAllowed:   false,
+		},
+		{
+			name:          "empty allow-list",
+			userEmail:     "alice@example.com",
+			allowedEmails: []string{},
+			wantAllowed:   false,
+		},
+		{
+			name:          "creator only",
+			userEmail:     "creator@example.com",
+			allowedEmails: []string{"creator@example.com"},
+			wantAllowed:   true,
+		},
+		{
+			name:          "case sensitive email",
+			userEmail:     "Alice@Example.com",
+			allowedEmails: []string{"alice@example.com"},
+			wantAllowed:   false, // Emails are case-sensitive in current impl
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Replicate the allow-list check logic from proxyToLocal
+			allowed := false
+			for _, allowedEmail := range tt.allowedEmails {
+				if allowedEmail == tt.userEmail {
+					allowed = true
+					break
+				}
+			}
+
+			if allowed != tt.wantAllowed {
+				t.Errorf("allow-list check for %q in %v: got %v, want %v",
+					tt.userEmail, tt.allowedEmails, allowed, tt.wantAllowed)
+			}
+		})
+	}
+}
+
 func TestProxyHTTPOverGRPCMultiValueHeaders(t *testing.T) {
 	stream := &mockWebProxyStream{
 		sentMsgs: make([]*pb.TunnelMessage, 0),

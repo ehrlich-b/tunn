@@ -689,16 +689,16 @@ input:checked + .slider:before { transform: translateX(20px); }
         <div class="feature-visual">
           <svg viewBox="0 0 200 140" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M60 35 Q40 35 40 50 Q30 50 30 60 Q20 60 25 72 Q20 85 35 85 L85 85 Q100 85 95 72 Q100 60 90 60 Q90 50 80 50 Q80 35 60 35Z" fill="rgba(255,255,255,0.5)"/>
-            <rect x="120" y="38" width="60" height="45" rx="4" fill="rgba(255,255,255,0.5)"/>
-            <rect x="126" y="44" width="48" height="30" rx="2" fill="rgba(255,255,255,0.3)"/>
-            <rect x="140" y="83" width="20" height="4" fill="rgba(255,255,255,0.4)"/>
-            <rect x="132" y="87" width="36" height="3" rx="1" fill="rgba(255,255,255,0.35)"/>
-            <path d="M75 60 L105 52" stroke="rgba(255,255,255,0.4)" stroke-width="2" stroke-dasharray="4 2"/>
-            <polygon points="112,49 103,52 106,61" fill="rgba(255,255,255,0.4)"/>
-            <path d="M75 70 L105 62" stroke="rgba(255,255,255,0.6)" stroke-width="2" stroke-dasharray="4 2"/>
-            <polygon points="112,60 104,57 104,67" fill="rgba(255,255,255,0.6)"/>
-            <path d="M75 80 L105 72" stroke="rgba(255,255,255,0.4)" stroke-width="2" stroke-dasharray="4 2"/>
-            <polygon points="112,70 104,67 104,77" fill="rgba(255,255,255,0.4)"/>
+            <rect x="120" y="48" width="60" height="45" rx="4" fill="rgba(255,255,255,0.5)"/>
+            <rect x="126" y="54" width="48" height="30" rx="2" fill="rgba(255,255,255,0.3)"/>
+            <rect x="140" y="93" width="20" height="4" fill="rgba(255,255,255,0.4)"/>
+            <rect x="132" y="97" width="36" height="3" rx="1" fill="rgba(255,255,255,0.35)"/>
+            <path d="M75 60 L105 60" stroke="rgba(255,255,255,0.4)" stroke-width="2" stroke-dasharray="4 2"/>
+            <polygon points="112,57 104,60 112,63" fill="rgba(255,255,255,0.4)"/>
+            <path d="M75 70 L105 70" stroke="rgba(255,255,255,0.6)" stroke-width="2" stroke-dasharray="4 2"/>
+            <polygon points="112,67 104,70 112,73" fill="rgba(255,255,255,0.6)"/>
+            <path d="M75 80 L105 80" stroke="rgba(255,255,255,0.4)" stroke-width="2" stroke-dasharray="4 2"/>
+            <polygon points="112,77 104,80 112,83" fill="rgba(255,255,255,0.4)"/>
           </svg>
         </div>
         <div class="feature-content">

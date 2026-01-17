@@ -490,7 +490,7 @@ func TestExtractTunnelIDFromHost(t *testing.T) {
 }
 
 func TestHandleWebProxyTunnelNotFound(t *testing.T) {
-	tunnelServer := NewTunnelServer("test-key", false, "tunn.to", "", nil)
+	tunnelServer := NewTunnelServer("test-key", false, "tunn.to", "", nil, nil)
 
 	proxy := &ProxyServer{
 		Domain:       "tunn.to",

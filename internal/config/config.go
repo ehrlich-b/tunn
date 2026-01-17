@@ -26,9 +26,10 @@ type Config struct {
 
 	// Internal gRPC configuration
 	InternalGRPCPort string
-	NodeAddresses    string // Comma-separated list of other node addresses
+	NodeAddresses    string // Comma-separated list of other node addresses (fallback)
 	NodeSecret       string // Shared secret for node-to-node authentication
 	PublicAddr       string
+	FlyAppName       string // Fly.io app name for DNS-based node discovery
 
 	// Mock OIDC configuration (dev only)
 	MockOIDCAddr   string
@@ -55,6 +56,9 @@ type Config struct {
 	SMTPUser     string
 	SMTPPassword string
 	SMTPFrom     string
+
+	// Stripe configuration (for billing)
+	StripeWebhookSecret string
 
 	// Client configuration
 	ServerAddr string
@@ -91,15 +95,17 @@ func (c *Config) loadDevConfig() {
 	c.CertFile = getEnvOrDefault("CERT_FILE", "./certs/cert.pem")
 	c.KeyFile = getEnvOrDefault("KEY_FILE", "./certs/key.pem")
 
-	// HTTP listener addresses (configurable for integration tests)
-	c.HTTP2Addr = getEnvOrDefault("HTTP2_ADDR", ":8443")
-	c.HTTP3Addr = getEnvOrDefault("HTTP3_ADDR", ":8443")
+	// HTTP listener address (ADDR sets both, or use HTTP2_ADDR/HTTP3_ADDR for separate control)
+	defaultAddr := getEnvOrDefault("ADDR", ":8443")
+	c.HTTP2Addr = getEnvOrDefault("HTTP2_ADDR", defaultAddr)
+	c.HTTP3Addr = getEnvOrDefault("HTTP3_ADDR", defaultAddr)
 
 	// Internal gRPC
 	c.InternalGRPCPort = getEnvOrDefault("INTERNAL_GRPC_PORT", ":50051")
 	c.NodeAddresses = getEnvOrDefault("NODE_ADDRESSES", "")
 	c.NodeSecret = getEnvOrDefault("NODE_SECRET", "dev-node-secret")
 	c.PublicAddr = getEnvOrDefault("PUBLIC_ADDR", "localhost:8443")
+	c.FlyAppName = getEnvOrDefault("FLY_APP_NAME", "") // Fly.io sets this automatically
 
 	// Mock OIDC provider runs locally (set MOCK_OIDC_ADDR="" to disable)
 	c.MockOIDCAddr = getEnvAllowEmpty("MOCK_OIDC_ADDR", ":9000")
@@ -130,6 +136,9 @@ func (c *Config) loadDevConfig() {
 	c.SMTPPassword = getEnvOrDefault("SMTP_PASSWORD", "")
 	c.SMTPFrom = getEnvOrDefault("SMTP_FROM", "")
 
+	// Stripe (optional in dev)
+	c.StripeWebhookSecret = getEnvOrDefault("STRIPE_WEBHOOK_SECRET", "")
+
 	// Skip TLS verification in dev
 	c.SkipVerify = true
 }
@@ -143,15 +152,17 @@ func (c *Config) loadProdConfig() {
 	c.CertFile = getEnvOrDefault("CERT_FILE", "/app/certs/fullchain.pem")
 	c.KeyFile = getEnvOrDefault("KEY_FILE", "/app/certs/privkey.pem")
 
-	// HTTP listener addresses (Fly.io routes 443/tcp and 443/udp to these)
-	c.HTTP2Addr = getEnvOrDefault("HTTP2_ADDR", ":8443")
-	c.HTTP3Addr = getEnvOrDefault("HTTP3_ADDR", ":8443")
+	// HTTP listener address (ADDR sets both, or use HTTP2_ADDR/HTTP3_ADDR for separate control)
+	prodDefaultAddr := getEnvOrDefault("ADDR", ":8443")
+	c.HTTP2Addr = getEnvOrDefault("HTTP2_ADDR", prodDefaultAddr)
+	c.HTTP3Addr = getEnvOrDefault("HTTP3_ADDR", prodDefaultAddr)
 
 	// Internal gRPC
 	c.InternalGRPCPort = getEnvOrDefault("INTERNAL_GRPC_PORT", ":50051")
 	c.NodeAddresses = getEnvOrDefault("NODE_ADDRESSES", "")
 	c.NodeSecret = getEnvOrDefault("NODE_SECRET", "") // Must be set in prod for multi-node
 	c.PublicAddr = getEnvOrDefault("PUBLIC_ADDR", "tunn.to:443")
+	c.FlyAppName = getEnvOrDefault("FLY_APP_NAME", "") // Fly.io sets this automatically
 
 	// No mock OIDC in production
 	c.MockOIDCAddr = ""
@@ -178,6 +189,9 @@ func (c *Config) loadProdConfig() {
 	c.SMTPUser = getEnvOrDefault("SMTP_USER", "")
 	c.SMTPPassword = getEnvOrDefault("SMTP_PASSWORD", "")
 	c.SMTPFrom = getEnvOrDefault("SMTP_FROM", "")
+
+	// Stripe (for billing)
+	c.StripeWebhookSecret = getEnvOrDefault("STRIPE_WEBHOOK_SECRET", "")
 
 	// Verify TLS in production
 	c.SkipVerify = false

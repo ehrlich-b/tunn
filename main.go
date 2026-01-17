@@ -94,6 +94,7 @@ Options:
 func parseServeFlags(args []string) (target string, tunnelID string, allowedEmails []string, tunnelKey string, protocol string, udpTarget string, clientSecret string) {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	idFlag := fs.String("id", "", "tunnel ID (blank → random)")
+	subdomainFlag := fs.String("subdomain", "", "reserved subdomain (Pro feature, alias for -id)")
 	allowFlag := fs.String("allow", "", "comma-separated list of emails allowed to access tunnel")
 	keyFlag := fs.String("tunnel-key", "", "tunnel creation authorization key")
 	protoFlag := fs.String("protocol", "http", "tunnel protocol: http, udp, or both")
@@ -111,6 +112,7 @@ Examples:
   tunn 8080                      # Tunnel localhost:8080
   tunn 8080 --allow bob@co.com   # Share with specific people
   tunn serve -id=myapp 3000      # Custom tunnel ID
+  tunn serve -subdomain=myapp 3000  # Reserved subdomain (Pro)
 
 Options:
 `)
@@ -138,7 +140,11 @@ Options:
 	}
 
 	target = nonFlagArgs[0]
+	// --subdomain takes precedence over --id (they're effectively the same)
 	tunnelID = *idFlag
+	if *subdomainFlag != "" {
+		tunnelID = *subdomainFlag
+	}
 	tunnelKey = *keyFlag
 	protocol = *protoFlag
 	udpTarget = *udpFlag
@@ -217,12 +223,6 @@ func runLogin() {
 }
 
 func runHost() {
-	token := os.Getenv("TOKEN")
-	if token == "" {
-		common.LogError("TOKEN environment variable not set")
-		os.Exit(1)
-	}
-
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		common.LogError("failed to load config", "error", err)

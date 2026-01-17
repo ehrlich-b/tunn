@@ -1,6 +1,61 @@
 # TODO.md: tunn Launch Checklist
 
-## SHIP IT (Ordered)
+## CODE NOW (No External Setup Required)
+
+### 1. Subdomain Reservations (Pro Feature) ✅
+- [x] **Add subdomain reservation** - Pro users get 4 reserved subdomains
+      - SQLite `reserved_subdomains` table in `internal/store/db.go`
+      - Store methods in `internal/store/accounts.go`: ReserveSubdomain, GetSubdomainOwner, GetReservedSubdomains, ReleaseSubdomain
+      - gRPC server checks reservations and auto-claims for Pro users in `grpc_server.go`
+      - CLI `--subdomain` flag added as alias for `--id`
+      - Tests in `internal/store/store_test.go`
+
+### 2. Stripe Webhook Handler ✅
+- [x] **Add Stripe webhook handler** - `/webhooks/stripe` (tunn.to only)
+      - Signature verification with STRIPE_WEBHOOK_SECRET env var
+      - Handles `customer.subscription.created/updated/deleted` events
+      - Implementation in `internal/host/stripe.go`
+      - Tests in `internal/host/stripe_test.go`
+      - Note: Requires customer email lookup via Stripe API or metadata to update accounts
+
+### 3. Mesh Auto-Discovery (Fly.io) ✅
+- [x] **Auto-discover nodes via internal DNS** - No manual NODE_ADDRESSES
+      - `discoverNodes()` in `proxy.go` resolves `<FLY_APP_NAME>.internal`
+      - Filters out self using `getSelfIPs()`
+      - Falls back to `NODE_ADDRESSES` env var if DNS fails
+      - Node connections are non-fatal (logs error, continues startup)
+      - **Fly.io specific** - uses IPv6 for internal networking
+
+### 4. Homepage & Templates ✅
+- [x] **Create tunn.to homepage** - ntfy.sh inspired, simple dev-focused
+      - Hero: one-liner + install command
+      - Pricing table (Free / Pro $4/mo / Enterprise contact)
+      - Code examples + self-host instructions
+      - Serve from app at `/` when no tunnel subdomain
+      - Implementation in `internal/host/webproxy.go` (`handleApexDomain`)
+- [x] **Refactor HTML to shared templates** - `internal/host/templates.go`
+      - Base CSS styles in `baseCSS` constant
+      - Helper functions: `writePageStart`, `writePageEnd`, `writeErrorPage`, `writeSuccessPage`
+      - Login, success, and error pages now use shared templates
+
+---
+
+## BLOCKED (Needs External Setup)
+
+### GitHub OAuth App (Manual)
+- [ ] Create OAuth App in GitHub, get client ID/secret
+- [ ] Test CLI login end-to-end
+- [ ] Test browser auth end-to-end
+
+### Infrastructure (Manual)
+- [ ] Deploy to Fly.io
+- [ ] Set up tunn.to DNS (Cloudflare DNS-only)
+- [ ] Configure SMTP provider for magic links
+- [ ] Configure Let's Encrypt (automatic on Fly)
+
+---
+
+## COMPLETED
 
 ### Auth Implementation (GitHub OAuth + Device Flow)
 
@@ -35,26 +90,13 @@ Logged in as alice@example.com
 - LiteFS replicates SQLite across all Fly.io nodes (<1 sec)
 - Poll can hit any node, auth can happen on any node - same DB
 
-**Tasks:**
-1. [ ] **GitHub OAuth App setup** - Create OAuth App in GitHub, get client ID/secret
-2. [x] **Implement device code endpoints** - `POST /api/device/code`, `GET /api/device/token`
-3. [x] **Update CLI login** - Use device code flow with browser auto-open
-4. [x] **Browser OAuth flow** - `/auth/login`, `/auth/callback` with GitHub
-5. [x] **Configure JWT signing** - `JWT_SECRET` env var for signing our JWTs
-6. [ ] **Test CLI login** - Verify device flow works end-to-end
-7. [ ] **Test browser auth** - Verify tunnel access prompts GitHub login
-
-### Code Fixes
-8. [x] **Add domain suffix matching** - `--allow @slide.com` allows anyone with that email domain
-      - `@company.com` matches any email ending in `@company.com`
-      - Case-insensitive matching for both exact and wildcard
-      - Example: `tunn 8080 --allow @slide.com,external@gmail.com`
-      - **Pro feature:** Free tier limited to 3 exact emails, no @domain wildcards
-
-9. [x] **Reserved subdomain list** - Prevent phishing/squatting
-      - Block: www, api, app, admin, auth, login, google, paypal, amazon, etc.
-      - Check on tunnel registration, return error if reserved
-      - Implemented in `grpc_server.go` with ~60 reserved names
+**Completed:**
+- [x] Implement device code endpoints - `POST /api/device/code`, `GET /api/device/token`
+- [x] Update CLI login - Use device code flow with browser auto-open
+- [x] Browser OAuth flow - `/auth/login`, `/auth/callback` with GitHub
+- [x] Configure JWT signing - `JWT_SECRET` env var for signing our JWTs
+- [x] Add domain suffix matching - `--allow @slide.com` allows anyone with that email domain
+- [x] Reserved subdomain list - Prevent phishing/squatting (~60 names in `grpc_server.go`)
 
 ### Magic Link Auth (tunn.to)
 
@@ -79,17 +121,13 @@ Logged in as alice@example.com
 - 5 minutes is short
 - This is how Slack, Notion, etc. do it
 
-**Tasks:**
-10. [x] **SMTP integration** - Generic SMTP support (works with AWS SES, Resend, any SMTP provider)
-11. [x] **POST /auth/magic endpoint** - Generate magic link JWT, send email
-12. [x] **GET /auth/verify endpoint** - Verify JWT (type=magic_link), create session
-13. [x] **Login page update** - Add "Login with Email" option alongside GitHub
-      - /auth/login now shows a login page with both options
-      - /auth/github handles the actual GitHub OAuth redirect
+**Completed:**
+- [x] SMTP integration - Generic SMTP support (works with AWS SES, Resend, any SMTP provider)
+- [x] POST /auth/magic endpoint - Generate magic link JWT, send email
+- [x] GET /auth/verify endpoint - Verify JWT (type=magic_link), create session
+- [x] Login page update - `/auth/login` shows both GitHub and email options
 
-**Config:**
-- `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` env vars
-- Self-hosters: leave empty, magic link disabled
+**Config:** `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` env vars
 
 ### Self-Hoster Auth (Simple Shared Secrets)
 
@@ -126,59 +164,30 @@ Admin generates tokens, gives to users. More granular than master secret.
 3. Client secret (master key)
 4. Reject
 
-**Tasks:**
-15. [x] **Add CLIENT_SECRET config** - Master key for all clients
-      - Added to config.go, loaded from CLIENT_SECRET env var
-16. [x] **Add --secret flag to CLI** - Pass secret on command line or TUNN_SECRET env
-      - Added --secret flag to serve command, also reads TUNN_SECRET env var
-17. [x] **users.yaml loader** - Parse YAML, check tokens
-      - Set USERS_FILE env var to path to users.yaml
-      - Format: `email: { token: "...", plan: "free|pro" }`
-18. [x] **Update auth middleware** - Check JWT → user token → client secret → reject
-      - grpc_server.go checks: public mode → client secret → JWT
+**Completed:**
+- [x] CLIENT_SECRET config - Master key for all clients (CLIENT_SECRET env var)
+- [x] --secret flag for CLI - Pass secret on command line or TUNN_SECRET env
+- [x] users.yaml loader - Set USERS_FILE env var to path
+- [x] Auth middleware - Check: public mode → client secret → JWT
 
-**tunn.to will NOT set CLIENT_SECRET** - forces real auth (GitHub/magic link).
+**Note:** tunn.to will NOT set CLIENT_SECRET - forces real auth (GitHub/magic link).
 
 ### Integration Testing
 
 See **[integration_test_framework.md](integration_test_framework.md)** for full details.
 
-**Required code changes:**
-- [x] Make HTTP ports configurable (`HTTP2_ADDR`, `HTTP3_ADDR` env vars)
-- [x] Create `scripts/gen-test-certs.sh` for localhost wildcard certs
+**Run tests:** `make integration-test` or `make integration-test-smoke`
 
-**Test scenarios:**
-- [x] **Smoke test** - Single node, PUBLIC_MODE, basic tunnel flow
-- [x] **Device login E2E** - Full device code flow without real browser
-- [x] **Multi-node gRPC** - Two nodes discovering tunnels across mesh
-- [x] **Full auth flow** - Allow-list enforcement, domain wildcards
+**Completed:**
+- [x] HTTP ports configurable (`HTTP2_ADDR`, `HTTP3_ADDR` env vars)
+- [x] `scripts/gen-test-certs.sh` for localhost wildcard certs
+- [x] Smoke test, Device login E2E, Multi-node gRPC, Full auth flow
 
-**Run tests:**
-- `make integration-test` - Run all integration tests
-- `make integration-test-smoke` - Run smoke test only
+### CI/CD
 
-### CI/CD (Before Infrastructure)
-9. [x] **GitHub Actions for releases** - Build binaries for darwin-amd64, darwin-arm64, linux-amd64
-      - `.github/workflows/release.yml` - triggers on v* tags
-10. [x] **Create install.sh** - README promises `curl -fsSL https://tunn.to/install.sh | sh`
-      - Script in repo root + served from app at `/install.sh`
-
-### Infrastructure
-11. [ ] **Deploy to Fly.io** - Get the app running
-12. [ ] **Set up tunn.to DNS** - Point domain to Fly (Cloudflare DNS-only)
-13. [x] **Serve install.sh from app** - Static route at `/install.sh`
-      - proxy.go handleInstallScript serves embedded script
-
-### Marketing & Homepage
-14. [ ] **Create tunn.to homepage** - ntfy.sh inspired, simple dev-focused
-      - [ ] Refactor HTML responses to use shared Go template (login success, access denied, error pages)
-      - [ ] Light static generation for consistent branding across all pages
-      - Hero: one-liner + install command
-      - Live demo or GIF
-      - Pricing table (Free / Pro $4/mo / Enterprise contact)
-      - Code examples
-      - Self-host instructions
-      - Serve from app at `/` when no tunnel subdomain
+**Completed:**
+- [x] GitHub Actions for releases - `.github/workflows/release.yml` triggers on v* tags
+- [x] install.sh - Script in repo root + served from app at `/install.sh`
 
 ### Identity Model (Email Buckets)
 
@@ -245,26 +254,11 @@ func isAllowed(sessionEmail string, allowList []string) bool {
 }
 ```
 
-**Tasks:**
-14. [x] **Create accounts schema** - SQLite tables for accounts + account_emails
-      - Implemented in `internal/store/` with accounts, account_emails, device_codes tables
-      - Auto-detects LiteFS mount at `/litefs/tunn.db`
-15. [x] **Implement account merge on OAuth** - Handle 0/1/2+ account cases
-      - FindOrCreateByEmails handles 0/1/2+ account cases with automatic merge
-16. [x] **Update allow-list check** - Check against email bucket, not just session email
-      - webproxy.go now gets email bucket via AccountStore.GetEmailBucket()
-      - Checks if ANY email in bucket matches allow-list
-17. [x] **Add users.yaml support** - Simple config for self-hosters (implemented in internal/store/users.go)
-      ```yaml
-      alice@gmail.com:
-        plan: pro
-      "@mycompany.com":  # domain wildcard
-        plan: pro
-      ```
-18. [ ] **Add Stripe webhook handler** - `/webhooks/stripe` (tunn.to only)
-      - Verify Stripe signature with STRIPE_WEBHOOK_SECRET
-      - On subscription.created: update account plan='pro'
-      - On subscription.deleted: update account plan='free'
+**Completed:**
+- [x] Accounts schema - SQLite tables in `internal/store/`, auto-detects LiteFS at `/litefs/tunn.db`
+- [x] Account merge on OAuth - FindOrCreateByEmails handles 0/1/2+ account cases
+- [x] Allow-list check uses email bucket - webproxy.go checks ANY email in bucket
+- [x] users.yaml support - Simple config for self-hosters (`internal/store/users.go`)
 
 ### Cluster Security (One Secret) ✅
 - [x] **Replace mTLS with NODE_SECRET auth** - Done in commit 0569be1
@@ -272,29 +266,12 @@ func isAllowed(sessionEmail string, allowList []string) bool {
       - `NODE_SECRET=xxx` → mesh enabled, nodes auth with shared secret
       - IP blacklisting on failed auth attempts
 
-### Mesh Auto-Discovery (Fly.io)
-18. [ ] **Auto-discover nodes via internal DNS** - No manual NODE_ADDRESSES
-      - Resolve `<appname>.internal` → returns all instance IPs
-      - Filter out self, connect to others
-      - New nodes auto-join mesh on boot
-      - **Fly.io specific** - see vendor lock-in notes below
-
 ### LiteFS Replication (tunn.to)
-19. [x] **Add LiteFS support for SQLite replication** - Fly.io native
+- [x] **LiteFS support for SQLite replication** - Fly.io native
       - App auto-detects `/litefs` and uses `/litefs/tunn.db`
       - Falls back to `~/.tunn/tunn.db` for local dev
-      - LiteFS mount configured at Fly.io deploy time (fly.toml)
-      - **Fly.io specific** - see vendor lock-in notes below
 
-### Subdomain Reservations (Pro Feature)
-20. [ ] **Add subdomain reservation** - Pro users get 4 reserved subdomains
-      - Store in UserStore: `email → [subdomain1, subdomain2, ...]`
-      - `tunn 8080 --subdomain myapp` claims/uses reservation
-      - Validation: 3+ chars, alphanumeric + hyphens, not reserved
-      - Reserved list: www, api, app, admin, auth, static, cdn, etc.
-      - No nesting (x.y.tunn.to) - wildcard certs only cover one level
-
-**GitHub OAuth is implemented. PUBLIC_MODE=true bypasses auth for testing only.**
+**Note:** GitHub OAuth is implemented. PUBLIC_MODE=true bypasses auth for testing only.
 
 ---
 

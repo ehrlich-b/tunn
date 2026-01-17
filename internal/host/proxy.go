@@ -103,9 +103,12 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 		}
 	}
 
+	// Create account store for subdomain reservations
+	accounts := store.NewAccountStore(db)
+
 	// Create gRPC server for public tunnel control plane
 	grpcServer := grpc.NewServer()
-	tunnelServer := NewTunnelServer(cfg.WellKnownKey, cfg.PublicMode, cfg.Domain, cfg.ClientSecret, userTokens)
+	tunnelServer := NewTunnelServer(cfg.WellKnownKey, cfg.PublicMode, cfg.Domain, cfg.ClientSecret, userTokens, accounts)
 	pb.RegisterTunnelServiceServer(grpcServer, tunnelServer)
 
 	// Create gRPC server for internal node-to-node communication
@@ -155,21 +158,20 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 		config:             cfg,
 		PublicAddr:         cfg.PublicAddr,
 		deviceCodes:        store.NewDeviceCodeStore(db),
-		accounts:           store.NewAccountStore(db),
+		accounts:           accounts,
 		emailSender:        emailSender,
 	}
 
-	// Create gRPC clients for other nodes
-	nodeAddresses := strings.Split(cfg.NodeAddresses, ",")
+	// Discover and connect to other nodes in the mesh
+	nodeAddresses := discoverNodes(cfg)
 	for _, addr := range nodeAddresses {
-		if addr != "" {
-			// Create a gRPC client connection
-			conn, err := createInternalClient(addr, cfg)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create internal client for %s: %w", addr, err)
-			}
-			proxy.nodeClients[addr] = internalv1.NewInternalServiceClient(conn)
+		// Create a gRPC client connection
+		conn, err := createInternalClient(addr, cfg)
+		if err != nil {
+			common.LogError("failed to create internal client", "addr", addr, "error", err)
+			continue // Don't fail startup if one node is unreachable
 		}
+		proxy.nodeClients[addr] = internalv1.NewInternalServiceClient(conn)
 	}
 
 	// Set up mock OIDC server in dev mode
@@ -201,6 +203,93 @@ func createInternalClient(addr string, cfg *config.Config) (*grpc.ClientConn, er
 		grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)),
 		grpc.WithPerRPCCredentials(&nodeSecretCreds{secret: cfg.NodeSecret}),
 	)
+}
+
+// discoverNodes discovers other nodes in the mesh using Fly.io internal DNS
+// Falls back to NODE_ADDRESSES if DNS discovery fails or is not configured
+func discoverNodes(cfg *config.Config) []string {
+	var nodeAddresses []string
+
+	// Try Fly.io DNS discovery first
+	if cfg.FlyAppName != "" {
+		dnsName := cfg.FlyAppName + ".internal"
+		ips, err := net.LookupIP(dnsName)
+		if err != nil {
+			common.LogError("DNS discovery failed, falling back to NODE_ADDRESSES",
+				"dns_name", dnsName, "error", err)
+		} else {
+			// Get current node's IPs to filter out self
+			selfIPs := getSelfIPs()
+
+			// Get gRPC port from config (default 50051)
+			port := strings.TrimPrefix(cfg.InternalGRPCPort, ":")
+			if port == "" {
+				port = "50051"
+			}
+
+			for _, ip := range ips {
+				// Skip self
+				if selfIPs[ip.String()] {
+					continue
+				}
+				// Only use IPv6 addresses for Fly.io internal networking
+				if ip.To4() == nil {
+					nodeAddresses = append(nodeAddresses, fmt.Sprintf("[%s]:%s", ip.String(), port))
+				}
+			}
+
+			if len(nodeAddresses) > 0 {
+				common.LogInfo("discovered nodes via DNS",
+					"dns_name", dnsName,
+					"count", len(nodeAddresses),
+					"addresses", nodeAddresses)
+				return nodeAddresses
+			}
+			common.LogInfo("DNS discovery found no other nodes", "dns_name", dnsName)
+		}
+	}
+
+	// Fall back to NODE_ADDRESSES
+	if cfg.NodeAddresses != "" {
+		for _, addr := range strings.Split(cfg.NodeAddresses, ",") {
+			addr = strings.TrimSpace(addr)
+			if addr != "" {
+				nodeAddresses = append(nodeAddresses, addr)
+			}
+		}
+		if len(nodeAddresses) > 0 {
+			common.LogInfo("using NODE_ADDRESSES for node discovery",
+				"count", len(nodeAddresses),
+				"addresses", nodeAddresses)
+		}
+	}
+
+	return nodeAddresses
+}
+
+// getSelfIPs returns a set of this machine's IP addresses
+func getSelfIPs() map[string]bool {
+	selfIPs := make(map[string]bool)
+
+	// Get all network interfaces
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return selfIPs
+	}
+
+	for _, iface := range ifaces {
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			if ipnet, ok := addr.(*net.IPNet); ok {
+				selfIPs[ipnet.IP.String()] = true
+			}
+		}
+	}
+
+	return selfIPs
 }
 
 // nodeSecretCreds implements credentials.PerRPCCredentials for node-to-node auth
@@ -342,7 +431,17 @@ func (p *ProxyServer) Run(ctx context.Context) error {
 		return err
 	case <-ctx.Done():
 		common.LogInfo("shutting down proxy server")
-		p.internalGRPCServer.GracefulStop()
+
+		// Shutdown mock OIDC server if running
+		if p.mockOIDC != nil {
+			common.LogInfo("shutting down mock OIDC server")
+			p.mockOIDC.Shutdown()
+		}
+
+		// Shutdown internal gRPC server
+		common.LogInfo("shutting down internal gRPC server")
+		p.internalGRPCServer.Stop() // Use Stop() instead of GracefulStop() to avoid hanging
+
 		wg.Wait()
 		return ctx.Err()
 	}
@@ -368,7 +467,9 @@ func (p *ProxyServer) startHTTP2Server(ctx context.Context, handler http.Handler
 	go func() {
 		<-ctx.Done()
 		common.LogInfo("shutting down HTTP/2 server")
-		srv.Shutdown(context.Background())
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		srv.Shutdown(shutdownCtx)
 	}()
 
 	if err := srv.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
@@ -468,6 +569,9 @@ func (p *ProxyServer) createHandler() http.Handler {
 
 	// UDP proxy endpoint (for tunn connect)
 	mux.HandleFunc("/udp/", p.handleUDPProxy)
+
+	// Stripe webhook endpoint
+	mux.HandleFunc("/webhooks/stripe", p.handleStripeWebhook)
 
 	// Main handler - check if this is apex domain or a tunnel subdomain
 	mux.HandleFunc("/", p.handleWebProxy)

@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"fmt"
 	"strings"
 	"time"
 
@@ -234,4 +235,121 @@ func (s *AccountStore) getAccountEmails(accountID string) ([]AccountEmail, error
 		emails = append(emails, ae)
 	}
 	return emails, nil
+}
+
+// MaxReservedSubdomains is the maximum number of reserved subdomains per Pro account
+const MaxReservedSubdomains = 4
+
+// ReservedSubdomain represents a subdomain reserved by an account
+type ReservedSubdomain struct {
+	Subdomain string
+	AccountID string
+	CreatedAt time.Time
+}
+
+// ReserveSubdomain reserves a subdomain for an account (Pro feature)
+// Returns an error if:
+// - Account is not Pro
+// - Account already has 4 reserved subdomains
+// - Subdomain is already reserved by another account
+func (s *AccountStore) ReserveSubdomain(accountID, subdomain string) error {
+	subdomain = strings.ToLower(strings.TrimSpace(subdomain))
+
+	// Check if account is Pro
+	var plan string
+	err := s.db.QueryRow("SELECT plan FROM accounts WHERE id = ?", accountID).Scan(&plan)
+	if err != nil {
+		return err
+	}
+	if plan != "pro" {
+		return fmt.Errorf("subdomain reservations require a Pro plan")
+	}
+
+	// Check current count
+	var count int
+	err = s.db.QueryRow("SELECT COUNT(*) FROM reserved_subdomains WHERE account_id = ?", accountID).Scan(&count)
+	if err != nil {
+		return err
+	}
+	if count >= MaxReservedSubdomains {
+		return fmt.Errorf("maximum of %d reserved subdomains reached", MaxReservedSubdomains)
+	}
+
+	// Try to insert (will fail if already exists)
+	_, err = s.db.Exec(
+		"INSERT INTO reserved_subdomains (subdomain, account_id, created_at) VALUES (?, ?, ?)",
+		subdomain, accountID, time.Now().Unix(),
+	)
+	if err != nil {
+		// Check if it's already reserved
+		var existingAccountID string
+		checkErr := s.db.QueryRow("SELECT account_id FROM reserved_subdomains WHERE subdomain = ?", subdomain).Scan(&existingAccountID)
+		if checkErr == nil {
+			if existingAccountID == accountID {
+				return nil // Already reserved by this account, that's fine
+			}
+			return fmt.Errorf("subdomain '%s' is already reserved by another user", subdomain)
+		}
+		return err
+	}
+
+	return nil
+}
+
+// GetSubdomainOwner returns the account ID that owns a subdomain, or empty string if not reserved
+func (s *AccountStore) GetSubdomainOwner(subdomain string) (string, error) {
+	subdomain = strings.ToLower(strings.TrimSpace(subdomain))
+
+	var accountID string
+	err := s.db.QueryRow("SELECT account_id FROM reserved_subdomains WHERE subdomain = ?", subdomain).Scan(&accountID)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return accountID, nil
+}
+
+// GetReservedSubdomains returns all subdomains reserved by an account
+func (s *AccountStore) GetReservedSubdomains(accountID string) ([]ReservedSubdomain, error) {
+	rows, err := s.db.Query(
+		"SELECT subdomain, account_id, created_at FROM reserved_subdomains WHERE account_id = ?",
+		accountID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var subdomains []ReservedSubdomain
+	for rows.Next() {
+		var rs ReservedSubdomain
+		var createdAtUnix int64
+		if err := rows.Scan(&rs.Subdomain, &rs.AccountID, &createdAtUnix); err != nil {
+			return nil, err
+		}
+		rs.CreatedAt = time.Unix(createdAtUnix, 0)
+		subdomains = append(subdomains, rs)
+	}
+	return subdomains, nil
+}
+
+// ReleaseSubdomain releases a reserved subdomain
+func (s *AccountStore) ReleaseSubdomain(accountID, subdomain string) error {
+	subdomain = strings.ToLower(strings.TrimSpace(subdomain))
+
+	result, err := s.db.Exec(
+		"DELETE FROM reserved_subdomains WHERE subdomain = ? AND account_id = ?",
+		subdomain, accountID,
+	)
+	if err != nil {
+		return err
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return fmt.Errorf("subdomain '%s' not found or not owned by this account", subdomain)
+	}
+	return nil
 }

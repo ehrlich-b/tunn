@@ -292,3 +292,164 @@ func TestDeviceCodeExpiration(t *testing.T) {
 		t.Error("expected nil for expired code by user code")
 	}
 }
+
+func TestSubdomainReservation(t *testing.T) {
+	db, err := InitForTest()
+	if err != nil {
+		t.Fatalf("failed to init test db: %v", err)
+	}
+	defer db.Close()
+
+	store := NewAccountStore(db)
+
+	// Create a Pro account
+	account, err := store.FindOrCreateByEmails([]string{"pro@example.com"}, "github")
+	if err != nil {
+		t.Fatalf("failed to create account: %v", err)
+	}
+	if err := store.UpdatePlan(account.ID, "pro"); err != nil {
+		t.Fatalf("failed to update plan: %v", err)
+	}
+
+	// Reserve a subdomain
+	err = store.ReserveSubdomain(account.ID, "myapp")
+	if err != nil {
+		t.Fatalf("failed to reserve subdomain: %v", err)
+	}
+
+	// Check ownership
+	owner, err := store.GetSubdomainOwner("myapp")
+	if err != nil {
+		t.Fatalf("failed to get owner: %v", err)
+	}
+	if owner != account.ID {
+		t.Errorf("expected owner %s, got %s", account.ID, owner)
+	}
+
+	// Get reserved subdomains
+	reserved, err := store.GetReservedSubdomains(account.ID)
+	if err != nil {
+		t.Fatalf("failed to get reserved subdomains: %v", err)
+	}
+	if len(reserved) != 1 {
+		t.Errorf("expected 1 reserved subdomain, got %d", len(reserved))
+	}
+	if reserved[0].Subdomain != "myapp" {
+		t.Errorf("expected subdomain 'myapp', got %s", reserved[0].Subdomain)
+	}
+
+	// Reserving again should be idempotent
+	err = store.ReserveSubdomain(account.ID, "myapp")
+	if err != nil {
+		t.Fatalf("re-reserving same subdomain should not error: %v", err)
+	}
+
+	// Release the subdomain
+	err = store.ReleaseSubdomain(account.ID, "myapp")
+	if err != nil {
+		t.Fatalf("failed to release subdomain: %v", err)
+	}
+
+	// Check it's gone
+	owner, err = store.GetSubdomainOwner("myapp")
+	if err != nil {
+		t.Fatalf("failed to get owner after release: %v", err)
+	}
+	if owner != "" {
+		t.Errorf("expected empty owner after release, got %s", owner)
+	}
+}
+
+func TestSubdomainReservationLimits(t *testing.T) {
+	db, err := InitForTest()
+	if err != nil {
+		t.Fatalf("failed to init test db: %v", err)
+	}
+	defer db.Close()
+
+	store := NewAccountStore(db)
+
+	// Create a Pro account
+	account, err := store.FindOrCreateByEmails([]string{"pro@example.com"}, "github")
+	if err != nil {
+		t.Fatalf("failed to create account: %v", err)
+	}
+	if err := store.UpdatePlan(account.ID, "pro"); err != nil {
+		t.Fatalf("failed to update plan: %v", err)
+	}
+
+	// Reserve max subdomains
+	for i := 0; i < MaxReservedSubdomains; i++ {
+		err = store.ReserveSubdomain(account.ID, "subdomain"+string(rune('a'+i)))
+		if err != nil {
+			t.Fatalf("failed to reserve subdomain %d: %v", i, err)
+		}
+	}
+
+	// Try to reserve one more - should fail
+	err = store.ReserveSubdomain(account.ID, "toomany")
+	if err == nil {
+		t.Error("expected error when exceeding max reserved subdomains")
+	}
+}
+
+func TestSubdomainReservationFreePlan(t *testing.T) {
+	db, err := InitForTest()
+	if err != nil {
+		t.Fatalf("failed to init test db: %v", err)
+	}
+	defer db.Close()
+
+	store := NewAccountStore(db)
+
+	// Create a Free account
+	account, err := store.FindOrCreateByEmails([]string{"free@example.com"}, "github")
+	if err != nil {
+		t.Fatalf("failed to create account: %v", err)
+	}
+
+	// Free accounts cannot reserve subdomains
+	err = store.ReserveSubdomain(account.ID, "myapp")
+	if err == nil {
+		t.Error("expected error for free plan subdomain reservation")
+	}
+}
+
+func TestSubdomainReservationConflict(t *testing.T) {
+	db, err := InitForTest()
+	if err != nil {
+		t.Fatalf("failed to init test db: %v", err)
+	}
+	defer db.Close()
+
+	store := NewAccountStore(db)
+
+	// Create two Pro accounts
+	account1, err := store.FindOrCreateByEmails([]string{"alice@example.com"}, "github")
+	if err != nil {
+		t.Fatalf("failed to create account1: %v", err)
+	}
+	if err := store.UpdatePlan(account1.ID, "pro"); err != nil {
+		t.Fatalf("failed to update plan: %v", err)
+	}
+
+	account2, err := store.FindOrCreateByEmails([]string{"bob@example.com"}, "github")
+	if err != nil {
+		t.Fatalf("failed to create account2: %v", err)
+	}
+	if err := store.UpdatePlan(account2.ID, "pro"); err != nil {
+		t.Fatalf("failed to update plan: %v", err)
+	}
+
+	// Alice reserves "myapp"
+	err = store.ReserveSubdomain(account1.ID, "myapp")
+	if err != nil {
+		t.Fatalf("failed to reserve subdomain: %v", err)
+	}
+
+	// Bob tries to reserve same subdomain - should fail
+	err = store.ReserveSubdomain(account2.ID, "myapp")
+	if err == nil {
+		t.Error("expected error when subdomain already reserved by another user")
+	}
+}

@@ -49,6 +49,13 @@ type Config struct {
 	ClientSecret string // Master key for all clients (bypasses OAuth)
 	UsersFile    string // Path to users.yaml for per-user tokens
 
+	// SMTP configuration (for magic link auth)
+	SMTPHost     string
+	SMTPPort     string
+	SMTPUser     string
+	SMTPPassword string
+	SMTPFrom     string
+
 	// Client configuration
 	ServerAddr string
 	SkipVerify bool
@@ -116,6 +123,13 @@ func (c *Config) loadDevConfig() {
 	c.ClientSecret = getEnvOrDefault("CLIENT_SECRET", "")
 	c.UsersFile = getEnvOrDefault("USERS_FILE", "")
 
+	// SMTP (optional in dev)
+	c.SMTPHost = getEnvOrDefault("SMTP_HOST", "")
+	c.SMTPPort = getEnvOrDefault("SMTP_PORT", "587")
+	c.SMTPUser = getEnvOrDefault("SMTP_USER", "")
+	c.SMTPPassword = getEnvOrDefault("SMTP_PASSWORD", "")
+	c.SMTPFrom = getEnvOrDefault("SMTP_FROM", "")
+
 	// Skip TLS verification in dev
 	c.SkipVerify = true
 }
@@ -157,6 +171,13 @@ func (c *Config) loadProdConfig() {
 	// Client secret (self-hosters only - tunn.to leaves this empty)
 	c.ClientSecret = getEnvOrDefault("CLIENT_SECRET", "")
 	c.UsersFile = getEnvOrDefault("USERS_FILE", "")
+
+	// SMTP (for magic link auth)
+	c.SMTPHost = getEnvOrDefault("SMTP_HOST", "")
+	c.SMTPPort = getEnvOrDefault("SMTP_PORT", "587")
+	c.SMTPUser = getEnvOrDefault("SMTP_USER", "")
+	c.SMTPPassword = getEnvOrDefault("SMTP_PASSWORD", "")
+	c.SMTPFrom = getEnvOrDefault("SMTP_FROM", "")
 
 	// Verify TLS in production
 	c.SkipVerify = false

@@ -19,7 +19,7 @@ $ tunn serve -to localhost:8000 --allow alice@gmail.com,bob@company.com
 
 **Business Model:** Run it for free. If it gets busy enough to need >4 Fly.io nodes, we'll add optional paid tiers. If not, it stays free forever.
 
-**Abuse Prevention:** Per-tunnel rate limiting (10MiB/month baseline) + GitHub OAuth prevents free-tier abuse while keeping infrastructure costs near-zero.
+**Abuse Prevention:** Per-tunnel rate limiting (100 MB/month baseline) + GitHub OAuth prevents free-tier abuse while keeping infrastructure costs near-zero.
 
 ## Architecture Overview
 
@@ -94,7 +94,7 @@ The Proxy is a stateless Go application designed to run on Fly.io with 1-4 insta
 
 **Rate Limiting (Per-Account, Not Per-IP):**
 - All bandwidth through a tunnel counts against the **tunnel creator's** account
-- Free tier: 10 MiB/month, Pro tier: 50 GB/month
+- Free tier: 100 MB/month, Pro tier: 50 GB/month
 - Public tunnel gets hammered? Creator's quota pays for it
 - No per-IP tracking needed - simple per-account model
 - Enforcement: Proxy rejects requests when creator's account exceeds quota
@@ -187,7 +187,7 @@ message StreamClosed {
 **Strategy:** Track bandwidth usage per account (tunnel creator pays for all traffic).
 
 **Quotas:**
-- Free tier: 10 MiB/month
+- Free tier: 100 MB/month
 - Pro tier: 50 GB/month (hard cap, no overage fees)
 
 **Key Insight:** All traffic through a tunnel counts against the **tunnel creator's** account. Public tunnel gets hammered? Creator's quota. This is simple and fair - no per-IP tracking needed.
@@ -266,7 +266,7 @@ This project uses a comprehensive Makefile to ensure consistent builds and tests
 - Deploy single Fly.io node with tunn.to domain
 - Open source the entire codebase on GitHub
 - GitHub OAuth for login
-- Free tier: 10 MiB/month per account
+- Free tier: 100 MB/month per account
 - No analytics, no tracking
 
 **Phase 2: Scale (If Needed)**
@@ -277,7 +277,7 @@ This project uses a comprehensive Makefile to ensure consistent builds and tests
 
 **Phase 3: Monetize (If We Get Here)**
 - If sustained >4 nodes for >3 months → add paid tiers
-- Free tier: 10MiB/month (same as now)
+- Free tier: 100 MB/month (same as now)
 - Paid tier: Higher limits + custom domains + support
 - Implement auth provider (see archive of TODO.md Phase 7)
 
@@ -321,7 +321,7 @@ This project uses a comprehensive Makefile to ensure consistent builds and tests
 - 🚧 Email allow-list protocol (add to RegisterClient)
 - 🚧 Allow-list enforcement (check email in webproxy.go)
 - 🚧 Data plane: HTTP forwarding over gRPC (CRITICAL)
-- 🚧 Per-tunnel rate limiting (10MiB/month)
+- 🚧 Per-tunnel rate limiting (100 MB/month)
 - 🚧 Implement device code endpoints for CLI login
 - 🚧 Wire up GitHub OAuth (replace mock OIDC)
 
@@ -339,7 +339,7 @@ This project uses a comprehensive Makefile to ensure consistent builds and tests
 1. **Free forever by default** - monetize only if forced to by scale
 2. **Google Doc sharing model** - share tunnels by email, familiar UX
 3. **GitHub OAuth only** - devs all have GitHub, simpler setup than Google
-4. **Per-tunnel rate limiting** - 10MiB/month keeps costs near-zero
+4. **Per-tunnel rate limiting** - 100 MB/month keeps costs near-zero
 5. **Full mesh <4 nodes** - simple, no distributed system complexity
 6. **OSS everything** - build in public, no secret sauce
 

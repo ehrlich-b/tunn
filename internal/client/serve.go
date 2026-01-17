@@ -35,6 +35,9 @@ type ServeClient struct {
 	MaxReconnectDelay time.Duration // Maximum delay between reconnects (default: 30s)
 	InitialDelay      time.Duration // Initial delay for exponential backoff (default: 1s)
 
+	// HTTP client settings
+	HTTPTimeout time.Duration // Timeout for HTTP requests to local target (default: 30s)
+
 	// UDP connection management
 	udpConn *net.UDPConn
 	udpMu   sync.Mutex
@@ -245,8 +248,12 @@ func (s *ServeClient) handleHttpRequest(stream pb.TunnelService_EstablishTunnelC
 	}
 
 	// Make the request to local target
+	timeout := s.HTTPTimeout
+	if timeout == 0 {
+		timeout = 30 * time.Second
+	}
 	client := &http.Client{
-		Timeout: 30 * time.Second,
+		Timeout: timeout,
 	}
 
 	resp, err := client.Do(req)

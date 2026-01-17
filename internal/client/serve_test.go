@@ -390,6 +390,56 @@ func TestReconnectionContextCancellation(t *testing.T) {
 	}
 }
 
+func TestHandleHttpRequestTimeout(t *testing.T) {
+	// Start a mock local server that delays longer than the timeout
+	localServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Sleep longer than the client timeout
+		time.Sleep(200 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("Too late"))
+	}))
+	defer localServer.Close()
+
+	client := &ServeClient{
+		TunnelID:    "test123",
+		TargetURL:   localServer.URL,
+		HTTPTimeout: 50 * time.Millisecond, // Short timeout for testing
+	}
+
+	stream := &mockEstablishTunnelClient{
+		sentMsgs: make([]*pb.TunnelMessage, 0),
+	}
+
+	httpReq := &pb.HttpRequest{
+		ConnectionId: "conn-timeout",
+		Method:       "GET",
+		Path:         "/slow",
+		Headers:      map[string]string{},
+		Body:         nil,
+	}
+
+	client.handleHttpRequest(stream, httpReq)
+
+	// Should send a 502 Bad Gateway error response
+	if stream.getSentCount() != 1 {
+		t.Fatalf("Expected 1 message, got %d", stream.getSentCount())
+	}
+
+	msg := stream.getSentMsg(0)
+	httpResp := msg.GetHttpResponse()
+	if httpResp == nil {
+		t.Fatal("Expected HttpResponse message")
+	}
+
+	if httpResp.StatusCode != 502 {
+		t.Errorf("Expected status code 502 (Bad Gateway) for timeout, got %d", httpResp.StatusCode)
+	}
+
+	if httpResp.ConnectionId != "conn-timeout" {
+		t.Errorf("Expected connection ID 'conn-timeout', got '%s'", httpResp.ConnectionId)
+	}
+}
+
 func TestExponentialBackoffCap(t *testing.T) {
 	// Test that backoff is capped at MaxReconnectDelay
 	// This is a logic test - we verify the cap behavior by checking the internal state

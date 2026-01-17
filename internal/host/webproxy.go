@@ -402,15 +402,14 @@ a:hover { text-decoration: underline; }
 /* Features */
 .features {
   padding: 64px 0;
-  background: linear-gradient(135deg, #0d1117 0%, #161b22 100%);
-  color: #e6edf3;
+  background: #f6f8fa;
 }
 .features h2 {
   font-size: 28px;
   font-weight: 700;
   text-align: center;
   margin-bottom: 40px;
-  color: #ffffff;
+  color: #1f2328;
 }
 .features-grid {
   display: grid;
@@ -418,18 +417,18 @@ a:hover { text-decoration: underline; }
   gap: 20px;
 }
 .feature {
-  background: rgba(255,255,255,0.03);
+  background: white;
   border-radius: 10px;
   padding: 24px;
-  border: 1px solid rgba(255,255,255,0.08);
+  border: 1px solid #e5e7eb;
 }
 .feature h3 {
   font-size: 15px;
   font-weight: 600;
   margin-bottom: 8px;
-  color: #58a6ff;
+  color: #0969da;
 }
-.feature p { font-size: 14px; color: #8b949e; line-height: 1.5; }
+.feature p { font-size: 14px; color: #57606a; line-height: 1.5; }
 
 /* Pricing */
 .pricing { padding: 64px 0; }
@@ -638,7 +637,7 @@ input:checked + .slider:before { transform: translateX(20px); }
 <div class="container">
   <section class="pricing" id="pricing">
     <h2>Pricing</h2>
-    <p class="pricing-subtitle">Free tier is generous. Pro is cheap.</p>
+    <p class="pricing-subtitle">100 MB to try it out. Pro for real use.</p>
 
     <div class="billing-toggle">
       <span>Monthly</span>

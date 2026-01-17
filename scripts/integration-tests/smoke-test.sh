@@ -28,11 +28,12 @@ log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
 cleanup() {
     log_info "Cleaning up..."
-    [ -n "$PROXY_PID" ] && kill $PROXY_PID 2>/dev/null || true
-    [ -n "$CLIENT_PID" ] && kill $CLIENT_PID 2>/dev/null || true
-    [ -n "$TARGET_PID" ] && kill $TARGET_PID 2>/dev/null || true
+    [ -n "$PROXY_PID" ] && kill -9 $PROXY_PID 2>/dev/null || true
+    [ -n "$CLIENT_PID" ] && kill -9 $CLIENT_PID 2>/dev/null || true
+    [ -n "$TARGET_PID" ] && kill -9 $TARGET_PID 2>/dev/null || true
     rm -f "$TARGET_DIR/index.html" 2>/dev/null || true
     rmdir "$TARGET_DIR" 2>/dev/null || true
+    sleep 2  # Wait for ports to be released
 }
 trap cleanup EXIT
 

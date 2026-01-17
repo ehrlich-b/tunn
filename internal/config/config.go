@@ -25,12 +25,10 @@ type Config struct {
 	HTTP3Addr string // HTTP/3 (QUIC) listener address
 
 	// Internal gRPC configuration
-	InternalGRPCPort     string
-	InternalCACertFile   string
-	InternalNodeCertFile string
-	InternalNodeKeyFile  string
-	NodeAddresses        string // Comma-separated list of other node addresses
-	PublicAddr           string
+	InternalGRPCPort string
+	NodeAddresses    string // Comma-separated list of other node addresses
+	NodeSecret       string // Shared secret for node-to-node authentication
+	PublicAddr       string
 
 	// Mock OIDC configuration (dev only)
 	MockOIDCAddr   string
@@ -88,14 +86,12 @@ func (c *Config) loadDevConfig() {
 
 	// Internal gRPC
 	c.InternalGRPCPort = getEnvOrDefault("INTERNAL_GRPC_PORT", ":50051")
-	c.InternalCACertFile = getEnvOrDefault("INTERNAL_CA_CERT_FILE", "./certs/ca.pem")
-	c.InternalNodeCertFile = getEnvOrDefault("INTERNAL_NODE_CERT_FILE", "./certs/cert.pem")
-	c.InternalNodeKeyFile = getEnvOrDefault("INTERNAL_NODE_KEY_FILE", "./certs/key.pem")
-	c.NodeAddresses = getEnvOrDefault("NODE_ADDRESSES", "localhost:50051")
+	c.NodeAddresses = getEnvOrDefault("NODE_ADDRESSES", "")
+	c.NodeSecret = getEnvOrDefault("NODE_SECRET", "dev-node-secret")
 	c.PublicAddr = getEnvOrDefault("PUBLIC_ADDR", "localhost:8443")
 
-	// Mock OIDC provider runs locally
-	c.MockOIDCAddr = getEnvOrDefault("MOCK_OIDC_ADDR", ":9000")
+	// Mock OIDC provider runs locally (set MOCK_OIDC_ADDR="" to disable)
+	c.MockOIDCAddr = getEnvAllowEmpty("MOCK_OIDC_ADDR", ":9000")
 	c.MockOIDCIssuer = getEnvOrDefault("MOCK_OIDC_ISSUER", "http://localhost:9000")
 
 	// Server address for clients
@@ -131,10 +127,8 @@ func (c *Config) loadProdConfig() {
 
 	// Internal gRPC
 	c.InternalGRPCPort = getEnvOrDefault("INTERNAL_GRPC_PORT", ":50051")
-	c.InternalCACertFile = getEnvOrDefault("INTERNAL_CA_CERT_FILE", "/app/certs/ca.pem")
-	c.InternalNodeCertFile = getEnvOrDefault("INTERNAL_NODE_CERT_FILE", "/app/certs/fullchain.pem")
-	c.InternalNodeKeyFile = getEnvOrDefault("INTERNAL_NODE_KEY_FILE", "/app/certs/privkey.pem")
-	c.NodeAddresses = getEnvOrDefault("NODE_ADDRESSES", "") // In prod, this should be discovered via DNS
+	c.NodeAddresses = getEnvOrDefault("NODE_ADDRESSES", "")
+	c.NodeSecret = getEnvOrDefault("NODE_SECRET", "") // Must be set in prod for multi-node
 	c.PublicAddr = getEnvOrDefault("PUBLIC_ADDR", "tunn.to:443")
 
 	// No mock OIDC in production
@@ -183,6 +177,14 @@ func getEnvironment() Environment {
 // getEnvOrDefault retrieves an environment variable or returns a default value
 func getEnvOrDefault(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
+}
+
+// getEnvAllowEmpty returns the env var value even if empty, only using default if unset
+func getEnvAllowEmpty(key, defaultValue string) string {
+	if value, exists := os.LookupEnv(key); exists {
 		return value
 	}
 	return defaultValue

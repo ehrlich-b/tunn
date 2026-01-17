@@ -18,6 +18,9 @@ func TestNewProxyServer(t *testing.T) {
 		Domain:      "tunn.to",
 		CertFile:    "../../certs/cert.pem",
 		KeyFile:     "../../certs/key.pem",
+		HTTP2Addr:   ":18443",
+		HTTP3Addr:   ":18443",
+		NodeSecret:  "test-secret",
 	}
 
 	proxy, err := NewProxyServer(cfg)
@@ -30,12 +33,12 @@ func TestNewProxyServer(t *testing.T) {
 		t.Errorf("Expected domain tunn.to, got %s", proxy.Domain)
 	}
 
-	if proxy.HTTP2Addr != ":8443" {
-		t.Errorf("Expected HTTP2Addr :8443, got %s", proxy.HTTP2Addr)
+	if proxy.HTTP2Addr != ":18443" {
+		t.Errorf("Expected HTTP2Addr :18443, got %s", proxy.HTTP2Addr)
 	}
 
-	if proxy.HTTP3Addr != ":8443" {
-		t.Errorf("Expected HTTP3Addr :8443, got %s", proxy.HTTP3Addr)
+	if proxy.HTTP3Addr != ":18443" {
+		t.Errorf("Expected HTTP3Addr :18443, got %s", proxy.HTTP3Addr)
 	}
 
 	if proxy.tlsConfig == nil {
@@ -54,8 +57,11 @@ func TestNewProxyServerDevMode(t *testing.T) {
 		Domain:         "tunn.local.127.0.0.1.nip.io",
 		CertFile:       "../../certs/cert.pem",
 		KeyFile:        "../../certs/key.pem",
-		MockOIDCAddr:   ":9000",
-		MockOIDCIssuer: "http://localhost:9000",
+		HTTP2Addr:      ":18443",
+		HTTP3Addr:      ":18443",
+		NodeSecret:     "test-secret",
+		MockOIDCAddr:   ":19000",
+		MockOIDCIssuer: "http://localhost:19000",
 	}
 
 	proxy, err := NewProxyServer(cfg)
@@ -139,6 +145,9 @@ func TestProxyServerRun(t *testing.T) {
 		Domain:      "tunn.to",
 		CertFile:    "../../certs/cert.pem",
 		KeyFile:     "../../certs/key.pem",
+		HTTP2Addr:   ":18443",
+		HTTP3Addr:   ":18444",
+		NodeSecret:  "test-secret",
 	}
 
 	proxy, err := NewProxyServer(cfg)

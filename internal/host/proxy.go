@@ -3,11 +3,9 @@ package host
 import (
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"fmt"
 	"net"
 	"net/http"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -16,7 +14,11 @@ import (
 	"github.com/quic-go/quic-go/http3"
 	"golang.org/x/net/http2"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/peer"
+	"google.golang.org/grpc/status"
 
 	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/ehrlich-b/tunn/internal/config"
@@ -87,7 +89,10 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create internal TLS config: %w", err)
 	}
-	internalGRPCServer := grpc.NewServer(grpc.Creds(credentials.NewTLS(internalTLSConfig)))
+	internalGRPCServer := grpc.NewServer(
+		grpc.Creds(credentials.NewTLS(internalTLSConfig)),
+		grpc.UnaryInterceptor(nodeSecretInterceptor(cfg.NodeSecret)),
+	)
 	internalServer := NewInternalServer(tunnelServer, cfg.PublicAddr)
 	internalv1.RegisterInternalServiceServer(internalGRPCServer, internalServer)
 
@@ -154,26 +159,95 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 // ... (rest of the file)
 
 func createInternalClient(addr string, cfg *config.Config) (*grpc.ClientConn, error) {
-	// Load certificate of the CA who signed server's certificate
-	caCert, err := os.ReadFile(cfg.InternalCACertFile)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read internal CA cert: %w", err)
-	}
-	caCertPool := x509.NewCertPool()
-	caCertPool.AppendCertsFromPEM(caCert)
-
-	// Load client's certificate and private key
-	clientCert, err := tls.LoadX509KeyPair(cfg.InternalNodeCertFile, cfg.InternalNodeKeyFile)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load internal node cert: %w", err)
-	}
-
+	// Use TLS for encryption, skip verify for internal traffic
+	// Authentication is done via x-node-secret header
 	tlsConfig := &tls.Config{
-		Certificates: []tls.Certificate{clientCert},
-		RootCAs:      caCertPool,
+		InsecureSkipVerify: true, // Internal traffic, auth via shared secret
 	}
 
-	return grpc.Dial(addr, grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)))
+	return grpc.Dial(addr,
+		grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)),
+		grpc.WithPerRPCCredentials(&nodeSecretCreds{secret: cfg.NodeSecret}),
+	)
+}
+
+// nodeSecretCreds implements credentials.PerRPCCredentials for node-to-node auth
+type nodeSecretCreds struct {
+	secret string
+}
+
+func (c *nodeSecretCreds) GetRequestMetadata(ctx context.Context, uri ...string) (map[string]string, error) {
+	return map[string]string{
+		"x-node-secret": c.secret,
+	}, nil
+}
+
+func (c *nodeSecretCreds) RequireTransportSecurity() bool {
+	return true // Always require TLS
+}
+
+// ipBlacklist tracks IPs that have failed node secret auth
+var ipBlacklist = struct {
+	sync.RWMutex
+	entries map[string]time.Time
+}{entries: make(map[string]time.Time)}
+
+const blacklistDuration = 10 * time.Second
+
+// nodeSecretInterceptor creates a gRPC interceptor that verifies the x-node-secret header
+func nodeSecretInterceptor(secret string) grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+		// Get peer IP from context
+		peerIP := getPeerIP(ctx)
+
+		// Check if IP is blacklisted
+		ipBlacklist.RLock()
+		if expiry, ok := ipBlacklist.entries[peerIP]; ok && time.Now().Before(expiry) {
+			ipBlacklist.RUnlock()
+			return nil, status.Error(codes.PermissionDenied, "temporarily blocked")
+		}
+		ipBlacklist.RUnlock()
+
+		md, ok := metadata.FromIncomingContext(ctx)
+		if !ok {
+			blacklistIP(peerIP)
+			return nil, status.Error(codes.Unauthenticated, "missing metadata")
+		}
+
+		secrets := md.Get("x-node-secret")
+		if len(secrets) == 0 || secrets[0] != secret {
+			blacklistIP(peerIP)
+			common.LogError("invalid node secret attempt", "ip", peerIP)
+			return nil, status.Error(codes.Unauthenticated, "invalid node secret")
+		}
+
+		return handler(ctx, req)
+	}
+}
+
+// blacklistIP adds an IP to the blacklist for blacklistDuration
+func blacklistIP(ip string) {
+	if ip == "" {
+		return
+	}
+	ipBlacklist.Lock()
+	ipBlacklist.entries[ip] = time.Now().Add(blacklistDuration)
+	ipBlacklist.Unlock()
+}
+
+// getPeerIP extracts the peer IP from gRPC context
+func getPeerIP(ctx context.Context) string {
+	p, ok := peer.FromContext(ctx)
+	if !ok || p.Addr == nil {
+		return ""
+	}
+	// Extract IP from addr (format: "ip:port" or "[ipv6]:port")
+	addr := p.Addr.String()
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return addr
+	}
+	return host
 }
 
 // Run starts both HTTP/2 and HTTP/3 listeners
@@ -365,24 +439,14 @@ func (p *ProxyServer) createHandler() http.Handler {
 }
 
 func createInternalTLSConfig(cfg *config.Config) (*tls.Config, error) {
-	// Load certificate of the CA who signed server's certificate
-	caCert, err := os.ReadFile(cfg.InternalCACertFile)
+	// Reuse the public cert for internal gRPC server
+	serverCert, err := tls.LoadX509KeyPair(cfg.CertFile, cfg.KeyFile)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read internal CA cert: %w", err)
-	}
-	caCertPool := x509.NewCertPool()
-	caCertPool.AppendCertsFromPEM(caCert)
-
-	// Load server's certificate and private key
-	serverCert, err := tls.LoadX509KeyPair(cfg.InternalNodeCertFile, cfg.InternalNodeKeyFile)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load internal node cert: %w", err)
+		return nil, fmt.Errorf("failed to load server cert: %w", err)
 	}
 
 	return &tls.Config{
 		Certificates: []tls.Certificate{serverCert},
-		ClientAuth:   tls.RequireAndVerifyClientCert,
-		ClientCAs:    caCertPool,
-		RootCAs:      caCertPool,
+		// No client auth - we use x-node-secret header for authentication
 	}, nil
 }

@@ -277,7 +277,7 @@ func (p *ProxyServer) handleMockLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	p.sessionManager.Put(r.Context(), "return_to", returnTo)
 
-	authURL := fmt.Sprintf("%s/authorize?response_type=code&client_id=tunn&redirect_uri=%s&state=%s",
+	authURL := fmt.Sprintf("%s/oauth/authorize?response_type=code&client_id=tunn&redirect_uri=%s&state=%s",
 		p.config.MockOIDCIssuer,
 		url.QueryEscape(p.getCallbackURL()),
 		state)

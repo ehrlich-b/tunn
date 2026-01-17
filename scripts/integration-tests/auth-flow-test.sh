@@ -32,12 +32,19 @@ log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
 cleanup() {
     log_info "Cleaning up..."
-    [ -n "$PROXY_PID" ] && kill $PROXY_PID 2>/dev/null || true
-    [ -n "$CLIENT_PID" ] && kill $CLIENT_PID 2>/dev/null || true
-    [ -n "$TARGET_PID" ] && kill $TARGET_PID 2>/dev/null || true
+    [ -n "$PROXY_PID" ] && kill -9 $PROXY_PID 2>/dev/null || true
+    [ -n "$CLIENT_PID" ] && kill -9 $CLIENT_PID 2>/dev/null || true
+    [ -n "$TARGET_PID" ] && kill -9 $TARGET_PID 2>/dev/null || true
     [ -n "$COOKIE_JAR" ] && rm -f "$COOKIE_JAR" 2>/dev/null || true
     [ -n "$TARGET_DIR" ] && rm -f "$TARGET_DIR/index.html" 2>/dev/null || true
     [ -n "$TARGET_DIR" ] && rmdir "$TARGET_DIR" 2>/dev/null || true
+    # Restore original token if we backed it up, otherwise remove test token
+    if [ -f ~/.tunn/token.bak ]; then
+        mv ~/.tunn/token.bak ~/.tunn/token
+    else
+        rm -f ~/.tunn/token 2>/dev/null || true
+    fi
+    sleep 2  # Wait for ports to be released
 }
 trap cleanup EXIT
 
@@ -67,7 +74,31 @@ if ! curl -s "http://localhost:$TARGET_PORT/" > /dev/null; then
 fi
 log_info "Target server running (PID: $TARGET_PID)"
 
-# Step 4: Start proxy server (with auth enabled)
+# Step 4: Create a test JWT for the tunnel client
+# The client needs a JWT to register tunnels when server has PUBLIC_MODE=false
+log_info "Creating test JWT for tunnel client..."
+# Back up existing token if any
+[ -f ~/.tunn/token ] && mv ~/.tunn/token ~/.tunn/token.bak
+TEST_JWT_SECRET="dev-jwt-secret-do-not-use-in-prod"
+# Create a simple JWT with email claim (header.payload.signature)
+# Header: {"alg":"HS256","typ":"JWT"} base64url: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9
+# Payload: {"email":"tunnel-creator@example.com","exp":9999999999}
+JWT_HEADER="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"
+# Payload with far-future expiry
+JWT_PAYLOAD=$(echo -n '{"email":"tunnel-creator@example.com","exp":9999999999,"iat":1700000000,"iss":"tunn","sub":"tunnel-creator@example.com"}' | base64 | tr '+/' '-_' | tr -d '=')
+# For testing, we'll use a pre-computed signature that matches the dev secret
+# Actually, we need to compute HMAC-SHA256 - let's use openssl
+SIGNING_INPUT="${JWT_HEADER}.${JWT_PAYLOAD}"
+JWT_SIGNATURE=$(echo -n "$SIGNING_INPUT" | openssl dgst -sha256 -hmac "$TEST_JWT_SECRET" -binary | base64 | tr '+/' '-_' | tr -d '=')
+TEST_JWT="${SIGNING_INPUT}.${JWT_SIGNATURE}"
+log_info "Test JWT created"
+
+# Save the JWT to ~/.tunn/token for the client to use
+mkdir -p ~/.tunn
+echo -n "$TEST_JWT" > ~/.tunn/token
+log_info "Test JWT saved to ~/.tunn/token"
+
+# Step 5: Start proxy server (with auth enabled)
 log_info "Starting proxy server with auth enabled..."
 ENV=dev \
   TOKEN=$TOKEN \
@@ -77,7 +108,7 @@ ENV=dev \
   HTTP3_ADDR=:$HTTP_PORT \
   MOCK_OIDC_ADDR=:$MOCK_OIDC_PORT \
   MOCK_OIDC_ISSUER="http://localhost:$MOCK_OIDC_PORT" \
-  PUBLIC_ADDR="localhost:$HTTP_PORT" \
+  PUBLIC_ADDR="$DOMAIN:$HTTP_PORT" \
   NODE_ADDRESSES="" \
   ./bin/tunn -mode=host -cert=./certs/cert.pem -key=./certs/key.pem &
 PROXY_PID=$!
@@ -89,7 +120,7 @@ if ! curl -sk "https://localhost:$HTTP_PORT/health" | grep -q "ok"; then
 fi
 log_info "Proxy server running (PID: $PROXY_PID)"
 
-# Step 5: Connect tunnel client with allow-list
+# Step 6: Connect tunnel client with allow-list
 log_info "Connecting tunnel client with allow-list: $ALLOWED_EMAIL..."
 ENV=dev \
   SERVER_ADDR=localhost:$HTTP_PORT \
@@ -116,9 +147,10 @@ log_info "Test 2: Authenticate and access tunnel..."
 COOKIE_JAR=$(mktemp)
 
 # First, go through the login flow to get a session
+# Use the domain for proper cookie handling
 log_info "Performing mock OIDC login..."
 curl -sk -c "$COOKIE_JAR" -b "$COOKIE_JAR" -L \
-    "https://localhost:$HTTP_PORT/auth/login" \
+    "https://$DOMAIN:$HTTP_PORT/auth/login" \
     -o /dev/null
 
 # Now try to access the tunnel with the session cookie

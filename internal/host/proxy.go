@@ -67,6 +67,9 @@ type ProxyServer struct {
 	// Stores (SQLite-backed)
 	deviceCodes *store.DeviceCodeStore
 	accounts    *store.AccountStore
+
+	// Email sender (for magic link auth)
+	emailSender *EmailSender
 }
 
 // NewProxyServer creates a new dual-listener proxy server
@@ -129,6 +132,12 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 	// e.g., .tunn.to allows cookie to be sent to *.tunn.to
 	sessionManager.Cookie.Domain = "." + cfg.Domain
 
+	// Create email sender if SMTP is configured
+	emailSender := NewEmailSender(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUser, cfg.SMTPPassword, cfg.SMTPFrom)
+	if emailSender != nil {
+		common.LogInfo("email sender configured", "host", cfg.SMTPHost)
+	}
+
 	proxy := &ProxyServer{
 		Domain:             cfg.Domain,
 		CertFile:           cfg.CertFile,
@@ -147,6 +156,7 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 		PublicAddr:         cfg.PublicAddr,
 		deviceCodes:        store.NewDeviceCodeStore(db),
 		accounts:           store.NewAccountStore(db),
+		emailSender:        emailSender,
 	}
 
 	// Create gRPC clients for other nodes
@@ -444,6 +454,8 @@ func (p *ProxyServer) createHandler() http.Handler {
 	// Auth endpoints (no auth required on these)
 	mux.HandleFunc("/auth/login", p.handleLogin)
 	mux.HandleFunc("/auth/callback", p.handleCallback)
+	mux.HandleFunc("/auth/magic", p.handleMagicLinkRequest)
+	mux.HandleFunc("/auth/verify", p.handleMagicLinkVerify)
 
 	// Device code flow for CLI login
 	mux.HandleFunc("/api/device/code", p.handleDeviceCode)

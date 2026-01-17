@@ -213,7 +213,7 @@ func isAllowed(sessionEmail string, allowList []string) bool {
 
 - [ ] ToS and Privacy Policy pages
 - [ ] Stripe checkout for Pro tier ($4/month or $40/year)
-- [ ] Rate limiting (Free: 10 MiB/month, Pro: 50 GB/month hard cap)
+- [ ] Rate limiting (Free: 100 MB/month, Pro: 50 GB/month hard cap)
 - [ ] Bandwidth tracking per user
 - [ ] Abuse handling (ban tunnels)
 - [ ] Enterprise tier (manual Stripe subscription for custom domains)

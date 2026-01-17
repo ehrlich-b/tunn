@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	internalv1 "github.com/ehrlich-b/tunn/pkg/proto/internalv1"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
 	"google.golang.org/grpc/metadata"
 )
@@ -316,3 +317,100 @@ func (m *mockWebProxyStreamWithError) SetTrailer(md metadata.MD)       {}
 func (m *mockWebProxyStreamWithError) Context() context.Context        { return context.Background() }
 func (m *mockWebProxyStreamWithError) SendMsg(msg interface{}) error   { return nil }
 func (m *mockWebProxyStreamWithError) RecvMsg(msg interface{}) error   { return nil }
+
+func TestGenerateConnectionID(t *testing.T) {
+	// Generate multiple IDs and verify uniqueness
+	ids := make(map[string]bool)
+
+	for i := 0; i < 100; i++ {
+		id, err := generateConnectionID()
+		if err != nil {
+			t.Fatalf("generateConnectionID failed: %v", err)
+		}
+
+		// Should be 32 hex chars (16 bytes = 32 hex digits)
+		if len(id) != 32 {
+			t.Errorf("Expected 32 char ID, got %d chars: %s", len(id), id)
+		}
+
+		// Check uniqueness
+		if ids[id] {
+			t.Errorf("Duplicate ID generated: %s", id)
+		}
+		ids[id] = true
+	}
+}
+
+func TestExtractTunnelIDFromHost(t *testing.T) {
+	tests := []struct {
+		name       string
+		host       string
+		domain     string
+		wantID     string
+	}{
+		{
+			name:   "simple subdomain",
+			host:   "abc123.tunn.to",
+			domain: "tunn.to",
+			wantID: "abc123",
+		},
+		{
+			name:   "apex domain",
+			host:   "tunn.to",
+			domain: "tunn.to",
+			wantID: "",
+		},
+		{
+			name:   "with port",
+			host:   "test.tunn.to:8443",
+			domain: "tunn.to",
+			wantID: "test",
+		},
+		{
+			name:   "nip.io domain",
+			host:   "myapp.tunn.local.127.0.0.1.nip.io",
+			domain: "tunn.local.127.0.0.1.nip.io",
+			wantID: "myapp",
+		},
+		{
+			name:   "different domain",
+			host:   "test.example.com",
+			domain: "tunn.to",
+			wantID: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractTunnelID(tt.host, tt.domain)
+			if got != tt.wantID {
+				t.Errorf("extractTunnelID(%q, %q) = %q, want %q", tt.host, tt.domain, got, tt.wantID)
+			}
+		})
+	}
+}
+
+func TestHandleWebProxyTunnelNotFound(t *testing.T) {
+	tunnelServer := NewTunnelServer("test-key", false, "tunn.to")
+
+	proxy := &ProxyServer{
+		Domain:       "tunn.to",
+		tunnelServer: tunnelServer,
+		nodeClients:  make(map[string]internalv1.InternalServiceClient), // empty - no other nodes
+		tunnelCache:  make(map[string]string),
+	}
+
+	req := httptest.NewRequest("GET", "https://nonexistent.tunn.to/test", nil)
+	req.Host = "nonexistent.tunn.to"
+	rec := httptest.NewRecorder()
+
+	proxy.handleWebProxy(rec, req)
+
+	if rec.Code != 503 {
+		t.Errorf("Expected status 503, got %d", rec.Code)
+	}
+
+	if !bytes.Contains(rec.Body.Bytes(), []byte("Tunnel not found")) {
+		t.Errorf("Expected 'Tunnel not found' in body, got: %s", rec.Body.String())
+	}
+}

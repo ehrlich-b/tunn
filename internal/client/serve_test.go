@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -438,6 +439,256 @@ func TestHandleHttpRequestTimeout(t *testing.T) {
 	if httpResp.ConnectionId != "conn-timeout" {
 		t.Errorf("Expected connection ID 'conn-timeout', got '%s'", httpResp.ConnectionId)
 	}
+}
+
+func TestProcessMessagesHttpRequest(t *testing.T) {
+	// Start a mock local server
+	localServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("response from local"))
+	}))
+	defer localServer.Close()
+
+	client := &ServeClient{
+		TunnelID:  "test123",
+		TargetURL: localServer.URL,
+	}
+
+	// Create a mock stream that will send an HTTP request and then context canceled
+	stream := &mockEstablishTunnelClientWithRecv{
+		sentMsgs: make([]*pb.TunnelMessage, 0),
+		recvMsgs: []*pb.TunnelMessage{
+			{
+				Message: &pb.TunnelMessage_HttpRequest{
+					HttpRequest: &pb.HttpRequest{
+						ConnectionId: "conn-process-1",
+						Method:       "GET",
+						Path:         "/test",
+						Headers:      map[string]string{},
+						Body:         nil,
+					},
+				},
+			},
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	// Run processMessages - it will process the HTTP request then exit on context timeout
+	err := client.processMessages(ctx, stream)
+
+	// Should exit with context error
+	if err != context.DeadlineExceeded {
+		t.Logf("processMessages returned: %v (expected context.DeadlineExceeded or nil)", err)
+	}
+
+	// Wait a bit for the goroutine to send response
+	time.Sleep(50 * time.Millisecond)
+
+	// Verify that a response was sent
+	if stream.getSentCount() < 1 {
+		t.Error("Expected at least one HTTP response to be sent")
+	}
+}
+
+func TestProcessMessagesHealthCheckResponse(t *testing.T) {
+	client := &ServeClient{
+		TunnelID:  "test123",
+		TargetURL: "http://localhost:8000",
+	}
+
+	// Create a mock stream that will send a health check response
+	stream := &mockEstablishTunnelClientWithRecv{
+		sentMsgs: make([]*pb.TunnelMessage, 0),
+		recvMsgs: []*pb.TunnelMessage{
+			{
+				Message: &pb.TunnelMessage_HealthCheckResponse{
+					HealthCheckResponse: &pb.HealthCheckResponse{
+						Timestamp:         time.Now().UnixMilli() - 100,
+						ResponseTimestamp: time.Now().UnixMilli(),
+					},
+				},
+			},
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	// Run processMessages - it should process the health check response without error
+	err := client.processMessages(ctx, stream)
+
+	// Should exit with context error (not stream error)
+	if err != context.DeadlineExceeded {
+		t.Logf("processMessages returned: %v", err)
+	}
+
+	// Health check responses don't send anything back
+	// Just verify no panic occurred
+}
+
+// mockEstablishTunnelClientWithRecv is like mockEstablishTunnelClient but returns actual messages
+type mockEstablishTunnelClientWithRecv struct {
+	mu       sync.Mutex
+	sentMsgs []*pb.TunnelMessage
+	recvMsgs []*pb.TunnelMessage
+	recvIdx  int
+}
+
+func (m *mockEstablishTunnelClientWithRecv) Send(msg *pb.TunnelMessage) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.sentMsgs = append(m.sentMsgs, msg)
+	return nil
+}
+
+func (m *mockEstablishTunnelClientWithRecv) getSentCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.sentMsgs)
+}
+
+func (m *mockEstablishTunnelClientWithRecv) Recv() (*pb.TunnelMessage, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.recvIdx >= len(m.recvMsgs) {
+		// Block until context cancellation by returning a blocking operation
+		time.Sleep(100 * time.Millisecond)
+		return nil, context.DeadlineExceeded
+	}
+	msg := m.recvMsgs[m.recvIdx]
+	m.recvIdx++
+	return msg, nil
+}
+
+func (m *mockEstablishTunnelClientWithRecv) Header() (metadata.MD, error)  { return nil, nil }
+func (m *mockEstablishTunnelClientWithRecv) Trailer() metadata.MD          { return nil }
+func (m *mockEstablishTunnelClientWithRecv) CloseSend() error              { return nil }
+func (m *mockEstablishTunnelClientWithRecv) Context() context.Context      { return context.Background() }
+func (m *mockEstablishTunnelClientWithRecv) SendMsg(msg interface{}) error { return nil }
+func (m *mockEstablishTunnelClientWithRecv) RecvMsg(msg interface{}) error { return nil }
+
+func TestHandleUdpPacket(t *testing.T) {
+	// Start a mock UDP server that echoes back data
+	udpAddr, err := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to resolve UDP address: %v", err)
+	}
+
+	udpConn, err := net.ListenUDP("udp", udpAddr)
+	if err != nil {
+		t.Fatalf("Failed to create UDP listener: %v", err)
+	}
+	defer udpConn.Close()
+
+	// Get the actual port assigned
+	actualAddr := udpConn.LocalAddr().String()
+
+	// Start a goroutine to echo back data
+	go func() {
+		buf := make([]byte, 1024)
+		n, remoteAddr, err := udpConn.ReadFromUDP(buf)
+		if err != nil {
+			return
+		}
+		// Echo back with a prefix
+		response := append([]byte("ECHO:"), buf[:n]...)
+		udpConn.WriteToUDP(response, remoteAddr)
+	}()
+
+	client := &ServeClient{
+		TunnelID:         "udp-test",
+		TargetURL:        "http://localhost:8000",
+		UDPTargetAddress: actualAddr,
+	}
+
+	stream := &mockEstablishTunnelClient{
+		sentMsgs: make([]*pb.TunnelMessage, 0),
+	}
+
+	udpPacket := &pb.UdpPacket{
+		TunnelId:           "udp-test",
+		SourceAddress:      "192.168.1.100:54321",
+		DestinationAddress: actualAddr,
+		Data:               []byte("test UDP data"),
+		FromClient:         false,
+		TimestampMs:        time.Now().UnixMilli(),
+	}
+
+	// Call handleUdpPacket
+	client.handleUdpPacket(stream, udpPacket)
+
+	// Wait a bit for the response
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify response was sent
+	if stream.getSentCount() != 1 {
+		t.Fatalf("Expected 1 response message, got %d", stream.getSentCount())
+	}
+
+	msg := stream.getSentMsg(0)
+	respPacket := msg.GetUdpPacket()
+	if respPacket == nil {
+		t.Fatal("Expected UdpPacket response")
+	}
+
+	// Verify the response data was echoed back
+	expectedData := "ECHO:test UDP data"
+	if string(respPacket.Data) != expectedData {
+		t.Errorf("Expected response data '%s', got '%s'", expectedData, string(respPacket.Data))
+	}
+
+	// Verify FromClient is true (response going back)
+	if !respPacket.FromClient {
+		t.Error("Expected FromClient to be true for response")
+	}
+}
+
+func TestHandleUdpPacketNoResponse(t *testing.T) {
+	// Start a mock UDP server that doesn't respond (simulates one-way UDP)
+	udpAddr, err := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to resolve UDP address: %v", err)
+	}
+
+	udpConn, err := net.ListenUDP("udp", udpAddr)
+	if err != nil {
+		t.Fatalf("Failed to create UDP listener: %v", err)
+	}
+	defer udpConn.Close()
+
+	actualAddr := udpConn.LocalAddr().String()
+
+	// Read and discard (no response)
+	go func() {
+		buf := make([]byte, 1024)
+		udpConn.ReadFromUDP(buf)
+		// Don't send response
+	}()
+
+	client := &ServeClient{
+		TunnelID:         "udp-test",
+		TargetURL:        "http://localhost:8000",
+		UDPTargetAddress: actualAddr,
+	}
+
+	stream := &mockEstablishTunnelClient{
+		sentMsgs: make([]*pb.TunnelMessage, 0),
+	}
+
+	udpPacket := &pb.UdpPacket{
+		TunnelId:    "udp-test",
+		Data:        []byte("one-way data"),
+		FromClient:  false,
+		TimestampMs: time.Now().UnixMilli(),
+	}
+
+	// Call handleUdpPacket - should timeout without error
+	client.handleUdpPacket(stream, udpPacket)
+
+	// No response expected (timeout is OK for UDP)
+	// Just verify no panic occurred
 }
 
 func TestExponentialBackoffCap(t *testing.T) {

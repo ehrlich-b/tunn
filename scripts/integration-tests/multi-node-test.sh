@@ -31,12 +31,13 @@ log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
 cleanup() {
     log_info "Cleaning up..."
-    [ -n "$NODE1_PID" ] && kill $NODE1_PID 2>/dev/null || true
-    [ -n "$NODE2_PID" ] && kill $NODE2_PID 2>/dev/null || true
-    [ -n "$CLIENT_PID" ] && kill $CLIENT_PID 2>/dev/null || true
-    [ -n "$TARGET_PID" ] && kill $TARGET_PID 2>/dev/null || true
+    [ -n "$NODE1_PID" ] && kill -9 $NODE1_PID 2>/dev/null || true
+    [ -n "$NODE2_PID" ] && kill -9 $NODE2_PID 2>/dev/null || true
+    [ -n "$CLIENT_PID" ] && kill -9 $CLIENT_PID 2>/dev/null || true
+    [ -n "$TARGET_PID" ] && kill -9 $TARGET_PID 2>/dev/null || true
     [ -n "$TARGET_DIR" ] && rm -f "$TARGET_DIR/index.html" 2>/dev/null || true
     [ -n "$TARGET_DIR" ] && rmdir "$TARGET_DIR" 2>/dev/null || true
+    sleep 2  # Wait for ports to be released
 }
 trap cleanup EXIT
 
@@ -66,6 +67,9 @@ if ! curl -s "http://localhost:$TARGET_PORT/" > /dev/null; then
 fi
 log_info "Target server running (PID: $TARGET_PID)"
 
+# Shared secret for node-to-node authentication
+NODE_SECRET="integration-test-secret"
+
 # Step 4: Start Node 1
 log_info "Starting Node 1 on :$NODE1_PORT (internal :$NODE1_INTERNAL)..."
 ENV=dev \
@@ -75,8 +79,10 @@ ENV=dev \
   HTTP2_ADDR=:$NODE1_PORT \
   HTTP3_ADDR=:$NODE1_PORT \
   INTERNAL_GRPC_PORT=:$NODE1_INTERNAL \
-  NODE_ADDRESSES="localhost:$NODE2_INTERNAL" \
+  NODE_ADDRESSES="$DOMAIN:$NODE2_INTERNAL" \
+  NODE_SECRET="$NODE_SECRET" \
   PUBLIC_ADDR="localhost:$NODE1_PORT" \
+  MOCK_OIDC_ADDR="" \
   ./bin/tunn -mode=host -cert=./certs/cert.pem -key=./certs/key.pem &
 NODE1_PID=$!
 sleep 2
@@ -96,8 +102,10 @@ ENV=dev \
   HTTP2_ADDR=:$NODE2_PORT \
   HTTP3_ADDR=:$NODE2_PORT \
   INTERNAL_GRPC_PORT=:$NODE2_INTERNAL \
-  NODE_ADDRESSES="localhost:$NODE1_INTERNAL" \
+  NODE_ADDRESSES="$DOMAIN:$NODE1_INTERNAL" \
+  NODE_SECRET="$NODE_SECRET" \
   PUBLIC_ADDR="localhost:$NODE2_PORT" \
+  MOCK_OIDC_ADDR="" \
   ./bin/tunn -mode=host -cert=./certs/cert.pem -key=./certs/key.pem &
 NODE2_PID=$!
 sleep 2

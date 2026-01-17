@@ -18,9 +18,19 @@ echo ""
 
 FAILED=0
 
+# Kill any leftover processes and wait for ports to be released
+cleanup_ports() {
+    pkill -9 -f "bin/tunn" 2>/dev/null || true
+    pkill -9 -f "python3 -m http.server" 2>/dev/null || true
+    sleep 2
+}
+
 run_test() {
     local name=$1
     local script=$2
+
+    # Clean up before each test
+    cleanup_ports
 
     echo -e "${YELLOW}Running: $name${NC}"
     if "$SCRIPT_DIR/$script"; then

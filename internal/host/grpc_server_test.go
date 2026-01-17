@@ -11,7 +11,7 @@ import (
 )
 
 func TestNewTunnelServer(t *testing.T) {
-	srv := NewTunnelServer("test-key", false, "tunn.to", "", nil)
+	srv := NewTunnelServer("test-key", false, "tunn.to", "", nil, nil)
 	if srv == nil {
 		t.Fatal("Expected non-nil server")
 	}
@@ -26,7 +26,7 @@ func TestNewTunnelServer(t *testing.T) {
 }
 
 func TestTunnelServerRegistration(t *testing.T) {
-	srv := NewTunnelServer("test-key", false, "tunn.to", "", nil)
+	srv := NewTunnelServer("test-key", false, "tunn.to", "", nil, nil)
 
 	// Create a mock stream
 	stream := &mockTunnelStream{
@@ -94,7 +94,7 @@ func TestTunnelServerRegistration(t *testing.T) {
 }
 
 func TestTunnelServerDuplicateRegistration(t *testing.T) {
-	srv := NewTunnelServer("test-key", false, "tunn.to", "", nil)
+	srv := NewTunnelServer("test-key", false, "tunn.to", "", nil, nil)
 
 	// First stream
 	stream1 := &mockTunnelStream{
@@ -164,7 +164,7 @@ func TestTunnelServerDuplicateRegistration(t *testing.T) {
 }
 
 func TestGetTunnel(t *testing.T) {
-	srv := NewTunnelServer("test-key", false, "tunn.to", "", nil)
+	srv := NewTunnelServer("test-key", false, "tunn.to", "", nil, nil)
 
 	// Add a tunnel directly
 	conn := &TunnelConnection{
@@ -195,7 +195,7 @@ func TestGetTunnel(t *testing.T) {
 }
 
 func TestListTunnels(t *testing.T) {
-	srv := NewTunnelServer("test-key", false, "tunn.to", "", nil)
+	srv := NewTunnelServer("test-key", false, "tunn.to", "", nil, nil)
 
 	// Add multiple tunnels
 	for i := 0; i < 3; i++ {
@@ -281,7 +281,7 @@ func TestIsReservedSubdomain(t *testing.T) {
 }
 
 func TestTunnelServerReservedSubdomain(t *testing.T) {
-	srv := NewTunnelServer("test-key", false, "tunn.to", "", nil)
+	srv := NewTunnelServer("test-key", false, "tunn.to", "", nil, nil)
 
 	stream := &mockTunnelStream{
 		recvQueue: make(chan *pb.TunnelMessage, 10),
@@ -326,7 +326,7 @@ func TestTunnelServerReservedSubdomain(t *testing.T) {
 
 func TestTunnelServerClientSecretAuth(t *testing.T) {
 	// Server with client secret configured
-	srv := NewTunnelServer("test-key", false, "tunn.to", "my-secret-key", nil)
+	srv := NewTunnelServer("test-key", false, "tunn.to", "my-secret-key", nil, nil)
 
 	// Test 1: Valid client secret should work
 	stream := &mockTunnelStream{
@@ -394,7 +394,7 @@ func TestTunnelServerUserTokenAuth(t *testing.T) {
 		"alice@example.com": "tunn_sk_alice123",
 		"bob@example.com":   "tunn_sk_bob456",
 	}
-	srv := NewTunnelServer("test-key", false, "tunn.to", "", userTokens)
+	srv := NewTunnelServer("test-key", false, "tunn.to", "", userTokens, nil)
 
 	// Test: Valid user token should work
 	stream := &mockTunnelStream{

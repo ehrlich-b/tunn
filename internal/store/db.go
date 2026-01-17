@@ -109,6 +109,15 @@ func initSchema(db *sql.DB) error {
 		PRIMARY KEY (account_id, month),
 		FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
 	);
+
+	-- Reserved subdomains (Pro feature: up to 4 per account)
+	CREATE TABLE IF NOT EXISTS reserved_subdomains (
+		subdomain TEXT PRIMARY KEY,
+		account_id TEXT NOT NULL,
+		created_at INTEGER NOT NULL,
+		FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+	);
+	CREATE INDEX IF NOT EXISTS idx_reserved_subdomains_account_id ON reserved_subdomains(account_id);
 	`
 	_, err := db.Exec(schema)
 	return err

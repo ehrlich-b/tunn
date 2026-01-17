@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ehrlich-b/tunn/internal/common"
+	"github.com/ehrlich-b/tunn/internal/store"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
 )
 
@@ -55,11 +56,12 @@ type TunnelServer struct {
 
 	mu           sync.RWMutex
 	tunnels      map[string]*TunnelConnection
-	wellKnownKey string // Free tier key that allows tunnel creation
-	publicMode   bool   // Disable auth for testing
-	domain       string // Domain for public URLs (e.g., "tunn.to")
-	clientSecret string // Master secret for self-hosters (bypasses OAuth)
-	userTokens   map[string]string // email -> token from users.yaml
+	wellKnownKey string              // Free tier key that allows tunnel creation
+	publicMode   bool                // Disable auth for testing
+	domain       string              // Domain for public URLs (e.g., "tunn.to")
+	clientSecret string              // Master secret for self-hosters (bypasses OAuth)
+	userTokens   map[string]string   // email -> token from users.yaml
+	accounts     *store.AccountStore // Account storage for subdomain reservations
 }
 
 // TunnelConnection represents an active tunnel connection
@@ -85,7 +87,7 @@ type TunnelConnection struct {
 }
 
 // NewTunnelServer creates a new gRPC tunnel server
-func NewTunnelServer(wellKnownKey string, publicMode bool, domain string, clientSecret string, userTokens map[string]string) *TunnelServer {
+func NewTunnelServer(wellKnownKey string, publicMode bool, domain string, clientSecret string, userTokens map[string]string, accounts *store.AccountStore) *TunnelServer {
 	if userTokens == nil {
 		userTokens = make(map[string]string)
 	}
@@ -96,6 +98,7 @@ func NewTunnelServer(wellKnownKey string, publicMode bool, domain string, client
 		domain:       domain,
 		clientSecret: clientSecret,
 		userTokens:   userTokens,
+		accounts:     accounts,
 	}
 }
 
@@ -228,6 +231,41 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		}
 
 		common.LogInfo("tunnel allow-list", "tunnel_id", tunnelID, "creator", creatorEmail, "allowed", allowedEmails)
+	}
+
+	// Check subdomain reservations (if account store is available)
+	if s.accounts != nil && !s.publicMode {
+		ownerAccountID, err := s.accounts.GetSubdomainOwner(tunnelID)
+		if err != nil {
+			common.LogError("failed to check subdomain owner", "tunnel_id", tunnelID, "error", err)
+		} else if ownerAccountID != "" {
+			// Subdomain is reserved - check if this user owns it
+			userAccount, err := s.accounts.GetByEmail(creatorEmail)
+			if err != nil || userAccount == nil || userAccount.ID != ownerAccountID {
+				common.LogError("subdomain reserved by another user", "tunnel_id", tunnelID, "creator", creatorEmail)
+				respMsg := &pb.TunnelMessage{
+					Message: &pb.TunnelMessage_RegisterResponse{
+						RegisterResponse: &pb.RegisterResponse{
+							Success:      false,
+							ErrorMessage: fmt.Sprintf("Subdomain '%s' is reserved by another user.", tunnelID),
+						},
+					},
+				}
+				stream.Send(respMsg)
+				return fmt.Errorf("subdomain %s is reserved by another user", tunnelID)
+			}
+			common.LogInfo("using reserved subdomain", "tunnel_id", tunnelID, "creator", creatorEmail)
+		} else {
+			// Subdomain is not reserved - try to claim it if user is Pro
+			userAccount, err := s.accounts.GetByEmail(creatorEmail)
+			if err == nil && userAccount != nil && userAccount.Plan == "pro" {
+				// Try to reserve the subdomain for this user
+				if err := s.accounts.ReserveSubdomain(userAccount.ID, tunnelID); err == nil {
+					common.LogInfo("auto-claimed subdomain for Pro user", "tunnel_id", tunnelID, "creator", creatorEmail)
+				}
+				// If reservation fails (e.g., max limit), just continue without reserving
+			}
+		}
 	}
 
 	// Determine protocol (default to "http" for backwards compatibility)

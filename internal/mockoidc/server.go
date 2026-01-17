@@ -19,6 +19,7 @@ type Server struct {
 	addr       string
 	issuer     string
 	signingKey []byte
+	httpServer *http.Server
 	mu         sync.RWMutex
 	// deviceCodes maps device_code to device auth data
 	deviceCodes map[string]*DeviceAuthData
@@ -77,7 +78,24 @@ func (s *Server) Start() error {
 	// Device verification endpoint (user visits this)
 	mux.HandleFunc("/device", s.handleDeviceVerification)
 
-	return http.ListenAndServe(s.addr, mux)
+	s.httpServer = &http.Server{
+		Addr:    s.addr,
+		Handler: mux,
+	}
+
+	err := s.httpServer.ListenAndServe()
+	if err == http.ErrServerClosed {
+		return nil
+	}
+	return err
+}
+
+// Shutdown gracefully shuts down the mock OIDC server
+func (s *Server) Shutdown() error {
+	if s.httpServer != nil {
+		return s.httpServer.Close()
+	}
+	return nil
 }
 
 // handleDiscovery serves the OIDC discovery document

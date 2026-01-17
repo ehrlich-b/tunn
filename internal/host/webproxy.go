@@ -114,10 +114,30 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 				"tunnel_id", tunnelID,
 				"allowed_emails", tunnel.AllowedEmails)
 
+			w.Header().Set("Content-Type", "text/html")
 			w.WriteHeader(http.StatusForbidden)
-			fmt.Fprintf(w, "Access Denied\n\n")
-			fmt.Fprintf(w, "You (%s) are not authorized to access this tunnel.\n\n", userEmail)
-			fmt.Fprintf(w, "Contact the tunnel owner to request access.\n")
+			fmt.Fprintf(w, `<!DOCTYPE html>
+<html>
+<head>
+<title>tunn - Access Denied</title>
+<style>
+body { font-family: ui-monospace, "SF Mono", Monaco, "Cascadia Code", monospace; background: #0d1117; color: #c9d1d9; margin: 0; padding: 40px; }
+.container { max-width: 500px; margin: 80px auto; }
+.logo { font-size: 24px; font-weight: bold; color: #58a6ff; margin-bottom: 32px; }
+h1 { font-size: 20px; font-weight: normal; margin: 0 0 16px 0; color: #f85149; }
+p { color: #8b949e; margin: 0 0 12px 0; }
+code { background: #161b22; padding: 2px 6px; border-radius: 4px; color: #c9d1d9; }
+</style>
+</head>
+<body>
+<div class="container">
+<div class="logo">tunn</div>
+<h1>Access denied</h1>
+<p>You (<code>%s</code>) are not authorized to access this tunnel.</p>
+<p>Contact the tunnel owner to request access.</p>
+</div>
+</body>
+</html>`, userEmail)
 			return
 		}
 

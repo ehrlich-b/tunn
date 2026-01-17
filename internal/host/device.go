@@ -293,3 +293,4 @@ func (p *ProxyServer) generateJWT(email string) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString(p.getJWTSigningKey())
 }
+

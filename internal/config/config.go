@@ -47,6 +47,7 @@ type Config struct {
 
 	// Client authentication (self-hosters)
 	ClientSecret string // Master key for all clients (bypasses OAuth)
+	UsersFile    string // Path to users.yaml for per-user tokens
 
 	// Client configuration
 	ServerAddr string
@@ -113,6 +114,7 @@ func (c *Config) loadDevConfig() {
 
 	// Client secret (self-hosters can bypass OAuth with this)
 	c.ClientSecret = getEnvOrDefault("CLIENT_SECRET", "")
+	c.UsersFile = getEnvOrDefault("USERS_FILE", "")
 
 	// Skip TLS verification in dev
 	c.SkipVerify = true
@@ -154,6 +156,7 @@ func (c *Config) loadProdConfig() {
 
 	// Client secret (self-hosters only - tunn.to leaves this empty)
 	c.ClientSecret = getEnvOrDefault("CLIENT_SECRET", "")
+	c.UsersFile = getEnvOrDefault("USERS_FILE", "")
 
 	// Verify TLS in production
 	c.SkipVerify = false

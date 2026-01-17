@@ -59,6 +59,7 @@ type TunnelServer struct {
 	publicMode   bool   // Disable auth for testing
 	domain       string // Domain for public URLs (e.g., "tunn.to")
 	clientSecret string // Master secret for self-hosters (bypasses OAuth)
+	userTokens   map[string]string // email -> token from users.yaml
 }
 
 // TunnelConnection represents an active tunnel connection
@@ -84,13 +85,17 @@ type TunnelConnection struct {
 }
 
 // NewTunnelServer creates a new gRPC tunnel server
-func NewTunnelServer(wellKnownKey string, publicMode bool, domain string, clientSecret string) *TunnelServer {
+func NewTunnelServer(wellKnownKey string, publicMode bool, domain string, clientSecret string, userTokens map[string]string) *TunnelServer {
+	if userTokens == nil {
+		userTokens = make(map[string]string)
+	}
 	return &TunnelServer{
 		tunnels:      make(map[string]*TunnelConnection),
 		wellKnownKey: wellKnownKey,
 		publicMode:   publicMode,
 		domain:       domain,
 		clientSecret: clientSecret,
+		userTokens:   userTokens,
 	}
 }
 
@@ -138,7 +143,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		creatorEmail = "public@tunn.local"
 		allowedEmails = []string{"public@tunn.local"}
 	} else if s.clientSecret != "" && regClient.AuthToken == s.clientSecret {
-		// Client secret auth (self-hosters)
+		// Client secret auth (self-hosters - master key)
 		common.LogInfo("client secret auth - bypassing OAuth", "tunnel_id", tunnelID)
 		creatorEmail = regClient.CreatorEmail
 		if creatorEmail == "" {
@@ -149,6 +154,17 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		for _, email := range regClient.AllowedEmails {
 			if email != "" && email != creatorEmail {
 				allowedEmails = append(allowedEmails, email)
+			}
+		}
+	} else if email := s.validateUserToken(regClient.AuthToken); email != "" {
+		// User token auth (self-hosters - per-user from users.yaml)
+		common.LogInfo("user token auth", "tunnel_id", tunnelID, "email", email)
+		creatorEmail = email
+		allowedEmails = make([]string, 0, len(regClient.AllowedEmails)+1)
+		allowedEmails = append(allowedEmails, creatorEmail)
+		for _, e := range regClient.AllowedEmails {
+			if e != "" && e != creatorEmail {
+				allowedEmails = append(allowedEmails, e)
 			}
 		}
 	} else {
@@ -396,4 +412,18 @@ func (s *TunnelServer) GetActiveTunnelCount() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return len(s.tunnels)
+}
+
+// validateUserToken checks if a token matches any user in users.yaml
+// Returns the email if valid, empty string if not
+func (s *TunnelServer) validateUserToken(token string) string {
+	if token == "" || len(s.userTokens) == 0 {
+		return ""
+	}
+	for email, userToken := range s.userTokens {
+		if userToken == token {
+			return email
+		}
+	}
+	return ""
 }

@@ -78,7 +78,7 @@ func TestProxyServerHandler(t *testing.T) {
 		Domain:         "tunn.to",
 		config:         &config.Config{Environment: config.EnvProd},
 		sessionManager: scs.New(),
-		tunnelServer:   NewTunnelServer("test-key", false),
+		tunnelServer:   NewTunnelServer("test-key", false, "tunn.to"),
 	}
 
 	handler := proxy.createHandler()
@@ -106,7 +106,7 @@ func TestProxyServerHealthCheck(t *testing.T) {
 		Domain:         "tunn.to",
 		config:         &config.Config{Environment: config.EnvProd},
 		sessionManager: scs.New(),
-		tunnelServer:   NewTunnelServer("test-key", false),
+		tunnelServer:   NewTunnelServer("test-key", false, "tunn.to"),
 	}
 
 	handler := proxy.createHandler()

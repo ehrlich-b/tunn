@@ -76,7 +76,7 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 
 	// Create gRPC server for public tunnel control plane
 	grpcServer := grpc.NewServer()
-	tunnelServer := NewTunnelServer(cfg.WellKnownKey, cfg.PublicMode)
+	tunnelServer := NewTunnelServer(cfg.WellKnownKey, cfg.PublicMode, cfg.Domain)
 	pb.RegisterTunnelServiceServer(grpcServer, tunnelServer)
 
 	// Create gRPC server for internal node-to-node communication

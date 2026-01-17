@@ -402,22 +402,34 @@ a:hover { text-decoration: underline; }
 /* Features */
 .features {
   padding: 64px 0;
-  background: #f6f8fa;
+  background: linear-gradient(135deg, #0d1117 0%, #161b22 100%);
+  color: #e6edf3;
+}
+.features h2 {
+  font-size: 28px;
+  font-weight: 700;
+  text-align: center;
+  margin-bottom: 40px;
+  color: #ffffff;
 }
 .features-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 24px;
+  gap: 20px;
 }
 .feature {
-  background: white;
-  border-radius: 12px;
-  padding: 28px 24px;
-  border: 1px solid #e5e7eb;
+  background: rgba(255,255,255,0.03);
+  border-radius: 10px;
+  padding: 24px;
+  border: 1px solid rgba(255,255,255,0.08);
 }
-.feature-icon { font-size: 32px; margin-bottom: 12px; }
-.feature h3 { font-size: 16px; font-weight: 600; margin-bottom: 8px; }
-.feature p { font-size: 14px; color: #57606a; line-height: 1.5; }
+.feature h3 {
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: #58a6ff;
+}
+.feature p { font-size: 14px; color: #8b949e; line-height: 1.5; }
 
 /* Pricing */
 .pricing { padding: 64px 0; }
@@ -433,30 +445,34 @@ a:hover { text-decoration: underline; }
   font-size: 14px;
   color: #57606a;
 }
-.toggle-switch {
+.switch {
+  position: relative;
   width: 44px;
   height: 24px;
-  appearance: none;
-  background: #d1d9e0;
-  border-radius: 12px;
-  position: relative;
-  cursor: pointer;
-  transition: background 0.2s;
 }
-.toggle-switch:checked { background: #0969da; }
-.toggle-switch::before {
-  content: '';
+.switch input { opacity: 0; width: 0; height: 0; }
+.slider {
   position: absolute;
-  width: 20px;
+  cursor: pointer;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: #d1d9e0;
+  border-radius: 24px;
+  transition: 0.2s;
+}
+.slider:before {
+  content: "";
+  position: absolute;
   height: 20px;
-  background: white;
-  border-radius: 50%%;
-  top: 2px;
+  width: 20px;
   left: 2px;
-  transition: transform 0.2s;
+  bottom: 2px;
+  background: white;
+  border-radius: 50%;
+  transition: 0.2s;
   box-shadow: 0 1px 3px rgba(0,0,0,0.2);
 }
-.toggle-switch:checked::before { transform: translateX(20px); }
+input:checked + .slider { background: #0969da; }
+input:checked + .slider:before { transform: translateX(20px); }
 .save-badge { color: #1a7f37; font-weight: 600; }
 
 .pricing-grid {
@@ -479,8 +495,8 @@ a:hover { text-decoration: underline; }
   content: 'Popular';
   position: absolute;
   top: -12px;
-  left: 50%%;
-  transform: translateX(-50%%);
+  left: 50%;
+  transform: translateX(-50%);
   background: #0969da;
   color: white;
   font-size: 12px;
@@ -601,21 +617,19 @@ a:hover { text-decoration: underline; }
 
 <section class="features" id="features">
   <div class="container">
+    <h2>Built for developers</h2>
     <div class="features-grid">
       <div class="feature">
-        <div class="feature-icon">👥</div>
         <h3>Share with teammates</h3>
-        <p>Add emails to --allow and only those people can access your tunnel. No tokens to share.</p>
+        <p>Add emails to --allow and only those people can access. No tokens to pass around.</p>
       </div>
       <div class="feature">
-        <div class="feature-icon">🎯</div>
         <h3>Demo to clients</h3>
         <p>Show work in progress without deploying. Share a link and get feedback instantly.</p>
       </div>
       <div class="feature">
-        <div class="feature-icon">🔗</div>
         <h3>Test webhooks</h3>
-        <p>Receive Stripe, GitHub, or Twilio webhooks on localhost. Zero configuration.</p>
+        <p>Receive Stripe, GitHub, or Twilio webhooks on localhost. Zero config.</p>
       </div>
     </div>
   </div>
@@ -624,12 +638,15 @@ a:hover { text-decoration: underline; }
 <div class="container">
   <section class="pricing" id="pricing">
     <h2>Pricing</h2>
-    <p class="pricing-subtitle">Start free, upgrade when you need more</p>
+    <p class="pricing-subtitle">Free tier is generous. Pro is cheap.</p>
 
     <div class="billing-toggle">
       <span>Monthly</span>
-      <input type="checkbox" class="toggle-switch" id="yearly" checked onchange="toggleBilling()">
-      <span>Yearly <span class="save-badge">Save 20%%</span></span>
+      <label class="switch">
+        <input type="checkbox" id="yearly" checked onchange="toggleBilling()">
+        <span class="slider"></span>
+      </label>
+      <span>Yearly <span class="save-badge">Save 20%</span></span>
     </div>
 
     <div class="pricing-grid">

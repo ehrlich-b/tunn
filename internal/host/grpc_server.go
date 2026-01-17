@@ -58,6 +58,7 @@ type TunnelServer struct {
 	wellKnownKey string // Free tier key that allows tunnel creation
 	publicMode   bool   // Disable auth for testing
 	domain       string // Domain for public URLs (e.g., "tunn.to")
+	clientSecret string // Master secret for self-hosters (bypasses OAuth)
 }
 
 // TunnelConnection represents an active tunnel connection
@@ -83,12 +84,13 @@ type TunnelConnection struct {
 }
 
 // NewTunnelServer creates a new gRPC tunnel server
-func NewTunnelServer(wellKnownKey string, publicMode bool, domain string) *TunnelServer {
+func NewTunnelServer(wellKnownKey string, publicMode bool, domain string, clientSecret string) *TunnelServer {
 	return &TunnelServer{
 		tunnels:      make(map[string]*TunnelConnection),
 		wellKnownKey: wellKnownKey,
 		publicMode:   publicMode,
 		domain:       domain,
+		clientSecret: clientSecret,
 	}
 }
 
@@ -135,6 +137,20 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		common.LogInfo("public mode - skipping auth", "tunnel_id", tunnelID)
 		creatorEmail = "public@tunn.local"
 		allowedEmails = []string{"public@tunn.local"}
+	} else if s.clientSecret != "" && regClient.AuthToken == s.clientSecret {
+		// Client secret auth (self-hosters)
+		common.LogInfo("client secret auth - bypassing OAuth", "tunnel_id", tunnelID)
+		creatorEmail = regClient.CreatorEmail
+		if creatorEmail == "" {
+			creatorEmail = "client@local"
+		}
+		allowedEmails = make([]string, 0, len(regClient.AllowedEmails)+1)
+		allowedEmails = append(allowedEmails, creatorEmail)
+		for _, email := range regClient.AllowedEmails {
+			if email != "" && email != creatorEmail {
+				allowedEmails = append(allowedEmails, email)
+			}
+		}
 	} else {
 		// Validate tunnel_key (authorization to create tunnels)
 		if regClient.TunnelKey != s.wellKnownKey {

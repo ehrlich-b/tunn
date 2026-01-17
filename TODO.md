@@ -125,10 +125,13 @@ Admin generates tokens, gives to users. More granular than master secret.
 4. Reject
 
 **Tasks:**
-15. [ ] **Add CLIENT_SECRET config** - Master key for all clients
-16. [ ] **Add --secret flag to CLI** - Pass secret on command line or TUNN_SECRET env
-17. [ ] **users.yaml loader** - Parse YAML, check tokens
-18. [ ] **Update auth middleware** - Check JWT → user token → client secret → reject
+15. [x] **Add CLIENT_SECRET config** - Master key for all clients
+      - Added to config.go, loaded from CLIENT_SECRET env var
+16. [x] **Add --secret flag to CLI** - Pass secret on command line or TUNN_SECRET env
+      - Added --secret flag to serve command, also reads TUNN_SECRET env var
+17. [ ] **users.yaml loader** - Parse YAML, check tokens (deferred to post-launch)
+18. [x] **Update auth middleware** - Check JWT → user token → client secret → reject
+      - grpc_server.go checks: public mode → client secret → JWT
 
 **tunn.to will NOT set CLIENT_SECRET** - forces real auth (GitHub/magic link).
 

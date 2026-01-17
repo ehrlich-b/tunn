@@ -91,13 +91,14 @@ Options:
 }
 
 // Serve subcommand flags
-func parseServeFlags(args []string) (target string, tunnelID string, allowedEmails []string, tunnelKey string, protocol string, udpTarget string) {
+func parseServeFlags(args []string) (target string, tunnelID string, allowedEmails []string, tunnelKey string, protocol string, udpTarget string, clientSecret string) {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	idFlag := fs.String("id", "", "tunnel ID (blank → random)")
 	allowFlag := fs.String("allow", "", "comma-separated list of emails allowed to access tunnel")
 	keyFlag := fs.String("tunnel-key", "", "tunnel creation authorization key")
 	protoFlag := fs.String("protocol", "http", "tunnel protocol: http, udp, or both")
 	udpFlag := fs.String("udp-target", "localhost:25565", "UDP target address for UDP tunnels")
+	secretFlag := fs.String("secret", "", "client secret for auth (or set TUNN_SECRET env var)")
 
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, `tunn serve - expose localhost to the internet
@@ -141,6 +142,12 @@ Options:
 	tunnelKey = *keyFlag
 	protocol = *protoFlag
 	udpTarget = *udpFlag
+
+	// Client secret: flag takes precedence, then env var
+	clientSecret = *secretFlag
+	if clientSecret == "" {
+		clientSecret = os.Getenv("TUNN_SECRET")
+	}
 
 	if *allowFlag != "" {
 		emails := strings.Split(*allowFlag, ",")
@@ -257,7 +264,7 @@ func runHost() {
 }
 
 func runServe(args []string) {
-	target, tunnelID, allowedEmails, tunnelKey, protocol, udpTarget := parseServeFlags(args)
+	target, tunnelID, allowedEmails, tunnelKey, protocol, udpTarget, clientSecret := parseServeFlags(args)
 
 	cfg, err := config.LoadConfig()
 	if err != nil {
@@ -265,12 +272,16 @@ func runServe(args []string) {
 		os.Exit(1)
 	}
 
-	// Load JWT from token file (skip in public mode)
+	// Determine auth token: client secret OR JWT from login
 	var token string
-	if !cfg.PublicMode {
+	if clientSecret != "" {
+		// Use client secret as auth token (self-hosters)
+		token = clientSecret
+	} else if !cfg.PublicMode {
+		// Load JWT from token file
 		token, err = client.LoadToken()
 		if err != nil {
-			common.LogError("not logged in - run 'tunn login' first", "error", err)
+			common.LogError("not logged in - run 'tunn login' first, or use --secret for self-hosted servers", "error", err)
 			os.Exit(1)
 		}
 	}

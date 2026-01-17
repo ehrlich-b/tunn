@@ -125,15 +125,11 @@ func TestSaveTokenCreatesDirectory(t *testing.T) {
 func TestLoginClientBasic(t *testing.T) {
 	client := &LoginClient{
 		ServerAddr: "localhost:8443",
-		OIDCIssuer: "http://localhost:9000",
 		SkipVerify: true,
 	}
 
 	if client.ServerAddr != "localhost:8443" {
 		t.Errorf("Expected ServerAddr 'localhost:8443', got '%s'", client.ServerAddr)
-	}
-	if client.OIDCIssuer != "http://localhost:9000" {
-		t.Errorf("Expected OIDCIssuer 'http://localhost:9000', got '%s'", client.OIDCIssuer)
 	}
 	if !client.SkipVerify {
 		t.Error("Expected SkipVerify to be true")

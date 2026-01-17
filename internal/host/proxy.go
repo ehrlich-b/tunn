@@ -60,6 +60,9 @@ type ProxyServer struct {
 
 	// Mock OIDC server (dev only)
 	mockOIDC *mockoidc.Server
+
+	// Device code store for CLI login
+	deviceCodes *DeviceCodeStore
 }
 
 // NewProxyServer creates a new dual-listener proxy server
@@ -116,6 +119,7 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 		tunnelCache:        make(map[string]string),
 		config:             cfg,
 		PublicAddr:         cfg.PublicAddr,
+		deviceCodes:        NewDeviceCodeStore(),
 	}
 
 	// Create gRPC clients for other nodes
@@ -344,6 +348,11 @@ func (p *ProxyServer) createHandler() http.Handler {
 	// Auth endpoints (no auth required on these)
 	mux.HandleFunc("/auth/login", p.handleLogin)
 	mux.HandleFunc("/auth/callback", p.handleCallback)
+
+	// Device code flow for CLI login
+	mux.HandleFunc("/api/device/code", p.handleDeviceCode)
+	mux.HandleFunc("/api/device/token", p.handleDeviceToken)
+	mux.HandleFunc("/login", p.handleLoginPage)
 
 	// UDP proxy endpoint (for tunn connect)
 	mux.HandleFunc("/udp/", p.handleUDPProxy)

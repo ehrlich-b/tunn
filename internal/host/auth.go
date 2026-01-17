@@ -116,6 +116,27 @@ func (p *ProxyServer) handleCallback(w http.ResponseWriter, r *http.Request) {
 
 	common.LogInfo("user authenticated via GitHub", "email", email)
 
+	// Check if this is a device code flow (CLI login)
+	deviceUserCode := p.sessionManager.PopString(r.Context(), "device_user_code")
+	if deviceUserCode != "" {
+		code := p.deviceCodes.GetByUserCode(deviceUserCode)
+		if code != nil {
+			p.deviceCodes.Authorize(code.Code, email)
+			common.LogInfo("device code authorized via OAuth", "user_code", deviceUserCode, "email", email)
+			// Show success page for device flow
+			w.Header().Set("Content-Type", "text/html")
+			fmt.Fprintf(w, `<!DOCTYPE html>
+<html>
+<head><title>Login Successful</title></head>
+<body style="font-family: system-ui; max-width: 600px; margin: 50px auto; text-align: center;">
+<h1>Login Successful</h1>
+<p>You can close this window and return to your terminal.</p>
+</body>
+</html>`)
+			return
+		}
+	}
+
 	// Redirect to original URL
 	returnTo := p.sessionManager.PopString(r.Context(), "return_to")
 	if returnTo == "" {

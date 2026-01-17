@@ -38,17 +38,17 @@ Logged in as alice@example.com
 
 **Tasks:**
 1. [ ] **GitHub OAuth App setup** - Create OAuth App in GitHub, get client ID/secret
-2. [ ] **Implement device code endpoints** - `POST /api/device/code`, `GET /api/device/token`
-3. [ ] **Update CLI login** - Use device code flow with browser auto-open
-4. [ ] **Browser OAuth flow** - `/auth/login`, `/auth/callback` with GitHub
-5. [ ] **Configure JWT signing** - `JWT_SECRET` env var for signing our JWTs
+2. [x] **Implement device code endpoints** - `POST /api/device/code`, `GET /api/device/token`
+3. [x] **Update CLI login** - Use device code flow with browser auto-open
+4. [x] **Browser OAuth flow** - `/auth/login`, `/auth/callback` with GitHub
+5. [x] **Configure JWT signing** - `JWT_SECRET` env var for signing our JWTs
 6. [ ] **Test CLI login** - Verify device flow works end-to-end
 7. [ ] **Test browser auth** - Verify tunnel access prompts GitHub login
 
 ### Code Fixes
-8. [ ] **Add domain suffix matching** - `--allow @slide.com` allows anyone with that email domain
-      - Current: exact email match only
-      - Change: if allow entry starts with `@`, use `strings.HasSuffix(email, entry)`
+8. [x] **Add domain suffix matching** - `--allow @slide.com` allows anyone with that email domain
+      - `@company.com` matches any email ending in `@company.com`
+      - Case-insensitive matching for both exact and wildcard
       - Example: `tunn 8080 --allow @slide.com,external@gmail.com`
       - **Pro feature:** Free tier limited to 3 exact emails, no @domain wildcards
 

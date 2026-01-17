@@ -273,10 +273,7 @@ func (p *ProxyServer) handleApexDomain(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 
-	// Get active tunnel count for the footer
-	activeTunnels := p.tunnelServer.GetActiveTunnelCount()
-
-	fmt.Fprintf(w, `<!DOCTYPE html>
+	fmt.Fprint(w, `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -293,67 +290,139 @@ body {
 code, pre, .mono {
   font-family: ui-monospace, "SF Mono", Monaco, "Cascadia Code", monospace;
 }
-.container { max-width: 720px; margin: 0 auto; padding: 0 24px; }
+a { color: #0969da; text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* Header */
+.header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  background: rgba(255,255,255,0.95);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid #e5e7eb;
+  z-index: 100;
+  padding: 0 24px;
+}
+.header-inner {
+  max-width: 1000px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 56px;
+}
+.header-logo {
+  font-size: 22px;
+  font-weight: 700;
+  color: #0969da;
+  text-decoration: none;
+}
+.header-nav { display: flex; gap: 32px; align-items: center; }
+.header-nav a { color: #57606a; font-size: 14px; font-weight: 500; }
+.header-nav a:hover { color: #1f2328; text-decoration: none; }
+.header-btn {
+  background: #0969da;
+  color: white !important;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-weight: 500;
+}
+.header-btn:hover { background: #0860ca; }
+
+.container { max-width: 900px; margin: 0 auto; padding: 0 24px; }
 
 /* Hero */
-.hero { padding: 80px 0 48px; text-align: center; }
-.logo { font-size: 48px; font-weight: 700; color: #0969da; margin-bottom: 32px; }
+.hero { padding: 120px 0 64px; text-align: center; }
+.hero h1 {
+  font-size: 48px;
+  font-weight: 700;
+  color: #1f2328;
+  margin-bottom: 16px;
+  letter-spacing: -0.02em;
+}
+.hero .subtitle {
+  font-size: 20px;
+  color: #57606a;
+  margin-bottom: 40px;
+}
 
 /* Command showcase */
 .command-showcase {
-  background: #f6f8fa;
-  border: 1px solid #d1d9e0;
+  background: #0d1117;
   border-radius: 12px;
   padding: 24px 28px;
-  margin-bottom: 20px;
+  margin-bottom: 32px;
   text-align: left;
+  max-width: 520px;
+  margin-left: auto;
+  margin-right: auto;
 }
 .command-showcase pre {
-  font-size: 15px;
-  line-height: 1.7;
+  font-size: 14px;
+  line-height: 1.8;
   margin: 0;
+  color: #e6edf3;
 }
-.command-showcase .prompt { color: #57606a; }
-.command-showcase .cmd { color: #1f2328; }
-.command-showcase .output { color: #0969da; }
-.command-showcase .comment { color: #57606a; }
-
-.tagline {
-  font-size: 18px;
-  color: #57606a;
-  margin-bottom: 32px;
-}
+.command-showcase .prompt { color: #7d8590; }
+.command-showcase .output { color: #58a6ff; }
 
 /* Install */
+.install-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
 .install-box {
   display: inline-flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   background: #f6f8fa;
   border: 1px solid #d1d9e0;
   border-radius: 8px;
-  padding: 12px 16px;
+  padding: 10px 14px;
 }
-.install-cmd {
-  font-size: 14px;
-  color: #1f2328;
-}
+.install-cmd { font-size: 13px; color: #1f2328; }
 .copy-btn {
   background: #0969da;
   border: none;
   color: white;
   padding: 6px 12px;
-  border-radius: 6px;
+  border-radius: 5px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
 }
 .copy-btn:hover { background: #0860ca; }
-.install-note { color: #57606a; font-size: 13px; margin-top: 12px; }
+.install-note { color: #57606a; font-size: 13px; margin-top: 16px; }
+
+/* Features */
+.features {
+  padding: 64px 0;
+  background: #f6f8fa;
+}
+.features-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+}
+.feature {
+  background: white;
+  border-radius: 12px;
+  padding: 28px 24px;
+  border: 1px solid #e5e7eb;
+}
+.feature-icon { font-size: 32px; margin-bottom: 12px; }
+.feature h3 { font-size: 16px; font-weight: 600; margin-bottom: 8px; }
+.feature p { font-size: 14px; color: #57606a; line-height: 1.5; }
 
 /* Pricing */
 .pricing { padding: 64px 0; }
-.pricing h2 { font-size: 28px; font-weight: 600; text-align: center; margin-bottom: 12px; }
+.pricing h2 { font-size: 32px; font-weight: 700; text-align: center; margin-bottom: 8px; }
+.pricing-subtitle { text-align: center; color: #57606a; margin-bottom: 32px; }
 
 .billing-toggle {
   display: flex;
@@ -364,40 +433,31 @@ code, pre, .mono {
   font-size: 14px;
   color: #57606a;
 }
-.billing-toggle label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-}
-.billing-toggle input[type="checkbox"] {
-  width: 40px;
-  height: 22px;
+.toggle-switch {
+  width: 44px;
+  height: 24px;
   appearance: none;
   background: #d1d9e0;
-  border-radius: 11px;
+  border-radius: 12px;
   position: relative;
   cursor: pointer;
   transition: background 0.2s;
 }
-.billing-toggle input[type="checkbox"]:checked {
-  background: #0969da;
-}
-.billing-toggle input[type="checkbox"]::before {
+.toggle-switch:checked { background: #0969da; }
+.toggle-switch::before {
   content: '';
   position: absolute;
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   background: white;
   border-radius: 50%%;
   top: 2px;
   left: 2px;
   transition: transform 0.2s;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
 }
-.billing-toggle input[type="checkbox"]:checked::before {
-  transform: translateX(18px);
-}
-.billing-toggle .save { color: #1a7f37; font-weight: 500; }
+.toggle-switch:checked::before { transform: translateX(20px); }
+.save-badge { color: #1a7f37; font-weight: 600; }
 
 .pricing-grid {
   display: grid;
@@ -406,112 +466,177 @@ code, pre, .mono {
 }
 .plan {
   background: #ffffff;
-  border: 1px solid #d1d9e0;
+  border: 1px solid #e5e7eb;
   border-radius: 12px;
   padding: 28px 24px;
-  display: flex;
-  flex-direction: column;
 }
 .plan.featured {
   border: 2px solid #0969da;
-  box-shadow: 0 4px 12px rgba(9, 105, 218, 0.15);
+  box-shadow: 0 4px 16px rgba(9, 105, 218, 0.12);
+  position: relative;
 }
-.plan-name { font-size: 18px; font-weight: 600; margin-bottom: 4px; }
-.plan-price {
-  font-size: 36px;
-  font-weight: 700;
-  color: #1f2328;
-  margin-bottom: 4px;
+.plan.featured::before {
+  content: 'Popular';
+  position: absolute;
+  top: -12px;
+  left: 50%%;
+  transform: translateX(-50%%);
+  background: #0969da;
+  color: white;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 12px;
+  border-radius: 12px;
 }
+.plan-name { font-size: 18px; font-weight: 600; margin-bottom: 8px; }
+.plan-price { font-size: 40px; font-weight: 700; color: #1f2328; }
 .plan-price .period { font-size: 16px; font-weight: 400; color: #57606a; }
-.plan-period-note { font-size: 13px; color: #57606a; margin-bottom: 20px; min-height: 20px; }
-.plan-features { list-style: none; flex: 1; }
+.plan-note { font-size: 13px; color: #57606a; margin-bottom: 20px; min-height: 20px; }
+.plan-features { list-style: none; }
 .plan-features li {
-  padding: 8px 0;
+  padding: 10px 0;
   font-size: 14px;
   color: #1f2328;
-  border-bottom: 1px solid #f0f0f0;
+  border-top: 1px solid #f0f0f0;
 }
-.plan-features li:last-child { border-bottom: none; }
-.plan-features li::before { content: none; }
 
-/* Self-host */
-.selfhost {
+/* Open source */
+.opensource {
   padding: 48px 0;
-  border-top: 1px solid #d1d9e0;
+  background: #0d1117;
+  color: #e6edf3;
+  text-align: center;
 }
-.selfhost h2 { font-size: 20px; font-weight: 600; margin-bottom: 12px; }
-.selfhost p { color: #57606a; font-size: 15px; margin-bottom: 16px; }
-.selfhost a { color: #0969da; text-decoration: none; }
-.selfhost a:hover { text-decoration: underline; }
-.code-block {
-  background: #f6f8fa;
-  border: 1px solid #d1d9e0;
+.opensource h2 { font-size: 24px; font-weight: 600; margin-bottom: 12px; }
+.opensource p { color: #8b949e; margin-bottom: 20px; }
+.opensource a { color: #58a6ff; }
+.opensource .code-block {
+  background: #161b22;
   border-radius: 8px;
   padding: 16px 20px;
-  overflow-x: auto;
+  max-width: 500px;
+  margin: 0 auto 20px;
+  text-align: left;
 }
-.code-block pre { font-size: 14px; line-height: 1.7; margin: 0; }
-.code-block .comment { color: #57606a; }
+.opensource .code-block pre { font-size: 13px; color: #e6edf3; }
+.opensource .code-block .comment { color: #7d8590; }
 
 /* Footer */
 .footer {
-  padding: 32px 0;
-  border-top: 1px solid #d1d9e0;
-  text-align: center;
-  color: #57606a;
-  font-size: 13px;
+  background: #f6f8fa;
+  border-top: 1px solid #e5e7eb;
+  padding: 48px 24px;
 }
-.footer a { color: #0969da; text-decoration: none; }
-.footer a:hover { text-decoration: underline; }
+.footer-inner {
+  max-width: 900px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1fr;
+  gap: 48px;
+}
+.footer-brand .footer-logo {
+  font-size: 24px;
+  font-weight: 700;
+  color: #0969da;
+  margin-bottom: 12px;
+}
+.footer-brand p { font-size: 14px; color: #57606a; line-height: 1.6; }
+.footer-col h4 { font-size: 13px; font-weight: 600; color: #1f2328; margin-bottom: 16px; text-transform: uppercase; letter-spacing: 0.05em; }
+.footer-col a { display: block; font-size: 14px; color: #57606a; padding: 6px 0; }
+.footer-col a:hover { color: #0969da; text-decoration: none; }
+.footer-bottom {
+  max-width: 900px;
+  margin: 32px auto 0;
+  padding-top: 24px;
+  border-top: 1px solid #e5e7eb;
+  font-size: 13px;
+  color: #8b949e;
+  text-align: center;
+}
 
-@media (max-width: 700px) {
-  .hero { padding: 48px 0 32px; }
-  .logo { font-size: 36px; }
-  .command-showcase { padding: 16px 20px; }
-  .command-showcase pre { font-size: 13px; }
+@media (max-width: 768px) {
+  .header-nav { gap: 16px; }
+  .hero { padding: 100px 0 48px; }
+  .hero h1 { font-size: 32px; }
+  .features-grid { grid-template-columns: 1fr; }
   .pricing-grid { grid-template-columns: 1fr; }
-  .install-box { flex-direction: column; width: 100%%; }
+  .footer-inner { grid-template-columns: 1fr 1fr; gap: 32px; }
 }
 </style>
 </head>
 <body>
 
+<header class="header">
+  <div class="header-inner">
+    <a href="/" class="header-logo">tunn</a>
+    <nav class="header-nav">
+      <a href="#features">Features</a>
+      <a href="#pricing">Pricing</a>
+      <a href="https://github.com/ehrlich-b/tunn">Docs</a>
+      <a href="https://github.com/ehrlich-b/tunn" class="header-btn">GitHub</a>
+    </nav>
+  </div>
+</header>
+
 <div class="container">
   <section class="hero">
-    <div class="logo">tunn</div>
+    <h1>Share localhost instantly</h1>
+    <p class="subtitle">Expose local ports with email-based access control. Like sharing a Google Doc.</p>
 
     <div class="command-showcase">
-<pre><span class="prompt">$</span> <span class="cmd">tunn 8080 --allow alice@gmail.com</span>
+<pre><span class="prompt">$</span> tunn 8080 --allow alice@gmail.com
 <span class="output">https://abc123.tunn.to -> localhost:8080</span>
 <span class="output">Accessible by: you, alice@gmail.com</span></pre>
     </div>
 
-    <div class="tagline">Share localhost like a Google Doc</div>
-
-    <div class="install-box">
-      <code class="install-cmd">curl -fsSL tunn.to/install.sh | sh</code>
-      <button class="copy-btn" onclick="navigator.clipboard.writeText('curl -fsSL tunn.to/install.sh | sh')">Copy</button>
+    <div class="install-row">
+      <div class="install-box">
+        <code class="install-cmd">curl -fsSL tunn.to/install.sh | sh</code>
+        <button class="copy-btn" onclick="navigator.clipboard.writeText('curl -fsSL tunn.to/install.sh | sh')">Copy</button>
+      </div>
     </div>
-    <div class="install-note">macOS and Linux. No sudo required.</div>
+    <p class="install-note">macOS and Linux. No sudo required.</p>
   </section>
+</div>
 
-  <section class="pricing">
+<section class="features" id="features">
+  <div class="container">
+    <div class="features-grid">
+      <div class="feature">
+        <div class="feature-icon">👥</div>
+        <h3>Share with teammates</h3>
+        <p>Add emails to --allow and only those people can access your tunnel. No tokens to share.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">🎯</div>
+        <h3>Demo to clients</h3>
+        <p>Show work in progress without deploying. Share a link and get feedback instantly.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">🔗</div>
+        <h3>Test webhooks</h3>
+        <p>Receive Stripe, GitHub, or Twilio webhooks on localhost. Zero configuration.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="container">
+  <section class="pricing" id="pricing">
     <h2>Pricing</h2>
+    <p class="pricing-subtitle">Start free, upgrade when you need more</p>
 
     <div class="billing-toggle">
       <span>Monthly</span>
-      <label>
-        <input type="checkbox" id="yearly" checked onchange="toggleBilling()">
-      </label>
-      <span>Yearly <span class="save">(save 20%%)</span></span>
+      <input type="checkbox" class="toggle-switch" id="yearly" checked onchange="toggleBilling()">
+      <span>Yearly <span class="save-badge">Save 20%%</span></span>
     </div>
 
     <div class="pricing-grid">
       <div class="plan">
         <div class="plan-name">Free</div>
         <div class="plan-price">$0</div>
-        <div class="plan-period-note"></div>
+        <div class="plan-note">Free forever</div>
         <ul class="plan-features">
           <li>100 MB / month</li>
           <li>Random subdomains</li>
@@ -522,7 +647,7 @@ code, pre, .mono {
       <div class="plan featured">
         <div class="plan-name">Pro</div>
         <div class="plan-price" id="pro-price">$4<span class="period">/mo</span></div>
-        <div class="plan-period-note" id="pro-note">Billed yearly ($48/year)</div>
+        <div class="plan-note" id="pro-note">Billed yearly ($48)</div>
         <ul class="plan-features">
           <li>50 GB / month</li>
           <li>4 reserved *.tunn.to subdomains</li>
@@ -533,7 +658,7 @@ code, pre, .mono {
       <div class="plan">
         <div class="plan-name">Enterprise</div>
         <div class="plan-price">Custom</div>
-        <div class="plan-period-note"></div>
+        <div class="plan-note">Contact us</div>
         <ul class="plan-features">
           <li>Unlimited bandwidth</li>
           <li>Custom domains</li>
@@ -543,42 +668,62 @@ code, pre, .mono {
       </div>
     </div>
   </section>
+</div>
 
-  <section class="selfhost">
-    <h2>Self-host</h2>
-    <p>tunn is open source. Run your own instance on any server.</p>
+<section class="opensource">
+  <div class="container">
+    <h2>Open Source</h2>
+    <p>Run your own tunn server. MIT licensed.</p>
     <div class="code-block">
-<pre><span class="comment"># Install and run as server</span>
-curl -fsSL tunn.to/install.sh | sh
+<pre><span class="comment"># Self-host on your infrastructure</span>
 tunn -mode=host -domain=tunnel.yourcompany.com</pre>
     </div>
-    <p style="margin-top: 16px;">
-      <a href="https://github.com/ehrlich-b/tunn">View on GitHub</a>
-    </p>
-  </section>
+    <a href="https://github.com/ehrlich-b/tunn">View on GitHub →</a>
+  </div>
+</section>
 
-  <footer class="footer">
-    %d active tunnels &middot; <a href="https://github.com/ehrlich-b/tunn">GitHub</a>
-  </footer>
-</div>
+<footer class="footer">
+  <div class="footer-inner">
+    <div class="footer-brand">
+      <div class="footer-logo">tunn</div>
+      <p>Share localhost like a Google Doc. Built by <a href="mailto:bryan@ehrlich.dev">Bryan Ehrlich</a>.</p>
+    </div>
+    <div class="footer-col">
+      <h4>Product</h4>
+      <a href="#features">Features</a>
+      <a href="#pricing">Pricing</a>
+      <a href="https://github.com/ehrlich-b/tunn">Documentation</a>
+    </div>
+    <div class="footer-col">
+      <h4>Resources</h4>
+      <a href="https://github.com/ehrlich-b/tunn">GitHub</a>
+      <a href="https://github.com/ehrlich-b/tunn/issues">Report Issue</a>
+    </div>
+    <div class="footer-col">
+      <h4>Legal</h4>
+      <a href="#">Privacy</a>
+      <a href="#">Terms</a>
+    </div>
+  </div>
+  <div class="footer-bottom">
+    &copy; 2025 tunn. Open source under MIT license.
+  </div>
+</footer>
 
 <script>
 function toggleBilling() {
   const yearly = document.getElementById('yearly').checked;
-  const price = document.getElementById('pro-price');
-  const note = document.getElementById('pro-note');
-  if (yearly) {
-    price.innerHTML = '$4<span class="period">/mo</span>';
-    note.textContent = 'Billed yearly ($48/year)';
-  } else {
-    price.innerHTML = '$5<span class="period">/mo</span>';
-    note.textContent = 'Billed monthly';
-  }
+  document.getElementById('pro-price').innerHTML = yearly
+    ? '$4<span class="period">/mo</span>'
+    : '$5<span class="period">/mo</span>';
+  document.getElementById('pro-note').textContent = yearly
+    ? 'Billed yearly ($48)'
+    : 'Billed monthly';
 }
 </script>
 
 </body>
-</html>`, activeTunnels)
+</html>`)
 }
 
 // isEmailAllowed checks if an email is on the allow-list

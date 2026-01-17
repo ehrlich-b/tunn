@@ -84,6 +84,14 @@ The Proxy is a stateless Go application designed to run on Fly.io with 1-4 insta
 3. User clicks "Login with GitHub" → GitHub OAuth
 4. On callback, session cookie set, redirect back to tunnel
 
+**Identity Model (Email Buckets):**
+- An "account" is a bucket of verified emails, not a username
+- When you OAuth with GitHub, all your GitHub emails join your bucket
+- Allow-list checks match against ANY email in your bucket
+- If `--allow work@company.com` and you login with `personal@gmail.com` (same bucket), access granted
+- Pro status applies to the whole bucket, not individual emails
+- Account merge: if GitHub proves you own emails from 2 different accounts, they merge automatically
+
 **Rate Limiting:**
 - **Per-IP bandwidth quota:** 10MiB/month baseline (configurable via env var)
 - **Distributed state:** Each node tracks IPs it sees, syncs with other nodes every 30s

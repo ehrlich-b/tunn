@@ -70,22 +70,86 @@ Logged in as alice@example.com
       - Self-host instructions
       - Serve from app at `/` when no tunnel subdomain
 
-### User Store (Config-First, No External DB)
-14. [ ] **Implement UserStore interface** - Pluggable user storage
-      - `FileStore`: reads `users.yaml` (self-hosted default)
-      - `SQLiteStore`: reads local `users.db` (self-hosted + tunn.to)
-      - Config file is the primary interface, SQLite is implementation detail
-15. [ ] **Add users.yaml support** - Simple config for self-hosters
+### Identity Model (Email Buckets)
+
+**Core Concept:** An "account" is a bucket of verified emails. Any email in the bucket works for allow-lists, Pro access, etc.
+
+**Why this matters:**
+- User has `work@company.com` (GitHub) and `personal@gmail.com` (password login)
+- Both emails should be treated as the same person
+- If `--allow work@company.com`, logging in with `personal@gmail.com` should work
+- If one email has Pro, all emails in the bucket get Pro
+
+**Data Model (SQLite):**
+```sql
+accounts:
+  id: uuid
+  primary_email: string
+  plan: free|pro
+  created_at: timestamp
+
+account_emails:
+  account_id: uuid
+  email: string (unique!)
+  verified_via: github|password
+  added_at: timestamp
+```
+
+**On OAuth Callback (Account Merge Logic):**
+1. GitHub returns emails: `[A, B, C]`
+2. Look up which account(s) own those emails
+3. **0 accounts:** Create new account with all emails
+4. **1 account:** Add any new emails to that account
+5. **2+ accounts:** MERGE them:
+   - Union all emails into one account
+   - Take best plan (Pro > Free)
+   - Merge reserved subdomains (cap at 4)
+   - Delete the other account(s)
+
+**Security:** GitHub requires email verification, so if you prove ownership via GitHub, merging is safe.
+
+**Allow-List Check (updated logic):**
+```go
+func isAllowed(sessionEmail string, allowList []string) bool {
+    // Get all emails in user's bucket
+    userEmails := getUserEmailBucket(sessionEmail)
+
+    for _, allowed := range allowList {
+        if strings.HasPrefix(allowed, "@") {
+            // Domain wildcard: check if ANY user email matches
+            for _, email := range userEmails {
+                if strings.HasSuffix(email, allowed) {
+                    return true
+                }
+            }
+        } else {
+            // Exact match: check if ANY user email matches
+            for _, email := range userEmails {
+                if email == allowed {
+                    return true
+                }
+            }
+        }
+    }
+    return false
+}
+```
+
+**Tasks:**
+14. [ ] **Create accounts schema** - SQLite tables for accounts + account_emails
+15. [ ] **Implement account merge on OAuth** - Handle 0/1/2+ account cases
+16. [ ] **Update allow-list check** - Check against email bucket, not just session email
+17. [ ] **Add users.yaml support** - Simple config for self-hosters
       ```yaml
       alice@gmail.com:
         plan: pro
       "@mycompany.com":  # domain wildcard
         plan: pro
       ```
-16. [ ] **Add Stripe webhook handler** - `/webhooks/stripe` (tunn.to only)
+18. [ ] **Add Stripe webhook handler** - `/webhooks/stripe` (tunn.to only)
       - Verify Stripe signature with STRIPE_WEBHOOK_SECRET
-      - On subscription.created: add user to SQLite with plan='pro'
-      - On subscription.deleted: update plan='free'
+      - On subscription.created: update account plan='pro'
+      - On subscription.deleted: update account plan='free'
 
 ### Cluster Security (One Secret)
 17. [ ] **Replace mTLS with CLUSTER_SECRET auth** - Simpler mesh security

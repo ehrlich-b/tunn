@@ -11,7 +11,7 @@ import (
 )
 
 func TestNewTunnelServer(t *testing.T) {
-	srv := NewTunnelServer("test-key", false, "tunn.to")
+	srv := NewTunnelServer("test-key", false, "tunn.to", "")
 	if srv == nil {
 		t.Fatal("Expected non-nil server")
 	}
@@ -26,7 +26,7 @@ func TestNewTunnelServer(t *testing.T) {
 }
 
 func TestTunnelServerRegistration(t *testing.T) {
-	srv := NewTunnelServer("test-key", false, "tunn.to")
+	srv := NewTunnelServer("test-key", false, "tunn.to", "")
 
 	// Create a mock stream
 	stream := &mockTunnelStream{
@@ -94,7 +94,7 @@ func TestTunnelServerRegistration(t *testing.T) {
 }
 
 func TestTunnelServerDuplicateRegistration(t *testing.T) {
-	srv := NewTunnelServer("test-key", false, "tunn.to")
+	srv := NewTunnelServer("test-key", false, "tunn.to", "")
 
 	// First stream
 	stream1 := &mockTunnelStream{
@@ -164,7 +164,7 @@ func TestTunnelServerDuplicateRegistration(t *testing.T) {
 }
 
 func TestGetTunnel(t *testing.T) {
-	srv := NewTunnelServer("test-key", false, "tunn.to")
+	srv := NewTunnelServer("test-key", false, "tunn.to", "")
 
 	// Add a tunnel directly
 	conn := &TunnelConnection{
@@ -195,7 +195,7 @@ func TestGetTunnel(t *testing.T) {
 }
 
 func TestListTunnels(t *testing.T) {
-	srv := NewTunnelServer("test-key", false, "tunn.to")
+	srv := NewTunnelServer("test-key", false, "tunn.to", "")
 
 	// Add multiple tunnels
 	for i := 0; i < 3; i++ {
@@ -281,7 +281,7 @@ func TestIsReservedSubdomain(t *testing.T) {
 }
 
 func TestTunnelServerReservedSubdomain(t *testing.T) {
-	srv := NewTunnelServer("test-key", false, "tunn.to")
+	srv := NewTunnelServer("test-key", false, "tunn.to", "")
 
 	stream := &mockTunnelStream{
 		recvQueue: make(chan *pb.TunnelMessage, 10),
@@ -321,5 +321,69 @@ func TestTunnelServerReservedSubdomain(t *testing.T) {
 
 	if regResp.ErrorMessage == "" {
 		t.Error("Expected error message")
+	}
+}
+
+func TestTunnelServerClientSecretAuth(t *testing.T) {
+	// Server with client secret configured
+	srv := NewTunnelServer("test-key", false, "tunn.to", "my-secret-key")
+
+	// Test 1: Valid client secret should work
+	stream := &mockTunnelStream{
+		recvQueue: make(chan *pb.TunnelMessage, 10),
+		sentMsgs:  make([]*pb.TunnelMessage, 0),
+	}
+
+	stream.recvQueue <- &pb.TunnelMessage{
+		Message: &pb.TunnelMessage_RegisterClient{
+			RegisterClient: &pb.RegisterClient{
+				TunnelId:  "test123",
+				TargetUrl: "http://localhost:8000",
+				TunnelKey: "test-key",
+				AuthToken: "my-secret-key", // Client secret as auth token
+			},
+		},
+	}
+	close(stream.recvQueue)
+
+	err := srv.EstablishTunnel(stream)
+	if err != nil {
+		t.Errorf("Expected no error with valid client secret, got %v", err)
+	}
+
+	if len(stream.sentMsgs) < 1 {
+		t.Fatal("Expected response to be sent")
+	}
+
+	regResp := stream.sentMsgs[0].GetRegisterResponse()
+	if regResp == nil {
+		t.Fatal("Expected RegisterResponse message")
+	}
+
+	if !regResp.Success {
+		t.Errorf("Expected successful registration, got error: %s", regResp.ErrorMessage)
+	}
+
+	// Test 2: Wrong client secret should fail
+	stream2 := &mockTunnelStream{
+		recvQueue: make(chan *pb.TunnelMessage, 10),
+		sentMsgs:  make([]*pb.TunnelMessage, 0),
+	}
+
+	stream2.recvQueue <- &pb.TunnelMessage{
+		Message: &pb.TunnelMessage_RegisterClient{
+			RegisterClient: &pb.RegisterClient{
+				TunnelId:  "test456",
+				TargetUrl: "http://localhost:8000",
+				TunnelKey: "test-key",
+				AuthToken: "wrong-secret",
+			},
+		},
+	}
+	close(stream2.recvQueue)
+
+	err = srv.EstablishTunnel(stream2)
+	if err == nil {
+		t.Error("Expected error with wrong client secret")
 	}
 }

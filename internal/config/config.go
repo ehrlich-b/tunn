@@ -45,6 +45,9 @@ type Config struct {
 	GitHubClientSecret string
 	JWTSecret          string // Secret for signing our own JWTs
 
+	// Client authentication (self-hosters)
+	ClientSecret string // Master key for all clients (bypasses OAuth)
+
 	// Client configuration
 	ServerAddr string
 	SkipVerify bool
@@ -108,6 +111,9 @@ func (c *Config) loadDevConfig() {
 	c.GitHubClientSecret = getEnvOrDefault("GITHUB_CLIENT_SECRET", "")
 	c.JWTSecret = getEnvOrDefault("JWT_SECRET", "dev-jwt-secret-do-not-use-in-prod")
 
+	// Client secret (self-hosters can bypass OAuth with this)
+	c.ClientSecret = getEnvOrDefault("CLIENT_SECRET", "")
+
 	// Skip TLS verification in dev
 	c.SkipVerify = true
 }
@@ -141,10 +147,13 @@ func (c *Config) loadProdConfig() {
 	// Tunnel creation key (free tier)
 	c.WellKnownKey = getEnvOrDefault("WELL_KNOWN_KEY", "tunn-free-v1-2025")
 
-	// GitHub OAuth (required in prod)
+	// GitHub OAuth (required in prod for tunn.to)
 	c.GitHubClientID = getEnvOrDefault("GITHUB_CLIENT_ID", "")
 	c.GitHubClientSecret = getEnvOrDefault("GITHUB_CLIENT_SECRET", "")
 	c.JWTSecret = getEnvOrDefault("JWT_SECRET", "") // Must be set in prod
+
+	// Client secret (self-hosters only - tunn.to leaves this empty)
+	c.ClientSecret = getEnvOrDefault("CLIENT_SECRET", "")
 
 	// Verify TLS in production
 	c.SkipVerify = false

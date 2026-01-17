@@ -256,7 +256,7 @@ Client dies if connection drops. No exponential backoff. No retry. Process just 
 
 ### P5 - Features
 
-21. [ ] Implement reconnection with exponential backoff
+21. [x] Implement reconnection with exponential backoff - **ADDED 2025-01-17**
 
 ---
 
@@ -294,4 +294,3 @@ The architecture is sound. The gRPC control plane works. HTTP/3 works. The data 
 - P0 (OAuth security) deferred - not core value prop, will address when fleshing out sharing feature
 - P2: Remove proto messages (breaking change - defer)
 - P4: Timeout tests (hard to test 30s timeout)
-- P5: Reconnection with exponential backoff

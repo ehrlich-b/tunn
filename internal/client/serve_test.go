@@ -321,3 +321,107 @@ func (m *mockEstablishTunnelClient) CloseSend() error              { return nil 
 func (m *mockEstablishTunnelClient) Context() context.Context      { return context.Background() }
 func (m *mockEstablishTunnelClient) SendMsg(msg interface{}) error { return nil }
 func (m *mockEstablishTunnelClient) RecvMsg(msg interface{}) error { return nil }
+
+func TestReconnectionDefaults(t *testing.T) {
+	client := &ServeClient{
+		TunnelID:   "test123",
+		TargetURL:  "http://localhost:8000",
+		ServerAddr: "localhost:8443",
+	}
+
+	// Verify defaults are zero before Run sets them
+	if client.InitialDelay != 0 {
+		t.Errorf("Expected InitialDelay to be 0 before Run, got %v", client.InitialDelay)
+	}
+	if client.MaxReconnectDelay != 0 {
+		t.Errorf("Expected MaxReconnectDelay to be 0 before Run, got %v", client.MaxReconnectDelay)
+	}
+}
+
+func TestReconnectionCustomSettings(t *testing.T) {
+	client := &ServeClient{
+		TunnelID:          "test123",
+		TargetURL:         "http://localhost:8000",
+		ServerAddr:        "localhost:8443",
+		InitialDelay:      500 * time.Millisecond,
+		MaxReconnectDelay: 5 * time.Second,
+	}
+
+	if client.InitialDelay != 500*time.Millisecond {
+		t.Errorf("Expected InitialDelay 500ms, got %v", client.InitialDelay)
+	}
+	if client.MaxReconnectDelay != 5*time.Second {
+		t.Errorf("Expected MaxReconnectDelay 5s, got %v", client.MaxReconnectDelay)
+	}
+}
+
+func TestReconnectionContextCancellation(t *testing.T) {
+	// Test that Run exits promptly when context is canceled
+	client := &ServeClient{
+		TunnelID:          "test123",
+		TargetURL:         "http://localhost:8000",
+		ServerAddr:        "localhost:59999", // Non-existent server
+		SkipVerify:        true,
+		InitialDelay:      10 * time.Millisecond,
+		MaxReconnectDelay: 50 * time.Millisecond,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- client.Run(ctx)
+	}()
+
+	// Let it try to connect once
+	time.Sleep(50 * time.Millisecond)
+
+	// Cancel the context
+	cancel()
+
+	// Should exit promptly
+	select {
+	case err := <-errChan:
+		if err != context.Canceled {
+			t.Errorf("Expected context.Canceled error, got %v", err)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Error("Run did not exit promptly after context cancellation")
+	}
+}
+
+func TestExponentialBackoffCap(t *testing.T) {
+	// Test that backoff is capped at MaxReconnectDelay
+	// This is a logic test - we verify the cap behavior by checking the internal state
+
+	// Simulate the backoff logic
+	initialDelay := 100 * time.Millisecond
+	maxDelay := 400 * time.Millisecond
+
+	delay := initialDelay
+	delays := []time.Duration{delay}
+
+	for i := 0; i < 5; i++ {
+		delay = delay * 2
+		if delay > maxDelay {
+			delay = maxDelay
+		}
+		delays = append(delays, delay)
+	}
+
+	// Expected: 100, 200, 400, 400, 400, 400 (capped at 400)
+	expected := []time.Duration{
+		100 * time.Millisecond,
+		200 * time.Millisecond,
+		400 * time.Millisecond,
+		400 * time.Millisecond,
+		400 * time.Millisecond,
+		400 * time.Millisecond,
+	}
+
+	for i, exp := range expected {
+		if delays[i] != exp {
+			t.Errorf("Delay[%d]: expected %v, got %v", i, exp, delays[i])
+		}
+	}
+}

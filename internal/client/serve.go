@@ -31,13 +31,65 @@ type ServeClient struct {
 	Protocol         string // "http", "udp", or "both"
 	UDPTargetAddress string // For UDP tunnels (e.g., "localhost:25565")
 
+	// Reconnection settings
+	MaxReconnectDelay time.Duration // Maximum delay between reconnects (default: 30s)
+	InitialDelay      time.Duration // Initial delay for exponential backoff (default: 1s)
+
 	// UDP connection management
 	udpConn *net.UDPConn
 	udpMu   sync.Mutex
 }
 
-// Run establishes a gRPC tunnel and handles control messages
+// Run establishes a gRPC tunnel with automatic reconnection on failure.
+// It will retry with exponential backoff until the context is canceled.
 func (s *ServeClient) Run(ctx context.Context) error {
+	// Set defaults for reconnection settings
+	if s.InitialDelay == 0 {
+		s.InitialDelay = 1 * time.Second
+	}
+	if s.MaxReconnectDelay == 0 {
+		s.MaxReconnectDelay = 30 * time.Second
+	}
+
+	delay := s.InitialDelay
+	attempts := 0
+
+	for {
+		attempts++
+		err := s.runOnce(ctx)
+
+		// Check if context was canceled (intentional shutdown)
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
+		// If runOnce returned nil (clean shutdown), exit
+		if err == nil {
+			return nil
+		}
+
+		// Log the error and prepare for reconnection
+		common.LogError("tunnel connection lost", "error", err, "attempt", attempts)
+
+		// Wait before reconnecting
+		common.LogInfo("reconnecting", "delay", delay.String())
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(delay):
+		}
+
+		// Exponential backoff with cap
+		delay = delay * 2
+		if delay > s.MaxReconnectDelay {
+			delay = s.MaxReconnectDelay
+		}
+	}
+}
+
+// runOnce establishes a single gRPC tunnel connection and handles messages until disconnection
+func (s *ServeClient) runOnce(ctx context.Context) error {
 	// Create TLS credentials
 	tlsConfig := &tls.Config{
 		InsecureSkipVerify: s.SkipVerify,

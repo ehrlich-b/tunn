@@ -428,21 +428,27 @@ a:hover { text-decoration: underline; }
 }
 .feature {
   background: rgba(255,255,255,0.1);
-  border-radius: 12px;
-  padding: 28px;
+  border-radius: 16px;
+  padding: 0;
   border: 1px solid rgba(255,255,255,0.15);
   backdrop-filter: blur(4px);
+  overflow: hidden;
 }
-.feature-icon {
-  width: 48px;
-  height: 48px;
-  background: rgba(255,255,255,0.2);
-  border-radius: 10px;
+.feature-visual {
+  height: 140px;
+  background: rgba(0,0,0,0.15);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 24px;
-  margin-bottom: 16px;
+  position: relative;
+  overflow: hidden;
+}
+.feature-visual svg {
+  width: 100%;
+  height: 100%;
+}
+.feature-content {
+  padding: 24px;
 }
 .feature h3 {
   font-size: 18px;
@@ -642,19 +648,63 @@ input:checked + .slider:before { transform: translateX(20px); }
     <p class="section-subtitle">Share your local dev environment securely with anyone, anywhere.</p>
     <div class="features-grid">
       <div class="feature">
-        <div class="feature-icon">👥</div>
-        <h3>Share with teammates</h3>
-        <p>Add emails to --allow and only those people can access your tunnel. Works like sharing a Google Doc—no tokens to copy, no passwords to remember. They log in with GitHub and they're in.</p>
+        <div class="feature-visual">
+          <svg viewBox="0 0 200 140" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="100" cy="45" r="22" fill="rgba(255,255,255,0.5)"/>
+            <circle cx="100" cy="45" r="14" fill="rgba(255,255,255,0.7)"/>
+            <path d="M100 72 C72 72 54 90 54 115 L146 115 C146 90 128 72 100 72Z" fill="rgba(255,255,255,0.5)"/>
+            <circle cx="42" cy="58" r="15" fill="rgba(255,255,255,0.35)"/>
+            <circle cx="42" cy="58" r="9" fill="rgba(255,255,255,0.5)"/>
+            <path d="M42 76 C24 76 12 90 12 108 L72 108 C72 90 60 76 42 76Z" fill="rgba(255,255,255,0.35)"/>
+            <circle cx="158" cy="58" r="15" fill="rgba(255,255,255,0.35)"/>
+            <circle cx="158" cy="58" r="9" fill="rgba(255,255,255,0.5)"/>
+            <path d="M158 76 C140 76 128 90 128 108 L188 108 C188 90 176 76 158 76Z" fill="rgba(255,255,255,0.35)"/>
+          </svg>
+        </div>
+        <div class="feature-content">
+          <h3>Share with teammates</h3>
+          <p>Specify who can access by email. Works like sharing a Google Doc. They log in with GitHub and they're in. No tokens, no passwords.</p>
+        </div>
       </div>
       <div class="feature">
-        <div class="feature-icon">🎯</div>
-        <h3>Demo to clients</h3>
-        <p>Show work in progress without deploying to staging. Share a link, get feedback instantly. Perfect for design reviews, bug reproductions, or showing off that feature you just finished.</p>
+        <div class="feature-visual">
+          <svg viewBox="0 0 200 140" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="35" y="18" width="130" height="82" rx="6" fill="rgba(255,255,255,0.6)"/>
+            <rect x="42" y="25" width="116" height="62" rx="2" fill="rgba(255,255,255,0.3)"/>
+            <rect x="85" y="100" width="30" height="6" fill="rgba(255,255,255,0.5)"/>
+            <rect x="70" y="106" width="60" height="4" rx="2" fill="rgba(255,255,255,0.4)"/>
+            <circle cx="70" cy="50" r="10" fill="rgba(255,255,255,0.5)"/>
+            <rect x="88" y="44" width="45" height="5" rx="2" fill="rgba(255,255,255,0.5)"/>
+            <rect x="88" y="53" width="32" height="4" rx="2" fill="rgba(255,255,255,0.4)"/>
+            <rect x="52" y="70" width="96" height="6" rx="2" fill="rgba(255,255,255,0.4)"/>
+            <rect x="52" y="80" width="70" height="4" rx="2" fill="rgba(255,255,255,0.3)"/>
+          </svg>
+        </div>
+        <div class="feature-content">
+          <h3>Demo to clients</h3>
+          <p>Show work in progress without deploying to staging. Share a link, get feedback instantly. Perfect for design reviews and bug reproductions.</p>
+        </div>
       </div>
       <div class="feature">
-        <div class="feature-icon">🔗</div>
-        <h3>Test webhooks locally</h3>
-        <p>Receive webhooks from Stripe, GitHub, Twilio, or any service directly on localhost. No more deploying just to test integrations. Just run tunn and point the webhook URL at your tunnel.</p>
+        <div class="feature-visual">
+          <svg viewBox="0 0 200 140" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M60 35 Q40 35 40 50 Q30 50 30 60 Q20 60 25 72 Q20 85 35 85 L85 85 Q100 85 95 72 Q100 60 90 60 Q90 50 80 50 Q80 35 60 35Z" fill="rgba(255,255,255,0.5)"/>
+            <rect x="120" y="50" width="60" height="45" rx="4" fill="rgba(255,255,255,0.5)"/>
+            <rect x="126" y="56" width="48" height="30" rx="2" fill="rgba(255,255,255,0.3)"/>
+            <rect x="140" y="95" width="20" height="4" fill="rgba(255,255,255,0.4)"/>
+            <rect x="132" y="99" width="36" height="3" rx="1" fill="rgba(255,255,255,0.35)"/>
+            <path d="M75 70 L105 70" stroke="rgba(255,255,255,0.6)" stroke-width="2" stroke-dasharray="4 2"/>
+            <polygon points="112,70 104,65 104,75" fill="rgba(255,255,255,0.6)"/>
+            <path d="M75 78 L105 90" stroke="rgba(255,255,255,0.4)" stroke-width="2" stroke-dasharray="4 2"/>
+            <polygon points="112,93 103,91 106,82" fill="rgba(255,255,255,0.4)"/>
+            <path d="M75 62 L105 50" stroke="rgba(255,255,255,0.4)" stroke-width="2" stroke-dasharray="4 2"/>
+            <polygon points="112,47 106,58 103,49" fill="rgba(255,255,255,0.4)"/>
+          </svg>
+        </div>
+        <div class="feature-content">
+          <h3>Test webhooks locally</h3>
+          <p>Receive webhooks from Stripe, GitHub, or Twilio directly on localhost. No more deploying just to test integrations.</p>
+        </div>
       </div>
     </div>
   </div>

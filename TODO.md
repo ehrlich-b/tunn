@@ -300,13 +300,26 @@ func isAllowed(sessionEmail string, allowList []string) bool {
 
 ---
 
+## Pre-Launch Code (Required)
+
+- [ ] **Account page + Stripe Checkout** - `/account` dashboard, "Upgrade to Pro" button creates Stripe Checkout session
+- [ ] **Rate limiting** (Free: 100 MB/month, Pro: 50 GB/month hard cap) - Per-account bandwidth tracking
+- [ ] **ToS and Privacy Policy pages** - Currently placeholder `#` links in footer
+- [x] **Sync page templates** - Login, error, success pages now match homepage look
+
+## Pre-Launch Manual Setup (Required)
+
+- [ ] GitHub OAuth App - Create app, get client ID/secret
+- [ ] SMTP provider - Configure for magic link emails
+- [ ] Fly.io deploy + DNS - Deploy app, configure tunn.to domain
+
+---
+
 ## Post-Launch (When Needed)
 
-- [ ] **Stripe checkout for Pro tier** - Homepage shows pricing but no way to pay!
-- [ ] ToS and Privacy Policy pages
 - [ ] Windows support - signal handling (`syscall.SIGTERM`), install script (PowerShell)
-- [ ] Rate limiting (Free: 100 MB/month, Pro: 50 GB/month hard cap)
-- [ ] Bandwidth tracking per user
+- [ ] Remote tunnel kill from dashboard
+- [ ] Bandwidth tracking UI in account page
 - [ ] Abuse handling (ban tunnels)
 - [ ] Enterprise tier (manual Stripe subscription for custom domains)
 - [ ] Homebrew formula (free, handles macOS trust)

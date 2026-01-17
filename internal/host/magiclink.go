@@ -100,16 +100,11 @@ func (p *ProxyServer) handleMagicLinkVerify(w http.ResponseWriter, r *http.Reque
 
 			// Show success page
 			w.Header().Set("Content-Type", "text/html")
-			fmt.Fprintf(w, `<!DOCTYPE html>
-<html>
-<head><title>Login Successful</title></head>
-<body style="font-family: system-ui, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0;">
-<div style="text-align: center;">
-<h1>Login Successful</h1>
-<p>You can close this window and return to your terminal.</p>
-</div>
-</body>
-</html>`)
+			writePageStart(w, "tunn - Login Successful")
+			fmt.Fprint(w, `<div class="message success">You're logged in!</div>
+<h1 class="page-title">Login Successful</h1>
+<p class="page-subtitle">You can close this window and return to your terminal.</p>`)
+			writePageEnd(w)
 			return
 		}
 	}

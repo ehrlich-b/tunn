@@ -52,17 +52,32 @@ Logged in as alice@example.com
       - Example: `tunn 8080 --allow @slide.com,external@gmail.com`
       - **Pro feature:** Free tier limited to 3 exact emails, no @domain wildcards
 
+### Integration Testing
+
+See **[integration_test_framework.md](integration_test_framework.md)** for full details.
+
+**Required code changes:**
+- [ ] Make HTTP ports configurable (`HTTP2_ADDR`, `HTTP3_ADDR` env vars)
+- [ ] Add test-only `/api/test/authorize-device` endpoint (dev mode only)
+- [ ] Create `scripts/gen-test-certs.sh` for localhost wildcard certs
+
+**Test scenarios:**
+- [ ] **Smoke test** - Single node, PUBLIC_MODE, basic tunnel flow
+- [ ] **Device login E2E** - Full device code flow without real browser
+- [ ] **Multi-node gRPC** - Two nodes discovering tunnels across mesh
+- [ ] **Full auth flow** - Allow-list enforcement, domain wildcards
+
 ### CI/CD (Before Infrastructure)
-8. [ ] **GitHub Actions for releases** - Build binaries for darwin-amd64, darwin-arm64, linux-amd64
-9. [ ] **Create install.sh** - README promises `curl -fsSL https://tunn.to/install.sh | sh`
+9. [ ] **GitHub Actions for releases** - Build binaries for darwin-amd64, darwin-arm64, linux-amd64
+10. [ ] **Create install.sh** - README promises `curl -fsSL https://tunn.to/install.sh | sh`
 
 ### Infrastructure
-10. [ ] **Deploy to Fly.io** - Get the app running
-11. [ ] **Set up tunn.to DNS** - Point domain to Fly (Cloudflare DNS-only)
-12. [ ] **Serve install.sh from app** - Static route at `/install.sh`
+11. [ ] **Deploy to Fly.io** - Get the app running
+12. [ ] **Set up tunn.to DNS** - Point domain to Fly (Cloudflare DNS-only)
+13. [ ] **Serve install.sh from app** - Static route at `/install.sh`
 
 ### Marketing & Homepage
-13. [ ] **Create tunn.to homepage** - ntfy.sh inspired, simple dev-focused
+14. [ ] **Create tunn.to homepage** - ntfy.sh inspired, simple dev-focused
       - Hero: one-liner + install command
       - Live demo or GIF
       - Pricing table (Free / Pro $4/mo / Enterprise contact)

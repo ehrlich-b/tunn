@@ -795,6 +795,7 @@ tunn -mode=host -domain=tunnel.yourcompany.com</pre>
       <h4>Legal</h4>
       <a href="#">Privacy</a>
       <a href="#">Terms</a>
+      <a href="mailto:abuse@tunn.to">Abuse</a>
     </div>
   </div>
   <div class="footer-bottom">

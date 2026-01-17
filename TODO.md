@@ -302,8 +302,9 @@ func isAllowed(sessionEmail string, allowList []string) bool {
 
 ## Post-Launch (When Needed)
 
+- [ ] **Stripe checkout for Pro tier** - Homepage shows pricing but no way to pay!
 - [ ] ToS and Privacy Policy pages
-- [ ] Stripe checkout for Pro tier ($4/month or $40/year)
+- [ ] Windows support - signal handling (`syscall.SIGTERM`), install script (PowerShell)
 - [ ] Rate limiting (Free: 100 MB/month, Pro: 50 GB/month hard cap)
 - [ ] Bandwidth tracking per user
 - [ ] Abuse handling (ban tunnels)

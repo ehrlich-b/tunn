@@ -453,6 +453,7 @@ func (p *ProxyServer) createHandler() http.Handler {
 
 	// Auth endpoints (no auth required on these)
 	mux.HandleFunc("/auth/login", p.handleLogin)
+	mux.HandleFunc("/auth/github", p.handleGitHubLogin)
 	mux.HandleFunc("/auth/callback", p.handleCallback)
 	mux.HandleFunc("/auth/magic", p.handleMagicLinkRequest)
 	mux.HandleFunc("/auth/verify", p.handleMagicLinkVerify)

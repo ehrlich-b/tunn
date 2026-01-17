@@ -401,34 +401,56 @@ a:hover { text-decoration: underline; }
 
 /* Features */
 .features {
-  padding: 64px 0;
-  background: #f6f8fa;
+  padding: 72px 0;
+  background: linear-gradient(135deg, #0969da 0%, #0550ae 100%);
+  color: white;
 }
 .features h2 {
-  font-size: 28px;
+  font-size: 32px;
   font-weight: 700;
   text-align: center;
-  margin-bottom: 40px;
-  color: #1f2328;
+  margin-bottom: 16px;
+  color: white;
+}
+.features .section-subtitle {
+  text-align: center;
+  font-size: 18px;
+  color: rgba(255,255,255,0.85);
+  margin-bottom: 48px;
+  max-width: 500px;
+  margin-left: auto;
+  margin-right: auto;
 }
 .features-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 20px;
+  gap: 24px;
 }
 .feature {
-  background: white;
+  background: rgba(255,255,255,0.1);
+  border-radius: 12px;
+  padding: 28px;
+  border: 1px solid rgba(255,255,255,0.15);
+  backdrop-filter: blur(4px);
+}
+.feature-icon {
+  width: 48px;
+  height: 48px;
+  background: rgba(255,255,255,0.2);
   border-radius: 10px;
-  padding: 24px;
-  border: 1px solid #e5e7eb;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  margin-bottom: 16px;
 }
 .feature h3 {
-  font-size: 15px;
+  font-size: 18px;
   font-weight: 600;
-  margin-bottom: 8px;
-  color: #0969da;
+  margin-bottom: 12px;
+  color: white;
 }
-.feature p { font-size: 14px; color: #57606a; line-height: 1.5; }
+.feature p { font-size: 15px; color: rgba(255,255,255,0.85); line-height: 1.6; }
 
 /* Pricing */
 .pricing { padding: 64px 0; }
@@ -617,18 +639,22 @@ input:checked + .slider:before { transform: translateX(20px); }
 <section class="features" id="features">
   <div class="container">
     <h2>Built for developers</h2>
+    <p class="section-subtitle">Share your local dev environment securely with anyone, anywhere.</p>
     <div class="features-grid">
       <div class="feature">
+        <div class="feature-icon">👥</div>
         <h3>Share with teammates</h3>
-        <p>Add emails to --allow and only those people can access. No tokens to pass around.</p>
+        <p>Add emails to --allow and only those people can access your tunnel. Works like sharing a Google Doc—no tokens to copy, no passwords to remember. They log in with GitHub and they're in.</p>
       </div>
       <div class="feature">
+        <div class="feature-icon">🎯</div>
         <h3>Demo to clients</h3>
-        <p>Show work in progress without deploying. Share a link and get feedback instantly.</p>
+        <p>Show work in progress without deploying to staging. Share a link, get feedback instantly. Perfect for design reviews, bug reproductions, or showing off that feature you just finished.</p>
       </div>
       <div class="feature">
-        <h3>Test webhooks</h3>
-        <p>Receive Stripe, GitHub, or Twilio webhooks on localhost. Zero config.</p>
+        <div class="feature-icon">🔗</div>
+        <h3>Test webhooks locally</h3>
+        <p>Receive webhooks from Stripe, GitHub, Twilio, or any service directly on localhost. No more deploying just to test integrations. Just run tunn and point the webhook URL at your tunnel.</p>
       </div>
     </div>
   </div>

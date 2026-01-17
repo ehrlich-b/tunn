@@ -22,15 +22,119 @@ const (
 	githubEmailsURL    = "https://api.github.com/user/emails"
 )
 
-// handleLogin initiates the GitHub OAuth flow
+// handleLogin shows the login page with OAuth and email options
 func (p *ProxyServer) handleLogin(w http.ResponseWriter, r *http.Request) {
+	// In dev mode with mock OIDC, skip to mock login directly
+	if p.config.GitHubClientID == "" && p.config.IsDev() && p.config.MockOIDCIssuer != "" {
+		p.handleMockLogin(w, r)
+		return
+	}
+
+	// Store return_to in session for after auth
+	returnTo := r.URL.Query().Get("return_to")
+	if returnTo == "" {
+		returnTo = "/"
+	}
+	p.sessionManager.Put(r.Context(), "return_to", returnTo)
+
+	// Build login page
+	hasGitHub := p.config.GitHubClientID != ""
+	hasEmail := p.emailSender != nil
+
+	w.Header().Set("Content-Type", "text/html")
+	fmt.Fprintf(w, `<!DOCTYPE html>
+<html>
+<head>
+<title>tunn - Login</title>
+<style>
+body { font-family: ui-monospace, "SF Mono", Monaco, "Cascadia Code", monospace; background: #0d1117; color: #c9d1d9; margin: 0; padding: 40px; }
+.container { max-width: 400px; margin: 80px auto; }
+.logo { font-size: 24px; font-weight: bold; color: #58a6ff; margin-bottom: 32px; }
+h1 { font-size: 20px; font-weight: normal; margin: 0 0 24px 0; }
+.btn { display: block; width: 100%%; padding: 12px 16px; border-radius: 6px; text-decoration: none; text-align: center; font-size: 14px; font-family: inherit; cursor: pointer; box-sizing: border-box; margin-bottom: 12px; }
+.btn-github { background: #238636; color: white; border: none; }
+.btn-github:hover { background: #2ea043; }
+.divider { display: flex; align-items: center; margin: 20px 0; color: #8b949e; }
+.divider::before, .divider::after { content: ''; flex: 1; border-bottom: 1px solid #30363d; }
+.divider span { padding: 0 16px; font-size: 12px; }
+input[type="email"] { width: 100%%; padding: 12px 16px; background: #161b22; border: 1px solid #30363d; border-radius: 6px; color: #c9d1d9; font-size: 14px; font-family: inherit; box-sizing: border-box; margin-bottom: 12px; }
+input[type="email"]:focus { outline: none; border-color: #58a6ff; }
+.btn-email { background: #21262d; color: #c9d1d9; border: 1px solid #30363d; }
+.btn-email:hover { background: #30363d; }
+.message { padding: 12px; border-radius: 6px; margin-bottom: 16px; font-size: 14px; }
+.message.success { background: #238636; color: white; }
+.message.error { background: #da3633; color: white; }
+</style>
+</head>
+<body>
+<div class="container">
+<div class="logo">tunn</div>
+<h1>Sign in to continue</h1>
+<div id="message"></div>`)
+
+	if hasGitHub {
+		fmt.Fprintf(w, `<a href="/auth/github?return_to=%s" class="btn btn-github">Continue with GitHub</a>`, url.QueryEscape(returnTo))
+	}
+
+	if hasGitHub && hasEmail {
+		fmt.Fprint(w, `<div class="divider"><span>or</span></div>`)
+	}
+
+	if hasEmail {
+		fmt.Fprint(w, `
+<form id="email-form">
+<input type="email" name="email" placeholder="you@example.com" required>
+<button type="submit" class="btn btn-email">Continue with Email</button>
+</form>
+<script>
+document.getElementById('email-form').addEventListener('submit', async (e) => {
+	e.preventDefault();
+	const email = e.target.email.value;
+	const msgEl = document.getElementById('message');
+	const btn = e.target.querySelector('button');
+	btn.disabled = true;
+	btn.textContent = 'Sending...';
+	try {
+		const resp = await fetch('/auth/magic', {
+			method: 'POST',
+			headers: {'Content-Type': 'application/json'},
+			body: JSON.stringify({email})
+		});
+		if (resp.ok) {
+			msgEl.className = 'message success';
+			msgEl.textContent = 'Check your email for a login link!';
+			e.target.style.display = 'none';
+		} else {
+			const data = await resp.text();
+			msgEl.className = 'message error';
+			msgEl.textContent = data || 'Failed to send email';
+			btn.disabled = false;
+			btn.textContent = 'Continue with Email';
+		}
+	} catch (err) {
+		msgEl.className = 'message error';
+		msgEl.textContent = 'Network error';
+		btn.disabled = false;
+		btn.textContent = 'Continue with Email';
+	}
+});
+</script>`)
+	}
+
+	if !hasGitHub && !hasEmail {
+		fmt.Fprint(w, `<p style="color: #8b949e;">No login methods configured. Contact your administrator.</p>`)
+	}
+
+	fmt.Fprint(w, `
+</div>
+</body>
+</html>`)
+}
+
+// handleGitHubLogin initiates the GitHub OAuth flow
+func (p *ProxyServer) handleGitHubLogin(w http.ResponseWriter, r *http.Request) {
 	// Check if GitHub OAuth is configured
 	if p.config.GitHubClientID == "" {
-		// Fall back to mock OIDC in dev mode
-		if p.config.IsDev() && p.config.MockOIDCIssuer != "" {
-			p.handleMockLogin(w, r)
-			return
-		}
 		common.LogError("GitHub OAuth not configured")
 		http.Error(w, "OAuth not configured", http.StatusInternalServerError)
 		return
@@ -47,8 +151,11 @@ func (p *ProxyServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 	// Store state in session
 	p.sessionManager.Put(r.Context(), "oauth_state", state)
 
-	// Store original URL to redirect back after auth
+	// Store original URL to redirect back after auth (from query or session)
 	returnTo := r.URL.Query().Get("return_to")
+	if returnTo == "" {
+		returnTo = p.sessionManager.GetString(r.Context(), "return_to")
+	}
 	if returnTo == "" {
 		returnTo = "/"
 	}

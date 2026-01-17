@@ -119,12 +119,12 @@ func (p *ProxyServer) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Store device code in session for after OAuth
+	// Store device code in session for after OAuth/magic link
 	if userCode != "" {
 		p.sessionManager.Put(r.Context(), "device_user_code", userCode)
 	}
 
-	// Build GitHub OAuth URL and redirect
+	// Show the login page (with both GitHub and email options)
 	p.handleLogin(w, r)
 }
 

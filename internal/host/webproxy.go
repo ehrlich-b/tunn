@@ -688,7 +688,7 @@ input:checked + .slider:before { transform: translateX(20px); }
       <div class="feature">
         <div class="feature-visual">
           <svg viewBox="0 0 200 140" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M60 35 Q40 35 40 50 Q30 50 30 60 Q20 60 25 72 Q20 85 35 85 L85 85 Q100 85 95 72 Q100 60 90 60 Q90 50 80 50 Q80 35 60 35Z" fill="rgba(255,255,255,0.5)"/>
+            <path d="M60 45 Q40 45 40 60 Q30 60 30 70 Q20 70 25 82 Q20 95 35 95 L85 95 Q100 95 95 82 Q100 70 90 70 Q90 60 80 60 Q80 45 60 45Z" fill="rgba(255,255,255,0.5)"/>
             <rect x="120" y="48" width="60" height="45" rx="4" fill="rgba(255,255,255,0.5)"/>
             <rect x="126" y="54" width="48" height="30" rx="2" fill="rgba(255,255,255,0.3)"/>
             <rect x="140" y="93" width="20" height="4" fill="rgba(255,255,255,0.4)"/>

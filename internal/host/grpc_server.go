@@ -9,9 +9,11 @@ import (
 
 	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/ehrlich-b/tunn/internal/config"
+	"github.com/ehrlich-b/tunn/internal/storage"
 	"github.com/ehrlich-b/tunn/internal/store"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
 	"github.com/golang-jwt/jwt/v4"
+	"golang.org/x/time/rate"
 )
 
 // reservedSubdomains are blocked to prevent phishing and squatting
@@ -59,9 +61,16 @@ type TunnelServer struct {
 	mu         sync.RWMutex
 	tunnels    map[string]*TunnelConnection
 	cfg        *config.Config
-	userTokens map[string]string   // email -> token from users.yaml
-	accounts   *store.AccountStore // Account storage for subdomain reservations
+	userTokens map[string]string     // email -> token from users.yaml
+	accounts   *store.AccountStore   // Account storage for subdomain reservations
+	storage    storage.Storage       // Unified storage for tunnel registration/limits
 }
+
+// Bandwidth limits per plan (Mbps)
+const (
+	FreeBandwidthMbps = 100 // 100 Mbps = ~12.5 MB/s
+	ProBandwidthMbps  = 250 // 250 Mbps = ~31.25 MB/s
+)
 
 // TunnelConnection represents an active tunnel connection
 type TunnelConnection struct {
@@ -71,6 +80,10 @@ type TunnelConnection struct {
 	Connected     time.Time
 	CreatorEmail  string
 	AllowedEmails []string // Includes creator_email + any additional allowed emails
+	Plan          string   // "free" or "pro" - cached for quota checks
+
+	// Bandwidth rate limiter (token bucket)
+	rateLimiter *rate.Limiter
 
 	// HTTP request tracking
 	pendingMu       sync.RWMutex
@@ -85,8 +98,35 @@ type TunnelConnection struct {
 	UDPTargetAddress string // For UDP tunnels
 }
 
+// CheckRateLimit checks if the specified number of bytes can be sent.
+// Returns true if allowed, false if rate limited.
+func (t *TunnelConnection) CheckRateLimit(bytes int) bool {
+	if t.rateLimiter == nil {
+		return true // No rate limiter configured
+	}
+	return t.rateLimiter.AllowN(time.Now(), bytes)
+}
+
+// newRateLimiter creates a rate limiter for the given plan.
+// Returns nil if rate limiting is disabled.
+func newRateLimiter(plan string) *rate.Limiter {
+	var mbps int
+	switch plan {
+	case "pro":
+		mbps = ProBandwidthMbps
+	default:
+		mbps = FreeBandwidthMbps
+	}
+
+	// Convert Mbps to bytes/sec: mbps * 1,000,000 / 8
+	bytesPerSec := mbps * 1_000_000 / 8
+
+	// Create limiter with 1 second burst allowance
+	return rate.NewLimiter(rate.Limit(bytesPerSec), bytesPerSec)
+}
+
 // NewTunnelServer creates a new gRPC tunnel server
-func NewTunnelServer(cfg *config.Config, userTokens map[string]string, accounts *store.AccountStore) *TunnelServer {
+func NewTunnelServer(cfg *config.Config, userTokens map[string]string, accounts *store.AccountStore, store storage.Storage) *TunnelServer {
 	if userTokens == nil {
 		userTokens = make(map[string]string)
 	}
@@ -95,6 +135,7 @@ func NewTunnelServer(cfg *config.Config, userTokens map[string]string, accounts 
 		cfg:        cfg,
 		userTokens: userTokens,
 		accounts:   accounts,
+		storage:    store,
 	}
 }
 
@@ -270,6 +311,14 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		protocol = "http"
 	}
 
+	// Look up plan for quota enforcement (default to "free" if lookup fails)
+	plan := "free"
+	if s.accounts != nil && creatorEmail != "" {
+		if account, err := s.accounts.GetByEmail(creatorEmail); err == nil && account != nil {
+			plan = account.Plan
+		}
+	}
+
 	// Create tunnel connection
 	conn := &TunnelConnection{
 		TunnelID:         tunnelID,
@@ -278,13 +327,15 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		Connected:        time.Now(),
 		CreatorEmail:     creatorEmail,
 		AllowedEmails:    allowedEmails,
+		Plan:             plan,
+		rateLimiter:      newRateLimiter(plan),
 		pendingRequests:  make(map[string]chan *pb.HttpResponse),
 		udpResponses:     make(map[string]chan []byte),
 		Protocol:         protocol,
 		UDPTargetAddress: regClient.UdpTargetAddress,
 	}
 
-	// Register the tunnel
+	// Register the tunnel with limit checking
 	s.mu.Lock()
 	if _, exists := s.tunnels[tunnelID]; exists {
 		s.mu.Unlock()
@@ -300,6 +351,28 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		stream.Send(respMsg)
 		return fmt.Errorf("tunnel ID %s already registered", tunnelID)
 	}
+
+	// Check concurrent tunnel limit (per-node for now)
+	maxTunnels := storage.FreeTunnelLimit
+	if plan == "pro" {
+		maxTunnels = storage.ProTunnelLimit
+	}
+	currentCount := s.countTunnelsForEmail(creatorEmail)
+	if currentCount >= maxTunnels {
+		s.mu.Unlock()
+		respMsg := &pb.TunnelMessage{
+			Message: &pb.TunnelMessage_RegisterResponse{
+				RegisterResponse: &pb.RegisterResponse{
+					Success:      false,
+					ErrorMessage: fmt.Sprintf("tunnel limit reached (%d/%d)", currentCount, maxTunnels),
+				},
+			},
+		}
+		stream.Send(respMsg)
+		common.LogInfo("tunnel limit reached", "email", creatorEmail, "count", currentCount, "max", maxTunnels)
+		return fmt.Errorf("tunnel limit reached for %s", creatorEmail)
+	}
+
 	s.tunnels[tunnelID] = conn
 	s.mu.Unlock()
 
@@ -446,6 +519,18 @@ func (s *TunnelServer) GetActiveTunnelCount() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return len(s.tunnels)
+}
+
+// countTunnelsForEmail counts active tunnels owned by a specific email.
+// Must be called with s.mu held (read or write lock).
+func (s *TunnelServer) countTunnelsForEmail(email string) int {
+	count := 0
+	for _, conn := range s.tunnels {
+		if conn.CreatorEmail == email {
+			count++
+		}
+	}
+	return count
 }
 
 // validateUserToken checks if a token matches any user in users.yaml

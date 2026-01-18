@@ -21,7 +21,7 @@ func internalTestConfig() *config.Config {
 }
 
 func TestNewInternalServer(t *testing.T) {
-	tunnelServer := NewTunnelServer(internalTestConfig(), nil, nil)
+	tunnelServer := NewTunnelServer(internalTestConfig(), nil, nil, nil)
 	internalServer := NewInternalServer(tunnelServer, "node1.tunn.to:50051", false)
 
 	if internalServer == nil {
@@ -36,7 +36,7 @@ func TestNewInternalServer(t *testing.T) {
 }
 
 func TestFindTunnelExists(t *testing.T) {
-	tunnelServer := NewTunnelServer(internalTestConfig(), nil, nil)
+	tunnelServer := NewTunnelServer(internalTestConfig(), nil, nil, nil)
 	internalServer := NewInternalServer(tunnelServer, "node1.tunn.to:50051", false)
 
 	// Add a tunnel directly
@@ -66,7 +66,7 @@ func TestFindTunnelExists(t *testing.T) {
 }
 
 func TestFindTunnelNotExists(t *testing.T) {
-	tunnelServer := NewTunnelServer(internalTestConfig(), nil, nil)
+	tunnelServer := NewTunnelServer(internalTestConfig(), nil, nil, nil)
 	internalServer := NewInternalServer(tunnelServer, "node1.tunn.to:50051", false)
 
 	// Test finding a non-existent tunnel
@@ -87,7 +87,7 @@ func TestFindTunnelNotExists(t *testing.T) {
 }
 
 func TestForwardUdpPacketTunnelNotFound(t *testing.T) {
-	tunnelServer := NewTunnelServer(internalTestConfig(), nil, nil)
+	tunnelServer := NewTunnelServer(internalTestConfig(), nil, nil, nil)
 	internalServer := NewInternalServer(tunnelServer, "node1.tunn.to:50051", false)
 
 	req := &internalv1.ForwardUdpPacketRequest{
@@ -110,7 +110,7 @@ func TestForwardUdpPacketTunnelNotFound(t *testing.T) {
 }
 
 func TestForwardUdpPacketSendError(t *testing.T) {
-	tunnelServer := NewTunnelServer(internalTestConfig(), nil, nil)
+	tunnelServer := NewTunnelServer(internalTestConfig(), nil, nil, nil)
 	internalServer := NewInternalServer(tunnelServer, "node1.tunn.to:50051", false)
 
 	// Create a mock stream that fails on Send
@@ -148,7 +148,7 @@ func TestForwardUdpPacketSendError(t *testing.T) {
 }
 
 func TestForwardUdpPacketContextCancelled(t *testing.T) {
-	tunnelServer := NewTunnelServer(internalTestConfig(), nil, nil)
+	tunnelServer := NewTunnelServer(internalTestConfig(), nil, nil, nil)
 	internalServer := NewInternalServer(tunnelServer, "node1.tunn.to:50051", false)
 
 	// Create a mock stream that succeeds on Send

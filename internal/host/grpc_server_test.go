@@ -24,7 +24,7 @@ func testConfig() *config.Config {
 }
 
 func TestNewTunnelServer(t *testing.T) {
-	srv := NewTunnelServer(testConfig(), nil, nil)
+	srv := NewTunnelServer(testConfig(), nil, nil, nil)
 	if srv == nil {
 		t.Fatal("Expected non-nil server")
 	}
@@ -39,7 +39,7 @@ func TestNewTunnelServer(t *testing.T) {
 }
 
 func TestTunnelServerRegistration(t *testing.T) {
-	srv := NewTunnelServer(testConfig(), nil, nil)
+	srv := NewTunnelServer(testConfig(), nil, nil, nil)
 
 	// Create a mock stream
 	stream := &mockTunnelStream{
@@ -107,7 +107,7 @@ func TestTunnelServerRegistration(t *testing.T) {
 }
 
 func TestTunnelServerDuplicateRegistration(t *testing.T) {
-	srv := NewTunnelServer(testConfig(), nil, nil)
+	srv := NewTunnelServer(testConfig(), nil, nil, nil)
 
 	// First stream
 	stream1 := &mockTunnelStream{
@@ -177,7 +177,7 @@ func TestTunnelServerDuplicateRegistration(t *testing.T) {
 }
 
 func TestGetTunnel(t *testing.T) {
-	srv := NewTunnelServer(testConfig(), nil, nil)
+	srv := NewTunnelServer(testConfig(), nil, nil, nil)
 
 	// Add a tunnel directly
 	conn := &TunnelConnection{
@@ -208,7 +208,7 @@ func TestGetTunnel(t *testing.T) {
 }
 
 func TestListTunnels(t *testing.T) {
-	srv := NewTunnelServer(testConfig(), nil, nil)
+	srv := NewTunnelServer(testConfig(), nil, nil, nil)
 
 	// Add multiple tunnels
 	for i := 0; i < 3; i++ {
@@ -294,7 +294,7 @@ func TestIsReservedSubdomain(t *testing.T) {
 }
 
 func TestTunnelServerReservedSubdomain(t *testing.T) {
-	srv := NewTunnelServer(testConfig(), nil, nil)
+	srv := NewTunnelServer(testConfig(), nil, nil, nil)
 
 	stream := &mockTunnelStream{
 		recvQueue: make(chan *pb.TunnelMessage, 10),
@@ -341,7 +341,7 @@ func TestTunnelServerClientSecretAuth(t *testing.T) {
 	// Server with client secret configured
 	cfg := testConfig()
 	cfg.ClientSecret = "my-secret-key"
-	srv := NewTunnelServer(cfg, nil, nil)
+	srv := NewTunnelServer(cfg, nil, nil, nil)
 
 	// Test 1: Valid client secret should work
 	stream := &mockTunnelStream{
@@ -409,7 +409,7 @@ func TestTunnelServerUserTokenAuth(t *testing.T) {
 		"alice@example.com": "tunn_sk_alice123",
 		"bob@example.com":   "tunn_sk_bob456",
 	}
-	srv := NewTunnelServer(testConfig(), userTokens, nil)
+	srv := NewTunnelServer(testConfig(), userTokens, nil, nil)
 
 	// Test: Valid user token should work
 	stream := &mockTunnelStream{
@@ -450,7 +450,7 @@ func TestTunnelServerUserTokenAuth(t *testing.T) {
 
 func TestTunnelServerRejectsForgedJWT(t *testing.T) {
 	// Server with JWT secret configured
-	srv := NewTunnelServer(testConfig(), nil, nil)
+	srv := NewTunnelServer(testConfig(), nil, nil, nil)
 
 	// Create a forged JWT (signed with wrong key)
 	// This simulates an attacker trying to claim they're a different user
@@ -501,7 +501,7 @@ func TestTunnelServerRejectsForgedJWT(t *testing.T) {
 func TestTunnelServerAcceptsValidJWT(t *testing.T) {
 	// Create a valid JWT signed with the test secret
 	cfg := testConfig()
-	srv := NewTunnelServer(cfg, nil, nil)
+	srv := NewTunnelServer(cfg, nil, nil, nil)
 
 	// Create a properly signed JWT
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{

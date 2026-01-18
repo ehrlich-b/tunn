@@ -143,10 +143,11 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 
 	// Check quota before proxying (skip in public mode since there's no creator to bill)
 	if !p.config.PublicMode && tunnel.CreatorEmail != "" {
-		if !p.CheckQuota(r.Context(), tunnel.CreatorEmail, "free") {
+		if !p.CheckQuota(r.Context(), tunnel.CreatorEmail, tunnel.Plan) {
 			common.LogInfo("quota exceeded, rejecting request",
 				"tunnel_id", tunnelID,
-				"creator", tunnel.CreatorEmail)
+				"creator", tunnel.CreatorEmail,
+				"plan", tunnel.Plan)
 			http.Error(w, "Quota exceeded - tunnel owner's monthly limit reached", http.StatusTooManyRequests)
 			return
 		}
@@ -224,6 +225,17 @@ func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, 
 	timeout := 30 * time.Second
 	select {
 	case httpResp := <-respChan:
+		// Check bandwidth rate limit (request + response)
+		totalSize := len(body) + len(httpResp.Body)
+		if !tunnel.CheckRateLimit(totalSize) {
+			common.LogInfo("bandwidth rate limit exceeded",
+				"connection_id", connectionID,
+				"tunnel_id", tunnel.TunnelID,
+				"bytes", totalSize)
+			http.Error(w, "Bandwidth rate limit exceeded", http.StatusTooManyRequests)
+			return nil // Return nil - we handled the error by sending 429
+		}
+
 		// Write response headers
 		for key, value := range httpResp.Headers {
 			w.Header().Set(key, value)
@@ -244,8 +256,7 @@ func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, 
 
 		// Record usage (request body + response body)
 		if tunnel.CreatorEmail != "" {
-			totalBytes := int64(len(body) + len(httpResp.Body))
-			p.RecordUsage(r.Context(), tunnel.CreatorEmail, totalBytes)
+			p.RecordUsage(r.Context(), tunnel.CreatorEmail, int64(totalSize))
 		}
 
 		return nil

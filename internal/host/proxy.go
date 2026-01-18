@@ -142,7 +142,7 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 
 	// Create gRPC server for public tunnel control plane
 	grpcServer := grpc.NewServer()
-	tunnelServer := NewTunnelServer(cfg, userTokens, accounts)
+	tunnelServer := NewTunnelServer(cfg, userTokens, accounts, storageImpl)
 	pb.RegisterTunnelServiceServer(grpcServer, tunnelServer)
 
 	// Create gRPC server for internal node-to-node communication
@@ -902,18 +902,38 @@ func (p *ProxyServer) usageFlushLoop(ctx context.Context) {
 
 // RecordUsage records bandwidth usage with graceful degradation.
 // If storage is available, records directly. Otherwise buffers locally.
+// Triggers immediate flush if buffered usage exceeds threshold (20 MB).
 func (p *ProxyServer) RecordUsage(ctx context.Context, accountID string, bytes int64) {
 	if p.storage.Available() {
 		if err := p.storage.RecordUsage(ctx, accountID, bytes); err != nil {
 			// Storage call failed - buffer instead
 			common.LogError("failed to record usage, buffering", "account_id", accountID, "bytes", bytes, "error", err)
-			p.usageBuffer.Add(accountID, bytes)
+			if p.usageBuffer.Add(accountID, bytes) {
+				// Threshold exceeded - try to flush immediately
+				go p.flushUsageBuffer(ctx)
+			}
 		}
 		return
 	}
 
 	// Storage not available - buffer locally
-	p.usageBuffer.Add(accountID, bytes)
+	if p.usageBuffer.Add(accountID, bytes) {
+		// Threshold exceeded - try to flush (will retry if storage becomes available)
+		go p.flushUsageBuffer(ctx)
+	}
+}
+
+// flushUsageBuffer attempts to flush buffered usage to storage.
+func (p *ProxyServer) flushUsageBuffer(ctx context.Context) {
+	if !p.storage.Available() {
+		return
+	}
+	flushed, err := p.usageBuffer.Flush(ctx, p.storage)
+	if err != nil {
+		common.LogError("threshold flush failed", "error", err)
+	} else if flushed > 0 {
+		common.LogInfo("threshold flush completed", "accounts", flushed)
+	}
 }
 
 // CheckQuota checks if an account is within its usage quota.

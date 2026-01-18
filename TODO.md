@@ -356,6 +356,41 @@ func isAllowed(sessionEmail string, allowList []string) bool {
       - 20 MB threshold flush, 30 sec quota refresh
       - **Depends on Login Node architecture**
 
+### Rate Limiting Issues (2025-01-18 Audit)
+
+**Priority fixes before launch:**
+
+1. [x] **[CRITICAL] Pro users treated as free** - Fixed
+      - Was: `CheckQuota(ctx, email, "free")` hardcoded "free" plan
+      - **Fixed:** Look up plan at tunnel registration, cache in TunnelConnection.Plan
+
+2. [x] **[HIGH] No per-tunnel bandwidth rate limiting** - Implemented
+      - Design: 100 Mbps (free) / 250 Mbps (pro) per tunnel via token bucket
+      - **Implemented:** `golang.org/x/time/rate` token bucket in TunnelConnection.rateLimiter
+      - Check before writing response in webproxy.go
+
+3. [x] **[MEDIUM] No concurrent tunnel limit** - Implemented (per-node)
+      - Design: 3 tunnels (free) / 10 tunnels (pro)
+      - **Implemented:** Per-node counting in TunnelServer.countTunnelsForEmail()
+      - Note: Multi-node tracking would need cross-node coordination (future)
+
+4. [x] **[MEDIUM] accountID vs email inconsistency** - Reviewed, acceptable for V1
+      - Usage recorded by `tunnel.CreatorEmail` (email string)
+      - Design uses account UUIDs
+      - **Known limitation:** Multiple emails in one account bucket get separate quotas
+      - **V1 risk:** Low - most users have 1 primary email (from GitHub OAuth)
+      - **Attack vector:** Need multiple GitHub accounts with different emails
+      - **Future fix:** Look up account ID from email, use UUID for usage tracking
+
+5. [x] **[LOW] Missing threshold flush** - Implemented
+      - Design: Flush when accumulated > 20 MB (limits single-node overage)
+      - **Implemented:** UsageBuffer.Add returns true when threshold exceeded
+      - RecordUsage triggers async flush when threshold hit
+
+**Accepted risks (per design doc):**
+- Fail-open during login node outage (intentional to not block paying customers)
+- 30-second multi-node overage window (~1.1 GiB max = $0.02)
+
 ### Features
 
 - [ ] **Account page + Stripe Checkout** - `/account` dashboard, "Upgrade to Pro" button creates Stripe Checkout session

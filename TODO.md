@@ -366,6 +366,12 @@ func isAllowed(sessionEmail string, allowList []string) bool {
 - [ ] **.env file support** - Load config from `.env` file (standard dotenv format), simpler than env vars for self-hosters
 - [ ] **Prefix all env vars with TUNN_** - Standardize env var names (e.g., `TUNN_JWT_SECRET`, `TUNN_NODE_SECRET`)
 - [ ] **Support double-dash flags** - Fix flag parsing to properly handle `--flag` style in subcommands
+- [ ] **Hide raw UDP support** - Don't advertise `tunn connect` (raw UDP ingress)
+      - Port scarcity problem unsolved (65k ports globally vs infinite subdomains)
+      - Multi-node routing probably broken (no Host header equivalent)
+      - No auth story for "dumb UDP clients"
+      - Leave code in place, just don't document/expose
+      - Pro UDP solution is `tunn relay` (V1.3) - both ends run tunn, JWT auth
 
 ## Pre-Launch Manual Setup (Required)
 
@@ -413,10 +419,11 @@ Core tunneling is complete and tested:
 - Multi-value headers (Cookie, Set-Cookie)
 - Concurrent requests
 - Automatic reconnection with exponential backoff
-- UDP tunneling
 - Email allow-lists
 - PUBLIC_MODE for auth-free testing
 - All tests pass (`make test`, `make test-race`)
+
+Note: UDP code exists but is not advertised. See V1.3 UDP Relay for the supported Pro UDP solution.
 
 See [REVIEW.md](REVIEW.md) for full audit summary.
 

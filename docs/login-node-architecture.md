@@ -497,11 +497,11 @@ fly deploy
 - [x] Register `LoginNodeDBServer` on internal gRPC (login node only)
 - [x] Update handlers to use storage interface
 
-### Phase 4: Graceful Degradation
-- [ ] Add `UsageBuffer` for offline accumulation
-- [ ] Add usage flush loop
-- [ ] Add 503 responses for auth when login node down
-- [ ] Add quota cache with stale fallback
+### Phase 4: Graceful Degradation ✅
+- [x] Add `UsageBuffer` for offline accumulation
+- [x] Add usage flush loop
+- [x] Add 503 responses for auth when login node down
+- [x] Add quota cache with stale fallback
 
 ### Phase 5: Litestream
 - [ ] Add Litestream config

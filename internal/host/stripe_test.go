@@ -27,9 +27,9 @@ func TestVerifyStripeSignature(t *testing.T) {
 	validSig := hex.EncodeToString(mac.Sum(nil))
 
 	tests := []struct {
-		name    string
-		header  string
-		wantOK  bool
+		name   string
+		header string
+		wantOK bool
 	}{
 		{
 			name:   "valid signature",

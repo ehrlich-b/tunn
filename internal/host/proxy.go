@@ -90,6 +90,11 @@ type ProxyServer struct {
 
 // NewProxyServer creates a new dual-listener proxy server
 func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
+	// SECURITY: Require NodeSecret when multi-node mode is enabled
+	if cfg.NodeAddresses != "" && cfg.NodeSecret == "" {
+		return nil, fmt.Errorf("TUNN_NODE_SECRET must be set when TUNN_NODE_ADDRESSES is configured (multi-node mode)")
+	}
+
 	// Initialize storage based on whether this is a login node
 	var proxyStorage *storage.ProxyStorage
 	var storageImpl storage.Storage
@@ -239,10 +244,13 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 	return proxy, nil
 }
 
-// ... (rest of the file)
 
 func createInternalClient(addr string, cfg *config.Config) (*grpc.ClientConn, error) {
-	tlsConfig := &tls.Config{}
+	tlsConfig := &tls.Config{
+		// Set ServerName for proper TLS verification when dialing by IP address.
+		// The cert is issued for the domain (e.g., tunn.to), not IP addresses.
+		ServerName: cfg.Domain,
+	}
 
 	// If custom CA cert is specified (self-hosters), load it
 	if cfg.InternalCACert != "" {

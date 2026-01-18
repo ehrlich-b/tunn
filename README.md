@@ -43,7 +43,7 @@ Run your own tunn server:
 tunn -mode=host -domain=tunnel.yourcompany.com
 ```
 
-See [docs/self-hosting.md](docs/self-hosting.md) for details.
+See `tunn -mode=host -help` for configuration options.
 
 ## How It Works
 
@@ -55,7 +55,13 @@ Your laptop connects to tunn.to over a persistent tunnel. When someone visits yo
 
 ## Development
 
-See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for build instructions, architecture, and contribution guidelines.
+```bash
+make build    # Build the binary
+make test     # Run tests
+make check    # Full pre-commit check (format, tidy, test with race detection)
+```
+
+See `CLAUDE.md` for architecture details and contribution guidelines.
 
 ## License
 

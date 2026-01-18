@@ -1,5 +1,7 @@
 # TODO.md: tunn Launch Checklist
 
+> **CRITICAL:** See [REVIEW.md](REVIEW.md) for 5 P0 security issues identified 2025-01-18 that must be fixed before launch.
+
 ## Code Quality Philosophy
 
 **Every file needs to spark joy.** If a senior dev reviews line-by-line and says "wrong, no, eep" - we've failed.

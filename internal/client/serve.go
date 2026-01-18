@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"google.golang.org/grpc"
@@ -16,6 +17,34 @@ import (
 	"github.com/ehrlich-b/tunn/internal/common"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
 )
+
+// MaxResponseBodySize is the maximum response body size from local targets (100 MB).
+// Prevents memory exhaustion from large responses.
+const MaxResponseBodySize = 100 * 1024 * 1024
+
+// MaxConcurrentRequests is the maximum number of concurrent HTTP requests being processed.
+// Prevents goroutine exhaustion from flood of requests.
+const MaxConcurrentRequests = 100
+
+// messageSender is the interface for sending tunnel messages.
+// This allows for thread-safe sending and testing with mocks.
+type messageSender interface {
+	Send(msg *pb.TunnelMessage) error
+}
+
+// streamSender wraps a gRPC stream with a mutex to make Send() thread-safe.
+// gRPC streams are NOT safe for concurrent Send() calls.
+type streamSender struct {
+	stream pb.TunnelService_EstablishTunnelClient
+	mu     sync.Mutex
+}
+
+// Send sends a message on the stream in a thread-safe manner.
+func (s *streamSender) Send(msg *pb.TunnelMessage) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.stream.Send(msg)
+}
 
 // ServeClient is the new gRPC-based tunnel client for "tunn serve"
 type ServeClient struct {
@@ -162,15 +191,21 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 	common.LogInfo("tunnel registered successfully", "public_url", regResp.PublicUrl)
 	fmt.Printf("%s -> %s\n", regResp.PublicUrl, s.TargetURL)
 
+	// Wrap stream with mutex for thread-safe sends
+	sender := &streamSender{stream: stream}
+
 	// Start health check sender
-	go s.sendHealthChecks(ctx, stream)
+	go s.sendHealthChecks(ctx, sender)
 
 	// Enter message processing loop
-	return s.processMessages(ctx, stream)
+	return s.processMessages(ctx, stream, sender)
 }
 
 // processMessages handles incoming messages from the server
-func (s *ServeClient) processMessages(ctx context.Context, stream pb.TunnelService_EstablishTunnelClient) error {
+func (s *ServeClient) processMessages(ctx context.Context, stream pb.TunnelService_EstablishTunnelClient, sender messageSender) error {
+	// Semaphore to limit concurrent HTTP request handlers
+	sem := make(chan struct{}, MaxConcurrentRequests)
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -190,8 +225,18 @@ func (s *ServeClient) processMessages(ctx context.Context, stream pb.TunnelServi
 
 		switch m := msg.Message.(type) {
 		case *pb.TunnelMessage_HttpRequest:
-			// Handle HTTP request from proxy - make request to local target and send response
-			go s.handleHttpRequest(stream, m.HttpRequest)
+			// Acquire semaphore slot (blocks if at capacity)
+			select {
+			case sem <- struct{}{}:
+				// Got a slot, spawn handler
+				go func(req *pb.HttpRequest) {
+					defer func() { <-sem }() // Release slot when done
+					s.handleHttpRequest(sender, req)
+				}(m.HttpRequest)
+			case <-ctx.Done():
+				common.LogInfo("context canceled while waiting for semaphore")
+				return ctx.Err()
+			}
 
 		case *pb.TunnelMessage_HealthCheckResponse:
 			// Calculate RTT
@@ -205,7 +250,7 @@ func (s *ServeClient) processMessages(ctx context.Context, stream pb.TunnelServi
 }
 
 // handleHttpRequest handles an HTTP request from the proxy, makes a request to the local target, and sends back the response
-func (s *ServeClient) handleHttpRequest(stream pb.TunnelService_EstablishTunnelClient, httpReq *pb.HttpRequest) {
+func (s *ServeClient) handleHttpRequest(sender messageSender, httpReq *pb.HttpRequest) {
 	common.LogDebug("http request received",
 		"connection_id", httpReq.ConnectionId,
 		"method", httpReq.Method,
@@ -218,7 +263,7 @@ func (s *ServeClient) handleHttpRequest(stream pb.TunnelService_EstablishTunnelC
 	req, err := http.NewRequest(httpReq.Method, targetURL, bytes.NewReader(httpReq.Body))
 	if err != nil {
 		common.LogError("failed to create http request", "error", err)
-		s.sendErrorResponse(stream, httpReq.ConnectionId, http.StatusBadGateway, "Failed to create request")
+		s.sendErrorResponse(sender, httpReq.ConnectionId, http.StatusBadGateway, "Failed to create request")
 		return
 	}
 
@@ -239,16 +284,16 @@ func (s *ServeClient) handleHttpRequest(stream pb.TunnelService_EstablishTunnelC
 	resp, err := client.Do(req)
 	if err != nil {
 		common.LogError("failed to make http request to target", "error", err, "target", targetURL)
-		s.sendErrorResponse(stream, httpReq.ConnectionId, http.StatusBadGateway, "Failed to reach local target")
+		s.sendErrorResponse(sender, httpReq.ConnectionId, http.StatusBadGateway, "Failed to reach local target")
 		return
 	}
 	defer resp.Body.Close()
 
-	// Read response body
-	body, err := io.ReadAll(resp.Body)
+	// Read response body with size limit to prevent memory exhaustion
+	body, err := io.ReadAll(io.LimitReader(resp.Body, MaxResponseBodySize))
 	if err != nil {
 		common.LogError("failed to read response body", "error", err)
-		s.sendErrorResponse(stream, httpReq.ConnectionId, http.StatusBadGateway, "Failed to read response")
+		s.sendErrorResponse(sender, httpReq.ConnectionId, http.StatusBadGateway, "Failed to read response")
 		return
 	}
 
@@ -272,7 +317,7 @@ func (s *ServeClient) handleHttpRequest(stream pb.TunnelService_EstablishTunnelC
 		},
 	}
 
-	if err := stream.Send(msg); err != nil {
+	if err := sender.Send(msg); err != nil {
 		common.LogError("failed to send http response", "error", err)
 		return
 	}
@@ -284,7 +329,7 @@ func (s *ServeClient) handleHttpRequest(stream pb.TunnelService_EstablishTunnelC
 }
 
 // sendErrorResponse sends an error response back to the proxy
-func (s *ServeClient) sendErrorResponse(stream pb.TunnelService_EstablishTunnelClient, connectionID string, statusCode int, message string) {
+func (s *ServeClient) sendErrorResponse(sender messageSender, connectionID string, statusCode int, message string) {
 	httpResp := &pb.HttpResponse{
 		ConnectionId: connectionID,
 		StatusCode:   int32(statusCode),
@@ -300,13 +345,13 @@ func (s *ServeClient) sendErrorResponse(stream pb.TunnelService_EstablishTunnelC
 		},
 	}
 
-	if err := stream.Send(msg); err != nil {
+	if err := sender.Send(msg); err != nil {
 		common.LogError("failed to send error response", "error", err)
 	}
 }
 
 // sendHealthChecks periodically sends health check pings
-func (s *ServeClient) sendHealthChecks(ctx context.Context, stream pb.TunnelService_EstablishTunnelClient) {
+func (s *ServeClient) sendHealthChecks(ctx context.Context, sender messageSender) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
@@ -323,7 +368,7 @@ func (s *ServeClient) sendHealthChecks(ctx context.Context, stream pb.TunnelServ
 				},
 			}
 
-			if err := stream.Send(msg); err != nil {
+			if err := sender.Send(msg); err != nil {
 				common.LogError("failed to send health check", "error", err)
 				return
 			}

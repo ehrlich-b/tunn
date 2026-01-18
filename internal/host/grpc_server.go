@@ -54,6 +54,37 @@ func isReservedSubdomain(tunnelID string) bool {
 	return reservedSubdomains[strings.ToLower(tunnelID)]
 }
 
+// isValidDNSLabel checks if a tunnel ID is a valid DNS label per RFC 1123.
+// Must be 1-63 chars, contain only lowercase letters, digits, hyphens,
+// and start/end with alphanumeric.
+func isValidDNSLabel(tunnelID string) bool {
+	if len(tunnelID) == 0 || len(tunnelID) > 63 {
+		return false
+	}
+
+	// Must start with alphanumeric
+	first := tunnelID[0]
+	if !((first >= 'a' && first <= 'z') || (first >= '0' && first <= '9')) {
+		return false
+	}
+
+	// Must end with alphanumeric
+	last := tunnelID[len(tunnelID)-1]
+	if !((last >= 'a' && last <= 'z') || (last >= '0' && last <= '9')) {
+		return false
+	}
+
+	// Middle chars can be alphanumeric or hyphen
+	for i := 1; i < len(tunnelID)-1; i++ {
+		c := tunnelID[i]
+		if !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-') {
+			return false
+		}
+	}
+
+	return true
+}
+
 // TunnelServer implements the gRPC TunnelService
 type TunnelServer struct {
 	pb.UnimplementedTunnelServiceServer
@@ -85,6 +116,9 @@ type TunnelConnection struct {
 	// Bandwidth rate limiter (token bucket)
 	rateLimiter *rate.Limiter
 
+	// Stream send mutex - gRPC streams are NOT thread-safe for concurrent Send()
+	streamMu sync.Mutex
+
 	// HTTP request tracking
 	pendingMu       sync.RWMutex
 	pendingRequests map[string]chan *pb.HttpResponse
@@ -96,6 +130,13 @@ type TunnelConnection struct {
 	// Protocol support
 	Protocol         string // "http", "udp", or "both"
 	UDPTargetAddress string // For UDP tunnels
+}
+
+// SendMessage sends a message on the stream in a thread-safe manner.
+func (t *TunnelConnection) SendMessage(msg *pb.TunnelMessage) error {
+	t.streamMu.Lock()
+	defer t.streamMu.Unlock()
+	return t.Stream.Send(msg)
 }
 
 // CheckRateLimit checks if the specified number of bytes can be sent.
@@ -154,8 +195,23 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		return fmt.Errorf("expected RegisterClient message, got %T", msg.Message)
 	}
 
-	tunnelID := regClient.TunnelId
+	tunnelID := strings.ToLower(regClient.TunnelId) // Normalize to lowercase
 	targetURL := regClient.TargetUrl
+
+	// Validate tunnel ID is a valid DNS label
+	if !isValidDNSLabel(tunnelID) {
+		common.LogError("rejected invalid tunnel ID", "tunnel_id", tunnelID)
+		respMsg := &pb.TunnelMessage{
+			Message: &pb.TunnelMessage_RegisterResponse{
+				RegisterResponse: &pb.RegisterResponse{
+					Success:      false,
+					ErrorMessage: fmt.Sprintf("Invalid tunnel ID '%s'. Must be 1-63 lowercase letters, digits, or hyphens, starting and ending with alphanumeric.", tunnelID),
+				},
+			},
+		}
+		stream.Send(respMsg)
+		return fmt.Errorf("invalid tunnel ID: %s", tunnelID)
+	}
 
 	// Check for reserved subdomains
 	if isReservedSubdomain(tunnelID) {
@@ -223,40 +279,37 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 			return fmt.Errorf("invalid tunnel key for tunnel %s", tunnelID)
 		}
 
-		// Validate JWT signature and extract email
-		creatorEmail = regClient.CreatorEmail
-		if creatorEmail == "" {
-			// Validate and extract from JWT if not provided
-			if regClient.AuthToken != "" {
-				extractedEmail, err := s.validateJWTAndExtractEmail(regClient.AuthToken)
-				if err != nil {
-					common.LogError("JWT validation failed", "error", err)
-					respMsg := &pb.TunnelMessage{
-						Message: &pb.TunnelMessage_RegisterResponse{
-							RegisterResponse: &pb.RegisterResponse{
-								Success:      false,
-								ErrorMessage: "Invalid or expired token. Run 'tunn login' to refresh.",
-							},
-						},
-					}
-					stream.Send(respMsg)
-					return fmt.Errorf("JWT validation failed for tunnel %s: %w", tunnelID, err)
-				}
-				creatorEmail = extractedEmail
-			} else {
-				common.LogError("no creator email or JWT provided")
-				respMsg := &pb.TunnelMessage{
-					Message: &pb.TunnelMessage_RegisterResponse{
-						RegisterResponse: &pb.RegisterResponse{
-							Success:      false,
-							ErrorMessage: "Authentication required. Run 'tunn login' first.",
-						},
+		// SECURITY: Always validate JWT and derive email from it.
+		// Never trust client-provided CreatorEmail - it can be forged.
+		if regClient.AuthToken == "" {
+			common.LogError("no JWT provided", "tunnel_id", tunnelID)
+			respMsg := &pb.TunnelMessage{
+				Message: &pb.TunnelMessage_RegisterResponse{
+					RegisterResponse: &pb.RegisterResponse{
+						Success:      false,
+						ErrorMessage: "Authentication required. Run 'tunn login' first.",
 					},
-				}
-				stream.Send(respMsg)
-				return fmt.Errorf("no authentication provided for tunnel %s", tunnelID)
+				},
 			}
+			stream.Send(respMsg)
+			return fmt.Errorf("no authentication provided for tunnel %s", tunnelID)
 		}
+
+		extractedEmail, err := s.validateJWTAndExtractEmail(regClient.AuthToken)
+		if err != nil {
+			common.LogError("JWT validation failed", "tunnel_id", tunnelID, "error", err)
+			respMsg := &pb.TunnelMessage{
+				Message: &pb.TunnelMessage_RegisterResponse{
+					RegisterResponse: &pb.RegisterResponse{
+						Success:      false,
+						ErrorMessage: "Invalid or expired token. Run 'tunn login' to refresh.",
+					},
+				},
+			}
+			stream.Send(respMsg)
+			return fmt.Errorf("JWT validation failed for tunnel %s: %w", tunnelID, err)
+		}
+		creatorEmail = extractedEmail
 
 		// Build complete allow-list (creator + allowed_emails)
 		allowedEmails = make([]string, 0, len(regClient.AllowedEmails)+1)
@@ -415,8 +468,8 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		// Handle different message types
 		switch m := msg.Message.(type) {
 		case *pb.TunnelMessage_HealthCheck:
-			// Respond to health check
-			s.handleHealthCheck(stream, m.HealthCheck)
+			// Respond to health check (use conn.SendMessage for thread safety)
+			s.handleHealthCheck(conn, m.HealthCheck)
 
 		case *pb.TunnelMessage_HttpResponse:
 			// HTTP response from client - route to waiting request
@@ -479,7 +532,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 }
 
 // handleHealthCheck responds to health check pings
-func (s *TunnelServer) handleHealthCheck(stream pb.TunnelService_EstablishTunnelServer, hc *pb.HealthCheck) {
+func (s *TunnelServer) handleHealthCheck(conn *TunnelConnection, hc *pb.HealthCheck) {
 	response := &pb.TunnelMessage{
 		Message: &pb.TunnelMessage_HealthCheckResponse{
 			HealthCheckResponse: &pb.HealthCheckResponse{
@@ -489,7 +542,8 @@ func (s *TunnelServer) handleHealthCheck(stream pb.TunnelService_EstablishTunnel
 		},
 	}
 
-	if err := stream.Send(response); err != nil {
+	// Use SendMessage for thread-safe sending (concurrent with HTTP request handlers)
+	if err := conn.SendMessage(response); err != nil {
 		common.LogInfo("failed to send health check response", "error", err)
 	}
 }

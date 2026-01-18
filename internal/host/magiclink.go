@@ -1,15 +1,57 @@
 package host
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/golang-jwt/jwt/v4"
 )
+
+// usedMagicTokens tracks magic link JTIs that have been used to prevent replay attacks.
+// Tokens are stored with their expiry time and cleaned up periodically.
+var usedMagicTokens = struct {
+	sync.RWMutex
+	entries map[string]time.Time // jti -> expiry time
+}{entries: make(map[string]time.Time)}
+
+func init() {
+	go cleanupUsedMagicTokens()
+}
+
+// cleanupUsedMagicTokens periodically removes expired entries from the used tokens map
+func cleanupUsedMagicTokens() {
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+	for range ticker.C {
+		now := time.Now()
+		usedMagicTokens.Lock()
+		for jti, expiry := range usedMagicTokens.entries {
+			if now.After(expiry) {
+				delete(usedMagicTokens.entries, jti)
+			}
+		}
+		usedMagicTokens.Unlock()
+	}
+}
+
+// markMagicTokenUsed marks a magic link token as used. Returns false if already used.
+func markMagicTokenUsed(jti string, expiry time.Time) bool {
+	usedMagicTokens.Lock()
+	defer usedMagicTokens.Unlock()
+
+	if _, exists := usedMagicTokens.entries[jti]; exists {
+		return false // Already used
+	}
+	usedMagicTokens.entries[jti] = expiry
+	return true
+}
 
 // handleMagicLinkRequest handles POST /auth/magic - sends magic link email
 func (p *ProxyServer) handleMagicLinkRequest(w http.ResponseWriter, r *http.Request) {
@@ -120,9 +162,17 @@ func (p *ProxyServer) handleMagicLinkVerify(w http.ResponseWriter, r *http.Reque
 
 // generateMagicLinkToken creates a JWT for magic link authentication
 func (p *ProxyServer) generateMagicLinkToken(email string) (string, error) {
+	// Generate unique token ID to prevent replay attacks
+	jtiBytes := make([]byte, 16)
+	if _, err := rand.Read(jtiBytes); err != nil {
+		return "", fmt.Errorf("failed to generate jti: %w", err)
+	}
+	jti := hex.EncodeToString(jtiBytes)
+
 	claims := jwt.MapClaims{
 		"email": email,
 		"type":  "magic_link",
+		"jti":   jti,
 		"iat":   time.Now().Unix(),
 		"exp":   time.Now().Add(5 * time.Minute).Unix(),
 	}
@@ -132,6 +182,7 @@ func (p *ProxyServer) generateMagicLinkToken(email string) (string, error) {
 }
 
 // verifyMagicLinkToken verifies a magic link JWT and returns the email
+// Each token can only be used once (replay protection via JTI tracking)
 func (p *ProxyServer) verifyMagicLinkToken(tokenString string) (string, error) {
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 		// Validate signing method
@@ -154,6 +205,24 @@ func (p *ProxyServer) verifyMagicLinkToken(tokenString string) (string, error) {
 	tokenType, ok := claims["type"].(string)
 	if !ok || tokenType != "magic_link" {
 		return "", fmt.Errorf("invalid token type")
+	}
+
+	// Extract and verify JTI (replay protection)
+	jti, ok := claims["jti"].(string)
+	if !ok || jti == "" {
+		return "", fmt.Errorf("missing jti claim")
+	}
+
+	// Get expiry time for cleanup tracking
+	exp, ok := claims["exp"].(float64)
+	if !ok {
+		return "", fmt.Errorf("missing exp claim")
+	}
+	expiry := time.Unix(int64(exp), 0)
+
+	// Mark token as used (returns false if already used)
+	if !markMagicTokenUsed(jti, expiry) {
+		return "", fmt.Errorf("token already used")
 	}
 
 	// Extract email

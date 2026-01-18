@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"encoding/hex"
 	"fmt"
+	"html"
 	"io"
 	"net/http"
 	"net/http/httputil"
@@ -168,7 +169,7 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 			fmt.Fprintf(w, `<h1 class="error-title">Access denied</h1>
 <p>You (<code>%s</code>) are not authorized to access this tunnel.</p>
 <p>Contact the tunnel owner to request access.</p>
-`, userEmail)
+`, html.EscapeString(userEmail))
 			writePageEnd(w)
 			return
 		}
@@ -371,16 +372,19 @@ func (p *ProxyServer) handleApexDomain(w http.ResponseWriter, r *http.Request) {
 
 // isEmailAllowed checks if an email is on the allow-list
 // Supports both exact matches ("alice@example.com") and domain wildcards ("@example.com")
+// Uses Unicode NFKC normalization to prevent homograph attacks
 func isEmailAllowed(email string, allowList []string) bool {
+	normalizedEmail := common.NormalizeEmail(email)
 	for _, allowed := range allowList {
-		if strings.HasPrefix(allowed, "@") {
+		normalizedAllowed := common.NormalizeEmail(allowed)
+		if strings.HasPrefix(normalizedAllowed, "@") {
 			// Domain wildcard: check if email ends with this domain
-			if strings.HasSuffix(strings.ToLower(email), strings.ToLower(allowed)) {
+			if strings.HasSuffix(normalizedEmail, normalizedAllowed) {
 				return true
 			}
 		} else {
-			// Exact match (case-insensitive)
-			if strings.EqualFold(email, allowed) {
+			// Exact match
+			if normalizedEmail == normalizedAllowed {
 				return true
 			}
 		}

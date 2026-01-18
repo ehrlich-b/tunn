@@ -2,6 +2,7 @@ package host
 
 import (
 	"context"
+	"crypto/subtle"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
@@ -244,7 +245,6 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 	return proxy, nil
 }
 
-
 func createInternalClient(addr string, cfg *config.Config) (*grpc.ClientConn, error) {
 	tlsConfig := &tls.Config{
 		// Set ServerName for proper TLS verification when dialing by IP address.
@@ -406,7 +406,7 @@ func nodeSecretInterceptor(secret string) grpc.UnaryServerInterceptor {
 		}
 
 		secrets := md.Get("x-node-secret")
-		if len(secrets) == 0 || secrets[0] != secret {
+		if len(secrets) == 0 || subtle.ConstantTimeCompare([]byte(secrets[0]), []byte(secret)) != 1 {
 			blacklistIP(peerIP)
 			common.LogError("invalid node secret attempt", "ip", peerIP)
 			return nil, status.Error(codes.Unauthenticated, "invalid node secret")
@@ -424,6 +424,27 @@ func blacklistIP(ip string) {
 	ipBlacklist.Lock()
 	ipBlacklist.entries[ip] = time.Now().Add(blacklistDuration)
 	ipBlacklist.Unlock()
+}
+
+// init starts the IP blacklist cleanup goroutine
+func init() {
+	go cleanupBlacklist()
+}
+
+// cleanupBlacklist periodically removes expired entries from the IP blacklist
+func cleanupBlacklist() {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	for range ticker.C {
+		now := time.Now()
+		ipBlacklist.Lock()
+		for ip, expiry := range ipBlacklist.entries {
+			if now.After(expiry) {
+				delete(ipBlacklist.entries, ip)
+			}
+		}
+		ipBlacklist.Unlock()
+	}
 }
 
 // getPeerIP extracts the peer IP from gRPC context

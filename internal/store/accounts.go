@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/google/uuid"
 )
 
@@ -42,9 +43,9 @@ func (s *AccountStore) FindOrCreateByEmails(emails []string, verifiedVia string)
 		return nil, sql.ErrNoRows
 	}
 
-	// Normalize emails
+	// Normalize emails (Unicode NFKC + lowercase to prevent homograph attacks)
 	for i := range emails {
-		emails[i] = strings.ToLower(strings.TrimSpace(emails[i]))
+		emails[i] = common.NormalizeEmail(emails[i])
 	}
 
 	// Find all accounts that own any of these emails

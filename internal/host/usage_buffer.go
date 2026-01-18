@@ -9,6 +9,10 @@ import (
 	"github.com/ehrlich-b/tunn/internal/storage"
 )
 
+// FlushThreshold is the per-account byte threshold that triggers immediate flush.
+// Design: 20 MB - limits single-node overage during high-bandwidth bursts.
+const FlushThreshold = 20 * 1024 * 1024 // 20 MB
+
 // UsageBuffer accumulates usage data when the login node is unavailable.
 // Non-login nodes buffer usage locally and flush to the login node when it reconnects.
 type UsageBuffer struct {
@@ -24,10 +28,13 @@ func NewUsageBuffer() *UsageBuffer {
 }
 
 // Add accumulates usage for an account.
-func (b *UsageBuffer) Add(accountID string, bytes int64) {
+// Returns true if the account's pending bytes exceed FlushThreshold (caller should flush).
+func (b *UsageBuffer) Add(accountID string, bytes int64) bool {
 	b.mu.Lock()
 	b.pending[accountID] += bytes
+	exceedsThreshold := b.pending[accountID] >= FlushThreshold
 	b.mu.Unlock()
+	return exceedsThreshold
 }
 
 // Flush sends all pending usage to the storage and clears the buffer.

@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"os"
@@ -394,8 +396,17 @@ Options:
 		os.Exit(1)
 	}
 
-	// Generate magic link token
+	// Generate JTI for replay protection
+	jtiBytes := make([]byte, 16)
+	if _, err := rand.Read(jtiBytes); err != nil {
+		common.LogError("failed to generate JTI", "error", err)
+		os.Exit(1)
+	}
+	jti := hex.EncodeToString(jtiBytes)
+
+	// Generate magic link token with JTI for replay protection
 	claims := jwt.MapClaims{
+		"jti":   jti,
 		"email": email,
 		"type":  "magic_link",
 		"iat":   time.Now().Unix(),

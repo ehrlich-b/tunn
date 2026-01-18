@@ -2,6 +2,7 @@ package host
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -178,7 +179,7 @@ func (p *ProxyServer) handleCallback(w http.ResponseWriter, r *http.Request) {
 	storedState := p.sessionManager.GetString(r.Context(), "oauth_state")
 	receivedState := r.URL.Query().Get("state")
 
-	if storedState == "" || storedState != receivedState {
+	if storedState == "" || subtle.ConstantTimeCompare([]byte(storedState), []byte(receivedState)) != 1 {
 		common.LogError("invalid state parameter", "stored", storedState, "received", receivedState)
 		http.Error(w, "Invalid state parameter", http.StatusBadRequest)
 		return
@@ -372,7 +373,7 @@ func (p *ProxyServer) handleMockCallback(w http.ResponseWriter, r *http.Request)
 	storedState := p.sessionManager.GetString(r.Context(), "oauth_state")
 	receivedState := r.URL.Query().Get("state")
 
-	if storedState == "" || storedState != receivedState {
+	if storedState == "" || subtle.ConstantTimeCompare([]byte(storedState), []byte(receivedState)) != 1 {
 		common.LogError("invalid state parameter", "stored", storedState, "received", receivedState)
 		http.Error(w, "Invalid state parameter", http.StatusBadRequest)
 		return

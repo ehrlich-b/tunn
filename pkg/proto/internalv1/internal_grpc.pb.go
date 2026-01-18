@@ -195,3 +195,575 @@ var InternalService_ServiceDesc = grpc.ServiceDesc{
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "proto/internal.proto",
 }
+
+const (
+	LoginNodeDB_RecordUsage_FullMethodName          = "/internal.LoginNodeDB/RecordUsage"
+	LoginNodeDB_GetMonthlyUsage_FullMethodName      = "/internal.LoginNodeDB/GetMonthlyUsage"
+	LoginNodeDB_CreateDeviceCode_FullMethodName     = "/internal.LoginNodeDB/CreateDeviceCode"
+	LoginNodeDB_GetDeviceCode_FullMethodName        = "/internal.LoginNodeDB/GetDeviceCode"
+	LoginNodeDB_AuthorizeDeviceCode_FullMethodName  = "/internal.LoginNodeDB/AuthorizeDeviceCode"
+	LoginNodeDB_GetAccount_FullMethodName           = "/internal.LoginNodeDB/GetAccount"
+	LoginNodeDB_GetAccountByEmail_FullMethodName    = "/internal.LoginNodeDB/GetAccountByEmail"
+	LoginNodeDB_FindOrCreateByEmails_FullMethodName = "/internal.LoginNodeDB/FindOrCreateByEmails"
+	LoginNodeDB_GetEmailBucket_FullMethodName       = "/internal.LoginNodeDB/GetEmailBucket"
+	LoginNodeDB_UpdatePlan_FullMethodName           = "/internal.LoginNodeDB/UpdatePlan"
+	LoginNodeDB_RegisterTunnel_FullMethodName       = "/internal.LoginNodeDB/RegisterTunnel"
+	LoginNodeDB_UnregisterTunnel_FullMethodName     = "/internal.LoginNodeDB/UnregisterTunnel"
+	LoginNodeDB_GetTunnelCount_FullMethodName       = "/internal.LoginNodeDB/GetTunnelCount"
+)
+
+// LoginNodeDBClient is the client API for LoginNodeDB service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// LoginNodeDB is the service that only the login node implements.
+// Non-login nodes proxy these calls to the login node.
+type LoginNodeDBClient interface {
+	// Usage tracking
+	RecordUsage(ctx context.Context, in *RecordUsageRequest, opts ...grpc.CallOption) (*RecordUsageResponse, error)
+	GetMonthlyUsage(ctx context.Context, in *GetMonthlyUsageRequest, opts ...grpc.CallOption) (*GetMonthlyUsageResponse, error)
+	// Device codes for CLI login
+	CreateDeviceCode(ctx context.Context, in *CreateDeviceCodeRequest, opts ...grpc.CallOption) (*DeviceCodeResponse, error)
+	GetDeviceCode(ctx context.Context, in *GetDeviceCodeRequest, opts ...grpc.CallOption) (*DeviceCodeResponse, error)
+	AuthorizeDeviceCode(ctx context.Context, in *AuthorizeDeviceCodeRequest, opts ...grpc.CallOption) (*AuthorizeDeviceCodeResponse, error)
+	// Account management
+	GetAccount(ctx context.Context, in *GetAccountRequest, opts ...grpc.CallOption) (*AccountResponse, error)
+	GetAccountByEmail(ctx context.Context, in *GetAccountByEmailRequest, opts ...grpc.CallOption) (*AccountResponse, error)
+	FindOrCreateByEmails(ctx context.Context, in *FindOrCreateByEmailsRequest, opts ...grpc.CallOption) (*AccountResponse, error)
+	GetEmailBucket(ctx context.Context, in *GetEmailBucketRequest, opts ...grpc.CallOption) (*GetEmailBucketResponse, error)
+	UpdatePlan(ctx context.Context, in *UpdatePlanRequest, opts ...grpc.CallOption) (*UpdatePlanResponse, error)
+	// Active tunnel tracking (cross-node)
+	RegisterTunnel(ctx context.Context, in *RegisterTunnelRequest, opts ...grpc.CallOption) (*RegisterTunnelResponse, error)
+	UnregisterTunnel(ctx context.Context, in *UnregisterTunnelRequest, opts ...grpc.CallOption) (*UnregisterTunnelResponse, error)
+	GetTunnelCount(ctx context.Context, in *GetTunnelCountRequest, opts ...grpc.CallOption) (*GetTunnelCountResponse, error)
+}
+
+type loginNodeDBClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewLoginNodeDBClient(cc grpc.ClientConnInterface) LoginNodeDBClient {
+	return &loginNodeDBClient{cc}
+}
+
+func (c *loginNodeDBClient) RecordUsage(ctx context.Context, in *RecordUsageRequest, opts ...grpc.CallOption) (*RecordUsageResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RecordUsageResponse)
+	err := c.cc.Invoke(ctx, LoginNodeDB_RecordUsage_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *loginNodeDBClient) GetMonthlyUsage(ctx context.Context, in *GetMonthlyUsageRequest, opts ...grpc.CallOption) (*GetMonthlyUsageResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetMonthlyUsageResponse)
+	err := c.cc.Invoke(ctx, LoginNodeDB_GetMonthlyUsage_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *loginNodeDBClient) CreateDeviceCode(ctx context.Context, in *CreateDeviceCodeRequest, opts ...grpc.CallOption) (*DeviceCodeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeviceCodeResponse)
+	err := c.cc.Invoke(ctx, LoginNodeDB_CreateDeviceCode_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *loginNodeDBClient) GetDeviceCode(ctx context.Context, in *GetDeviceCodeRequest, opts ...grpc.CallOption) (*DeviceCodeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeviceCodeResponse)
+	err := c.cc.Invoke(ctx, LoginNodeDB_GetDeviceCode_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *loginNodeDBClient) AuthorizeDeviceCode(ctx context.Context, in *AuthorizeDeviceCodeRequest, opts ...grpc.CallOption) (*AuthorizeDeviceCodeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AuthorizeDeviceCodeResponse)
+	err := c.cc.Invoke(ctx, LoginNodeDB_AuthorizeDeviceCode_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *loginNodeDBClient) GetAccount(ctx context.Context, in *GetAccountRequest, opts ...grpc.CallOption) (*AccountResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AccountResponse)
+	err := c.cc.Invoke(ctx, LoginNodeDB_GetAccount_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *loginNodeDBClient) GetAccountByEmail(ctx context.Context, in *GetAccountByEmailRequest, opts ...grpc.CallOption) (*AccountResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AccountResponse)
+	err := c.cc.Invoke(ctx, LoginNodeDB_GetAccountByEmail_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *loginNodeDBClient) FindOrCreateByEmails(ctx context.Context, in *FindOrCreateByEmailsRequest, opts ...grpc.CallOption) (*AccountResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AccountResponse)
+	err := c.cc.Invoke(ctx, LoginNodeDB_FindOrCreateByEmails_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *loginNodeDBClient) GetEmailBucket(ctx context.Context, in *GetEmailBucketRequest, opts ...grpc.CallOption) (*GetEmailBucketResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetEmailBucketResponse)
+	err := c.cc.Invoke(ctx, LoginNodeDB_GetEmailBucket_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *loginNodeDBClient) UpdatePlan(ctx context.Context, in *UpdatePlanRequest, opts ...grpc.CallOption) (*UpdatePlanResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UpdatePlanResponse)
+	err := c.cc.Invoke(ctx, LoginNodeDB_UpdatePlan_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *loginNodeDBClient) RegisterTunnel(ctx context.Context, in *RegisterTunnelRequest, opts ...grpc.CallOption) (*RegisterTunnelResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RegisterTunnelResponse)
+	err := c.cc.Invoke(ctx, LoginNodeDB_RegisterTunnel_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *loginNodeDBClient) UnregisterTunnel(ctx context.Context, in *UnregisterTunnelRequest, opts ...grpc.CallOption) (*UnregisterTunnelResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UnregisterTunnelResponse)
+	err := c.cc.Invoke(ctx, LoginNodeDB_UnregisterTunnel_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *loginNodeDBClient) GetTunnelCount(ctx context.Context, in *GetTunnelCountRequest, opts ...grpc.CallOption) (*GetTunnelCountResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetTunnelCountResponse)
+	err := c.cc.Invoke(ctx, LoginNodeDB_GetTunnelCount_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// LoginNodeDBServer is the server API for LoginNodeDB service.
+// All implementations must embed UnimplementedLoginNodeDBServer
+// for forward compatibility.
+//
+// LoginNodeDB is the service that only the login node implements.
+// Non-login nodes proxy these calls to the login node.
+type LoginNodeDBServer interface {
+	// Usage tracking
+	RecordUsage(context.Context, *RecordUsageRequest) (*RecordUsageResponse, error)
+	GetMonthlyUsage(context.Context, *GetMonthlyUsageRequest) (*GetMonthlyUsageResponse, error)
+	// Device codes for CLI login
+	CreateDeviceCode(context.Context, *CreateDeviceCodeRequest) (*DeviceCodeResponse, error)
+	GetDeviceCode(context.Context, *GetDeviceCodeRequest) (*DeviceCodeResponse, error)
+	AuthorizeDeviceCode(context.Context, *AuthorizeDeviceCodeRequest) (*AuthorizeDeviceCodeResponse, error)
+	// Account management
+	GetAccount(context.Context, *GetAccountRequest) (*AccountResponse, error)
+	GetAccountByEmail(context.Context, *GetAccountByEmailRequest) (*AccountResponse, error)
+	FindOrCreateByEmails(context.Context, *FindOrCreateByEmailsRequest) (*AccountResponse, error)
+	GetEmailBucket(context.Context, *GetEmailBucketRequest) (*GetEmailBucketResponse, error)
+	UpdatePlan(context.Context, *UpdatePlanRequest) (*UpdatePlanResponse, error)
+	// Active tunnel tracking (cross-node)
+	RegisterTunnel(context.Context, *RegisterTunnelRequest) (*RegisterTunnelResponse, error)
+	UnregisterTunnel(context.Context, *UnregisterTunnelRequest) (*UnregisterTunnelResponse, error)
+	GetTunnelCount(context.Context, *GetTunnelCountRequest) (*GetTunnelCountResponse, error)
+	mustEmbedUnimplementedLoginNodeDBServer()
+}
+
+// UnimplementedLoginNodeDBServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedLoginNodeDBServer struct{}
+
+func (UnimplementedLoginNodeDBServer) RecordUsage(context.Context, *RecordUsageRequest) (*RecordUsageResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RecordUsage not implemented")
+}
+func (UnimplementedLoginNodeDBServer) GetMonthlyUsage(context.Context, *GetMonthlyUsageRequest) (*GetMonthlyUsageResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetMonthlyUsage not implemented")
+}
+func (UnimplementedLoginNodeDBServer) CreateDeviceCode(context.Context, *CreateDeviceCodeRequest) (*DeviceCodeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateDeviceCode not implemented")
+}
+func (UnimplementedLoginNodeDBServer) GetDeviceCode(context.Context, *GetDeviceCodeRequest) (*DeviceCodeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetDeviceCode not implemented")
+}
+func (UnimplementedLoginNodeDBServer) AuthorizeDeviceCode(context.Context, *AuthorizeDeviceCodeRequest) (*AuthorizeDeviceCodeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method AuthorizeDeviceCode not implemented")
+}
+func (UnimplementedLoginNodeDBServer) GetAccount(context.Context, *GetAccountRequest) (*AccountResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetAccount not implemented")
+}
+func (UnimplementedLoginNodeDBServer) GetAccountByEmail(context.Context, *GetAccountByEmailRequest) (*AccountResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetAccountByEmail not implemented")
+}
+func (UnimplementedLoginNodeDBServer) FindOrCreateByEmails(context.Context, *FindOrCreateByEmailsRequest) (*AccountResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method FindOrCreateByEmails not implemented")
+}
+func (UnimplementedLoginNodeDBServer) GetEmailBucket(context.Context, *GetEmailBucketRequest) (*GetEmailBucketResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetEmailBucket not implemented")
+}
+func (UnimplementedLoginNodeDBServer) UpdatePlan(context.Context, *UpdatePlanRequest) (*UpdatePlanResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdatePlan not implemented")
+}
+func (UnimplementedLoginNodeDBServer) RegisterTunnel(context.Context, *RegisterTunnelRequest) (*RegisterTunnelResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RegisterTunnel not implemented")
+}
+func (UnimplementedLoginNodeDBServer) UnregisterTunnel(context.Context, *UnregisterTunnelRequest) (*UnregisterTunnelResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method UnregisterTunnel not implemented")
+}
+func (UnimplementedLoginNodeDBServer) GetTunnelCount(context.Context, *GetTunnelCountRequest) (*GetTunnelCountResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetTunnelCount not implemented")
+}
+func (UnimplementedLoginNodeDBServer) mustEmbedUnimplementedLoginNodeDBServer() {}
+func (UnimplementedLoginNodeDBServer) testEmbeddedByValue()                     {}
+
+// UnsafeLoginNodeDBServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to LoginNodeDBServer will
+// result in compilation errors.
+type UnsafeLoginNodeDBServer interface {
+	mustEmbedUnimplementedLoginNodeDBServer()
+}
+
+func RegisterLoginNodeDBServer(s grpc.ServiceRegistrar, srv LoginNodeDBServer) {
+	// If the following call panics, it indicates UnimplementedLoginNodeDBServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&LoginNodeDB_ServiceDesc, srv)
+}
+
+func _LoginNodeDB_RecordUsage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RecordUsageRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LoginNodeDBServer).RecordUsage(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LoginNodeDB_RecordUsage_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LoginNodeDBServer).RecordUsage(ctx, req.(*RecordUsageRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LoginNodeDB_GetMonthlyUsage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetMonthlyUsageRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LoginNodeDBServer).GetMonthlyUsage(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LoginNodeDB_GetMonthlyUsage_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LoginNodeDBServer).GetMonthlyUsage(ctx, req.(*GetMonthlyUsageRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LoginNodeDB_CreateDeviceCode_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateDeviceCodeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LoginNodeDBServer).CreateDeviceCode(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LoginNodeDB_CreateDeviceCode_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LoginNodeDBServer).CreateDeviceCode(ctx, req.(*CreateDeviceCodeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LoginNodeDB_GetDeviceCode_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetDeviceCodeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LoginNodeDBServer).GetDeviceCode(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LoginNodeDB_GetDeviceCode_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LoginNodeDBServer).GetDeviceCode(ctx, req.(*GetDeviceCodeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LoginNodeDB_AuthorizeDeviceCode_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AuthorizeDeviceCodeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LoginNodeDBServer).AuthorizeDeviceCode(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LoginNodeDB_AuthorizeDeviceCode_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LoginNodeDBServer).AuthorizeDeviceCode(ctx, req.(*AuthorizeDeviceCodeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LoginNodeDB_GetAccount_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetAccountRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LoginNodeDBServer).GetAccount(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LoginNodeDB_GetAccount_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LoginNodeDBServer).GetAccount(ctx, req.(*GetAccountRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LoginNodeDB_GetAccountByEmail_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetAccountByEmailRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LoginNodeDBServer).GetAccountByEmail(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LoginNodeDB_GetAccountByEmail_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LoginNodeDBServer).GetAccountByEmail(ctx, req.(*GetAccountByEmailRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LoginNodeDB_FindOrCreateByEmails_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(FindOrCreateByEmailsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LoginNodeDBServer).FindOrCreateByEmails(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LoginNodeDB_FindOrCreateByEmails_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LoginNodeDBServer).FindOrCreateByEmails(ctx, req.(*FindOrCreateByEmailsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LoginNodeDB_GetEmailBucket_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetEmailBucketRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LoginNodeDBServer).GetEmailBucket(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LoginNodeDB_GetEmailBucket_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LoginNodeDBServer).GetEmailBucket(ctx, req.(*GetEmailBucketRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LoginNodeDB_UpdatePlan_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdatePlanRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LoginNodeDBServer).UpdatePlan(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LoginNodeDB_UpdatePlan_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LoginNodeDBServer).UpdatePlan(ctx, req.(*UpdatePlanRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LoginNodeDB_RegisterTunnel_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RegisterTunnelRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LoginNodeDBServer).RegisterTunnel(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LoginNodeDB_RegisterTunnel_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LoginNodeDBServer).RegisterTunnel(ctx, req.(*RegisterTunnelRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LoginNodeDB_UnregisterTunnel_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UnregisterTunnelRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LoginNodeDBServer).UnregisterTunnel(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LoginNodeDB_UnregisterTunnel_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LoginNodeDBServer).UnregisterTunnel(ctx, req.(*UnregisterTunnelRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LoginNodeDB_GetTunnelCount_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetTunnelCountRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LoginNodeDBServer).GetTunnelCount(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LoginNodeDB_GetTunnelCount_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LoginNodeDBServer).GetTunnelCount(ctx, req.(*GetTunnelCountRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// LoginNodeDB_ServiceDesc is the grpc.ServiceDesc for LoginNodeDB service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var LoginNodeDB_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "internal.LoginNodeDB",
+	HandlerType: (*LoginNodeDBServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "RecordUsage",
+			Handler:    _LoginNodeDB_RecordUsage_Handler,
+		},
+		{
+			MethodName: "GetMonthlyUsage",
+			Handler:    _LoginNodeDB_GetMonthlyUsage_Handler,
+		},
+		{
+			MethodName: "CreateDeviceCode",
+			Handler:    _LoginNodeDB_CreateDeviceCode_Handler,
+		},
+		{
+			MethodName: "GetDeviceCode",
+			Handler:    _LoginNodeDB_GetDeviceCode_Handler,
+		},
+		{
+			MethodName: "AuthorizeDeviceCode",
+			Handler:    _LoginNodeDB_AuthorizeDeviceCode_Handler,
+		},
+		{
+			MethodName: "GetAccount",
+			Handler:    _LoginNodeDB_GetAccount_Handler,
+		},
+		{
+			MethodName: "GetAccountByEmail",
+			Handler:    _LoginNodeDB_GetAccountByEmail_Handler,
+		},
+		{
+			MethodName: "FindOrCreateByEmails",
+			Handler:    _LoginNodeDB_FindOrCreateByEmails_Handler,
+		},
+		{
+			MethodName: "GetEmailBucket",
+			Handler:    _LoginNodeDB_GetEmailBucket_Handler,
+		},
+		{
+			MethodName: "UpdatePlan",
+			Handler:    _LoginNodeDB_UpdatePlan_Handler,
+		},
+		{
+			MethodName: "RegisterTunnel",
+			Handler:    _LoginNodeDB_RegisterTunnel_Handler,
+		},
+		{
+			MethodName: "UnregisterTunnel",
+			Handler:    _LoginNodeDB_UnregisterTunnel_Handler,
+		},
+		{
+			MethodName: "GetTunnelCount",
+			Handler:    _LoginNodeDB_GetTunnelCount_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "proto/internal.proto",
+}

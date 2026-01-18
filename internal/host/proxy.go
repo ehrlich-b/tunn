@@ -3,7 +3,6 @@ package host
 import (
 	"context"
 	"crypto/tls"
-	"database/sql"
 	"fmt"
 	"net"
 	"net/http"
@@ -25,6 +24,7 @@ import (
 	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/ehrlich-b/tunn/internal/config"
 	"github.com/ehrlich-b/tunn/internal/mockoidc"
+	"github.com/ehrlich-b/tunn/internal/storage"
 	"github.com/ehrlich-b/tunn/internal/store"
 	internalv1 "github.com/ehrlich-b/tunn/pkg/proto/internalv1"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
@@ -72,9 +72,11 @@ type ProxyServer struct {
 	// Mock OIDC server (dev only)
 	mockOIDC *mockoidc.Server
 
-	// Stores (SQLite-backed)
-	deviceCodes *store.DeviceCodeStore
-	accounts    *store.AccountStore
+	// Unified storage interface (local for login node, proxy for others)
+	storage storage.Storage
+
+	// Proxy storage reference (non-login node only, to update connection on discovery)
+	proxyStorage *storage.ProxyStorage
 
 	// Email sender (for magic link auth)
 	emailSender *EmailSender
@@ -82,17 +84,25 @@ type ProxyServer struct {
 
 // NewProxyServer creates a new dual-listener proxy server
 func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
-	// Initialize database only if this is a login node
-	var db *sql.DB
+	// Initialize storage based on whether this is a login node
+	var proxyStorage *storage.ProxyStorage
+	var storageImpl storage.Storage
+	var localStorage *storage.LocalStorage
+
 	if cfg.LoginNode {
-		var err error
-		db, err = store.InitDB(cfg.DBPath)
+		// Login node: initialize SQLite and local storage
+		db, err := store.InitDB(cfg.DBPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize database: %w", err)
 		}
+		localStorage = storage.NewLocalStorage(db)
+		storageImpl = localStorage
 		common.LogInfo("login node initialized", "db_path", cfg.DBPath)
 	} else {
-		common.LogInfo("non-login node, skipping database initialization")
+		// Non-login node: use proxy storage (connection set later during discovery)
+		proxyStorage = storage.NewProxyStorage()
+		storageImpl = proxyStorage
+		common.LogInfo("non-login node, will proxy storage to login node")
 	}
 
 	cert, err := tls.LoadX509KeyPair(cfg.CertFile, cfg.KeyFile)
@@ -118,10 +128,10 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 		}
 	}
 
-	// Create account store for subdomain reservations (login node only)
+	// Get account store for subdomain reservations (login node only, direct access)
 	var accounts *store.AccountStore
-	if db != nil {
-		accounts = store.NewAccountStore(db)
+	if localStorage != nil {
+		accounts = localStorage.AccountStore()
 	}
 
 	// Create gRPC server for public tunnel control plane
@@ -141,6 +151,13 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 	internalServer := NewInternalServer(tunnelServer, cfg.PublicAddr, cfg.LoginNode)
 	internalv1.RegisterInternalServiceServer(internalGRPCServer, internalServer)
 
+	// Register LoginNodeDB service on login node only
+	if localStorage != nil {
+		loginNodeDBServer := NewLoginNodeDBServer(localStorage)
+		internalv1.RegisterLoginNodeDBServer(internalGRPCServer, loginNodeDBServer)
+		common.LogInfo("registered LoginNodeDB gRPC service")
+	}
+
 	// Create session manager for web auth
 	sessionManager := scs.New()
 	sessionManager.Lifetime = 24 * time.Hour
@@ -159,12 +176,6 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 		common.LogInfo("email sender configured", "host", cfg.SMTPHost)
 	}
 
-	// Create device code store (login node only)
-	var deviceCodes *store.DeviceCodeStore
-	if db != nil {
-		deviceCodes = store.NewDeviceCodeStore(db)
-	}
-
 	proxy := &ProxyServer{
 		Domain:             cfg.Domain,
 		CertFile:           cfg.CertFile,
@@ -181,8 +192,8 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 		tunnelCache:        make(map[string]string),
 		config:             cfg,
 		PublicAddr:         cfg.PublicAddr,
-		deviceCodes:        deviceCodes,
-		accounts:           accounts,
+		storage:            storageImpl,
+		proxyStorage:       proxyStorage,
 		emailSender:        emailSender,
 		isLoginNode:        cfg.LoginNode,
 	}
@@ -729,6 +740,13 @@ func (p *ProxyServer) findAndConnectLoginNode() bool {
 
 			p.loginNodeConn = conn
 			p.loginNodeClient = internalv1.NewInternalServiceClient(conn)
+
+			// Update proxy storage connection (for non-login nodes)
+			if p.proxyStorage != nil {
+				p.proxyStorage.SetConnection(conn)
+				common.LogInfo("proxy storage connected to login node")
+			}
+
 			return true
 		}
 

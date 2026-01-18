@@ -353,3 +353,56 @@ func (s *AccountStore) ReleaseSubdomain(accountID, subdomain string) error {
 	}
 	return nil
 }
+
+// RecordUsage adds bytes to an account's monthly usage
+func (s *AccountStore) RecordUsage(accountID string, bytes int64) error {
+	month := time.Now().Format("2006-01")
+
+	_, err := s.db.Exec(`
+		INSERT INTO account_usage (account_id, month, bytes_used)
+		VALUES (?, ?, ?)
+		ON CONFLICT(account_id, month) DO UPDATE SET bytes_used = bytes_used + ?
+	`, accountID, month, bytes, bytes)
+	return err
+}
+
+// GetMonthlyUsage returns the bytes used by an account in the current month
+func (s *AccountStore) GetMonthlyUsage(accountID string) (int64, error) {
+	month := time.Now().Format("2006-01")
+
+	var bytesUsed int64
+	err := s.db.QueryRow(
+		"SELECT bytes_used FROM account_usage WHERE account_id = ? AND month = ?",
+		accountID, month,
+	).Scan(&bytesUsed)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	return bytesUsed, nil
+}
+
+// GetByID retrieves an account by its ID
+func (s *AccountStore) GetByID(accountID string) (*Account, error) {
+	var account Account
+	var createdAtUnix int64
+
+	err := s.db.QueryRow(`
+		SELECT id, primary_email, plan, created_at
+		FROM accounts
+		WHERE id = ?
+	`, accountID).Scan(&account.ID, &account.PrimaryEmail, &account.Plan, &createdAtUnix)
+	if err != nil {
+		return nil, err
+	}
+
+	account.CreatedAt = time.Unix(createdAtUnix, 0)
+	account.Emails, err = s.getAccountEmails(account.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &account, nil
+}

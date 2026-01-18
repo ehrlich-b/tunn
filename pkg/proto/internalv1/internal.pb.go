@@ -329,6 +329,1218 @@ func (x *ForwardUdpPacketResponse) GetErrorMessage() string {
 	return ""
 }
 
+// Usage tracking messages
+type RecordUsageRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	AccountId     string                 `protobuf:"bytes,1,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	Bytes         int64                  `protobuf:"varint,2,opt,name=bytes,proto3" json:"bytes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RecordUsageRequest) Reset() {
+	*x = RecordUsageRequest{}
+	mi := &file_proto_internal_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RecordUsageRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RecordUsageRequest) ProtoMessage() {}
+
+func (x *RecordUsageRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RecordUsageRequest.ProtoReflect.Descriptor instead.
+func (*RecordUsageRequest) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *RecordUsageRequest) GetAccountId() string {
+	if x != nil {
+		return x.AccountId
+	}
+	return ""
+}
+
+func (x *RecordUsageRequest) GetBytes() int64 {
+	if x != nil {
+		return x.Bytes
+	}
+	return 0
+}
+
+type RecordUsageResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RecordUsageResponse) Reset() {
+	*x = RecordUsageResponse{}
+	mi := &file_proto_internal_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RecordUsageResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RecordUsageResponse) ProtoMessage() {}
+
+func (x *RecordUsageResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RecordUsageResponse.ProtoReflect.Descriptor instead.
+func (*RecordUsageResponse) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{7}
+}
+
+type GetMonthlyUsageRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	AccountId     string                 `protobuf:"bytes,1,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetMonthlyUsageRequest) Reset() {
+	*x = GetMonthlyUsageRequest{}
+	mi := &file_proto_internal_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetMonthlyUsageRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetMonthlyUsageRequest) ProtoMessage() {}
+
+func (x *GetMonthlyUsageRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetMonthlyUsageRequest.ProtoReflect.Descriptor instead.
+func (*GetMonthlyUsageRequest) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *GetMonthlyUsageRequest) GetAccountId() string {
+	if x != nil {
+		return x.AccountId
+	}
+	return ""
+}
+
+type GetMonthlyUsageResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	BytesUsed     int64                  `protobuf:"varint,1,opt,name=bytes_used,json=bytesUsed,proto3" json:"bytes_used,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetMonthlyUsageResponse) Reset() {
+	*x = GetMonthlyUsageResponse{}
+	mi := &file_proto_internal_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetMonthlyUsageResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetMonthlyUsageResponse) ProtoMessage() {}
+
+func (x *GetMonthlyUsageResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetMonthlyUsageResponse.ProtoReflect.Descriptor instead.
+func (*GetMonthlyUsageResponse) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *GetMonthlyUsageResponse) GetBytesUsed() int64 {
+	if x != nil {
+		return x.BytesUsed
+	}
+	return 0
+}
+
+// Device code messages
+type CreateDeviceCodeRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateDeviceCodeRequest) Reset() {
+	*x = CreateDeviceCodeRequest{}
+	mi := &file_proto_internal_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateDeviceCodeRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateDeviceCodeRequest) ProtoMessage() {}
+
+func (x *CreateDeviceCodeRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateDeviceCodeRequest.ProtoReflect.Descriptor instead.
+func (*CreateDeviceCodeRequest) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{10}
+}
+
+type DeviceCodeResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Code          string                 `protobuf:"bytes,1,opt,name=code,proto3" json:"code,omitempty"`
+	UserCode      string                 `protobuf:"bytes,2,opt,name=user_code,json=userCode,proto3" json:"user_code,omitempty"`
+	ExpiresAt     int64                  `protobuf:"varint,3,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	Interval      int32                  `protobuf:"varint,4,opt,name=interval,proto3" json:"interval,omitempty"`
+	Authorized    bool                   `protobuf:"varint,5,opt,name=authorized,proto3" json:"authorized,omitempty"`
+	Email         string                 `protobuf:"bytes,6,opt,name=email,proto3" json:"email,omitempty"`
+	Found         bool                   `protobuf:"varint,7,opt,name=found,proto3" json:"found,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeviceCodeResponse) Reset() {
+	*x = DeviceCodeResponse{}
+	mi := &file_proto_internal_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeviceCodeResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeviceCodeResponse) ProtoMessage() {}
+
+func (x *DeviceCodeResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeviceCodeResponse.ProtoReflect.Descriptor instead.
+func (*DeviceCodeResponse) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *DeviceCodeResponse) GetCode() string {
+	if x != nil {
+		return x.Code
+	}
+	return ""
+}
+
+func (x *DeviceCodeResponse) GetUserCode() string {
+	if x != nil {
+		return x.UserCode
+	}
+	return ""
+}
+
+func (x *DeviceCodeResponse) GetExpiresAt() int64 {
+	if x != nil {
+		return x.ExpiresAt
+	}
+	return 0
+}
+
+func (x *DeviceCodeResponse) GetInterval() int32 {
+	if x != nil {
+		return x.Interval
+	}
+	return 0
+}
+
+func (x *DeviceCodeResponse) GetAuthorized() bool {
+	if x != nil {
+		return x.Authorized
+	}
+	return false
+}
+
+func (x *DeviceCodeResponse) GetEmail() string {
+	if x != nil {
+		return x.Email
+	}
+	return ""
+}
+
+func (x *DeviceCodeResponse) GetFound() bool {
+	if x != nil {
+		return x.Found
+	}
+	return false
+}
+
+type GetDeviceCodeRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Code          string                 `protobuf:"bytes,1,opt,name=code,proto3" json:"code,omitempty"`
+	UserCode      string                 `protobuf:"bytes,2,opt,name=user_code,json=userCode,proto3" json:"user_code,omitempty"` // If set, lookup by user_code instead
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetDeviceCodeRequest) Reset() {
+	*x = GetDeviceCodeRequest{}
+	mi := &file_proto_internal_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetDeviceCodeRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetDeviceCodeRequest) ProtoMessage() {}
+
+func (x *GetDeviceCodeRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetDeviceCodeRequest.ProtoReflect.Descriptor instead.
+func (*GetDeviceCodeRequest) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *GetDeviceCodeRequest) GetCode() string {
+	if x != nil {
+		return x.Code
+	}
+	return ""
+}
+
+func (x *GetDeviceCodeRequest) GetUserCode() string {
+	if x != nil {
+		return x.UserCode
+	}
+	return ""
+}
+
+type AuthorizeDeviceCodeRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Code          string                 `protobuf:"bytes,1,opt,name=code,proto3" json:"code,omitempty"`
+	Email         string                 `protobuf:"bytes,2,opt,name=email,proto3" json:"email,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AuthorizeDeviceCodeRequest) Reset() {
+	*x = AuthorizeDeviceCodeRequest{}
+	mi := &file_proto_internal_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AuthorizeDeviceCodeRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AuthorizeDeviceCodeRequest) ProtoMessage() {}
+
+func (x *AuthorizeDeviceCodeRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AuthorizeDeviceCodeRequest.ProtoReflect.Descriptor instead.
+func (*AuthorizeDeviceCodeRequest) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *AuthorizeDeviceCodeRequest) GetCode() string {
+	if x != nil {
+		return x.Code
+	}
+	return ""
+}
+
+func (x *AuthorizeDeviceCodeRequest) GetEmail() string {
+	if x != nil {
+		return x.Email
+	}
+	return ""
+}
+
+type AuthorizeDeviceCodeResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AuthorizeDeviceCodeResponse) Reset() {
+	*x = AuthorizeDeviceCodeResponse{}
+	mi := &file_proto_internal_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AuthorizeDeviceCodeResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AuthorizeDeviceCodeResponse) ProtoMessage() {}
+
+func (x *AuthorizeDeviceCodeResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AuthorizeDeviceCodeResponse.ProtoReflect.Descriptor instead.
+func (*AuthorizeDeviceCodeResponse) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *AuthorizeDeviceCodeResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+// Account messages
+type AccountResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Found         bool                   `protobuf:"varint,1,opt,name=found,proto3" json:"found,omitempty"`
+	Id            string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	PrimaryEmail  string                 `protobuf:"bytes,3,opt,name=primary_email,json=primaryEmail,proto3" json:"primary_email,omitempty"`
+	Plan          string                 `protobuf:"bytes,4,opt,name=plan,proto3" json:"plan,omitempty"`
+	CreatedAt     int64                  `protobuf:"varint,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	Emails        []*AccountEmail        `protobuf:"bytes,6,rep,name=emails,proto3" json:"emails,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AccountResponse) Reset() {
+	*x = AccountResponse{}
+	mi := &file_proto_internal_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AccountResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AccountResponse) ProtoMessage() {}
+
+func (x *AccountResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AccountResponse.ProtoReflect.Descriptor instead.
+func (*AccountResponse) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *AccountResponse) GetFound() bool {
+	if x != nil {
+		return x.Found
+	}
+	return false
+}
+
+func (x *AccountResponse) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *AccountResponse) GetPrimaryEmail() string {
+	if x != nil {
+		return x.PrimaryEmail
+	}
+	return ""
+}
+
+func (x *AccountResponse) GetPlan() string {
+	if x != nil {
+		return x.Plan
+	}
+	return ""
+}
+
+func (x *AccountResponse) GetCreatedAt() int64 {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return 0
+}
+
+func (x *AccountResponse) GetEmails() []*AccountEmail {
+	if x != nil {
+		return x.Emails
+	}
+	return nil
+}
+
+type AccountEmail struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Email         string                 `protobuf:"bytes,1,opt,name=email,proto3" json:"email,omitempty"`
+	VerifiedVia   string                 `protobuf:"bytes,2,opt,name=verified_via,json=verifiedVia,proto3" json:"verified_via,omitempty"`
+	AddedAt       int64                  `protobuf:"varint,3,opt,name=added_at,json=addedAt,proto3" json:"added_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AccountEmail) Reset() {
+	*x = AccountEmail{}
+	mi := &file_proto_internal_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AccountEmail) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AccountEmail) ProtoMessage() {}
+
+func (x *AccountEmail) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AccountEmail.ProtoReflect.Descriptor instead.
+func (*AccountEmail) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *AccountEmail) GetEmail() string {
+	if x != nil {
+		return x.Email
+	}
+	return ""
+}
+
+func (x *AccountEmail) GetVerifiedVia() string {
+	if x != nil {
+		return x.VerifiedVia
+	}
+	return ""
+}
+
+func (x *AccountEmail) GetAddedAt() int64 {
+	if x != nil {
+		return x.AddedAt
+	}
+	return 0
+}
+
+type GetAccountRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	AccountId     string                 `protobuf:"bytes,1,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetAccountRequest) Reset() {
+	*x = GetAccountRequest{}
+	mi := &file_proto_internal_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetAccountRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetAccountRequest) ProtoMessage() {}
+
+func (x *GetAccountRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetAccountRequest.ProtoReflect.Descriptor instead.
+func (*GetAccountRequest) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *GetAccountRequest) GetAccountId() string {
+	if x != nil {
+		return x.AccountId
+	}
+	return ""
+}
+
+type GetAccountByEmailRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Email         string                 `protobuf:"bytes,1,opt,name=email,proto3" json:"email,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetAccountByEmailRequest) Reset() {
+	*x = GetAccountByEmailRequest{}
+	mi := &file_proto_internal_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetAccountByEmailRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetAccountByEmailRequest) ProtoMessage() {}
+
+func (x *GetAccountByEmailRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetAccountByEmailRequest.ProtoReflect.Descriptor instead.
+func (*GetAccountByEmailRequest) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *GetAccountByEmailRequest) GetEmail() string {
+	if x != nil {
+		return x.Email
+	}
+	return ""
+}
+
+type FindOrCreateByEmailsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Emails        []string               `protobuf:"bytes,1,rep,name=emails,proto3" json:"emails,omitempty"`
+	VerifiedVia   string                 `protobuf:"bytes,2,opt,name=verified_via,json=verifiedVia,proto3" json:"verified_via,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FindOrCreateByEmailsRequest) Reset() {
+	*x = FindOrCreateByEmailsRequest{}
+	mi := &file_proto_internal_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FindOrCreateByEmailsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FindOrCreateByEmailsRequest) ProtoMessage() {}
+
+func (x *FindOrCreateByEmailsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FindOrCreateByEmailsRequest.ProtoReflect.Descriptor instead.
+func (*FindOrCreateByEmailsRequest) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *FindOrCreateByEmailsRequest) GetEmails() []string {
+	if x != nil {
+		return x.Emails
+	}
+	return nil
+}
+
+func (x *FindOrCreateByEmailsRequest) GetVerifiedVia() string {
+	if x != nil {
+		return x.VerifiedVia
+	}
+	return ""
+}
+
+type GetEmailBucketRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Email         string                 `protobuf:"bytes,1,opt,name=email,proto3" json:"email,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetEmailBucketRequest) Reset() {
+	*x = GetEmailBucketRequest{}
+	mi := &file_proto_internal_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetEmailBucketRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetEmailBucketRequest) ProtoMessage() {}
+
+func (x *GetEmailBucketRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetEmailBucketRequest.ProtoReflect.Descriptor instead.
+func (*GetEmailBucketRequest) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *GetEmailBucketRequest) GetEmail() string {
+	if x != nil {
+		return x.Email
+	}
+	return ""
+}
+
+type GetEmailBucketResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Emails        []string               `protobuf:"bytes,1,rep,name=emails,proto3" json:"emails,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetEmailBucketResponse) Reset() {
+	*x = GetEmailBucketResponse{}
+	mi := &file_proto_internal_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetEmailBucketResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetEmailBucketResponse) ProtoMessage() {}
+
+func (x *GetEmailBucketResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetEmailBucketResponse.ProtoReflect.Descriptor instead.
+func (*GetEmailBucketResponse) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *GetEmailBucketResponse) GetEmails() []string {
+	if x != nil {
+		return x.Emails
+	}
+	return nil
+}
+
+type UpdatePlanRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	AccountId     string                 `protobuf:"bytes,1,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	Plan          string                 `protobuf:"bytes,2,opt,name=plan,proto3" json:"plan,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdatePlanRequest) Reset() {
+	*x = UpdatePlanRequest{}
+	mi := &file_proto_internal_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdatePlanRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdatePlanRequest) ProtoMessage() {}
+
+func (x *UpdatePlanRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdatePlanRequest.ProtoReflect.Descriptor instead.
+func (*UpdatePlanRequest) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *UpdatePlanRequest) GetAccountId() string {
+	if x != nil {
+		return x.AccountId
+	}
+	return ""
+}
+
+func (x *UpdatePlanRequest) GetPlan() string {
+	if x != nil {
+		return x.Plan
+	}
+	return ""
+}
+
+type UpdatePlanResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdatePlanResponse) Reset() {
+	*x = UpdatePlanResponse{}
+	mi := &file_proto_internal_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdatePlanResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdatePlanResponse) ProtoMessage() {}
+
+func (x *UpdatePlanResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdatePlanResponse.ProtoReflect.Descriptor instead.
+func (*UpdatePlanResponse) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{23}
+}
+
+// Tunnel tracking messages
+type RegisterTunnelRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TunnelId      string                 `protobuf:"bytes,1,opt,name=tunnel_id,json=tunnelId,proto3" json:"tunnel_id,omitempty"`
+	AccountId     string                 `protobuf:"bytes,2,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	NodeAddress   string                 `protobuf:"bytes,3,opt,name=node_address,json=nodeAddress,proto3" json:"node_address,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RegisterTunnelRequest) Reset() {
+	*x = RegisterTunnelRequest{}
+	mi := &file_proto_internal_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RegisterTunnelRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RegisterTunnelRequest) ProtoMessage() {}
+
+func (x *RegisterTunnelRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RegisterTunnelRequest.ProtoReflect.Descriptor instead.
+func (*RegisterTunnelRequest) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *RegisterTunnelRequest) GetTunnelId() string {
+	if x != nil {
+		return x.TunnelId
+	}
+	return ""
+}
+
+func (x *RegisterTunnelRequest) GetAccountId() string {
+	if x != nil {
+		return x.AccountId
+	}
+	return ""
+}
+
+func (x *RegisterTunnelRequest) GetNodeAddress() string {
+	if x != nil {
+		return x.NodeAddress
+	}
+	return ""
+}
+
+type RegisterTunnelResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Allowed       bool                   `protobuf:"varint,1,opt,name=allowed,proto3" json:"allowed,omitempty"`
+	Reason        string                 `protobuf:"bytes,2,opt,name=reason,proto3" json:"reason,omitempty"`
+	CurrentCount  int32                  `protobuf:"varint,3,opt,name=current_count,json=currentCount,proto3" json:"current_count,omitempty"`
+	MaxAllowed    int32                  `protobuf:"varint,4,opt,name=max_allowed,json=maxAllowed,proto3" json:"max_allowed,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RegisterTunnelResponse) Reset() {
+	*x = RegisterTunnelResponse{}
+	mi := &file_proto_internal_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RegisterTunnelResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RegisterTunnelResponse) ProtoMessage() {}
+
+func (x *RegisterTunnelResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RegisterTunnelResponse.ProtoReflect.Descriptor instead.
+func (*RegisterTunnelResponse) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *RegisterTunnelResponse) GetAllowed() bool {
+	if x != nil {
+		return x.Allowed
+	}
+	return false
+}
+
+func (x *RegisterTunnelResponse) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+func (x *RegisterTunnelResponse) GetCurrentCount() int32 {
+	if x != nil {
+		return x.CurrentCount
+	}
+	return 0
+}
+
+func (x *RegisterTunnelResponse) GetMaxAllowed() int32 {
+	if x != nil {
+		return x.MaxAllowed
+	}
+	return 0
+}
+
+type UnregisterTunnelRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TunnelId      string                 `protobuf:"bytes,1,opt,name=tunnel_id,json=tunnelId,proto3" json:"tunnel_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UnregisterTunnelRequest) Reset() {
+	*x = UnregisterTunnelRequest{}
+	mi := &file_proto_internal_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UnregisterTunnelRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UnregisterTunnelRequest) ProtoMessage() {}
+
+func (x *UnregisterTunnelRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UnregisterTunnelRequest.ProtoReflect.Descriptor instead.
+func (*UnregisterTunnelRequest) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *UnregisterTunnelRequest) GetTunnelId() string {
+	if x != nil {
+		return x.TunnelId
+	}
+	return ""
+}
+
+type UnregisterTunnelResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UnregisterTunnelResponse) Reset() {
+	*x = UnregisterTunnelResponse{}
+	mi := &file_proto_internal_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UnregisterTunnelResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UnregisterTunnelResponse) ProtoMessage() {}
+
+func (x *UnregisterTunnelResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UnregisterTunnelResponse.ProtoReflect.Descriptor instead.
+func (*UnregisterTunnelResponse) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{27}
+}
+
+type GetTunnelCountRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	AccountId     string                 `protobuf:"bytes,1,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetTunnelCountRequest) Reset() {
+	*x = GetTunnelCountRequest{}
+	mi := &file_proto_internal_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetTunnelCountRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetTunnelCountRequest) ProtoMessage() {}
+
+func (x *GetTunnelCountRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetTunnelCountRequest.ProtoReflect.Descriptor instead.
+func (*GetTunnelCountRequest) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *GetTunnelCountRequest) GetAccountId() string {
+	if x != nil {
+		return x.AccountId
+	}
+	return ""
+}
+
+type GetTunnelCountResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Count         int32                  `protobuf:"varint,1,opt,name=count,proto3" json:"count,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetTunnelCountResponse) Reset() {
+	*x = GetTunnelCountResponse{}
+	mi := &file_proto_internal_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetTunnelCountResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetTunnelCountResponse) ProtoMessage() {}
+
+func (x *GetTunnelCountResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetTunnelCountResponse.ProtoReflect.Descriptor instead.
+func (*GetTunnelCountResponse) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *GetTunnelCountResponse) GetCount() int32 {
+	if x != nil {
+		return x.Count
+	}
+	return 0
+}
+
 var File_proto_internal_proto protoreflect.FileDescriptor
 
 const file_proto_internal_proto_rawDesc = "" +
@@ -350,12 +1562,107 @@ const file_proto_internal_proto_rawDesc = "" +
 	"\x18ForwardUdpPacketResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12#\n" +
 	"\rresponse_data\x18\x02 \x01(\fR\fresponseData\x12#\n" +
-	"\rerror_message\x18\x03 \x01(\tR\ferrorMessage2\xfb\x01\n" +
+	"\rerror_message\x18\x03 \x01(\tR\ferrorMessage\"I\n" +
+	"\x12RecordUsageRequest\x12\x1d\n" +
+	"\n" +
+	"account_id\x18\x01 \x01(\tR\taccountId\x12\x14\n" +
+	"\x05bytes\x18\x02 \x01(\x03R\x05bytes\"\x15\n" +
+	"\x13RecordUsageResponse\"7\n" +
+	"\x16GetMonthlyUsageRequest\x12\x1d\n" +
+	"\n" +
+	"account_id\x18\x01 \x01(\tR\taccountId\"8\n" +
+	"\x17GetMonthlyUsageResponse\x12\x1d\n" +
+	"\n" +
+	"bytes_used\x18\x01 \x01(\x03R\tbytesUsed\"\x19\n" +
+	"\x17CreateDeviceCodeRequest\"\xcc\x01\n" +
+	"\x12DeviceCodeResponse\x12\x12\n" +
+	"\x04code\x18\x01 \x01(\tR\x04code\x12\x1b\n" +
+	"\tuser_code\x18\x02 \x01(\tR\buserCode\x12\x1d\n" +
+	"\n" +
+	"expires_at\x18\x03 \x01(\x03R\texpiresAt\x12\x1a\n" +
+	"\binterval\x18\x04 \x01(\x05R\binterval\x12\x1e\n" +
+	"\n" +
+	"authorized\x18\x05 \x01(\bR\n" +
+	"authorized\x12\x14\n" +
+	"\x05email\x18\x06 \x01(\tR\x05email\x12\x14\n" +
+	"\x05found\x18\a \x01(\bR\x05found\"G\n" +
+	"\x14GetDeviceCodeRequest\x12\x12\n" +
+	"\x04code\x18\x01 \x01(\tR\x04code\x12\x1b\n" +
+	"\tuser_code\x18\x02 \x01(\tR\buserCode\"F\n" +
+	"\x1aAuthorizeDeviceCodeRequest\x12\x12\n" +
+	"\x04code\x18\x01 \x01(\tR\x04code\x12\x14\n" +
+	"\x05email\x18\x02 \x01(\tR\x05email\"7\n" +
+	"\x1bAuthorizeDeviceCodeResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\"\xbf\x01\n" +
+	"\x0fAccountResponse\x12\x14\n" +
+	"\x05found\x18\x01 \x01(\bR\x05found\x12\x0e\n" +
+	"\x02id\x18\x02 \x01(\tR\x02id\x12#\n" +
+	"\rprimary_email\x18\x03 \x01(\tR\fprimaryEmail\x12\x12\n" +
+	"\x04plan\x18\x04 \x01(\tR\x04plan\x12\x1d\n" +
+	"\n" +
+	"created_at\x18\x05 \x01(\x03R\tcreatedAt\x12.\n" +
+	"\x06emails\x18\x06 \x03(\v2\x16.internal.AccountEmailR\x06emails\"b\n" +
+	"\fAccountEmail\x12\x14\n" +
+	"\x05email\x18\x01 \x01(\tR\x05email\x12!\n" +
+	"\fverified_via\x18\x02 \x01(\tR\vverifiedVia\x12\x19\n" +
+	"\badded_at\x18\x03 \x01(\x03R\aaddedAt\"2\n" +
+	"\x11GetAccountRequest\x12\x1d\n" +
+	"\n" +
+	"account_id\x18\x01 \x01(\tR\taccountId\"0\n" +
+	"\x18GetAccountByEmailRequest\x12\x14\n" +
+	"\x05email\x18\x01 \x01(\tR\x05email\"X\n" +
+	"\x1bFindOrCreateByEmailsRequest\x12\x16\n" +
+	"\x06emails\x18\x01 \x03(\tR\x06emails\x12!\n" +
+	"\fverified_via\x18\x02 \x01(\tR\vverifiedVia\"-\n" +
+	"\x15GetEmailBucketRequest\x12\x14\n" +
+	"\x05email\x18\x01 \x01(\tR\x05email\"0\n" +
+	"\x16GetEmailBucketResponse\x12\x16\n" +
+	"\x06emails\x18\x01 \x03(\tR\x06emails\"F\n" +
+	"\x11UpdatePlanRequest\x12\x1d\n" +
+	"\n" +
+	"account_id\x18\x01 \x01(\tR\taccountId\x12\x12\n" +
+	"\x04plan\x18\x02 \x01(\tR\x04plan\"\x14\n" +
+	"\x12UpdatePlanResponse\"v\n" +
+	"\x15RegisterTunnelRequest\x12\x1b\n" +
+	"\ttunnel_id\x18\x01 \x01(\tR\btunnelId\x12\x1d\n" +
+	"\n" +
+	"account_id\x18\x02 \x01(\tR\taccountId\x12!\n" +
+	"\fnode_address\x18\x03 \x01(\tR\vnodeAddress\"\x90\x01\n" +
+	"\x16RegisterTunnelResponse\x12\x18\n" +
+	"\aallowed\x18\x01 \x01(\bR\aallowed\x12\x16\n" +
+	"\x06reason\x18\x02 \x01(\tR\x06reason\x12#\n" +
+	"\rcurrent_count\x18\x03 \x01(\x05R\fcurrentCount\x12\x1f\n" +
+	"\vmax_allowed\x18\x04 \x01(\x05R\n" +
+	"maxAllowed\"6\n" +
+	"\x17UnregisterTunnelRequest\x12\x1b\n" +
+	"\ttunnel_id\x18\x01 \x01(\tR\btunnelId\"\x1a\n" +
+	"\x18UnregisterTunnelResponse\"6\n" +
+	"\x15GetTunnelCountRequest\x12\x1d\n" +
+	"\n" +
+	"account_id\x18\x01 \x01(\tR\taccountId\".\n" +
+	"\x16GetTunnelCountResponse\x12\x14\n" +
+	"\x05count\x18\x01 \x01(\x05R\x05count2\xfb\x01\n" +
 	"\x0fInternalService\x12G\n" +
 	"\n" +
 	"FindTunnel\x12\x1b.internal.FindTunnelRequest\x1a\x1c.internal.FindTunnelResponse\x12Y\n" +
 	"\x10ForwardUdpPacket\x12!.internal.ForwardUdpPacketRequest\x1a\".internal.ForwardUdpPacketResponse\x12D\n" +
-	"\vGetNodeInfo\x12\x19.internal.NodeInfoRequest\x1a\x1a.internal.NodeInfoResponseB0Z.github.com/ehrlich-b/tunn/pkg/proto/internalv1b\x06proto3"
+	"\vGetNodeInfo\x12\x19.internal.NodeInfoRequest\x1a\x1a.internal.NodeInfoResponse2\xd0\b\n" +
+	"\vLoginNodeDB\x12J\n" +
+	"\vRecordUsage\x12\x1c.internal.RecordUsageRequest\x1a\x1d.internal.RecordUsageResponse\x12V\n" +
+	"\x0fGetMonthlyUsage\x12 .internal.GetMonthlyUsageRequest\x1a!.internal.GetMonthlyUsageResponse\x12S\n" +
+	"\x10CreateDeviceCode\x12!.internal.CreateDeviceCodeRequest\x1a\x1c.internal.DeviceCodeResponse\x12M\n" +
+	"\rGetDeviceCode\x12\x1e.internal.GetDeviceCodeRequest\x1a\x1c.internal.DeviceCodeResponse\x12b\n" +
+	"\x13AuthorizeDeviceCode\x12$.internal.AuthorizeDeviceCodeRequest\x1a%.internal.AuthorizeDeviceCodeResponse\x12D\n" +
+	"\n" +
+	"GetAccount\x12\x1b.internal.GetAccountRequest\x1a\x19.internal.AccountResponse\x12R\n" +
+	"\x11GetAccountByEmail\x12\".internal.GetAccountByEmailRequest\x1a\x19.internal.AccountResponse\x12X\n" +
+	"\x14FindOrCreateByEmails\x12%.internal.FindOrCreateByEmailsRequest\x1a\x19.internal.AccountResponse\x12S\n" +
+	"\x0eGetEmailBucket\x12\x1f.internal.GetEmailBucketRequest\x1a .internal.GetEmailBucketResponse\x12G\n" +
+	"\n" +
+	"UpdatePlan\x12\x1b.internal.UpdatePlanRequest\x1a\x1c.internal.UpdatePlanResponse\x12S\n" +
+	"\x0eRegisterTunnel\x12\x1f.internal.RegisterTunnelRequest\x1a .internal.RegisterTunnelResponse\x12Y\n" +
+	"\x10UnregisterTunnel\x12!.internal.UnregisterTunnelRequest\x1a\".internal.UnregisterTunnelResponse\x12S\n" +
+	"\x0eGetTunnelCount\x12\x1f.internal.GetTunnelCountRequest\x1a .internal.GetTunnelCountResponseB0Z.github.com/ehrlich-b/tunn/pkg/proto/internalv1b\x06proto3"
 
 var (
 	file_proto_internal_proto_rawDescOnce sync.Once
@@ -369,27 +1676,78 @@ func file_proto_internal_proto_rawDescGZIP() []byte {
 	return file_proto_internal_proto_rawDescData
 }
 
-var file_proto_internal_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_proto_internal_proto_msgTypes = make([]protoimpl.MessageInfo, 30)
 var file_proto_internal_proto_goTypes = []any{
-	(*NodeInfoRequest)(nil),          // 0: internal.NodeInfoRequest
-	(*NodeInfoResponse)(nil),         // 1: internal.NodeInfoResponse
-	(*FindTunnelRequest)(nil),        // 2: internal.FindTunnelRequest
-	(*FindTunnelResponse)(nil),       // 3: internal.FindTunnelResponse
-	(*ForwardUdpPacketRequest)(nil),  // 4: internal.ForwardUdpPacketRequest
-	(*ForwardUdpPacketResponse)(nil), // 5: internal.ForwardUdpPacketResponse
+	(*NodeInfoRequest)(nil),             // 0: internal.NodeInfoRequest
+	(*NodeInfoResponse)(nil),            // 1: internal.NodeInfoResponse
+	(*FindTunnelRequest)(nil),           // 2: internal.FindTunnelRequest
+	(*FindTunnelResponse)(nil),          // 3: internal.FindTunnelResponse
+	(*ForwardUdpPacketRequest)(nil),     // 4: internal.ForwardUdpPacketRequest
+	(*ForwardUdpPacketResponse)(nil),    // 5: internal.ForwardUdpPacketResponse
+	(*RecordUsageRequest)(nil),          // 6: internal.RecordUsageRequest
+	(*RecordUsageResponse)(nil),         // 7: internal.RecordUsageResponse
+	(*GetMonthlyUsageRequest)(nil),      // 8: internal.GetMonthlyUsageRequest
+	(*GetMonthlyUsageResponse)(nil),     // 9: internal.GetMonthlyUsageResponse
+	(*CreateDeviceCodeRequest)(nil),     // 10: internal.CreateDeviceCodeRequest
+	(*DeviceCodeResponse)(nil),          // 11: internal.DeviceCodeResponse
+	(*GetDeviceCodeRequest)(nil),        // 12: internal.GetDeviceCodeRequest
+	(*AuthorizeDeviceCodeRequest)(nil),  // 13: internal.AuthorizeDeviceCodeRequest
+	(*AuthorizeDeviceCodeResponse)(nil), // 14: internal.AuthorizeDeviceCodeResponse
+	(*AccountResponse)(nil),             // 15: internal.AccountResponse
+	(*AccountEmail)(nil),                // 16: internal.AccountEmail
+	(*GetAccountRequest)(nil),           // 17: internal.GetAccountRequest
+	(*GetAccountByEmailRequest)(nil),    // 18: internal.GetAccountByEmailRequest
+	(*FindOrCreateByEmailsRequest)(nil), // 19: internal.FindOrCreateByEmailsRequest
+	(*GetEmailBucketRequest)(nil),       // 20: internal.GetEmailBucketRequest
+	(*GetEmailBucketResponse)(nil),      // 21: internal.GetEmailBucketResponse
+	(*UpdatePlanRequest)(nil),           // 22: internal.UpdatePlanRequest
+	(*UpdatePlanResponse)(nil),          // 23: internal.UpdatePlanResponse
+	(*RegisterTunnelRequest)(nil),       // 24: internal.RegisterTunnelRequest
+	(*RegisterTunnelResponse)(nil),      // 25: internal.RegisterTunnelResponse
+	(*UnregisterTunnelRequest)(nil),     // 26: internal.UnregisterTunnelRequest
+	(*UnregisterTunnelResponse)(nil),    // 27: internal.UnregisterTunnelResponse
+	(*GetTunnelCountRequest)(nil),       // 28: internal.GetTunnelCountRequest
+	(*GetTunnelCountResponse)(nil),      // 29: internal.GetTunnelCountResponse
 }
 var file_proto_internal_proto_depIdxs = []int32{
-	2, // 0: internal.InternalService.FindTunnel:input_type -> internal.FindTunnelRequest
-	4, // 1: internal.InternalService.ForwardUdpPacket:input_type -> internal.ForwardUdpPacketRequest
-	0, // 2: internal.InternalService.GetNodeInfo:input_type -> internal.NodeInfoRequest
-	3, // 3: internal.InternalService.FindTunnel:output_type -> internal.FindTunnelResponse
-	5, // 4: internal.InternalService.ForwardUdpPacket:output_type -> internal.ForwardUdpPacketResponse
-	1, // 5: internal.InternalService.GetNodeInfo:output_type -> internal.NodeInfoResponse
-	3, // [3:6] is the sub-list for method output_type
-	0, // [0:3] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	16, // 0: internal.AccountResponse.emails:type_name -> internal.AccountEmail
+	2,  // 1: internal.InternalService.FindTunnel:input_type -> internal.FindTunnelRequest
+	4,  // 2: internal.InternalService.ForwardUdpPacket:input_type -> internal.ForwardUdpPacketRequest
+	0,  // 3: internal.InternalService.GetNodeInfo:input_type -> internal.NodeInfoRequest
+	6,  // 4: internal.LoginNodeDB.RecordUsage:input_type -> internal.RecordUsageRequest
+	8,  // 5: internal.LoginNodeDB.GetMonthlyUsage:input_type -> internal.GetMonthlyUsageRequest
+	10, // 6: internal.LoginNodeDB.CreateDeviceCode:input_type -> internal.CreateDeviceCodeRequest
+	12, // 7: internal.LoginNodeDB.GetDeviceCode:input_type -> internal.GetDeviceCodeRequest
+	13, // 8: internal.LoginNodeDB.AuthorizeDeviceCode:input_type -> internal.AuthorizeDeviceCodeRequest
+	17, // 9: internal.LoginNodeDB.GetAccount:input_type -> internal.GetAccountRequest
+	18, // 10: internal.LoginNodeDB.GetAccountByEmail:input_type -> internal.GetAccountByEmailRequest
+	19, // 11: internal.LoginNodeDB.FindOrCreateByEmails:input_type -> internal.FindOrCreateByEmailsRequest
+	20, // 12: internal.LoginNodeDB.GetEmailBucket:input_type -> internal.GetEmailBucketRequest
+	22, // 13: internal.LoginNodeDB.UpdatePlan:input_type -> internal.UpdatePlanRequest
+	24, // 14: internal.LoginNodeDB.RegisterTunnel:input_type -> internal.RegisterTunnelRequest
+	26, // 15: internal.LoginNodeDB.UnregisterTunnel:input_type -> internal.UnregisterTunnelRequest
+	28, // 16: internal.LoginNodeDB.GetTunnelCount:input_type -> internal.GetTunnelCountRequest
+	3,  // 17: internal.InternalService.FindTunnel:output_type -> internal.FindTunnelResponse
+	5,  // 18: internal.InternalService.ForwardUdpPacket:output_type -> internal.ForwardUdpPacketResponse
+	1,  // 19: internal.InternalService.GetNodeInfo:output_type -> internal.NodeInfoResponse
+	7,  // 20: internal.LoginNodeDB.RecordUsage:output_type -> internal.RecordUsageResponse
+	9,  // 21: internal.LoginNodeDB.GetMonthlyUsage:output_type -> internal.GetMonthlyUsageResponse
+	11, // 22: internal.LoginNodeDB.CreateDeviceCode:output_type -> internal.DeviceCodeResponse
+	11, // 23: internal.LoginNodeDB.GetDeviceCode:output_type -> internal.DeviceCodeResponse
+	14, // 24: internal.LoginNodeDB.AuthorizeDeviceCode:output_type -> internal.AuthorizeDeviceCodeResponse
+	15, // 25: internal.LoginNodeDB.GetAccount:output_type -> internal.AccountResponse
+	15, // 26: internal.LoginNodeDB.GetAccountByEmail:output_type -> internal.AccountResponse
+	15, // 27: internal.LoginNodeDB.FindOrCreateByEmails:output_type -> internal.AccountResponse
+	21, // 28: internal.LoginNodeDB.GetEmailBucket:output_type -> internal.GetEmailBucketResponse
+	23, // 29: internal.LoginNodeDB.UpdatePlan:output_type -> internal.UpdatePlanResponse
+	25, // 30: internal.LoginNodeDB.RegisterTunnel:output_type -> internal.RegisterTunnelResponse
+	27, // 31: internal.LoginNodeDB.UnregisterTunnel:output_type -> internal.UnregisterTunnelResponse
+	29, // 32: internal.LoginNodeDB.GetTunnelCount:output_type -> internal.GetTunnelCountResponse
+	17, // [17:33] is the sub-list for method output_type
+	1,  // [1:17] is the sub-list for method input_type
+	1,  // [1:1] is the sub-list for extension type_name
+	1,  // [1:1] is the sub-list for extension extendee
+	0,  // [0:1] is the sub-list for field type_name
 }
 
 func init() { file_proto_internal_proto_init() }
@@ -403,9 +1761,9 @@ func file_proto_internal_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_internal_proto_rawDesc), len(file_proto_internal_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   6,
+			NumMessages:   30,
 			NumExtensions: 0,
-			NumServices:   1,
+			NumServices:   2,
 		},
 		GoTypes:           file_proto_internal_proto_goTypes,
 		DependencyIndexes: file_proto_internal_proto_depIdxs,

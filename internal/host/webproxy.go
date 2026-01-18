@@ -107,8 +107,8 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 
 		// Get user's email bucket (all emails associated with their account)
 		userEmails := []string{userEmail}
-		if p.accounts != nil {
-			if bucket, err := p.accounts.GetEmailBucket(userEmail); err == nil {
+		if p.storage.Available() {
+			if bucket, err := p.storage.GetEmailBucket(r.Context(), userEmail); err == nil {
 				userEmails = bucket
 			}
 		}

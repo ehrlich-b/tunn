@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ehrlich-b/tunn/internal/common"
+	"github.com/ehrlich-b/tunn/internal/storage"
 	"github.com/golang-jwt/jwt/v4"
 )
 
@@ -17,9 +18,18 @@ func (p *ProxyServer) handleDeviceCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	code, err := p.deviceCodes.Create()
+	if !p.storage.Available() {
+		http.Error(w, "Service temporarily unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	code, err := p.storage.CreateDeviceCode(r.Context())
 	if err != nil {
 		common.LogError("failed to create device code", "error", err)
+		if err == storage.ErrNotAvailable {
+			http.Error(w, "Service temporarily unavailable", http.StatusServiceUnavailable)
+			return
+		}
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
@@ -68,7 +78,21 @@ func (p *ProxyServer) handleDeviceToken(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	code := p.deviceCodes.Get(deviceCode)
+	if !p.storage.Available() {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]string{"error": "service_unavailable"})
+		return
+	}
+
+	code, err := p.storage.GetDeviceCode(r.Context(), deviceCode)
+	if err != nil {
+		common.LogError("failed to get device code", "error", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "internal_error"})
+		return
+	}
 	if code == nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
@@ -91,8 +115,7 @@ func (p *ProxyServer) handleDeviceToken(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Clean up the device code
-	p.deviceCodes.Delete(deviceCode)
+	// Device code will expire naturally - no explicit delete needed
 
 	common.LogInfo("device code authorized", "email", code.Email)
 
@@ -112,7 +135,16 @@ func (p *ProxyServer) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 
 	// Verify the device code exists
 	if userCode != "" {
-		code := p.deviceCodes.GetByUserCode(userCode)
+		if !p.storage.Available() {
+			http.Error(w, "Service temporarily unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		code, err := p.storage.GetDeviceCodeByUserCode(r.Context(), userCode)
+		if err != nil {
+			common.LogError("failed to get device code", "error", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
 		if code == nil {
 			http.Error(w, "Invalid or expired code", http.StatusBadRequest)
 			return

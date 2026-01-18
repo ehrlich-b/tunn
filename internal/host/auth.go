@@ -198,10 +198,10 @@ func (p *ProxyServer) handleCallback(w http.ResponseWriter, r *http.Request) {
 
 	// Check if this is a device code flow (CLI login)
 	deviceUserCode := p.sessionManager.PopString(r.Context(), "device_user_code")
-	if deviceUserCode != "" {
-		code := p.deviceCodes.GetByUserCode(deviceUserCode)
-		if code != nil {
-			p.deviceCodes.Authorize(code.Code, email)
+	if deviceUserCode != "" && p.storage.Available() {
+		code, err := p.storage.GetDeviceCodeByUserCode(r.Context(), deviceUserCode)
+		if err == nil && code != nil {
+			p.storage.AuthorizeDeviceCode(r.Context(), code.Code, email)
 			common.LogInfo("device code authorized via OAuth", "user_code", deviceUserCode, "email", email)
 			// Show success page for device flow
 			w.Header().Set("Content-Type", "text/html")
@@ -378,10 +378,10 @@ func (p *ProxyServer) handleMockCallback(w http.ResponseWriter, r *http.Request)
 
 	// Check if this is a device code flow (CLI login)
 	deviceUserCode := p.sessionManager.PopString(r.Context(), "device_user_code")
-	if deviceUserCode != "" {
-		dc := p.deviceCodes.GetByUserCode(deviceUserCode)
-		if dc != nil {
-			p.deviceCodes.Authorize(dc.Code, email)
+	if deviceUserCode != "" && p.storage.Available() {
+		dc, err := p.storage.GetDeviceCodeByUserCode(r.Context(), deviceUserCode)
+		if err == nil && dc != nil {
+			p.storage.AuthorizeDeviceCode(r.Context(), dc.Code, email)
 			common.LogInfo("device code authorized via mock OIDC", "user_code", deviceUserCode, "email", email)
 			// Show success page for device flow
 			w.Header().Set("Content-Type", "text/html")

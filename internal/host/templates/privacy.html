@@ -96,45 +96,37 @@ li {
   <h1>Privacy Policy</h1>
   <p class="updated">Last updated: January 18, 2026</p>
 
-  <p>tunn ("we", "our", or "us") is committed to protecting your privacy. This Privacy Policy explains how we collect, use, and safeguard your information when you use our service.</p>
+  <p>We don't want your data. We built tunn to be a simple tunnel service, not a data collection operation. This policy explains what we do and don't collect.</p>
 
-  <h2>Information We Collect</h2>
-  <p>When you use tunn, we collect:</p>
+  <h2>What We Collect</h2>
   <ul>
-    <li><strong>GitHub Account Information:</strong> When you log in with GitHub, we receive your email address(es) and basic profile information.</li>
-    <li><strong>Tunnel Usage Data:</strong> We track bandwidth usage per account to enforce rate limits.</li>
-    <li><strong>Server Logs:</strong> We collect standard server logs including IP addresses, request times, and HTTP headers for security and debugging purposes.</li>
+    <li><strong>GitHub Account Info:</strong> When you log in, we get your email address(es) from GitHub. We use this for authentication and access control.</li>
+    <li><strong>Connection Metadata:</strong> We log IP addresses, connection times, and bandwidth usage. This is standard server logging for abuse prevention and rate limiting.</li>
+    <li><strong>Bandwidth Counts:</strong> We track bytes transferred per account to enforce quotas.</li>
   </ul>
 
-  <h2>How We Use Your Information</h2>
-  <ul>
-    <li><strong>Authentication:</strong> Your email addresses are used to verify your identity and control access to tunnels.</li>
-    <li><strong>Rate Limiting:</strong> Usage data ensures fair use of the service.</li>
-    <li><strong>Security:</strong> Logs help us detect and prevent abuse.</li>
-    <li><strong>Communication:</strong> We may send service-related emails (account issues, security alerts).</li>
-  </ul>
+  <h2>What We Don't Collect</h2>
+  <p><strong>We do not log, inspect, or store your tunnel traffic content.</strong></p>
+  <p>Our proxy code passes data through using Go's <code>io.Copy()</code> - the actual bytes flowing through your tunnel are never parsed, logged, or stored. There is no code path that records traffic content.</p>
+  <p>In L7 proxy mode (the default), we terminate TLS, which means we <em>technically could</em> see your traffic. We don't. If this concerns you, self-host tunn or use L4 passthrough mode (coming soon) which provides true end-to-end encryption.</p>
 
-  <h2>Information We Don't Collect</h2>
-  <ul>
-    <li>We do not inspect, store, or log the content of your tunnel traffic.</li>
-    <li>We do not sell or share your personal information with third parties for marketing.</li>
-    <li>We do not use tracking cookies or analytics services.</li>
-  </ul>
+  <h2>Law Enforcement</h2>
+  <p>If we receive a valid subpoena or court order, we will comply with the law. This means we would hand over the data we actually have: your email, IP addresses, connection times, and bandwidth usage. We cannot hand over traffic content because we don't have it.</p>
 
   <h2>Data Retention</h2>
-  <p>We retain your account information as long as your account is active. Usage logs are retained for 30 days. You can request deletion of your data by contacting us.</p>
+  <p>Account info is kept while your account exists. Connection logs are retained for 30 days. Bandwidth counters reset monthly. You can request account deletion by emailing us.</p>
 
-  <h2>Data Security</h2>
-  <p>All tunnel traffic is encrypted using TLS. We use industry-standard security measures to protect your data.</p>
+  <h2>No Tracking</h2>
+  <p>We don't use analytics services, tracking pixels, or third-party cookies. The only cookie we set is for authentication.</p>
 
   <h2>Open Source</h2>
-  <p>tunn is open source software. You can review our code on <a href="https://github.com/ehrlich-b/tunn">GitHub</a> to verify our privacy practices. You can also self-host tunn if you prefer complete control over your data.</p>
+  <p>tunn is open source. You can <a href="https://github.com/ehrlich-b/tunn">read the code</a> to verify everything in this policy. You can also self-host if you want complete control.</p>
 
-  <h2>Changes to This Policy</h2>
-  <p>We may update this Privacy Policy from time to time. We will notify you of any changes by posting the new policy on this page and updating the "Last updated" date.</p>
+  <h2>Changes</h2>
+  <p>We may update this policy. Changes will be posted here with an updated date.</p>
 
-  <h2>Contact Us</h2>
-  <p>If you have questions about this Privacy Policy, please contact us at <a href="mailto:privacy@tunn.to">privacy@tunn.to</a>.</p>
+  <h2>Contact</h2>
+  <p>Questions? Email <a href="mailto:privacy@tunn.to">privacy@tunn.to</a>.</p>
 </div>
 
 <footer class="footer">

@@ -25,8 +25,8 @@ proto:
 	protoc --go_out=. --go-grpc_out=. proto/internal.proto
 	@mkdir -p pkg/proto/tunnelv1 pkg/proto/internalv1
 	@if [ -d github.com ]; then \
-		mv github.com/behrlich/tunn/pkg/proto/tunnelv1/*.pb.go pkg/proto/tunnelv1/ 2>/dev/null || true; \
-		mv github.com/behrlich/tunn/pkg/proto/internalv1/*.pb.go pkg/proto/internalv1/ 2>/dev/null || true; \
+		mv github.com/ehrlich-b/tunn/pkg/proto/tunnelv1/*.pb.go pkg/proto/tunnelv1/ 2>/dev/null || true; \
+		mv github.com/ehrlich-b/tunn/pkg/proto/internalv1/*.pb.go pkg/proto/internalv1/ 2>/dev/null || true; \
 		rm -rf github.com; \
 	fi
 	@echo "Protobuf code generated in pkg/proto/tunnelv1/ and pkg/proto/internalv1/"

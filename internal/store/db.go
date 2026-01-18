@@ -11,19 +11,22 @@ import (
 )
 
 var (
-	db     *sql.DB
-	dbOnce sync.Once
-	dbErr  error
+	globalDB   *sql.DB
+	globalOnce sync.Once
+	globalErr  error
 )
 
-// DB returns the singleton database connection
-func DB() (*sql.DB, error) {
-	dbOnce.Do(func() {
-		dbPath := os.Getenv("TUNN_DB_PATH")
+// InitDB initializes the SQLite database at the given path.
+// Only login nodes should call this. Returns the database connection.
+// If path is empty, uses default path based on environment.
+func InitDB(path string) (*sql.DB, error) {
+	var initErr error
+	globalOnce.Do(func() {
+		dbPath := path
 		if dbPath == "" {
-			// Default: ~/.tunn/tunn.db for local, /litefs/tunn.db for Fly.io
-			if _, err := os.Stat("/litefs"); err == nil {
-				dbPath = "/litefs/tunn.db"
+			// Default: ~/.tunn/tunn.db for local, /data/tunn.db for Fly.io
+			if _, err := os.Stat("/data"); err == nil {
+				dbPath = "/data/tunn.db"
 			} else {
 				home, _ := os.UserHomeDir()
 				dbPath = filepath.Join(home, ".tunn", "tunn.db")
@@ -32,29 +35,36 @@ func DB() (*sql.DB, error) {
 
 		// Ensure directory exists
 		if err := os.MkdirAll(filepath.Dir(dbPath), 0700); err != nil {
-			dbErr = fmt.Errorf("failed to create db directory: %w", err)
+			initErr = fmt.Errorf("failed to create db directory: %w", err)
 			return
 		}
 
-		db, dbErr = sql.Open("sqlite", dbPath)
-		if dbErr != nil {
-			dbErr = fmt.Errorf("failed to open database: %w", dbErr)
+		globalDB, initErr = sql.Open("sqlite", dbPath)
+		if initErr != nil {
+			initErr = fmt.Errorf("failed to open database: %w", initErr)
 			return
 		}
 
 		// Enable WAL mode for better concurrency
-		if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
-			dbErr = fmt.Errorf("failed to set WAL mode: %w", err)
+		if _, err := globalDB.Exec("PRAGMA journal_mode=WAL"); err != nil {
+			initErr = fmt.Errorf("failed to set WAL mode: %w", err)
 			return
 		}
 
 		// Initialize schema
-		if err := initSchema(db); err != nil {
-			dbErr = fmt.Errorf("failed to init schema: %w", err)
+		if err := initSchema(globalDB); err != nil {
+			initErr = fmt.Errorf("failed to init schema: %w", err)
 			return
 		}
 	})
-	return db, dbErr
+	globalErr = initErr
+	return globalDB, globalErr
+}
+
+// DB returns the global database connection, or nil if not initialized.
+// Non-login nodes will have nil here - they proxy DB operations to login node.
+func DB() *sql.DB {
+	return globalDB
 }
 
 // InitForTest initializes an in-memory database for testing
@@ -125,8 +135,8 @@ func initSchema(db *sql.DB) error {
 
 // Close closes the database connection
 func Close() error {
-	if db != nil {
-		return db.Close()
+	if globalDB != nil {
+		return globalDB.Close()
 	}
 	return nil
 }

@@ -9,10 +9,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ehrlich-b/tunn/internal/config"
 	internalv1 "github.com/ehrlich-b/tunn/pkg/proto/internalv1"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
 	"google.golang.org/grpc/metadata"
 )
+
+func webproxyTestConfig() *config.Config {
+	return &config.Config{
+		WellKnownKey: "test-key",
+		Domain:       "tunn.to",
+		JWTSecret:    "test-jwt-secret",
+	}
+}
 
 func TestProxyHTTPOverGRPC(t *testing.T) {
 	// Create a mock stream that captures sent messages and simulates responses
@@ -490,7 +499,7 @@ func TestExtractTunnelIDFromHost(t *testing.T) {
 }
 
 func TestHandleWebProxyTunnelNotFound(t *testing.T) {
-	tunnelServer := NewTunnelServer("test-key", false, "tunn.to", "", nil, nil)
+	tunnelServer := NewTunnelServer(webproxyTestConfig(), nil, nil)
 
 	proxy := &ProxyServer{
 		Domain:       "tunn.to",

@@ -1,5 +1,16 @@
 # TODO.md: tunn Launch Checklist
 
+## Code Quality Philosophy
+
+**Every file needs to spark joy.** If a senior dev reviews line-by-line and says "wrong, no, eep" - we've failed.
+
+### Tech Debt to Fix
+- [x] **Extract inline HTML from webproxy.go** - Done via `//go:embed`
+      - Homepage now in `internal/host/templates/homepage.html`
+      - Embedded at compile time, zero external dependencies
+
+---
+
 ## CODE NOW (No External Setup Required)
 
 ### 1. Subdomain Reservations (Pro Feature) ✅
@@ -305,7 +316,30 @@ func isAllowed(sessionEmail string, allowList []string) bool {
 
 ## Pre-Launch Code (Required)
 
-### Architecture (Do First)
+### Security Fixes ✅ - See [REVIEW.md](REVIEW.md)
+
+1. [x] **JWT Validation on Tunnel Registration** - `grpc_server.go`
+      - Added `validateJWTAndExtractEmail()` that properly validates JWT signatures
+      - Refactored `TunnelServer` to use `*config.Config` for cleaner parameter passing
+
+2. [x] **Magic Link Session Key** - `magiclink.go:113`
+      - Changed `"email"` to `"user_email"` for session consistency
+
+3. [x] **Remove Secret from Logs** - `grpc_server.go`
+      - Removed `provided_key` from log output
+
+4. [x] **Fail on Missing JWT_SECRET** - `auth.go`
+      - Production mode now panics if JWT_SECRET not configured
+      - Dev mode falls back with warning
+
+5. [x] **Remove InsecureSkipVerify for Internal TLS** - `proxy.go`
+      - Uses system CA pool by default (tunn.to uses Let's Encrypt)
+      - Self-hosters: `TUNN_CA_CERT` env var for custom CA chain
+
+6. [x] **README Google → GitHub** - `README.md`
+      - Updated to reference GitHub auth (complete README rewrite)
+
+### Architecture
 
 1. [ ] **Login Node Architecture** - See [docs/login-node-architecture.md](docs/login-node-architecture.md)
       - One node designated as "login node" (`LOGIN_NODE=true`) owns SQLite
@@ -319,7 +353,7 @@ func isAllowed(sessionEmail string, allowList []string) bool {
       - Bandwidth per tunnel: 100 Mbps (free) / 250 Mbps (pro) - not advertised
       - Monthly quota: 100 MB (free) / 50 GB (pro)
       - 20 MB threshold flush, 30 sec quota refresh
-      - **Depends on Node Zero architecture**
+      - **Depends on Login Node architecture**
 
 ### Features
 
@@ -343,6 +377,8 @@ func isAllowed(sessionEmail string, allowList []string) bool {
 
 ## Post-Launch (When Needed)
 
+### Features
+
 - [ ] Windows support - signal handling (`syscall.SIGTERM`), install script (PowerShell)
 - [ ] Remote tunnel kill from dashboard
 - [ ] Bandwidth tracking UI in account page
@@ -353,12 +389,6 @@ func isAllowed(sessionEmail string, allowList []string) bool {
 - [ ] Windows code signing ($200+/year) - only if enterprise customers need it
 
 **Code signing notes:** For launch, skip signing - devs know `xattr -d com.apple.quarantine ./tunn`. Add Homebrew first (free), then macOS signing if friction complaints pile up. One $4/month customer covers Apple Developer for 2 years.
-
----
-
-## Deferred (Post-Launch Hardening)
-
-- [ ] Fix `ExtractEmailFromJWT` - add signature validation (trust boundary issue, low priority)
 
 ---
 
@@ -435,15 +465,48 @@ See [REVIEW.md](REVIEW.md) for full audit summary.
 - [x] Data Plane (HTTP-over-gRPC)
 - [x] E2E Tests
 
-### V1.1: UDP Tunneling ✅
+### V1.1: UDP Tunneling (Pro Only) ✅
 - [x] UdpPacket proto messages
 - [x] tunn connect command
 - [x] UDP proxy handler
+- [ ] Gate behind Pro tier - see V1.2 design (inherently raw, no L7 intercept)
 
-### Future: V1.2 TLS Passthrough 💎
-- SNI-based routing for paid tier
-- Customer terminates TLS
-- Deferred to paid tier
+### V1.2: Custom Domains + Raw Mode (Pro Only)
+
+**The Design:**
+
+Customer CNAMEs `app.customer.com` → `<id>.tunn.to`. tunn provisions Let's Encrypt cert for `app.customer.com` (rate limits are per customer domain, not per tunn.to - we can do thousands).
+
+Then customer chooses:
+
+**Option A: tunn terminates TLS (default)**
+```
+browser → app.customer.com → tunn.to (terminates TLS, L7 intercept) → tunnel → localhost
+```
+- Allow-list works
+- tunn sees traffic
+
+**Option B: Raw mode (`-raw`) - tunn hands cert to client**
+```
+browser → app.customer.com → tunn.to (SNI routing only) → tunnel → localhost (terminates TLS)
+```
+- tunn provisions cert, securely sends to client
+- Client terminates TLS locally
+- tunn never sees plaintext traffic
+- No L7 intercept = no allow-list (user handles auth)
+
+**Why this is elegant:**
+- Customer doesn't manage certs (we do ACME)
+- Customer chooses trust level: "let tunn see" vs "end-to-end encrypted"
+- Same cert provisioning, two modes
+
+**Implementation needed:**
+- ACME client for Let's Encrypt (HTTP-01 challenge)
+- Cert storage (SQLite or S3)
+- Cert renewal (90-day expiry)
+- Secure cert delivery to client (for raw mode)
+- SNI peek + raw TCP forwarding (for raw mode)
+- UDP gating behind Pro (inherently raw)
 
 ### Future: Phase 7 tunn-auth ⏸
 - Commercial auth provider

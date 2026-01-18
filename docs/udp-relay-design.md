@@ -92,34 +92,34 @@ message UdpPacket {
 }
 
 message RelayConfig {
-  repeated string peer_ids = 1;  // allowed peers (N:1 server mode)
-  string target_peer = 2;        // single target (1:1 client mode)
-  bool allow_same_account = 3;   // @self shorthand - any tunnel from same account
+  string target_tunnel = 1;       // tunnel ID to relay to (client mode)
+  repeated string allowed_emails = 2;  // who can relay to me (server mode, same as HTTP --allow)
+  bool allow_same_account = 3;    // @self shorthand
 }
 ```
 
 ## Server-Side Relay Logic
 
 ```go
-func (s *TunnelServer) handleUdpRelay(packet *pb.UdpPacket) {
-    // Find target peer tunnel
-    peerTunnel, exists := s.tunnels[packet.PeerId]
+func (s *TunnelServer) handleUdpRelay(packet *pb.UdpPacket, senderEmail string) {
+    // Find target tunnel
+    targetTunnel, exists := s.tunnels[packet.TargetTunnel]
     if !exists {
-        log.Warn("relay target not connected", "peer", packet.PeerId)
+        log.Warn("relay target not connected", "target", packet.TargetTunnel)
         return
     }
 
-    // Verify peer relationship (both must declare each other)
-    if !s.isPeerAuthorized(packet.TunnelId, packet.PeerId) {
-        log.Warn("unauthorized relay attempt")
+    // Check if sender's email is allowed (same logic as HTTP allow-lists)
+    senderEmails := s.getEmailBucket(senderEmail)
+    if !isEmailBucketAllowed(senderEmails, targetTunnel.AllowedEmails) {
+        log.Warn("relay not authorized", "sender", senderEmail, "target", packet.TargetTunnel)
         return
     }
 
-    // Forward packet to peer
-    peerTunnel.Stream.Send(&pb.TunnelMessage{
+    // Forward packet
+    targetTunnel.Stream.Send(&pb.TunnelMessage{
         Message: &pb.TunnelMessage_UdpPacket{
             UdpPacket: &pb.UdpPacket{
-                TunnelId:   packet.TunnelId,  // so peer knows who sent it
                 Data:       packet.Data,
                 SourceAddr: packet.SourceAddr,
             },
@@ -178,21 +178,29 @@ func runRelay(localPort int, peerId string) {
 
 ## CLI Design
 
+**Same `--allow` flag as HTTP tunnels. Email-based auth, not peer IDs.**
+
 ```bash
-# Client mode: relay to one server
-tunn relay 51820 --peer=home-wg
+# Server: accept relay from specific emails
+tunn relay 51820 --id=home-wg --allow intern@company.com,phone@company.com
 
-# Server mode: accept relay from multiple clients
-tunn relay 51820 --id=home-wg --peers=intern-wg,phone-wg,laptop-wg
+# Server: accept relay from entire domain
+tunn relay 51820 --id=home-wg --allow @company.com
 
-# Server mode: accept from any tunnel owned by same account
-tunn relay 51820 --id=home-wg --peers=@self
+# Server: accept relay from any tunnel on same account
+tunn relay 51820 --id=home-wg --allow @self
 
-# With custom tunnel ID
-tunn relay 51820 --id=my-wg --peer=their-wg
+# Client: relay to a server (auth via JWT email)
+tunn relay 51820 --to=home-wg
 ```
 
-**N:1 topology:** Server accepts multiple peers, clients each point to one server. WireGuard demuxes by public key, relay just forwards.
+**Auth flow:**
+1. Client runs `tunn login` → gets JWT with email
+2. Client connects to relay server `home-wg`
+3. Server checks: "Is client's email in my `--allow` list?"
+4. Same email bucket logic as HTTP tunnels
+
+**N:1 topology:** Server accepts multiple clients (via allowlist), clients each point to one server.
 
 ## Why This Is Cool
 

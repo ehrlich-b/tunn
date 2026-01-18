@@ -91,11 +91,11 @@ func (p *ProxyServer) handleMagicLinkVerify(w http.ResponseWriter, r *http.Reque
 
 	// Check if this is a device code flow (CLI login)
 	deviceUserCode := r.URL.Query().Get("device_code")
-	if deviceUserCode != "" {
+	if deviceUserCode != "" && p.storage.Available() {
 		// Find the device code and authorize it
-		code := p.deviceCodes.GetByUserCode(deviceUserCode)
-		if code != nil {
-			p.deviceCodes.Authorize(code.Code, email)
+		code, err := p.storage.GetDeviceCodeByUserCode(r.Context(), deviceUserCode)
+		if err == nil && code != nil {
+			p.storage.AuthorizeDeviceCode(r.Context(), code.Code, email)
 			common.LogInfo("device code authorized via magic link", "email", email, "user_code", deviceUserCode)
 
 			// Show success page

@@ -489,10 +489,13 @@ fly deploy
 - [x] Implement `findLoginNode()` loop
 - [x] Add `LoginNodeAvailable()` helper
 
-### Phase 3: DB Proxy RPCs
-- [ ] Add `LoginNodeDB` service to proto
-- [ ] Implement on login node (SQLite calls)
-- [ ] Implement on other nodes (proxy calls)
+### Phase 3: DB Proxy RPCs ✅
+- [x] Add `LoginNodeDB` service to proto
+- [x] Create `storage.Storage` interface (unified abstraction)
+- [x] Implement `LocalStorage` (SQLite for login nodes)
+- [x] Implement `ProxyStorage` (gRPC proxy for non-login nodes)
+- [x] Register `LoginNodeDBServer` on internal gRPC (login node only)
+- [x] Update handlers to use storage interface
 
 ### Phase 4: Graceful Degradation
 - [ ] Add `UsageBuffer` for offline accumulation

@@ -10,6 +10,31 @@ service InternalService {
   rpc GetNodeInfo(NodeInfoRequest) returns (NodeInfoResponse);
 }
 
+// LoginNodeDB is the service that only the login node implements.
+// Non-login nodes proxy these calls to the login node.
+service LoginNodeDB {
+  // Usage tracking
+  rpc RecordUsage(RecordUsageRequest) returns (RecordUsageResponse);
+  rpc GetMonthlyUsage(GetMonthlyUsageRequest) returns (GetMonthlyUsageResponse);
+
+  // Device codes for CLI login
+  rpc CreateDeviceCode(CreateDeviceCodeRequest) returns (DeviceCodeResponse);
+  rpc GetDeviceCode(GetDeviceCodeRequest) returns (DeviceCodeResponse);
+  rpc AuthorizeDeviceCode(AuthorizeDeviceCodeRequest) returns (AuthorizeDeviceCodeResponse);
+
+  // Account management
+  rpc GetAccount(GetAccountRequest) returns (AccountResponse);
+  rpc GetAccountByEmail(GetAccountByEmailRequest) returns (AccountResponse);
+  rpc FindOrCreateByEmails(FindOrCreateByEmailsRequest) returns (AccountResponse);
+  rpc GetEmailBucket(GetEmailBucketRequest) returns (GetEmailBucketResponse);
+  rpc UpdatePlan(UpdatePlanRequest) returns (UpdatePlanResponse);
+
+  // Active tunnel tracking (cross-node)
+  rpc RegisterTunnel(RegisterTunnelRequest) returns (RegisterTunnelResponse);
+  rpc UnregisterTunnel(UnregisterTunnelRequest) returns (UnregisterTunnelResponse);
+  rpc GetTunnelCount(GetTunnelCountRequest) returns (GetTunnelCountResponse);
+}
+
 // Node information for login node discovery
 message NodeInfoRequest {}
 
@@ -40,4 +65,119 @@ message ForwardUdpPacketResponse {
   bool success = 1;
   bytes response_data = 2;
   string error_message = 3;
+}
+
+// Usage tracking messages
+message RecordUsageRequest {
+  string account_id = 1;
+  int64 bytes = 2;
+}
+
+message RecordUsageResponse {}
+
+message GetMonthlyUsageRequest {
+  string account_id = 1;
+}
+
+message GetMonthlyUsageResponse {
+  int64 bytes_used = 1;
+}
+
+// Device code messages
+message CreateDeviceCodeRequest {}
+
+message DeviceCodeResponse {
+  string code = 1;
+  string user_code = 2;
+  int64 expires_at = 3;
+  int32 interval = 4;
+  bool authorized = 5;
+  string email = 6;
+  bool found = 7;
+}
+
+message GetDeviceCodeRequest {
+  string code = 1;
+  string user_code = 2;  // If set, lookup by user_code instead
+}
+
+message AuthorizeDeviceCodeRequest {
+  string code = 1;
+  string email = 2;
+}
+
+message AuthorizeDeviceCodeResponse {
+  bool success = 1;
+}
+
+// Account messages
+message AccountResponse {
+  bool found = 1;
+  string id = 2;
+  string primary_email = 3;
+  string plan = 4;
+  int64 created_at = 5;
+  repeated AccountEmail emails = 6;
+}
+
+message AccountEmail {
+  string email = 1;
+  string verified_via = 2;
+  int64 added_at = 3;
+}
+
+message GetAccountRequest {
+  string account_id = 1;
+}
+
+message GetAccountByEmailRequest {
+  string email = 1;
+}
+
+message FindOrCreateByEmailsRequest {
+  repeated string emails = 1;
+  string verified_via = 2;
+}
+
+message GetEmailBucketRequest {
+  string email = 1;
+}
+
+message GetEmailBucketResponse {
+  repeated string emails = 1;
+}
+
+message UpdatePlanRequest {
+  string account_id = 1;
+  string plan = 2;
+}
+
+message UpdatePlanResponse {}
+
+// Tunnel tracking messages
+message RegisterTunnelRequest {
+  string tunnel_id = 1;
+  string account_id = 2;
+  string node_address = 3;
+}
+
+message RegisterTunnelResponse {
+  bool allowed = 1;
+  string reason = 2;
+  int32 current_count = 3;
+  int32 max_allowed = 4;
+}
+
+message UnregisterTunnelRequest {
+  string tunnel_id = 1;
+}
+
+message UnregisterTunnelResponse {}
+
+message GetTunnelCountRequest {
+  string account_id = 1;
+}
+
+message GetTunnelCountResponse {
+  int32 count = 1;
 }

@@ -110,7 +110,7 @@ func (p *ProxyServer) handleMagicLinkVerify(w http.ResponseWriter, r *http.Reque
 	}
 
 	// Create session for browser auth
-	p.sessionManager.Put(r.Context(), "email", email)
+	p.sessionManager.Put(r.Context(), "user_email", email)
 	p.sessionManager.Put(r.Context(), "authenticated", true)
 
 	// Redirect to original destination or home

@@ -8,8 +8,10 @@ import (
 	"time"
 
 	"github.com/ehrlich-b/tunn/internal/common"
+	"github.com/ehrlich-b/tunn/internal/config"
 	"github.com/ehrlich-b/tunn/internal/store"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
+	"github.com/golang-jwt/jwt/v4"
 )
 
 // reservedSubdomains are blocked to prevent phishing and squatting
@@ -54,14 +56,11 @@ func isReservedSubdomain(tunnelID string) bool {
 type TunnelServer struct {
 	pb.UnimplementedTunnelServiceServer
 
-	mu           sync.RWMutex
-	tunnels      map[string]*TunnelConnection
-	wellKnownKey string              // Free tier key that allows tunnel creation
-	publicMode   bool                // Disable auth for testing
-	domain       string              // Domain for public URLs (e.g., "tunn.to")
-	clientSecret string              // Master secret for self-hosters (bypasses OAuth)
-	userTokens   map[string]string   // email -> token from users.yaml
-	accounts     *store.AccountStore // Account storage for subdomain reservations
+	mu         sync.RWMutex
+	tunnels    map[string]*TunnelConnection
+	cfg        *config.Config
+	userTokens map[string]string   // email -> token from users.yaml
+	accounts   *store.AccountStore // Account storage for subdomain reservations
 }
 
 // TunnelConnection represents an active tunnel connection
@@ -87,18 +86,15 @@ type TunnelConnection struct {
 }
 
 // NewTunnelServer creates a new gRPC tunnel server
-func NewTunnelServer(wellKnownKey string, publicMode bool, domain string, clientSecret string, userTokens map[string]string, accounts *store.AccountStore) *TunnelServer {
+func NewTunnelServer(cfg *config.Config, userTokens map[string]string, accounts *store.AccountStore) *TunnelServer {
 	if userTokens == nil {
 		userTokens = make(map[string]string)
 	}
 	return &TunnelServer{
-		tunnels:      make(map[string]*TunnelConnection),
-		wellKnownKey: wellKnownKey,
-		publicMode:   publicMode,
-		domain:       domain,
-		clientSecret: clientSecret,
-		userTokens:   userTokens,
-		accounts:     accounts,
+		tunnels:    make(map[string]*TunnelConnection),
+		cfg:        cfg,
+		userTokens: userTokens,
+		accounts:   accounts,
 	}
 }
 
@@ -141,11 +137,11 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 	var allowedEmails []string
 
 	// Skip auth in public mode
-	if s.publicMode {
+	if s.cfg.PublicMode {
 		common.LogInfo("public mode - skipping auth", "tunnel_id", tunnelID)
 		creatorEmail = "public@tunn.local"
 		allowedEmails = []string{"public@tunn.local"}
-	} else if s.clientSecret != "" && regClient.AuthToken == s.clientSecret {
+	} else if s.cfg.ClientSecret != "" && regClient.AuthToken == s.cfg.ClientSecret {
 		// Client secret auth (self-hosters - master key)
 		common.LogInfo("client secret auth - bypassing OAuth", "tunnel_id", tunnelID)
 		creatorEmail = regClient.CreatorEmail
@@ -172,8 +168,8 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		}
 	} else {
 		// Validate tunnel_key (authorization to create tunnels)
-		if regClient.TunnelKey != s.wellKnownKey {
-			common.LogError("invalid tunnel key", "tunnel_id", tunnelID, "provided_key", regClient.TunnelKey)
+		if regClient.TunnelKey != s.cfg.WellKnownKey {
+			common.LogError("invalid tunnel key", "tunnel_id", tunnelID)
 			respMsg := &pb.TunnelMessage{
 				Message: &pb.TunnelMessage_RegisterResponse{
 					RegisterResponse: &pb.RegisterResponse{
@@ -186,24 +182,24 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 			return fmt.Errorf("invalid tunnel key for tunnel %s", tunnelID)
 		}
 
-		// Validate and extract email from JWT
+		// Validate JWT signature and extract email
 		creatorEmail = regClient.CreatorEmail
 		if creatorEmail == "" {
-			// Try to extract from JWT if not provided
+			// Validate and extract from JWT if not provided
 			if regClient.AuthToken != "" {
-				extractedEmail, err := common.ExtractEmailFromJWT(regClient.AuthToken)
+				extractedEmail, err := s.validateJWTAndExtractEmail(regClient.AuthToken)
 				if err != nil {
-					common.LogError("failed to extract email from JWT", "error", err)
+					common.LogError("JWT validation failed", "error", err)
 					respMsg := &pb.TunnelMessage{
 						Message: &pb.TunnelMessage_RegisterResponse{
 							RegisterResponse: &pb.RegisterResponse{
 								Success:      false,
-								ErrorMessage: "Invalid JWT: cannot extract email",
+								ErrorMessage: "Invalid or expired token. Run 'tunn login' to refresh.",
 							},
 						},
 					}
 					stream.Send(respMsg)
-					return fmt.Errorf("invalid JWT for tunnel %s: %w", tunnelID, err)
+					return fmt.Errorf("JWT validation failed for tunnel %s: %w", tunnelID, err)
 				}
 				creatorEmail = extractedEmail
 			} else {
@@ -234,7 +230,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 	}
 
 	// Check subdomain reservations (if account store is available)
-	if s.accounts != nil && !s.publicMode {
+	if s.accounts != nil && !s.cfg.PublicMode {
 		ownerAccountID, err := s.accounts.GetSubdomainOwner(tunnelID)
 		if err != nil {
 			common.LogError("failed to check subdomain owner", "tunnel_id", tunnelID, "error", err)
@@ -316,7 +312,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 	}()
 
 	// Send success response
-	publicURL := fmt.Sprintf("https://%s.%s", tunnelID, s.domain)
+	publicURL := fmt.Sprintf("https://%s.%s", tunnelID, s.cfg.Domain)
 	respMsg := &pb.TunnelMessage{
 		Message: &pb.TunnelMessage_RegisterResponse{
 			RegisterResponse: &pb.RegisterResponse{
@@ -464,4 +460,43 @@ func (s *TunnelServer) validateUserToken(token string) string {
 		}
 	}
 	return ""
+}
+
+// validateJWTAndExtractEmail validates a JWT signature and extracts the email claim
+// Returns the email if valid, or an error if the JWT is invalid or unsigned
+func (s *TunnelServer) validateJWTAndExtractEmail(tokenString string) (string, error) {
+	if s.cfg.JWTSecret == "" {
+		return "", fmt.Errorf("JWT validation not configured")
+	}
+
+	// Parse and validate token with signature verification
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		// Verify signing method is HMAC
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return []byte(s.cfg.JWTSecret), nil
+	})
+
+	if err != nil {
+		return "", fmt.Errorf("invalid JWT: %w", err)
+	}
+
+	if !token.Valid {
+		return "", fmt.Errorf("JWT signature validation failed")
+	}
+
+	// Extract claims
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return "", fmt.Errorf("invalid JWT claims format")
+	}
+
+	// Extract email
+	email, ok := claims["email"].(string)
+	if !ok || email == "" {
+		return "", fmt.Errorf("email claim not found or empty in JWT")
+	}
+
+	return email, nil
 }

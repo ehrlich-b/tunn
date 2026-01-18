@@ -290,20 +290,36 @@ func TestGetJWTSigningKey(t *testing.T) {
 		}
 	})
 
-	t.Run("production mode without JWT secret", func(t *testing.T) {
+	t.Run("production mode without JWT secret panics", func(t *testing.T) {
 		proxy := &ProxyServer{
 			config:   &config.Config{Environment: config.EnvProd},
 			mockOIDC: nil,
 		}
 
-		key := proxy.getJWTSigningKey()
-		if len(key) == 0 {
-			t.Error("Expected non-empty signing key in prod mode")
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Expected panic when JWT_SECRET missing in production")
+			}
+		}()
+
+		// This should panic in production mode without JWT_SECRET
+		proxy.getJWTSigningKey()
+	})
+
+	t.Run("dev mode without JWT secret uses fallback", func(t *testing.T) {
+		proxy := &ProxyServer{
+			config:   &config.Config{Environment: config.EnvDev},
+			mockOIDC: nil, // No mock OIDC
 		}
 
-		// Without JWT_SECRET, returns fallback
-		if string(key) != "unconfigured-jwt-secret" {
-			t.Errorf("Expected fallback, got %s", string(key))
+		key := proxy.getJWTSigningKey()
+		if len(key) == 0 {
+			t.Error("Expected non-empty signing key in dev mode")
+		}
+
+		// Dev mode without JWT_SECRET uses fallback
+		if string(key) != "dev-jwt-secret-do-not-use-in-prod" {
+			t.Errorf("Expected dev fallback, got %s", string(key))
 		}
 	})
 }

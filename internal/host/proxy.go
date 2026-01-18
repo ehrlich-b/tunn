@@ -3,9 +3,11 @@ package host
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -136,7 +138,7 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 
 	// Create gRPC server for public tunnel control plane
 	grpcServer := grpc.NewServer()
-	tunnelServer := NewTunnelServer(cfg.WellKnownKey, cfg.PublicMode, cfg.Domain, cfg.ClientSecret, userTokens, accounts)
+	tunnelServer := NewTunnelServer(cfg, userTokens, accounts)
 	pb.RegisterTunnelServiceServer(grpcServer, tunnelServer)
 
 	// Create gRPC server for internal node-to-node communication
@@ -234,11 +236,24 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 // ... (rest of the file)
 
 func createInternalClient(addr string, cfg *config.Config) (*grpc.ClientConn, error) {
-	// Use TLS for encryption, skip verify for internal traffic
-	// Authentication is done via x-node-secret header
-	tlsConfig := &tls.Config{
-		InsecureSkipVerify: true, // Internal traffic, auth via shared secret
+	tlsConfig := &tls.Config{}
+
+	// If custom CA cert is specified (self-hosters), load it
+	if cfg.InternalCACert != "" {
+		caCert, err := os.ReadFile(cfg.InternalCACert)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read CA cert %s: %w", cfg.InternalCACert, err)
+		}
+
+		caCertPool := x509.NewCertPool()
+		if !caCertPool.AppendCertsFromPEM(caCert) {
+			return nil, fmt.Errorf("failed to parse CA cert from %s", cfg.InternalCACert)
+		}
+
+		tlsConfig.RootCAs = caCertPool
+		common.LogInfo("using custom CA for internal TLS", "ca_cert", cfg.InternalCACert)
 	}
+	// Otherwise use system CA pool (tunn.to uses Let's Encrypt, which is trusted)
 
 	return grpc.Dial(addr,
 		grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)),

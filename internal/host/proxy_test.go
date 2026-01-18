@@ -80,11 +80,17 @@ func TestNewProxyServerDevMode(t *testing.T) {
 }
 
 func TestProxyServerHandler(t *testing.T) {
+	cfg := &config.Config{
+		Environment:  config.EnvProd,
+		Domain:       "tunn.to",
+		WellKnownKey: "test-key",
+		JWTSecret:    "test-jwt-secret",
+	}
 	proxy := &ProxyServer{
 		Domain:         "tunn.to",
-		config:         &config.Config{Environment: config.EnvProd},
+		config:         cfg,
 		sessionManager: scs.New(),
-		tunnelServer:   NewTunnelServer("test-key", false, "tunn.to", "", nil, nil),
+		tunnelServer:   NewTunnelServer(cfg, nil, nil),
 	}
 
 	handler := proxy.createHandler()
@@ -108,11 +114,17 @@ func TestProxyServerHandler(t *testing.T) {
 }
 
 func TestProxyServerHealthCheck(t *testing.T) {
+	cfg := &config.Config{
+		Environment:  config.EnvProd,
+		Domain:       "tunn.to",
+		WellKnownKey: "test-key",
+		JWTSecret:    "test-jwt-secret",
+	}
 	proxy := &ProxyServer{
 		Domain:         "tunn.to",
-		config:         &config.Config{Environment: config.EnvProd},
+		config:         cfg,
 		sessionManager: scs.New(),
-		tunnelServer:   NewTunnelServer("test-key", false, "tunn.to", "", nil, nil),
+		tunnelServer:   NewTunnelServer(cfg, nil, nil),
 	}
 
 	handler := proxy.createHandler()

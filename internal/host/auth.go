@@ -537,7 +537,12 @@ func (p *ProxyServer) getJWTSigningKey() []byte {
 		return []byte(p.config.JWTSecret)
 	}
 
-	// Fallback for dev (should never happen in prod)
-	common.LogError("JWT_SECRET not configured")
-	return []byte("unconfigured-jwt-secret")
+	// In dev mode, allow fallback to weak secret (for testing without full config)
+	if p.config.IsDev() {
+		common.LogError("JWT_SECRET not configured - using weak dev fallback")
+		return []byte("dev-jwt-secret-do-not-use-in-prod")
+	}
+
+	// In production, refuse to operate without JWT_SECRET
+	panic("FATAL: JWT_SECRET environment variable is required in production")
 }

@@ -1,72 +1,61 @@
 # tunn
 
-Expose localhost to the internet. Share with specific people.
+Share localhost like a Google Doc.
 
 ```bash
 tunn 8080
 ```
 
 ```
-https://abc123.tunn.to -> localhost:8080
+https://abc123.tunn.to → localhost:8080
 ```
+
+Share with specific people:
+
+```bash
+tunn 8080 --allow alice@gmail.com,bob@company.com
+```
+
+Visitors log in with GitHub. If they're on your list, they're in. Otherwise, access denied.
 
 ## Install
 
 ```bash
-# macOS / Linux
 curl -fsSL https://tunn.to/install.sh | sh
-
-# Or build from source
-make build
-./bin/tunn
 ```
+
+Or build from source: `make build`
 
 ## Usage
 
 ```bash
-# Login with Google (one-time)
-tunn login
-
-# Expose localhost:8080
-tunn 8080
-
-# Share with specific people
-tunn 8080 --allow alice@gmail.com,bob@company.com
+tunn login                    # One-time GitHub auth
+tunn 8080                     # Expose localhost:8080
+tunn 3000 --allow @company.com  # Allow entire domain
+tunn 8080 -id=myapp           # Custom URL (myapp.tunn.to)
 ```
 
-Visitors to your tunnel URL are prompted to log in with Google. If their email is on the allow list, they get through. Otherwise, access denied.
+## Self-Host
+
+Run your own tunn server:
+
+```bash
+tunn -mode=host -domain=tunnel.yourcompany.com
+```
+
+See [docs/self-hosting.md](docs/self-hosting.md) for details.
 
 ## How It Works
 
-```
-Browser -> tunn.to -> your laptop
-```
-
 Your laptop connects to tunn.to over a persistent tunnel. When someone visits your tunnel URL, the request is forwarded to your localhost.
 
-- TLS terminated at tunn.to
-- Supports HTTP/2 and HTTP/3
+- TLS terminated at tunn.to (or your server)
+- HTTP/2 and HTTP/3 support
+- Email-based access control
 
-## Commands
+## Development
 
-```bash
-tunn <port>              # Tunnel localhost:<port>
-tunn <host:port>         # Tunnel any host:port
-tunn <url>               # Tunnel any URL
-tunn login               # Authenticate with Google
-tunn --help              # Show help
-```
-
-## Options
-
-```bash
-tunn 8080 --allow alice@gmail.com   # Share with specific emails
-tunn 8080 -id=myapp                 # Custom tunnel ID (myapp.tunn.to)
-```
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and architecture details.
+See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for build instructions, architecture, and contribution guidelines.
 
 ## License
 

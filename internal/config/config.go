@@ -30,6 +30,7 @@ type Config struct {
 	NodeSecret       string // Shared secret for node-to-node authentication
 	PublicAddr       string
 	FlyAppName       string // Fly.io app name for DNS-based node discovery
+	InternalCACert   string // Path to CA cert for internal TLS verification (self-hosters)
 
 	// Mock OIDC configuration (dev only)
 	MockOIDCAddr   string
@@ -112,6 +113,7 @@ func (c *Config) loadDevConfig() {
 	c.NodeSecret = getEnvOrDefault("NODE_SECRET", "dev-node-secret")
 	c.PublicAddr = getEnvOrDefault("PUBLIC_ADDR", "localhost:8443")
 	c.FlyAppName = getEnvOrDefault("FLY_APP_NAME", "") // Fly.io sets this automatically
+	c.InternalCACert = getEnvOrDefault("TUNN_CA_CERT", "") // Custom CA for internal TLS (self-hosters)
 
 	// Mock OIDC provider runs locally (set MOCK_OIDC_ADDR="" to disable)
 	c.MockOIDCAddr = getEnvAllowEmpty("MOCK_OIDC_ADDR", ":9000")
@@ -173,6 +175,7 @@ func (c *Config) loadProdConfig() {
 	c.NodeSecret = getEnvOrDefault("NODE_SECRET", "") // Must be set in prod for multi-node
 	c.PublicAddr = getEnvOrDefault("PUBLIC_ADDR", "tunn.to:443")
 	c.FlyAppName = getEnvOrDefault("FLY_APP_NAME", "") // Fly.io sets this automatically
+	c.InternalCACert = getEnvOrDefault("TUNN_CA_CERT", "") // Custom CA for internal TLS (self-hosters)
 
 	// No mock OIDC in production
 	c.MockOIDCAddr = ""

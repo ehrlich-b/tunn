@@ -6,12 +6,25 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ehrlich-b/tunn/internal/config"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
+	"github.com/golang-jwt/jwt/v4"
 	"google.golang.org/grpc/metadata"
 )
 
+// testConfig returns a config suitable for testing
+func testConfig() *config.Config {
+	return &config.Config{
+		WellKnownKey: "test-key",
+		PublicMode:   false,
+		Domain:       "tunn.to",
+		ClientSecret: "",
+		JWTSecret:    "test-jwt-secret",
+	}
+}
+
 func TestNewTunnelServer(t *testing.T) {
-	srv := NewTunnelServer("test-key", false, "tunn.to", "", nil, nil)
+	srv := NewTunnelServer(testConfig(), nil, nil)
 	if srv == nil {
 		t.Fatal("Expected non-nil server")
 	}
@@ -26,7 +39,7 @@ func TestNewTunnelServer(t *testing.T) {
 }
 
 func TestTunnelServerRegistration(t *testing.T) {
-	srv := NewTunnelServer("test-key", false, "tunn.to", "", nil, nil)
+	srv := NewTunnelServer(testConfig(), nil, nil)
 
 	// Create a mock stream
 	stream := &mockTunnelStream{
@@ -94,7 +107,7 @@ func TestTunnelServerRegistration(t *testing.T) {
 }
 
 func TestTunnelServerDuplicateRegistration(t *testing.T) {
-	srv := NewTunnelServer("test-key", false, "tunn.to", "", nil, nil)
+	srv := NewTunnelServer(testConfig(), nil, nil)
 
 	// First stream
 	stream1 := &mockTunnelStream{
@@ -164,7 +177,7 @@ func TestTunnelServerDuplicateRegistration(t *testing.T) {
 }
 
 func TestGetTunnel(t *testing.T) {
-	srv := NewTunnelServer("test-key", false, "tunn.to", "", nil, nil)
+	srv := NewTunnelServer(testConfig(), nil, nil)
 
 	// Add a tunnel directly
 	conn := &TunnelConnection{
@@ -195,7 +208,7 @@ func TestGetTunnel(t *testing.T) {
 }
 
 func TestListTunnels(t *testing.T) {
-	srv := NewTunnelServer("test-key", false, "tunn.to", "", nil, nil)
+	srv := NewTunnelServer(testConfig(), nil, nil)
 
 	// Add multiple tunnels
 	for i := 0; i < 3; i++ {
@@ -281,7 +294,7 @@ func TestIsReservedSubdomain(t *testing.T) {
 }
 
 func TestTunnelServerReservedSubdomain(t *testing.T) {
-	srv := NewTunnelServer("test-key", false, "tunn.to", "", nil, nil)
+	srv := NewTunnelServer(testConfig(), nil, nil)
 
 	stream := &mockTunnelStream{
 		recvQueue: make(chan *pb.TunnelMessage, 10),
@@ -326,7 +339,9 @@ func TestTunnelServerReservedSubdomain(t *testing.T) {
 
 func TestTunnelServerClientSecretAuth(t *testing.T) {
 	// Server with client secret configured
-	srv := NewTunnelServer("test-key", false, "tunn.to", "my-secret-key", nil, nil)
+	cfg := testConfig()
+	cfg.ClientSecret = "my-secret-key"
+	srv := NewTunnelServer(cfg, nil, nil)
 
 	// Test 1: Valid client secret should work
 	stream := &mockTunnelStream{
@@ -394,7 +409,7 @@ func TestTunnelServerUserTokenAuth(t *testing.T) {
 		"alice@example.com": "tunn_sk_alice123",
 		"bob@example.com":   "tunn_sk_bob456",
 	}
-	srv := NewTunnelServer("test-key", false, "tunn.to", "", userTokens, nil)
+	srv := NewTunnelServer(testConfig(), userTokens, nil)
 
 	// Test: Valid user token should work
 	stream := &mockTunnelStream{
@@ -430,5 +445,106 @@ func TestTunnelServerUserTokenAuth(t *testing.T) {
 
 	if !regResp.Success {
 		t.Errorf("Expected successful registration, got error: %s", regResp.ErrorMessage)
+	}
+}
+
+func TestTunnelServerRejectsForgedJWT(t *testing.T) {
+	// Server with JWT secret configured
+	srv := NewTunnelServer(testConfig(), nil, nil)
+
+	// Create a forged JWT (signed with wrong key)
+	// This simulates an attacker trying to claim they're a different user
+	forgedJWT := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6ImF0dGFja2VyQGV4YW1wbGUuY29tIn0.wrongsignature"
+
+	stream := &mockTunnelStream{
+		recvQueue: make(chan *pb.TunnelMessage, 10),
+		sentMsgs:  make([]*pb.TunnelMessage, 0),
+	}
+
+	stream.recvQueue <- &pb.TunnelMessage{
+		Message: &pb.TunnelMessage_RegisterClient{
+			RegisterClient: &pb.RegisterClient{
+				TunnelId:  "test789",
+				TargetUrl: "http://localhost:8000",
+				TunnelKey: "test-key",
+				AuthToken: forgedJWT, // Forged JWT
+				// Note: no CreatorEmail, forcing JWT validation path
+			},
+		},
+	}
+	close(stream.recvQueue)
+
+	err := srv.EstablishTunnel(stream)
+	if err == nil {
+		t.Error("Expected error for forged JWT")
+	}
+
+	if len(stream.sentMsgs) < 1 {
+		t.Fatal("Expected error response to be sent")
+	}
+
+	regResp := stream.sentMsgs[0].GetRegisterResponse()
+	if regResp == nil {
+		t.Fatal("Expected RegisterResponse message")
+	}
+
+	if regResp.Success {
+		t.Error("Expected registration to fail for forged JWT")
+	}
+
+	// Error message should mention token issue, not reveal internal details
+	if regResp.ErrorMessage == "" {
+		t.Error("Expected error message")
+	}
+}
+
+func TestTunnelServerAcceptsValidJWT(t *testing.T) {
+	// Create a valid JWT signed with the test secret
+	cfg := testConfig()
+	srv := NewTunnelServer(cfg, nil, nil)
+
+	// Create a properly signed JWT
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"email": "valid@example.com",
+		"exp":   time.Now().Add(time.Hour).Unix(),
+	})
+	validJWT, err := token.SignedString([]byte(cfg.JWTSecret))
+	if err != nil {
+		t.Fatalf("Failed to create test JWT: %v", err)
+	}
+
+	stream := &mockTunnelStream{
+		recvQueue: make(chan *pb.TunnelMessage, 10),
+		sentMsgs:  make([]*pb.TunnelMessage, 0),
+	}
+
+	stream.recvQueue <- &pb.TunnelMessage{
+		Message: &pb.TunnelMessage_RegisterClient{
+			RegisterClient: &pb.RegisterClient{
+				TunnelId:  "validjwt",
+				TargetUrl: "http://localhost:8000",
+				TunnelKey: "test-key",
+				AuthToken: validJWT,
+			},
+		},
+	}
+	close(stream.recvQueue)
+
+	err = srv.EstablishTunnel(stream)
+	if err != nil {
+		t.Errorf("Expected no error with valid JWT, got %v", err)
+	}
+
+	if len(stream.sentMsgs) < 1 {
+		t.Fatal("Expected response to be sent")
+	}
+
+	regResp := stream.sentMsgs[0].GetRegisterResponse()
+	if regResp == nil {
+		t.Fatal("Expected RegisterResponse message")
+	}
+
+	if !regResp.Success {
+		t.Errorf("Expected successful registration with valid JWT, got error: %s", regResp.ErrorMessage)
 	}
 }

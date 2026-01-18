@@ -1,23 +1,161 @@
 # Code Review: tunn Audit Summary
 
 **Review Date:** 2025-01-17
-**Reviewer:** Claude Code
-**Status:** Production-ready with notes below
+**Reviewers:** Claude Code (internal), Third-party review (codex)
+**Status:** Pre-release fixes required
 
 ---
 
 ## Executive Summary
 
-The codebase is **solid and shippable**. The architecture is sound, security controls are in place, and test coverage is good. This review documents both the good practices and areas that could be improved post-launch.
+The codebase architecture is sound with clean separation, proper concurrency patterns, and good test coverage. However, a third-party review identified several security issues that must be fixed before launch. These are fixable - no architectural rewrites needed.
 
-**Launch Blockers:** None (code is ready)
+**Pre-Release Blockers:** 6 issues (see below)
 
-**Pre-production requirements:**
+**Production Requirements (after fixes):**
 1. Create GitHub OAuth App → set `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET`
 2. Set `JWT_SECRET` to a cryptographically random string
-3. Deploy to Fly.io with TLS certificates
+3. Set `NODE_SECRET` for multi-node deployments
+4. Deploy to Fly.io with TLS certificates
 
-**For dev/testing:** Use `PUBLIC_MODE=true` to bypass auth entirely.
+---
+
+## Pre-Release Fixes Required
+
+### P0 - Security (Must Fix)
+
+#### 1. JWT Not Validated on Tunnel Registration
+
+**File:** `internal/host/grpc_server.go:194`
+
+When a client registers a tunnel with a JWT, the server uses `ExtractEmailFromJWT()` which explicitly does NOT validate the signature. Anyone can forge a JWT payload claiming any email.
+
+```go
+// Current (INSECURE):
+creatorEmail = common.ExtractEmailFromJWT(regClient.AuthToken) // No signature check!
+
+// Required: Validate signature with getJWTSigningKey()
+```
+
+**Impact:** Attacker can impersonate any email, bypass allow-lists, claim reserved subdomains.
+**Fix:** Validate JWT signature in `EstablishTunnel()` using the same `getJWTSigningKey()` used in `CheckJWT()`.
+
+#### 2. Magic Link Session Key Mismatch
+
+**File:** `internal/host/magiclink.go:113`
+
+Magic link verification stores `"email"` in session, but all other code reads `"user_email"`.
+
+```go
+// magiclink.go (WRONG):
+p.sessionManager.Put(r.Context(), "email", email)
+
+// auth.go, webproxy.go expect (CORRECT):
+p.sessionManager.GetString(r.Context(), "user_email")
+```
+
+**Impact:** Magic link users appear unauthenticated - can't access protected tunnels.
+**Fix:** Change `"email"` to `"user_email"` in magiclink.go.
+
+#### 3. Logging Secrets
+
+**File:** `internal/host/grpc_server.go:176`
+
+The tunnel key (a secret) is logged in error messages:
+
+```go
+common.LogError("invalid tunnel key", "tunnel_id", tunnelID, "provided_key", regClient.TunnelKey)
+```
+
+**Impact:** Secrets exposed in logs.
+**Fix:** Remove `provided_key` from log output.
+
+#### 4. JWT_SECRET Falls Back to Weak Default
+
+**File:** `internal/host/auth.go:541`
+
+If `JWT_SECRET` is not configured, the code logs an error but returns a hardcoded fallback key instead of failing.
+
+```go
+common.LogError("JWT_SECRET not configured")
+return []byte("unconfigured-jwt-secret")  // DANGEROUS
+```
+
+**Impact:** In prod without JWT_SECRET, all JWTs are signed with a known key.
+**Fix:** Panic or fail startup in non-dev mode if JWT_SECRET is missing.
+
+#### 5. Internal gRPC Uses InsecureSkipVerify
+
+**File:** `internal/host/proxy.go:165`
+
+Node-to-node gRPC disables TLS verification entirely. This allows MITM to intercept node secrets.
+
+```go
+// Current (INSECURE):
+tls.Config{InsecureSkipVerify: true}
+
+// Required: Proper TLS verification
+```
+
+**Impact:** On any network, attacker can MITM internal traffic and harvest node secret.
+**Fix:**
+- tunn.to (Fly.io): Use real Let's Encrypt certs, verify against system CA pool
+- Self-hosters: Add `TUNN_CA_CERT` env var to specify custom CA chain for internal TLS
+
+Note: We're NOT doing mTLS (mutual TLS with client certs) - just proper server cert verification.
+
+### P1 - Documentation
+
+#### 6. README Says "Google" but Code Uses GitHub
+
+**File:** `README.md` lines 27-28, 37
+
+README says "Login with Google" but the actual auth is GitHub OAuth.
+
+**Fix:** Replace "Google" with "GitHub" in README.
+
+---
+
+## Post-Release Improvements
+
+### Security Hardening
+
+| Issue | Description | Priority |
+|-------|-------------|----------|
+| Constant-time comparisons | Use `subtle.ConstantTimeCompare` for secrets | Low |
+| SMTP TLS | Explicitly configure TLS for SMTP (currently relies on STARTTLS) | Low |
+
+### Code Quality
+
+| Issue | Description | Priority |
+|-------|-------------|----------|
+| Cache TTL | Remote tunnel cache has no TTL - stale if tunnel moves nodes | Medium |
+| Extract HTML templates | Large inline HTML in webproxy.go is hard to maintain | Low |
+| More reserved subdomains | Add "root", "admin", "support" to reserved list | Low |
+| RandID error handling | `RandID()` panics if crypto/rand fails - consider returning error | Low |
+
+### Test Gaps
+
+| Test | Description |
+|------|-------------|
+| Forged JWT registration | Test that unsigned/wrongly-signed JWT is rejected on tunnel registration |
+| Magic link E2E | Test magic link → session → tunnel access with allow-list |
+
+---
+
+## Known Limitations (Accepted)
+
+### ExtractEmailFromJWT in Client
+
+**File:** `internal/client/serve.go:125`
+
+The client uses `ExtractEmailFromJWT` for local display only (showing logged-in user). The JWT came from the user's own `~/.tunn/token` file. This is safe - users can only "spoof" to themselves.
+
+### Dev JWT Secret
+
+**File:** `internal/config/config.go:109`
+
+Dev mode uses `"dev-jwt-secret-do-not-use-in-prod"`. This is intentional - production requires `JWT_SECRET` env var.
 
 ---
 
@@ -26,186 +164,36 @@ The codebase is **solid and shippable**. The architecture is sound, security con
 ### Architecture
 - Clean separation: proxy (host), client, common, config
 - gRPC bidirectional streaming for efficient tunneling
-- HTTP/2 + HTTP/3 support for modern clients
-- Stateless design - no database required for core functionality
+- HTTP/2 + HTTP/3 support
+- Stateless core - no database required for basic tunneling
+- Email bucket identity model is elegant
 
-### Security
-- CSRF protection on OAuth (state parameter)
-- JWT validation with signature verification
-- Session cookies: Secure, SameSite=Lax, HttpOnly via scs
-- Node-to-node: shared secret auth + IP blacklisting on failures
-- File permissions: token file 0600, directory 0700
-- Email allow-lists with both exact match and domain wildcards
+### Security Controls
+- CSRF protection on OAuth (state parameter with crypto/rand)
+- JWT signature verification in CheckJWT middleware
+- Session cookies: Secure, SameSite=Lax, HttpOnly
+- Node-to-node: shared secret + IP blacklisting
+- Token file permissions: 0600
 
 ### Concurrency
-- Proper mutex usage throughout (RWMutex where appropriate)
+- Proper mutex usage (RWMutex where appropriate)
 - Channel-based response routing for HTTP-over-gRPC
-- Goroutines for concurrent request handling
-- Background cleanup goroutine for expired device codes
+- Background cleanup goroutines
 
 ### Testing
-- Unit tests for all major code paths
-- Race detection passes (`make test-race`)
-- Edge cases covered: expired tokens, wrong signatures, missing claims
-- Multi-value header handling tested
-- Domain wildcard allow-list tested
+- Good coverage for core paths
+- Race detection passes
+- Edge cases: expired tokens, wrong signatures, domain wildcards
 
 ---
 
-## Code Review Findings
+## Previously Fixed (2025-01-17)
 
-### P0 - Should Fix Before Ship
+These issues were identified and fixed:
 
-**None identified.** The code is production-ready.
-
-### P1 - Fixed (2025-01-17)
-
-#### 1. ✅ HTTP Client Timeouts - FIXED
-
-Added 10-second timeouts to GitHub API calls.
-**Location:** `internal/host/auth.go` lines 177 and 221
-
-#### 2. ✅ JSON Encode Error Handling - FIXED
-
-Added error checking on JSON encode calls.
-**Location:** `internal/host/device.go` lines 207 and 256
-
-#### 3. ✅ Dead Code Branch - FIXED
-
-Removed unnecessary if/else branch in `getCallbackURL()`.
-**Location:** `internal/host/auth.go` line 362
-
-#### 4. Duplicated HTML Templates (`auth.go`)
-
-The "Login successful" HTML template is copy-pasted in two places (GitHub OAuth and mock OIDC callbacks). Should be a shared function or template.
-
-**Impact:** Maintenance burden, inconsistency risk.
-**Risk:** None for functionality.
-**Status:** Deferred to post-launch
-
-### P2 - Nice to Have (Backlog)
-
-#### 1. URL Construction Could Use `url.JoinPath` (`serve.go:235`)
-
-```go
-// Current:
-targetURL := s.TargetURL + httpReq.Path
-
-// Edge case: "http://localhost:8000/" + "/foo" = "http://localhost:8000//foo"
-// Better:
-targetURL, _ := url.JoinPath(s.TargetURL, httpReq.Path)
-```
-
-**Impact:** Double slashes in rare edge cases. Most servers handle this fine.
-**Risk:** Cosmetic.
-
-#### 2. Device Code Store Missing Tests
-
-`DeviceCodeStore` in `device.go` has no unit tests. The `generateUserCode()` function uses `%len(charset)` which has slight modulo bias (256 % 30 ≠ 0). Acceptable for 6-char user codes but worth noting.
-
-**Impact:** None for security (these are short-lived, user-facing codes).
-**Risk:** None.
-
-#### 3. Stream.Send Errors Sometimes Ignored
-
-In several places, `stream.Send()` errors are logged but not propagated:
-- `grpc_server.go:96, 115, 129, 173, 180` (registration error responses)
-- `serve.go:295, 323, 403, 429` (response sending in goroutines)
-
-This is often intentional (fire-and-forget in goroutines), but worth auditing.
-
-**Impact:** If the stream is broken, we might not notice immediately.
-**Risk:** Low (streams are checked on next Recv).
-
----
-
-## Security Considerations
-
-### Verified Secure
-
-| Check | Status | Notes |
-|-------|--------|-------|
-| CSRF on OAuth | ✅ | State parameter with crypto/rand |
-| JWT validation | ✅ | Signature verified, expiry checked |
-| JWT signing method | ✅ | Only accepts HS256, rejects algorithm spoofing |
-| Session cookies | ✅ | Secure, SameSite=Lax via scs library |
-| Token storage | ✅ | 0600 permissions in ~/.tunn/token |
-| Node auth | ✅ | Shared secret + TLS + IP blacklisting |
-| Input validation | ✅ | Tunnel IDs, emails validated |
-
-### Known Limitations (Accepted)
-
-#### ExtractEmailFromJWT Trust Boundary
-
-**File:** `internal/common/auth.go:34`
-
-`ExtractEmailFromJWT` parses the JWT without signature validation. This is used in `serve.go:125` where the JWT comes from the user's own `~/.tunn/token` file (created by `tunn login`). The user can only spoof their own identity to themselves.
-
-**Risk:** None (self-signed tokens from user's own file).
-**Action:** Documented, acceptable.
-
-#### Internal gRPC TLS Skip Verify
-
-**File:** `internal/host/proxy.go:165`
-
-Node-to-node gRPC uses `InsecureSkipVerify: true` because nodes may have different certificates. Authentication is done via `x-node-secret` header instead.
-
-**Risk:** None (auth via shared secret, not TLS client certs).
-**Action:** Documented, acceptable.
-
-#### Dev JWT Secret in Code
-
-**File:** `internal/config/config.go:109`
-
-The dev JWT secret `"dev-jwt-secret-do-not-use-in-prod"` is hardcoded. This is intentional for development - production requires `JWT_SECRET` env var.
-
-**Risk:** None (only affects dev mode).
-**Action:** Documented, acceptable.
-
----
-
-## Test Coverage
-
-### Covered
-
-| Component | Test File | Coverage |
-|-----------|-----------|----------|
-| JWT validation | `auth_test.go` | ✅ All paths |
-| Allow-list (exact) | `webproxy_test.go` | ✅ |
-| Allow-list (wildcard) | `webproxy_test.go` | ✅ |
-| HTTP-over-gRPC | `webproxy_test.go` | ✅ |
-| Multi-value headers | `webproxy_test.go` | ✅ |
-| Tunnel ID extraction | `auth_test.go` | ✅ |
-| Client HTTP handling | `serve_test.go` | ✅ |
-| Client UDP handling | `serve_test.go` | ✅ |
-| Reconnection logic | `serve_test.go` | ✅ |
-| Internal server | `internal_server_test.go` | ✅ |
-| Config loading | `config_test.go` | ✅ |
-
-### Not Covered (Acceptable)
-
-| Component | Reason |
-|-----------|--------|
-| DeviceCodeStore | Simple CRUD, tested indirectly via integration |
-| GitHub API calls | External dependency, mocked in integration tests |
-| Full OAuth flow | Requires browser, tested via integration scripts |
-| HTTP/3 listener | Infrastructure, tested manually |
-
----
-
-## Files Reviewed (2025-01-17)
-
-| File | Lines | Status | Notes |
-|------|-------|--------|-------|
-| `internal/host/device.go` | 297 | ✅ Clean | New file, P1 issues noted |
-| `internal/host/auth.go` | 506 | ✅ Clean | P1 timeout issue noted |
-| `internal/host/proxy.go` | 453 | ✅ Clean | Well-structured |
-| `internal/host/webproxy.go` | 309 | ✅ Clean | Auth flow correct |
-| `internal/host/grpc_server.go` | 330 | ✅ Clean | Response routing solid |
-| `internal/client/serve.go` | 438 | ✅ Clean | Reconnection logic good |
-| `internal/client/login.go` | 246 | ✅ Clean | Device flow complete |
-| `internal/config/config.go` | 192 | ✅ Clean | Dev/prod separation |
-| `main.go` | 394 | ✅ Clean | CLI parsing correct |
+- ✅ HTTP client timeouts added to GitHub API calls
+- ✅ JSON encode error handling added
+- ✅ Dead code branch removed in `getCallbackURL()`
 
 ---
 
@@ -220,48 +208,20 @@ ok      github.com/ehrlich-b/tunn/internal/host
 ok      github.com/ehrlich-b/tunn/internal/mockoidc
 
 $ make test-race
-ok      github.com/ehrlich-b/tunn/internal/client
-ok      github.com/ehrlich-b/tunn/internal/common
-ok      github.com/ehrlich-b/tunn/internal/config
-ok      github.com/ehrlich-b/tunn/internal/host
-ok      github.com/ehrlich-b/tunn/internal/mockoidc
-```
-
 All tests pass. Race detection clean.
-
----
-
-## Integration Test Status
-
-| Test | Status | Notes |
-|------|--------|-------|
-| `smoke-test.sh` | ✅ | PUBLIC_MODE basic flow |
-| `device-login-test.sh` | ✅ | Device code flow with mock OIDC |
-| `multi-node-test.sh` | ✅ | Two-node tunnel discovery |
-| `auth-flow-test.sh` | ✅ | Allow-list enforcement |
-
-Run with: `make integration-test`
-
----
-
-## Recommendations for Post-Launch
-
-1. ~~**Add HTTP client timeouts** (P1)~~ - ✅ FIXED
-2. ~~**Fix JSON encode error handling** (P1)~~ - ✅ FIXED
-3. **Extract HTML templates** (P2) - Refactor for maintainability
-4. **Add DeviceCodeStore tests** (P2) - Improve coverage
-5. **Monitor production logs** - Watch for any stream.Send errors
+```
 
 ---
 
 ## Conclusion
 
-The code is **production-ready**. The architecture is clean, security controls are properly implemented, and test coverage is solid. The issues identified are minor (P1/P2) and can be addressed post-launch.
+The code quality is good - clean architecture, proper concurrency, solid test coverage. The security issues identified are implementation bugs, not design flaws. They're straightforward to fix:
 
-The codebase demonstrates good practices:
-- No magic strings (configs via env vars)
-- Proper error handling (errors wrapped with context)
-- Defensive coding (mutex everywhere needed)
-- Clean separation of concerns
+1. Add JWT signature validation to `EstablishTunnel()`
+2. Fix session key `"email"` → `"user_email"`
+3. Remove secret from log message
+4. Fail startup if `JWT_SECRET` missing in prod
+5. Remove `InsecureSkipVerify`, add `TUNN_CA_CERT` for self-hosters
+6. Update README (Google → GitHub)
 
-Ship it.
+After these fixes, the code is production-ready.

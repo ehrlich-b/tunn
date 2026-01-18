@@ -469,7 +469,7 @@ See [REVIEW.md](REVIEW.md) for full audit summary.
 - [x] UdpPacket proto messages
 - [x] tunn connect command
 - [x] UDP proxy handler
-- [ ] Gate behind Pro tier - see V1.3 design (inherently raw, no L7 intercept)
+- [ ] Gate behind Pro tier - see V1.4 design (inherently raw, no L7 intercept)
 
 ### V1.2: Enterprise SSO (Enterprise Tier)
 
@@ -490,7 +490,33 @@ See [REVIEW.md](REVIEW.md) for full audit summary.
 
 ---
 
-### V1.3: Custom Domains + Raw Mode (Pro Only)
+### V1.3: UDP Relay (Pro Only)
+
+**Escape restrictive networks that block UDP.** See [docs/udp-relay-design.md](../docs/udp-relay-design.md).
+
+Use case: Intern trapped on school WiFi that blocks UDP, needs WireGuard to reach home/work.
+
+```bash
+# Home server (open internet)
+tunn relay 51820 --id=home-wg --peer=intern-wg
+
+# Intern laptop (school WiFi, UDP blocked)
+tunn relay 51820 --id=intern-wg --peer=home-wg
+```
+
+Both peers connect to tunn.to over TCP:443 (HTTPS). Server relays UDP packets between them. WireGuard works transparently.
+
+- [ ] Add `peer_id` field to UdpPacket proto
+- [ ] Server-side relay logic (~100 lines)
+- [ ] Client `tunn relay` command (~150 lines)
+- [ ] Mutual peering authorization
+- [ ] Pro tier gating
+
+**~500 lines total.** Builds on existing UDP tunneling.
+
+---
+
+### V1.4: Custom Domains + Raw Mode (Pro Only)
 
 **The Design:**
 

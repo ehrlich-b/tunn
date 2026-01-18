@@ -3,6 +3,7 @@ package host
 import (
 	"context"
 	"crypto/tls"
+	"database/sql"
 	"fmt"
 	"net"
 	"net/http"
@@ -74,10 +75,17 @@ type ProxyServer struct {
 
 // NewProxyServer creates a new dual-listener proxy server
 func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
-	// Initialize database
-	db, err := store.DB()
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize database: %w", err)
+	// Initialize database only if this is a login node
+	var db *sql.DB
+	if cfg.LoginNode {
+		var err error
+		db, err = store.InitDB(cfg.DBPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize database: %w", err)
+		}
+		common.LogInfo("login node initialized", "db_path", cfg.DBPath)
+	} else {
+		common.LogInfo("non-login node, skipping database initialization")
 	}
 
 	cert, err := tls.LoadX509KeyPair(cfg.CertFile, cfg.KeyFile)
@@ -103,8 +111,11 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 		}
 	}
 
-	// Create account store for subdomain reservations
-	accounts := store.NewAccountStore(db)
+	// Create account store for subdomain reservations (login node only)
+	var accounts *store.AccountStore
+	if db != nil {
+		accounts = store.NewAccountStore(db)
+	}
 
 	// Create gRPC server for public tunnel control plane
 	grpcServer := grpc.NewServer()
@@ -120,7 +131,7 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 		grpc.Creds(credentials.NewTLS(internalTLSConfig)),
 		grpc.UnaryInterceptor(nodeSecretInterceptor(cfg.NodeSecret)),
 	)
-	internalServer := NewInternalServer(tunnelServer, cfg.PublicAddr)
+	internalServer := NewInternalServer(tunnelServer, cfg.PublicAddr, cfg.LoginNode)
 	internalv1.RegisterInternalServiceServer(internalGRPCServer, internalServer)
 
 	// Create session manager for web auth
@@ -141,6 +152,12 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 		common.LogInfo("email sender configured", "host", cfg.SMTPHost)
 	}
 
+	// Create device code store (login node only)
+	var deviceCodes *store.DeviceCodeStore
+	if db != nil {
+		deviceCodes = store.NewDeviceCodeStore(db)
+	}
+
 	proxy := &ProxyServer{
 		Domain:             cfg.Domain,
 		CertFile:           cfg.CertFile,
@@ -157,7 +174,7 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 		tunnelCache:        make(map[string]string),
 		config:             cfg,
 		PublicAddr:         cfg.PublicAddr,
-		deviceCodes:        store.NewDeviceCodeStore(db),
+		deviceCodes:        deviceCodes,
 		accounts:           accounts,
 		emailSender:        emailSender,
 	}

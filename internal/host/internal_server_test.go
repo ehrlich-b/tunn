@@ -12,7 +12,7 @@ import (
 
 func TestNewInternalServer(t *testing.T) {
 	tunnelServer := NewTunnelServer("test-key", false, "tunn.to", "", nil, nil)
-	internalServer := NewInternalServer(tunnelServer, "node1.tunn.to:50051")
+	internalServer := NewInternalServer(tunnelServer, "node1.tunn.to:50051", false)
 
 	if internalServer == nil {
 		t.Fatal("Expected non-nil InternalServer")
@@ -27,7 +27,7 @@ func TestNewInternalServer(t *testing.T) {
 
 func TestFindTunnelExists(t *testing.T) {
 	tunnelServer := NewTunnelServer("test-key", false, "tunn.to", "", nil, nil)
-	internalServer := NewInternalServer(tunnelServer, "node1.tunn.to:50051")
+	internalServer := NewInternalServer(tunnelServer, "node1.tunn.to:50051", false)
 
 	// Add a tunnel directly
 	tunnelServer.mu.Lock()
@@ -57,7 +57,7 @@ func TestFindTunnelExists(t *testing.T) {
 
 func TestFindTunnelNotExists(t *testing.T) {
 	tunnelServer := NewTunnelServer("test-key", false, "tunn.to", "", nil, nil)
-	internalServer := NewInternalServer(tunnelServer, "node1.tunn.to:50051")
+	internalServer := NewInternalServer(tunnelServer, "node1.tunn.to:50051", false)
 
 	// Test finding a non-existent tunnel
 	req := &internalv1.FindTunnelRequest{
@@ -78,7 +78,7 @@ func TestFindTunnelNotExists(t *testing.T) {
 
 func TestForwardUdpPacketTunnelNotFound(t *testing.T) {
 	tunnelServer := NewTunnelServer("test-key", false, "tunn.to", "", nil, nil)
-	internalServer := NewInternalServer(tunnelServer, "node1.tunn.to:50051")
+	internalServer := NewInternalServer(tunnelServer, "node1.tunn.to:50051", false)
 
 	req := &internalv1.ForwardUdpPacketRequest{
 		TunnelId:      "nonexistent",
@@ -101,7 +101,7 @@ func TestForwardUdpPacketTunnelNotFound(t *testing.T) {
 
 func TestForwardUdpPacketSendError(t *testing.T) {
 	tunnelServer := NewTunnelServer("test-key", false, "tunn.to", "", nil, nil)
-	internalServer := NewInternalServer(tunnelServer, "node1.tunn.to:50051")
+	internalServer := NewInternalServer(tunnelServer, "node1.tunn.to:50051", false)
 
 	// Create a mock stream that fails on Send
 	mockStream := &mockInternalStream{
@@ -139,7 +139,7 @@ func TestForwardUdpPacketSendError(t *testing.T) {
 
 func TestForwardUdpPacketContextCancelled(t *testing.T) {
 	tunnelServer := NewTunnelServer("test-key", false, "tunn.to", "", nil, nil)
-	internalServer := NewInternalServer(tunnelServer, "node1.tunn.to:50051")
+	internalServer := NewInternalServer(tunnelServer, "node1.tunn.to:50051", false)
 
 	// Create a mock stream that succeeds on Send
 	mockStream := &mockInternalStream{}

@@ -7,6 +7,15 @@ option go_package = "github.com/ehrlich-b/tunn/pkg/proto/internalv1";
 service InternalService {
   rpc FindTunnel(FindTunnelRequest) returns (FindTunnelResponse);
   rpc ForwardUdpPacket(ForwardUdpPacketRequest) returns (ForwardUdpPacketResponse);
+  rpc GetNodeInfo(NodeInfoRequest) returns (NodeInfoResponse);
+}
+
+// Node information for login node discovery
+message NodeInfoRequest {}
+
+message NodeInfoResponse {
+  bool is_login_node = 1;
+  string node_id = 2;
 }
 
 message FindTunnelRequest {

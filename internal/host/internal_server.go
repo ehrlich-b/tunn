@@ -15,14 +15,31 @@ type InternalServer struct {
 	internalv1.UnimplementedInternalServiceServer
 	tunnelServer *TunnelServer
 	publicAddr   string
+	isLoginNode  bool
+	nodeID       string
 }
 
 // NewInternalServer creates a new gRPC internal server
-func NewInternalServer(tunnelServer *TunnelServer, publicAddr string) *InternalServer {
+func NewInternalServer(tunnelServer *TunnelServer, publicAddr string, isLoginNode bool) *InternalServer {
+	// Generate a simple node ID from the public address
+	nodeID := publicAddr
+	if nodeID == "" {
+		nodeID = "unknown"
+	}
 	return &InternalServer{
 		tunnelServer: tunnelServer,
 		publicAddr:   publicAddr,
+		isLoginNode:  isLoginNode,
+		nodeID:       nodeID,
 	}
+}
+
+// GetNodeInfo returns information about this node, including whether it's the login node
+func (s *InternalServer) GetNodeInfo(ctx context.Context, req *internalv1.NodeInfoRequest) (*internalv1.NodeInfoResponse, error) {
+	return &internalv1.NodeInfoResponse{
+		IsLoginNode: s.isLoginNode,
+		NodeId:      s.nodeID,
+	}, nil
 }
 
 // FindTunnel implements the RPC for finding a tunnel on another node

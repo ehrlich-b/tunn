@@ -8,11 +8,13 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/ehrlich-b/tunn/internal/client"
 	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/ehrlich-b/tunn/internal/config"
 	"github.com/ehrlich-b/tunn/internal/host"
+	"github.com/golang-jwt/jwt/v4"
 )
 
 // Global flags (parsed before subcommand)
@@ -81,6 +83,8 @@ Options:
 		runConnect(args[1:])
 	case "serve":
 		runServe(args[1:])
+	case "magic-link":
+		runMagicLink(args[1:])
 	case "help", "-h", "--help":
 		flag.Usage()
 		os.Exit(0)
@@ -401,4 +405,85 @@ func normalizeTargetURL(input string) (string, error) {
 
 	// It's just a port number
 	return "http://localhost:" + input, nil
+}
+
+func runMagicLink(args []string) {
+	fs := flag.NewFlagSet("magic-link", flag.ExitOnError)
+	secretFlag := fs.String("secret", "", "JWT signing secret (or set JWT_SECRET env var)")
+	domainFlag := fs.String("domain", "", "domain for full URL output (e.g., tunn.to)")
+	expiryFlag := fs.Duration("expiry", 5*time.Minute, "token expiry duration")
+	tokenOnlyFlag := fs.Bool("token-only", false, "output only the token, not the full URL")
+
+	fs.Usage = func() {
+		fmt.Fprintf(os.Stderr, `tunn magic-link - generate a magic link token for email authentication
+
+Usage:
+  tunn magic-link [options] <email>
+
+Examples:
+  tunn magic-link alice@example.com                    # Token only (uses JWT_SECRET env)
+  tunn magic-link -secret=mysecret alice@example.com   # With explicit secret
+  tunn magic-link -domain=tunn.to alice@example.com    # Full URL output
+
+Options:
+`)
+		fs.PrintDefaults()
+	}
+
+	// Separate flags from positional args
+	var nonFlagArgs []string
+	var flagArgs []string
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "-") {
+			flagArgs = append(flagArgs, arg)
+		} else {
+			nonFlagArgs = append(nonFlagArgs, arg)
+		}
+	}
+
+	fs.Parse(flagArgs)
+
+	if len(nonFlagArgs) == 0 {
+		common.LogError("email required: tunn magic-link <email>")
+		fs.Usage()
+		os.Exit(1)
+	}
+
+	email := strings.ToLower(strings.TrimSpace(nonFlagArgs[0]))
+	if !strings.Contains(email, "@") {
+		common.LogError("invalid email address", "email", email)
+		os.Exit(1)
+	}
+
+	// Get secret from flag or env
+	secret := *secretFlag
+	if secret == "" {
+		secret = os.Getenv("JWT_SECRET")
+	}
+	if secret == "" {
+		common.LogError("JWT secret required: use -secret flag or set JWT_SECRET env var")
+		os.Exit(1)
+	}
+
+	// Generate magic link token
+	claims := jwt.MapClaims{
+		"email": email,
+		"type":  "magic_link",
+		"iat":   time.Now().Unix(),
+		"exp":   time.Now().Add(*expiryFlag).Unix(),
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tokenString, err := token.SignedString([]byte(secret))
+	if err != nil {
+		common.LogError("failed to sign token", "error", err)
+		os.Exit(1)
+	}
+
+	// Output
+	if *tokenOnlyFlag || *domainFlag == "" {
+		fmt.Println(tokenString)
+	} else {
+		fmt.Printf("https://%s/auth/verify?token=%s\n", *domainFlag, tokenString)
+	}
 }

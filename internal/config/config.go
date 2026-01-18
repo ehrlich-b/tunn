@@ -63,6 +63,12 @@ type Config struct {
 	// Client configuration
 	ServerAddr string
 	SkipVerify bool
+
+	// Login node configuration
+	// Login node owns SQLite and handles all DB operations
+	// Other nodes proxy DB operations to it
+	LoginNode bool
+	DBPath    string // Path to SQLite database (login node only)
 }
 
 // LoadConfig loads configuration based on environment
@@ -141,6 +147,10 @@ func (c *Config) loadDevConfig() {
 
 	// Skip TLS verification in dev
 	c.SkipVerify = true
+
+	// Login node (defaults to true in dev for simplicity)
+	c.LoginNode = IsLoginNode() || getEnvOrDefault("LOGIN_NODE", "true") == "true"
+	c.DBPath = getEnvOrDefault("TUNN_DB_PATH", "")
 }
 
 // loadProdConfig loads production configuration
@@ -195,6 +205,10 @@ func (c *Config) loadProdConfig() {
 
 	// Verify TLS in production
 	c.SkipVerify = false
+
+	// Login node (must be explicitly configured in prod)
+	c.LoginNode = IsLoginNode()
+	c.DBPath = getEnvOrDefault("TUNN_DB_PATH", "/data/tunn.db")
 }
 
 // IsDev returns true if running in development environment
@@ -205,6 +219,21 @@ func (c *Config) IsDev() bool {
 // IsProd returns true if running in production environment
 func (c *Config) IsProd() bool {
 	return c.Environment == EnvProd
+}
+
+// IsLoginNode returns true if this node is the login node.
+// Login node owns SQLite and handles all auth/account operations.
+// Determined by:
+//   - LOGIN_NODE=true env var (self-host)
+//   - FLY_PROCESS_GROUP=login (Fly.io automatic)
+func IsLoginNode() bool {
+	if os.Getenv("LOGIN_NODE") == "true" {
+		return true
+	}
+	if os.Getenv("FLY_PROCESS_GROUP") == "login" {
+		return true
+	}
+	return false
 }
 
 // getEnvironment determines the current environment

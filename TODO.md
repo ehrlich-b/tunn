@@ -266,10 +266,11 @@ func isAllowed(sessionEmail string, allowList []string) bool {
       - `NODE_SECRET=xxx` → mesh enabled, nodes auth with shared secret
       - IP blacklisting on failed auth attempts
 
-### LiteFS Replication (tunn.to)
-- [x] **LiteFS support for SQLite replication** - Fly.io native
-      - App auto-detects `/litefs` and uses `/litefs/tunn.db`
-      - Falls back to `~/.tunn/tunn.db` for local dev
+### ~~LiteFS Replication~~ → Login Node Architecture
+- [x] ~~**LiteFS support for SQLite replication**~~ - **Replaced by Login Node architecture**
+      - LiteFS had complexity: FUSE, Consul leases, autoscale footguns
+      - New approach: One login node owns SQLite + Litestream backup to S3
+      - See [docs/login-node-architecture.md](docs/login-node-architecture.md)
 
 **Note:** GitHub OAuth is implemented. PUBLIC_MODE=true bypasses auth for testing only.
 
@@ -282,30 +283,55 @@ func isAllowed(sessionEmail string, allowList []string) bool {
 | Feature | Fly.io | Portable Alternative |
 |---------|--------|---------------------|
 | `<app>.internal` DNS | Fly-native | `NODE_ADDRESSES` env var, Consul, K8s Service DNS |
-| LiteFS replication | Fly's lease API for primary election | Consul/etcd for leader election, or just don't replicate (single node) |
 | Volumes | Fly Volumes | Any persistent disk (EBS, GCE PD, local) |
+| Tigris (S3) | Fly-native | Any S3-compatible storage |
 
 **What's portable:**
 - Core tunneling (pure Go, runs anywhere)
-- CLUSTER_SECRET auth (just HMAC, no vendor deps)
+- NODE_SECRET auth (just HMAC, no vendor deps)
 - SQLite storage (standard library)
+- Litestream backup (works with any S3)
+- Login Node architecture (just gRPC, no Fly deps)
 - FileStore (yaml file, works everywhere)
 
-**Self-hosted users are NOT locked in.** They use `users.yaml` + single node. No Fly, no LiteFS, no mesh.
+**Self-hosted users are NOT locked in.** They use `users.yaml` + single node. No Fly, no mesh, no cloud backup needed.
 
-**tunn.to is lightly locked in.** The mesh auto-discovery and LiteFS are Fly-specific, but:
+**tunn.to is lightly locked in.** The mesh auto-discovery is Fly-specific, but:
 - Auto-discovery can fall back to `NODE_ADDRESSES` env var
-- LiteFS can be replaced with single-node SQLite + manual failover
+- Litestream works with any S3-compatible storage
 - Migration path: ~1 day of work to run on K8s or bare metal
 
 ---
 
 ## Pre-Launch Code (Required)
 
+### Architecture (Do First)
+
+1. [ ] **Login Node Architecture** - See [docs/login-node-architecture.md](docs/login-node-architecture.md)
+      - One node designated as "login node" (`LOGIN_NODE=true`) owns SQLite
+      - Other nodes discover it via config (self-host) or Fly DNS (tunn.to)
+      - Graceful degradation: buffer usage if login node down, fail auth with 503
+      - Self-hosting first: works with static config, no Fly dependency
+      - **Must be implemented before rate limiting**
+
+2. [ ] **Rate Limiting** - See [docs/rate-limiting-design.md](docs/rate-limiting-design.md)
+      - Concurrent tunnels: 3 (free) / 10 (pro)
+      - Bandwidth per tunnel: 100 Mbps (free) / 250 Mbps (pro) - not advertised
+      - Monthly quota: 100 MB (free) / 50 GB (pro)
+      - 20 MB threshold flush, 30 sec quota refresh
+      - **Depends on Node Zero architecture**
+
+### Features
+
 - [ ] **Account page + Stripe Checkout** - `/account` dashboard, "Upgrade to Pro" button creates Stripe Checkout session
-- [ ] **Rate limiting** (Free: 100 MB/month, Pro: 50 GB/month hard cap) - Per-account bandwidth tracking
 - [ ] **ToS and Privacy Policy pages** - Currently placeholder `#` links in footer
 - [x] **Sync page templates** - Login, error, success pages now match homepage look
+
+### CLI & Config (Breaking Changes - Must Do Pre-Launch)
+
+- [ ] **.env file support** - Load config from `.env` file (standard dotenv format), simpler than env vars for self-hosters
+- [ ] **Prefix all env vars with TUNN_** - Standardize env var names (e.g., `TUNN_JWT_SECRET`, `TUNN_NODE_SECRET`)
+- [ ] **Support double-dash flags** - Fix flag parsing to properly handle `--flag` style in subcommands
 
 ## Pre-Launch Manual Setup (Required)
 

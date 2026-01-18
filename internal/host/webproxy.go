@@ -82,7 +82,7 @@ func (p *ProxyServer) handleWebProxy(w http.ResponseWriter, r *http.Request) {
 
 	if cached {
 		common.LogInfo("proxying to cached node", "tunnel_id", tunnelID, "node_addr", nodeAddr)
-		p.proxyToNode(w, r, nodeAddr)
+		p.proxyToNode(w, r, nodeAddr, tunnelID)
 		return
 	}
 
@@ -104,7 +104,7 @@ func (p *ProxyServer) handleWebProxy(w http.ResponseWriter, r *http.Request) {
 			p.tunnelCache[tunnelID] = resp.NodeAddress
 			p.cacheMu.Unlock()
 
-			p.proxyToNode(w, r, resp.NodeAddress)
+			p.proxyToNode(w, r, resp.NodeAddress, tunnelID)
 			return
 		}
 	}
@@ -332,8 +332,10 @@ func generateConnectionID() (string, error) {
 	return hex.EncodeToString(bytes), nil
 }
 
-// proxyToNode handles proxying a request to another node in the cluster
-func (p *ProxyServer) proxyToNode(w http.ResponseWriter, r *http.Request, nodeAddr string) {
+// proxyToNode handles proxying a request to another node in the cluster.
+// If the remote node returns 503, the cache entry is invalidated so the next
+// request will re-probe for the tunnel's current location.
+func (p *ProxyServer) proxyToNode(w http.ResponseWriter, r *http.Request, nodeAddr string, tunnelID string) {
 	target, err := url.Parse("https://" + nodeAddr)
 	if err != nil {
 		common.LogError("failed to parse node address", "error", err, "node_addr", nodeAddr)
@@ -351,6 +353,17 @@ func (p *ProxyServer) proxyToNode(w http.ResponseWriter, r *http.Request, nodeAd
 		originalHost := req.Host // Save original before Director modifies it
 		originalDirector(req)
 		req.Host = originalHost // Restore original Host
+	}
+
+	// Invalidate cache on 503 (tunnel no longer on this node)
+	proxy.ModifyResponse = func(resp *http.Response) error {
+		if resp.StatusCode == http.StatusServiceUnavailable {
+			common.LogInfo("remote node returned 503, invalidating cache", "tunnel_id", tunnelID, "node_addr", nodeAddr)
+			p.cacheMu.Lock()
+			delete(p.tunnelCache, tunnelID)
+			p.cacheMu.Unlock()
+		}
+		return nil
 	}
 
 	// We need to create a custom transport to skip TLS verification if needed,

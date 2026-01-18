@@ -469,9 +469,28 @@ See [REVIEW.md](REVIEW.md) for full audit summary.
 - [x] UdpPacket proto messages
 - [x] tunn connect command
 - [x] UDP proxy handler
-- [ ] Gate behind Pro tier - see V1.2 design (inherently raw, no L7 intercept)
+- [ ] Gate behind Pro tier - see V1.3 design (inherently raw, no L7 intercept)
 
-### V1.2: Custom Domains + Raw Mode (Pro Only)
+### V1.2: Enterprise SSO (Enterprise Tier)
+
+**Corporate login providers for enterprise customers:**
+
+- [ ] **Google Workspace** - Google OAuth with domain restrictions (easy, reuses OAuth flow)
+- [ ] **Microsoft Entra ID** - Azure AD / Office 365 orgs (huge market, OIDC)
+- [ ] **Okta** - Popular enterprise IdP (OIDC)
+- [ ] **Generic SAML 2.0** - Covers OneLogin, Ping Identity, etc.
+- [ ] **Generic OIDC** - Any OpenID Connect provider
+
+**Implementation approach:**
+- Start with Google Workspace (trivial - just add domain claim check)
+- Microsoft Entra next (large enterprise market)
+- SAML 2.0 last (complex but covers everything else)
+
+**Business model:** Enterprise tier only. Self-hosters configure their own IdP.
+
+---
+
+### V1.3: Custom Domains + Raw Mode (Pro Only)
 
 **The Design:**
 

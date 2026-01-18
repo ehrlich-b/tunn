@@ -290,12 +290,19 @@ func (s *ServeClient) handleHttpRequest(sender messageSender, httpReq *pb.HttpRe
 	defer resp.Body.Close()
 
 	// Read response body with size limit to prevent memory exhaustion
-	body, err := io.ReadAll(io.LimitReader(resp.Body, MaxResponseBodySize))
+	// Read one extra byte to detect if body exceeds limit
+	limitedBody, err := io.ReadAll(io.LimitReader(resp.Body, MaxResponseBodySize+1))
 	if err != nil {
 		common.LogError("failed to read response body", "error", err)
 		s.sendErrorResponse(sender, httpReq.ConnectionId, http.StatusBadGateway, "Failed to read response")
 		return
 	}
+	if int64(len(limitedBody)) > MaxResponseBodySize {
+		common.LogError("response body too large", "size", len(limitedBody), "max", MaxResponseBodySize)
+		s.sendErrorResponse(sender, httpReq.ConnectionId, http.StatusBadGateway, "Response too large")
+		return
+	}
+	body := limitedBody
 
 	// Convert headers to map (join multi-value headers per HTTP spec)
 	headers := make(map[string]string)

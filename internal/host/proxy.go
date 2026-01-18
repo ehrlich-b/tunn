@@ -92,8 +92,10 @@ type ProxyServer struct {
 // NewProxyServer creates a new dual-listener proxy server
 func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 	// SECURITY: Require NodeSecret when multi-node mode is enabled
-	if cfg.NodeAddresses != "" && cfg.NodeSecret == "" {
-		return nil, fmt.Errorf("TUNN_NODE_SECRET must be set when TUNN_NODE_ADDRESSES is configured (multi-node mode)")
+	// Multi-node can be configured via NODE_ADDRESSES (static) or FLY_APP_NAME (DNS discovery)
+	isMultiNode := cfg.NodeAddresses != "" || cfg.FlyAppName != ""
+	if isMultiNode && cfg.NodeSecret == "" {
+		return nil, fmt.Errorf("TUNN_NODE_SECRET must be set for multi-node mode (detected via TUNN_NODE_ADDRESSES or FLY_APP_NAME)")
 	}
 
 	// Initialize storage based on whether this is a login node
@@ -553,6 +555,11 @@ func (p *ProxyServer) startHTTP2Server(ctx context.Context, handler http.Handler
 		Addr:      p.HTTP2Addr,
 		Handler:   router,
 		TLSConfig: p.tlsConfig,
+		// Timeouts to prevent slowloris and resource exhaustion
+		ReadTimeout:       30 * time.Second, // Max time to read request headers
+		ReadHeaderTimeout: 10 * time.Second, // Max time to read headers specifically
+		WriteTimeout:      60 * time.Second, // Max time to write response (includes processing)
+		IdleTimeout:       120 * time.Second, // Max time connection can be idle between requests
 	}
 
 	// Enable HTTP/2

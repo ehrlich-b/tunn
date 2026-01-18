@@ -9,6 +9,9 @@ import (
 	"github.com/ehrlich-b/tunn/internal/storage"
 )
 
+// Ensure mockStorage implements storage.Storage
+var _ storage.Storage = (*mockStorage)(nil)
+
 func TestUsageBuffer_AddAndLen(t *testing.T) {
 	buf := NewUsageBuffer()
 
@@ -78,6 +81,12 @@ func (m *mockStorage) RegisterTunnel(ctx context.Context, tunnelID, accountID, n
 func (m *mockStorage) UnregisterTunnel(ctx context.Context, tunnelID string) error { return nil }
 func (m *mockStorage) GetTunnelCount(ctx context.Context, accountID string) (int32, error) {
 	return 0, nil
+}
+func (m *mockStorage) MarkMagicTokenUsed(ctx context.Context, jti string, expiry time.Time) (bool, error) {
+	return true, nil
+}
+func (m *mockStorage) CheckMagicLinkRateLimit(ctx context.Context, email string) (bool, int32, time.Time, error) {
+	return true, 3, time.Now().Add(5 * time.Minute), nil
 }
 
 func TestUsageBuffer_Flush(t *testing.T) {

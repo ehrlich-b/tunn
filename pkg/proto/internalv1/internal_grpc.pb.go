@@ -19,9 +19,8 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	InternalService_FindTunnel_FullMethodName       = "/internal.InternalService/FindTunnel"
-	InternalService_ForwardUdpPacket_FullMethodName = "/internal.InternalService/ForwardUdpPacket"
-	InternalService_GetNodeInfo_FullMethodName      = "/internal.InternalService/GetNodeInfo"
+	InternalService_FindTunnel_FullMethodName  = "/internal.InternalService/FindTunnel"
+	InternalService_GetNodeInfo_FullMethodName = "/internal.InternalService/GetNodeInfo"
 )
 
 // InternalServiceClient is the client API for InternalService service.
@@ -29,7 +28,6 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type InternalServiceClient interface {
 	FindTunnel(ctx context.Context, in *FindTunnelRequest, opts ...grpc.CallOption) (*FindTunnelResponse, error)
-	ForwardUdpPacket(ctx context.Context, in *ForwardUdpPacketRequest, opts ...grpc.CallOption) (*ForwardUdpPacketResponse, error)
 	GetNodeInfo(ctx context.Context, in *NodeInfoRequest, opts ...grpc.CallOption) (*NodeInfoResponse, error)
 }
 
@@ -51,16 +49,6 @@ func (c *internalServiceClient) FindTunnel(ctx context.Context, in *FindTunnelRe
 	return out, nil
 }
 
-func (c *internalServiceClient) ForwardUdpPacket(ctx context.Context, in *ForwardUdpPacketRequest, opts ...grpc.CallOption) (*ForwardUdpPacketResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ForwardUdpPacketResponse)
-	err := c.cc.Invoke(ctx, InternalService_ForwardUdpPacket_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 func (c *internalServiceClient) GetNodeInfo(ctx context.Context, in *NodeInfoRequest, opts ...grpc.CallOption) (*NodeInfoResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(NodeInfoResponse)
@@ -76,7 +64,6 @@ func (c *internalServiceClient) GetNodeInfo(ctx context.Context, in *NodeInfoReq
 // for forward compatibility.
 type InternalServiceServer interface {
 	FindTunnel(context.Context, *FindTunnelRequest) (*FindTunnelResponse, error)
-	ForwardUdpPacket(context.Context, *ForwardUdpPacketRequest) (*ForwardUdpPacketResponse, error)
 	GetNodeInfo(context.Context, *NodeInfoRequest) (*NodeInfoResponse, error)
 	mustEmbedUnimplementedInternalServiceServer()
 }
@@ -90,9 +77,6 @@ type UnimplementedInternalServiceServer struct{}
 
 func (UnimplementedInternalServiceServer) FindTunnel(context.Context, *FindTunnelRequest) (*FindTunnelResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method FindTunnel not implemented")
-}
-func (UnimplementedInternalServiceServer) ForwardUdpPacket(context.Context, *ForwardUdpPacketRequest) (*ForwardUdpPacketResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method ForwardUdpPacket not implemented")
 }
 func (UnimplementedInternalServiceServer) GetNodeInfo(context.Context, *NodeInfoRequest) (*NodeInfoResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetNodeInfo not implemented")
@@ -136,24 +120,6 @@ func _InternalService_FindTunnel_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
-func _InternalService_ForwardUdpPacket_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ForwardUdpPacketRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(InternalServiceServer).ForwardUdpPacket(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: InternalService_ForwardUdpPacket_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(InternalServiceServer).ForwardUdpPacket(ctx, req.(*ForwardUdpPacketRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _InternalService_GetNodeInfo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(NodeInfoRequest)
 	if err := dec(in); err != nil {
@@ -184,10 +150,6 @@ var InternalService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _InternalService_FindTunnel_Handler,
 		},
 		{
-			MethodName: "ForwardUdpPacket",
-			Handler:    _InternalService_ForwardUdpPacket_Handler,
-		},
-		{
 			MethodName: "GetNodeInfo",
 			Handler:    _InternalService_GetNodeInfo_Handler,
 		},
@@ -197,19 +159,21 @@ var InternalService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	LoginNodeDB_RecordUsage_FullMethodName          = "/internal.LoginNodeDB/RecordUsage"
-	LoginNodeDB_GetMonthlyUsage_FullMethodName      = "/internal.LoginNodeDB/GetMonthlyUsage"
-	LoginNodeDB_CreateDeviceCode_FullMethodName     = "/internal.LoginNodeDB/CreateDeviceCode"
-	LoginNodeDB_GetDeviceCode_FullMethodName        = "/internal.LoginNodeDB/GetDeviceCode"
-	LoginNodeDB_AuthorizeDeviceCode_FullMethodName  = "/internal.LoginNodeDB/AuthorizeDeviceCode"
-	LoginNodeDB_GetAccount_FullMethodName           = "/internal.LoginNodeDB/GetAccount"
-	LoginNodeDB_GetAccountByEmail_FullMethodName    = "/internal.LoginNodeDB/GetAccountByEmail"
-	LoginNodeDB_FindOrCreateByEmails_FullMethodName = "/internal.LoginNodeDB/FindOrCreateByEmails"
-	LoginNodeDB_GetEmailBucket_FullMethodName       = "/internal.LoginNodeDB/GetEmailBucket"
-	LoginNodeDB_UpdatePlan_FullMethodName           = "/internal.LoginNodeDB/UpdatePlan"
-	LoginNodeDB_RegisterTunnel_FullMethodName       = "/internal.LoginNodeDB/RegisterTunnel"
-	LoginNodeDB_UnregisterTunnel_FullMethodName     = "/internal.LoginNodeDB/UnregisterTunnel"
-	LoginNodeDB_GetTunnelCount_FullMethodName       = "/internal.LoginNodeDB/GetTunnelCount"
+	LoginNodeDB_RecordUsage_FullMethodName             = "/internal.LoginNodeDB/RecordUsage"
+	LoginNodeDB_GetMonthlyUsage_FullMethodName         = "/internal.LoginNodeDB/GetMonthlyUsage"
+	LoginNodeDB_CreateDeviceCode_FullMethodName        = "/internal.LoginNodeDB/CreateDeviceCode"
+	LoginNodeDB_GetDeviceCode_FullMethodName           = "/internal.LoginNodeDB/GetDeviceCode"
+	LoginNodeDB_AuthorizeDeviceCode_FullMethodName     = "/internal.LoginNodeDB/AuthorizeDeviceCode"
+	LoginNodeDB_GetAccount_FullMethodName              = "/internal.LoginNodeDB/GetAccount"
+	LoginNodeDB_GetAccountByEmail_FullMethodName       = "/internal.LoginNodeDB/GetAccountByEmail"
+	LoginNodeDB_FindOrCreateByEmails_FullMethodName    = "/internal.LoginNodeDB/FindOrCreateByEmails"
+	LoginNodeDB_GetEmailBucket_FullMethodName          = "/internal.LoginNodeDB/GetEmailBucket"
+	LoginNodeDB_UpdatePlan_FullMethodName              = "/internal.LoginNodeDB/UpdatePlan"
+	LoginNodeDB_RegisterTunnel_FullMethodName          = "/internal.LoginNodeDB/RegisterTunnel"
+	LoginNodeDB_UnregisterTunnel_FullMethodName        = "/internal.LoginNodeDB/UnregisterTunnel"
+	LoginNodeDB_GetTunnelCount_FullMethodName          = "/internal.LoginNodeDB/GetTunnelCount"
+	LoginNodeDB_MarkMagicTokenUsed_FullMethodName      = "/internal.LoginNodeDB/MarkMagicTokenUsed"
+	LoginNodeDB_CheckMagicLinkRateLimit_FullMethodName = "/internal.LoginNodeDB/CheckMagicLinkRateLimit"
 )
 
 // LoginNodeDBClient is the client API for LoginNodeDB service.
@@ -236,6 +200,10 @@ type LoginNodeDBClient interface {
 	RegisterTunnel(ctx context.Context, in *RegisterTunnelRequest, opts ...grpc.CallOption) (*RegisterTunnelResponse, error)
 	UnregisterTunnel(ctx context.Context, in *UnregisterTunnelRequest, opts ...grpc.CallOption) (*UnregisterTunnelResponse, error)
 	GetTunnelCount(ctx context.Context, in *GetTunnelCountRequest, opts ...grpc.CallOption) (*GetTunnelCountResponse, error)
+	// Magic link replay protection (cross-node)
+	MarkMagicTokenUsed(ctx context.Context, in *MarkMagicTokenUsedRequest, opts ...grpc.CallOption) (*MarkMagicTokenUsedResponse, error)
+	// Magic link rate limiting (per-email throttle)
+	CheckMagicLinkRateLimit(ctx context.Context, in *CheckMagicLinkRateLimitRequest, opts ...grpc.CallOption) (*CheckMagicLinkRateLimitResponse, error)
 }
 
 type loginNodeDBClient struct {
@@ -376,6 +344,26 @@ func (c *loginNodeDBClient) GetTunnelCount(ctx context.Context, in *GetTunnelCou
 	return out, nil
 }
 
+func (c *loginNodeDBClient) MarkMagicTokenUsed(ctx context.Context, in *MarkMagicTokenUsedRequest, opts ...grpc.CallOption) (*MarkMagicTokenUsedResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(MarkMagicTokenUsedResponse)
+	err := c.cc.Invoke(ctx, LoginNodeDB_MarkMagicTokenUsed_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *loginNodeDBClient) CheckMagicLinkRateLimit(ctx context.Context, in *CheckMagicLinkRateLimitRequest, opts ...grpc.CallOption) (*CheckMagicLinkRateLimitResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CheckMagicLinkRateLimitResponse)
+	err := c.cc.Invoke(ctx, LoginNodeDB_CheckMagicLinkRateLimit_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // LoginNodeDBServer is the server API for LoginNodeDB service.
 // All implementations must embed UnimplementedLoginNodeDBServer
 // for forward compatibility.
@@ -400,6 +388,10 @@ type LoginNodeDBServer interface {
 	RegisterTunnel(context.Context, *RegisterTunnelRequest) (*RegisterTunnelResponse, error)
 	UnregisterTunnel(context.Context, *UnregisterTunnelRequest) (*UnregisterTunnelResponse, error)
 	GetTunnelCount(context.Context, *GetTunnelCountRequest) (*GetTunnelCountResponse, error)
+	// Magic link replay protection (cross-node)
+	MarkMagicTokenUsed(context.Context, *MarkMagicTokenUsedRequest) (*MarkMagicTokenUsedResponse, error)
+	// Magic link rate limiting (per-email throttle)
+	CheckMagicLinkRateLimit(context.Context, *CheckMagicLinkRateLimitRequest) (*CheckMagicLinkRateLimitResponse, error)
 	mustEmbedUnimplementedLoginNodeDBServer()
 }
 
@@ -448,6 +440,12 @@ func (UnimplementedLoginNodeDBServer) UnregisterTunnel(context.Context, *Unregis
 }
 func (UnimplementedLoginNodeDBServer) GetTunnelCount(context.Context, *GetTunnelCountRequest) (*GetTunnelCountResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetTunnelCount not implemented")
+}
+func (UnimplementedLoginNodeDBServer) MarkMagicTokenUsed(context.Context, *MarkMagicTokenUsedRequest) (*MarkMagicTokenUsedResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method MarkMagicTokenUsed not implemented")
+}
+func (UnimplementedLoginNodeDBServer) CheckMagicLinkRateLimit(context.Context, *CheckMagicLinkRateLimitRequest) (*CheckMagicLinkRateLimitResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CheckMagicLinkRateLimit not implemented")
 }
 func (UnimplementedLoginNodeDBServer) mustEmbedUnimplementedLoginNodeDBServer() {}
 func (UnimplementedLoginNodeDBServer) testEmbeddedByValue()                     {}
@@ -704,6 +702,42 @@ func _LoginNodeDB_GetTunnelCount_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _LoginNodeDB_MarkMagicTokenUsed_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MarkMagicTokenUsedRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LoginNodeDBServer).MarkMagicTokenUsed(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LoginNodeDB_MarkMagicTokenUsed_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LoginNodeDBServer).MarkMagicTokenUsed(ctx, req.(*MarkMagicTokenUsedRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LoginNodeDB_CheckMagicLinkRateLimit_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CheckMagicLinkRateLimitRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LoginNodeDBServer).CheckMagicLinkRateLimit(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LoginNodeDB_CheckMagicLinkRateLimit_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LoginNodeDBServer).CheckMagicLinkRateLimit(ctx, req.(*CheckMagicLinkRateLimitRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // LoginNodeDB_ServiceDesc is the grpc.ServiceDesc for LoginNodeDB service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -762,6 +796,14 @@ var LoginNodeDB_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetTunnelCount",
 			Handler:    _LoginNodeDB_GetTunnelCount_Handler,
+		},
+		{
+			MethodName: "MarkMagicTokenUsed",
+			Handler:    _LoginNodeDB_MarkMagicTokenUsed_Handler,
+		},
+		{
+			MethodName: "CheckMagicLinkRateLimit",
+			Handler:    _LoginNodeDB_CheckMagicLinkRateLimit_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

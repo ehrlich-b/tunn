@@ -283,6 +283,37 @@ func (s *ProxyStorage) GetTunnelCount(ctx context.Context, accountID string) (in
 	return resp.Count, nil
 }
 
+// MarkMagicTokenUsed marks a magic link JTI as used (replay protection).
+func (s *ProxyStorage) MarkMagicTokenUsed(ctx context.Context, jti string, expiry time.Time) (bool, error) {
+	client := s.getClient()
+	if client == nil {
+		return false, ErrNotAvailable
+	}
+	resp, err := client.MarkMagicTokenUsed(ctx, &internalv1.MarkMagicTokenUsedRequest{
+		Jti:        jti,
+		ExpiryUnix: expiry.Unix(),
+	})
+	if err != nil {
+		return false, err
+	}
+	return resp.WasUnused, nil
+}
+
+// CheckMagicLinkRateLimit checks if an email can request a magic link.
+func (s *ProxyStorage) CheckMagicLinkRateLimit(ctx context.Context, email string) (bool, int32, time.Time, error) {
+	client := s.getClient()
+	if client == nil {
+		return false, 0, time.Time{}, ErrNotAvailable
+	}
+	resp, err := client.CheckMagicLinkRateLimit(ctx, &internalv1.CheckMagicLinkRateLimitRequest{
+		Email: email,
+	})
+	if err != nil {
+		return false, 0, time.Time{}, err
+	}
+	return resp.Allowed, resp.Remaining, time.Unix(resp.ResetAtUnix, 0), nil
+}
+
 func protoAccountToStorage(resp *internalv1.AccountResponse) *Account {
 	emails := make([]AccountEmail, len(resp.Emails))
 	for i, e := range resp.Emails {

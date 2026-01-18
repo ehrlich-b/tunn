@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"sync"
+	"time"
 
 	"github.com/ehrlich-b/tunn/internal/store"
 )
@@ -18,14 +19,45 @@ type LocalStorage struct {
 	// Maps tunnel_id -> account_id
 	activeTunnels   map[string]string
 	activeTunnelsMu sync.RWMutex
+
+	// Magic link JTI tracking (replay protection)
+	// Maps jti -> expiry time
+	usedJTIs   map[string]time.Time
+	usedJTIsMu sync.RWMutex
+
+	// Magic link rate limiting
+	// Maps email -> list of request times
+	magicLinkRequests   map[string][]time.Time
+	magicLinkRequestsMu sync.Mutex
 }
 
 // NewLocalStorage creates a new LocalStorage backed by SQLite.
 func NewLocalStorage(db *sql.DB) *LocalStorage {
-	return &LocalStorage{
-		deviceCodes:   store.NewDeviceCodeStore(db),
-		accounts:      store.NewAccountStore(db),
-		activeTunnels: make(map[string]string),
+	s := &LocalStorage{
+		deviceCodes:       store.NewDeviceCodeStore(db),
+		accounts:          store.NewAccountStore(db),
+		activeTunnels:     make(map[string]string),
+		usedJTIs:          make(map[string]time.Time),
+		magicLinkRequests: make(map[string][]time.Time),
+	}
+	// Start cleanup goroutine for expired JTIs
+	go s.cleanupExpiredJTIs()
+	return s
+}
+
+// cleanupExpiredJTIs periodically removes expired JTIs from memory
+func (s *LocalStorage) cleanupExpiredJTIs() {
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+	for range ticker.C {
+		now := time.Now()
+		s.usedJTIsMu.Lock()
+		for jti, expiry := range s.usedJTIs {
+			if now.After(expiry) {
+				delete(s.usedJTIs, jti)
+			}
+		}
+		s.usedJTIsMu.Unlock()
 	}
 }
 
@@ -145,6 +177,14 @@ func (s *LocalStorage) RegisterTunnel(ctx context.Context, tunnelID, accountID, 
 	s.activeTunnelsMu.Lock()
 	defer s.activeTunnelsMu.Unlock()
 
+	// Check if tunnel ID already exists (cross-node duplicate check)
+	if _, exists := s.activeTunnels[tunnelID]; exists {
+		return &TunnelRegistration{
+			Allowed: false,
+			Reason:  "tunnel ID already in use",
+		}, nil
+	}
+
 	// Count current tunnels for this account
 	count := int32(0)
 	for _, accID := range s.activeTunnels {
@@ -200,6 +240,68 @@ func (s *LocalStorage) GetTunnelCount(ctx context.Context, accountID string) (in
 		}
 	}
 	return count, nil
+}
+
+// MarkMagicTokenUsed marks a magic link JTI as used (replay protection).
+// Returns wasUnused=true if token was unused and is now marked.
+// Returns wasUnused=false if token was already used (replay attempt).
+func (s *LocalStorage) MarkMagicTokenUsed(ctx context.Context, jti string, expiry time.Time) (bool, error) {
+	s.usedJTIsMu.Lock()
+	defer s.usedJTIsMu.Unlock()
+
+	if _, exists := s.usedJTIs[jti]; exists {
+		return false, nil
+	}
+
+	s.usedJTIs[jti] = expiry
+	return true, nil
+}
+
+// Magic link rate limiting constants
+const (
+	magicLinkRateWindow   = 5 * time.Minute
+	magicLinkRateMaxCount = 3
+)
+
+// CheckMagicLinkRateLimit checks if an email can request a magic link.
+// Returns allowed=true if the request is within rate limits.
+// Also records the request if allowed.
+func (s *LocalStorage) CheckMagicLinkRateLimit(ctx context.Context, email string) (bool, int32, time.Time, error) {
+	s.magicLinkRequestsMu.Lock()
+	defer s.magicLinkRequestsMu.Unlock()
+
+	now := time.Now()
+	windowStart := now.Add(-magicLinkRateWindow)
+
+	// Get existing requests and filter to current window
+	requests := s.magicLinkRequests[email]
+	var validRequests []time.Time
+	for _, t := range requests {
+		if t.After(windowStart) {
+			validRequests = append(validRequests, t)
+		}
+	}
+
+	// Calculate reset time (oldest request in window + window duration)
+	var resetAt time.Time
+	if len(validRequests) > 0 {
+		resetAt = validRequests[0].Add(magicLinkRateWindow)
+	} else {
+		resetAt = now.Add(magicLinkRateWindow)
+	}
+
+	// Check if rate limited
+	if len(validRequests) >= magicLinkRateMaxCount {
+		remaining := int32(0)
+		return false, remaining, resetAt, nil
+	}
+
+	// Record this request
+	validRequests = append(validRequests, now)
+	s.magicLinkRequests[email] = validRequests
+
+	remaining := int32(magicLinkRateMaxCount - len(validRequests))
+	return true, remaining, resetAt, nil
 }
 
 // DeviceCodeStore returns the underlying device code store for direct access.

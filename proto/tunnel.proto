@@ -27,7 +27,6 @@ message TunnelMessage {
     HttpRequest http_request = 7;
     HttpResponse http_response = 8;
     StreamClosed stream_closed = 9;
-    UdpPacket udp_packet = 10;
   }
 }
 
@@ -49,12 +48,6 @@ message RegisterClient {
   // V1: WELL_KNOWN_KEY (free for everyone)
   // V2: Remove this, check subscription via tunn-auth instead
   string tunnel_key = 6;
-  // protocol specifies what protocol this tunnel supports: "http", "udp", or "both"
-  // Default: "http" for backwards compatibility
-  string protocol = 7;
-  // udp_target_address is the local UDP service to forward packets to (e.g., "localhost:25565")
-  // Only used when protocol is "udp" or "both"
-  string udp_target_address = 8;
 }
 
 // RegisterResponse is sent by the server to acknowledge tunnel registration.
@@ -134,24 +127,4 @@ message StreamClosed {
   string connection_id = 1;
   // reason describes why the connection closed (for logging)
   string reason = 2;
-}
-
-// UdpPacket is sent bidirectionally to tunnel UDP packets through the gRPC stream.
-// The proxy sends packets received from public internet to the serve client.
-// The serve client sends response packets from the local UDP target back to the proxy.
-message UdpPacket {
-  // tunnel_id identifies which tunnel this packet belongs to
-  string tunnel_id = 1;
-  // source_address is the IP:port of the original UDP sender (for routing responses)
-  // Format: "192.168.1.100:12345"
-  string source_address = 2;
-  // destination_address is the IP:port of the destination (for routing on client side)
-  // Format: "localhost:25565"
-  string destination_address = 3;
-  // data is the raw UDP packet payload
-  bytes data = 4;
-  // from_client indicates direction: true = from serve client to proxy, false = from proxy to serve client
-  bool from_client = 5;
-  // timestamp_ms is when the packet was received (Unix milliseconds)
-  int64 timestamp_ms = 6;
 }

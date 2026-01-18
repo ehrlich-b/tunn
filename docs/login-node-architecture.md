@@ -478,16 +478,16 @@ fly deploy
 
 ## Implementation Checklist
 
-### Phase 1: Login Node Basics
-- [ ] Add `LOGIN_NODE` env var check
-- [ ] Conditional SQLite init (only on login node)
-- [ ] Add `IsLoginNode()` helper
-- [ ] Add `GetNodeInfo` RPC
+### Phase 1: Login Node Basics ✅
+- [x] Add `LOGIN_NODE` env var check
+- [x] Conditional SQLite init (only on login node)
+- [x] Add `IsLoginNode()` helper
+- [x] Add `GetNodeInfo` RPC
 
-### Phase 2: Discovery
-- [ ] Implement `discoverPeers()` (static + Fly DNS)
-- [ ] Implement `findLoginNode()` loop
-- [ ] Add `LoginNodeAvailable()` helper
+### Phase 2: Discovery ✅
+- [x] Implement `discoverPeers()` (static + Fly DNS)
+- [x] Implement `findLoginNode()` loop
+- [x] Add `LoginNodeAvailable()` helper
 
 ### Phase 3: DB Proxy RPCs
 - [ ] Add `LoginNodeDB` service to proto

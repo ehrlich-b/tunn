@@ -16,6 +16,7 @@ import (
 	"golang.org/x/net/http2"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
@@ -61,6 +62,12 @@ type ProxyServer struct {
 	config *config.Config
 
 	PublicAddr string
+
+	// Login node discovery (for non-login nodes)
+	loginNodeConn   *grpc.ClientConn
+	loginNodeClient internalv1.InternalServiceClient
+	loginNodeMu     sync.RWMutex
+	isLoginNode     bool
 
 	// Mock OIDC server (dev only)
 	mockOIDC *mockoidc.Server
@@ -177,6 +184,7 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 		deviceCodes:        deviceCodes,
 		accounts:           accounts,
 		emailSender:        emailSender,
+		isLoginNode:        cfg.LoginNode,
 	}
 
 	// Discover and connect to other nodes in the mesh
@@ -189,6 +197,11 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 			continue // Don't fail startup if one node is unreachable
 		}
 		proxy.nodeClients[addr] = internalv1.NewInternalServiceClient(conn)
+	}
+
+	// If we're not the login node, find and connect to it
+	if !cfg.LoginNode {
+		proxy.findAndConnectLoginNode()
 	}
 
 	// Set up mock OIDC server in dev mode
@@ -435,6 +448,11 @@ func (p *ProxyServer) Run(ctx context.Context) error {
 		}
 	}()
 
+	// Start login node discovery loop (for non-login nodes)
+	if !p.isLoginNode {
+		go p.loginNodeDiscoveryLoop(ctx)
+	}
+
 	common.LogInfo("proxy server ready",
 		"http2", p.HTTP2Addr,
 		"http3", p.HTTP3Addr,
@@ -673,4 +691,128 @@ func createInternalTLSConfig(cfg *config.Config) (*tls.Config, error) {
 		Certificates: []tls.Certificate{serverCert},
 		// No client auth - we use x-node-secret header for authentication
 	}, nil
+}
+
+// findAndConnectLoginNode discovers which peer is the login node and connects to it
+func (p *ProxyServer) findAndConnectLoginNode() bool {
+	p.loginNodeMu.Lock()
+	defer p.loginNodeMu.Unlock()
+
+	// Query each peer to find the login node (with delay between queries)
+	for addr, client := range p.nodeClients {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		resp, err := client.GetNodeInfo(ctx, &internalv1.NodeInfoRequest{})
+		cancel()
+
+		if err != nil {
+			common.LogError("failed to get node info", "addr", addr, "error", err)
+			time.Sleep(500 * time.Millisecond) // Delay before next query
+			continue
+		}
+
+		if resp.IsLoginNode {
+			// Found the login node
+			common.LogInfo("discovered login node", "addr", addr, "node_id", resp.NodeId)
+
+			// Create a dedicated connection to the login node
+			conn, err := createInternalClient(addr, p.config)
+			if err != nil {
+				common.LogError("failed to connect to login node", "addr", addr, "error", err)
+				time.Sleep(500 * time.Millisecond)
+				continue
+			}
+
+			// Close existing connection if any
+			if p.loginNodeConn != nil {
+				p.loginNodeConn.Close()
+			}
+
+			p.loginNodeConn = conn
+			p.loginNodeClient = internalv1.NewInternalServiceClient(conn)
+			return true
+		}
+
+		time.Sleep(500 * time.Millisecond) // Delay before next query
+	}
+
+	common.LogInfo("no login node found among peers (may be single-node or all nodes are proxies)")
+	return false
+}
+
+// LoginNodeAvailable returns true if the login node is connected and healthy
+func (p *ProxyServer) LoginNodeAvailable() bool {
+	// If we are the login node, it's always available
+	if p.isLoginNode {
+		return true
+	}
+
+	p.loginNodeMu.RLock()
+	defer p.loginNodeMu.RUnlock()
+
+	if p.loginNodeConn == nil {
+		return false
+	}
+
+	// Check connection state
+	state := p.loginNodeConn.GetState()
+	return state == connectivity.Idle || state == connectivity.Connecting || state == connectivity.Ready
+}
+
+// IsLoginNode returns true if this proxy is the login node
+func (p *ProxyServer) IsLoginNode() bool {
+	return p.isLoginNode
+}
+
+// GetLoginNodeClient returns the gRPC client for the login node
+// Returns nil if this is the login node or no login node is connected
+func (p *ProxyServer) GetLoginNodeClient() internalv1.InternalServiceClient {
+	p.loginNodeMu.RLock()
+	defer p.loginNodeMu.RUnlock()
+	return p.loginNodeClient
+}
+
+// loginNodeDiscoveryLoop continuously tries to find and stay connected to the login node
+func (p *ProxyServer) loginNodeDiscoveryLoop(ctx context.Context) {
+	const (
+		minBackoff = 1 * time.Second
+		maxBackoff = 15 * time.Second
+	)
+
+	backoff := minBackoff
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		if p.LoginNodeAvailable() {
+			// Connected - check again in 30 seconds
+			backoff = minBackoff // Reset backoff on success
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(30 * time.Second):
+			}
+			continue
+		}
+
+		// Not connected - try to find login node
+		common.LogInfo("login node not available, attempting discovery", "backoff", backoff)
+		if p.findAndConnectLoginNode() {
+			backoff = minBackoff // Reset on success
+		} else {
+			// Exponential backoff on failure
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(backoff):
+			}
+			backoff = backoff * 2
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
+		}
+	}
 }

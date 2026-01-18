@@ -92,8 +92,9 @@ message UdpPacket {
 }
 
 message RelayConfig {
-  string peer_id = 1;        // which tunnel to relay to
-  bool bidirectional = 2;    // allow peer to send back (default true)
+  repeated string peer_ids = 1;  // allowed peers (N:1 server mode)
+  string target_peer = 2;        // single target (1:1 client mode)
+  bool allow_same_account = 3;   // @self shorthand - any tunnel from same account
 }
 ```
 
@@ -178,15 +179,20 @@ func runRelay(localPort int, peerId string) {
 ## CLI Design
 
 ```bash
-# Basic relay (peer must also run relay pointing back)
-tunn relay 51820 --peer=other-tunnel-id
+# Client mode: relay to one server
+tunn relay 51820 --peer=home-wg
+
+# Server mode: accept relay from multiple clients
+tunn relay 51820 --id=home-wg --peers=intern-wg,phone-wg,laptop-wg
+
+# Server mode: accept from any tunnel owned by same account
+tunn relay 51820 --id=home-wg --peers=@self
 
 # With custom tunnel ID
 tunn relay 51820 --id=my-wg --peer=their-wg
-
-# One-liner for WireGuard escape
-tunn relay 51820 --peer=home-wg
 ```
+
+**N:1 topology:** Server accepts multiple peers, clients each point to one server. WireGuard demuxes by public key, relay just forwards.
 
 ## Why This Is Cool
 

@@ -8,7 +8,7 @@ GO_FILES := $(wildcard *.go)
 DOCKER_IMAGE := $(APP_NAME):latest
 FLY_APP_NAME := $(APP_NAME)
 
-.PHONY: all build clean proto fmt tidy verify check test test-verbose test-coverage test-race integration-test integration-test-smoke docker docker-build docker-run cert-setup cert-renew fly-setup fly-deploy fly-logs help
+.PHONY: all build clean proto fmt tidy verify check test test-verbose test-coverage test-race integration-test integration-test-smoke docker docker-build docker-run cert-setup cert-renew fly-create fly-init fly-secrets fly-certs fly-deploy fly-logs fly-status help
 
 # Default target
 all: build
@@ -126,17 +126,96 @@ certs-dir:
 	mkdir -p certs
 
 # Fly.io deployment
-fly-setup:
-	@echo "Setting up Fly.io application..."
-	fly apps create $(FLY_APP_NAME) || true
+#
+# First-time:
+#   1. make fly-create   (create app, allocate IPs - app won't start)
+#   2. make fly-init     (set all secrets + certs, deploy - app goes live)
+#
+# Subsequent deploys: make fly-deploy
+# Cert renewal (every 90 days): make fly-certs && make fly-deploy
+
+fly-create:
+	@echo "Creating Fly.io application..."
+	fly apps create $(FLY_APP_NAME)
+	fly ips allocate-v4 --shared -a $(FLY_APP_NAME)
+	fly ips allocate-v6 -a $(FLY_APP_NAME)
+	fly volumes create tunn_data --size 1 --region iad -a $(FLY_APP_NAME) -y
+	@echo ""
+	@echo "App created! IPs and volume allocated. App won't start until configured."
+	@echo ""
+	@echo "Before running fly-init, you need:"
+	@echo "  1. GitHub OAuth App (client ID + secret)"
+	@echo "  2. Resend API key"
+	@echo "  3. TLS certs: sudo certbot certonly --manual --preferred-challenges dns -d tunn.to -d '*.tunn.to'"
+	@echo ""
+	@echo "Then run: make fly-init"
+
+fly-init:
+	@echo "=== Fly.io Initial Setup ==="
+	@echo ""
+	@# Check certs exist first
+	@if [ ! -f "/etc/letsencrypt/live/tunn.to/fullchain.pem" ]; then \
+		echo "ERROR: TLS certs not found. Run certbot first:"; \
+		echo "  sudo certbot certonly --manual --preferred-challenges dns -d tunn.to -d '*.tunn.to'"; \
+		exit 1; \
+	fi
+	@# Collect all inputs
+	@read -p "GitHub Client ID: " gh_id && \
+	read -p "GitHub Client Secret: " gh_secret && \
+	read -p "Resend API Key: " resend_key && \
+	JWT_SECRET=$$(openssl rand -hex 32) && \
+	echo "" && \
+	echo "Generated JWT_SECRET: $$JWT_SECRET" && \
+	echo ">>> SAVE THIS TO YOUR PASSWORD MANAGER <<<" && \
+	echo "" && \
+	echo "Uploading secrets..." && \
+	sudo cat /etc/letsencrypt/live/tunn.to/fullchain.pem | base64 > /tmp/cert.b64 && \
+	sudo cat /etc/letsencrypt/live/tunn.to/privkey.pem | base64 > /tmp/key.b64 && \
+	fly secrets set \
+		TUNN_JWT_SECRET="$$JWT_SECRET" \
+		TUNN_GITHUB_CLIENT_ID="$$gh_id" \
+		TUNN_GITHUB_CLIENT_SECRET="$$gh_secret" \
+		TUNN_SMTP_USER="$$resend_key" \
+		TUNN_SMTP_PASSWORD="$$resend_key" \
+		TUNN_CERT_DATA="$$(cat /tmp/cert.b64)" \
+		TUNN_KEY_DATA="$$(cat /tmp/key.b64)" \
+		-a $(FLY_APP_NAME) && \
+	rm -f /tmp/cert.b64 /tmp/key.b64
+	@echo ""
+	@echo "Secrets set! Deploying..."
+	fly deploy
+	@echo ""
+	@echo "=== Setup Complete ==="
+	@echo "Point your DNS to these IPs:"
+	@fly ips list -a $(FLY_APP_NAME)
+
+fly-certs:
+	@echo "Updating TLS certs..."
+	@if [ ! -f "/etc/letsencrypt/live/tunn.to/fullchain.pem" ]; then \
+		echo "ERROR: Certs not found. Run: sudo certbot renew"; \
+		exit 1; \
+	fi
+	@sudo cat /etc/letsencrypt/live/tunn.to/fullchain.pem | base64 > /tmp/cert.b64
+	@sudo cat /etc/letsencrypt/live/tunn.to/privkey.pem | base64 > /tmp/key.b64
+	fly secrets set \
+		TUNN_CERT_DATA="$$(cat /tmp/cert.b64)" \
+		TUNN_KEY_DATA="$$(cat /tmp/key.b64)" \
+		-a $(FLY_APP_NAME)
+	@rm -f /tmp/cert.b64 /tmp/key.b64
+	@echo "Certs updated! Run: make fly-deploy"
 
 fly-deploy:
 	@echo "Deploying to Fly.io..."
-	fly deploy --local-only
+	fly deploy
 
 fly-logs:
-	@echo "Showing Fly.io logs..."
-	fly logs
+	fly logs -a $(FLY_APP_NAME)
+
+fly-status:
+	@fly status -a $(FLY_APP_NAME)
+	@echo ""
+	@echo "IPs (point DNS here):"
+	@fly ips list -a $(FLY_APP_NAME)
 
 # Dev environment
 dev:
@@ -176,12 +255,16 @@ help:
 	@echo "  make docker        - Build Docker image"
 	@echo "  make docker-run    - Run Docker container locally"
 	@echo ""
-	@echo "Deployment:"
-	@echo "  make cert-setup    - Set up SSL certificates"
-	@echo "  make cert-renew    - Renew SSL certificates"
-	@echo "  make fly-setup     - Set up Fly.io application"
+	@echo "Fly.io Deployment (first-time, in order):"
+	@echo "  make fly-create    - Create Fly app and allocate IPs"
+	@echo "  make fly-init      - Generate and set JWT secret"
+	@echo "  make fly-secrets   - Set GitHub and SMTP secrets (interactive)"
+	@echo "  make fly-certs     - Set TLS certs from certbot"
 	@echo "  make fly-deploy    - Deploy to Fly.io"
+	@echo ""
+	@echo "Fly.io Maintenance:"
 	@echo "  make fly-logs      - Show Fly.io logs"
+	@echo "  make fly-status    - Show app status and IPs"
 	@echo ""
 	@echo "Other:"
 	@echo "  make dev           - Run in development mode"

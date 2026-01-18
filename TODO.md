@@ -4,10 +4,12 @@
 
 ### Manual Setup
 
-- [ ] GitHub OAuth App - Create in GitHub settings, get client ID/secret
-- [ ] SMTP provider - For magic link emails (AWS SES, Resend, etc.)
-- [ ] Fly.io deploy + DNS
-- [ ] Stripe Payment Link - Set `TUNN_STRIPE_CHECKOUT_URL`
+- [x] GitHub OAuth App - Created
+- [ ] Resend - Sign up, add tunn.to domain, get API key
+- [ ] Certbot - `sudo certbot certonly --manual --preferred-challenges dns -d tunn.to -d '*.tunn.to'`
+- [ ] Fly deploy - `make fly-create && make fly-init && make fly-secrets && make fly-certs && make fly-deploy`
+- [ ] DNS - Point tunn.to and *.tunn.to to Fly IPs (get with `make fly-status`)
+- [ ] Stripe Payment Link - Set `TUNN_STRIPE_CHECKOUT_URL` (can do post-launch)
 
 ## Post-Launch
 

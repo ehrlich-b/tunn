@@ -100,16 +100,15 @@ log_info "Test JWT saved to ~/.tunn/token"
 
 # Step 5: Start proxy server (with auth enabled)
 log_info "Starting proxy server with auth enabled..."
-ENV=dev \
-  TOKEN=$TOKEN \
-  PUBLIC_MODE=false \
-  DOMAIN=$DOMAIN \
-  HTTP2_ADDR=:$HTTP_PORT \
-  HTTP3_ADDR=:$HTTP_PORT \
-  MOCK_OIDC_ADDR=:$MOCK_OIDC_PORT \
-  MOCK_OIDC_ISSUER="http://localhost:$MOCK_OIDC_PORT" \
-  PUBLIC_ADDR="$DOMAIN:$HTTP_PORT" \
-  NODE_ADDRESSES="" \
+TUNN_ENV=dev \
+  TUNN_PUBLIC_MODE=false \
+  TUNN_DOMAIN=$DOMAIN \
+  TUNN_HTTP2_ADDR=:$HTTP_PORT \
+  TUNN_HTTP3_ADDR=:$HTTP_PORT \
+  TUNN_MOCK_OIDC_ADDR=:$MOCK_OIDC_PORT \
+  TUNN_MOCK_OIDC_ISSUER="http://localhost:$MOCK_OIDC_PORT" \
+  TUNN_PUBLIC_ADDR="$DOMAIN:$HTTP_PORT" \
+  TUNN_NODE_ADDRESSES="" \
   ./bin/tunn -mode=host -cert=./certs/cert.pem -key=./certs/key.pem &
 PROXY_PID=$!
 sleep 3
@@ -122,9 +121,9 @@ log_info "Proxy server running (PID: $PROXY_PID)"
 
 # Step 6: Connect tunnel client with allow-list
 log_info "Connecting tunnel client with allow-list: $ALLOWED_EMAIL..."
-ENV=dev \
-  SERVER_ADDR=localhost:$HTTP_PORT \
-  PUBLIC_MODE=false \
+TUNN_ENV=dev \
+  TUNN_SERVER_ADDR=localhost:$HTTP_PORT \
+  TUNN_PUBLIC_MODE=false \
   ./bin/tunn $TARGET_PORT --id=$TUNNEL_ID --allow=$ALLOWED_EMAIL  &
 CLIENT_PID=$!
 sleep 2
@@ -173,9 +172,9 @@ kill $CLIENT_PID 2>/dev/null || true
 sleep 1
 
 TUNNEL_ID2="auth-test-domain"
-ENV=dev \
-  SERVER_ADDR=localhost:$HTTP_PORT \
-  PUBLIC_MODE=false \
+TUNN_ENV=dev \
+  TUNN_SERVER_ADDR=localhost:$HTTP_PORT \
+  TUNN_PUBLIC_MODE=false \
   ./bin/tunn $TARGET_PORT --id=$TUNNEL_ID2 --allow=$ALLOWED_DOMAIN  &
 CLIENT_PID=$!
 sleep 2
@@ -201,9 +200,9 @@ kill $CLIENT_PID 2>/dev/null || true
 sleep 1
 
 TUNNEL_ID3="auth-test-denied"
-ENV=dev \
-  SERVER_ADDR=localhost:$HTTP_PORT \
-  PUBLIC_MODE=false \
+TUNN_ENV=dev \
+  TUNN_SERVER_ADDR=localhost:$HTTP_PORT \
+  TUNN_PUBLIC_MODE=false \
   ./bin/tunn $TARGET_PORT --id=$TUNNEL_ID3 --allow=other@different.com  &
 CLIENT_PID=$!
 sleep 2

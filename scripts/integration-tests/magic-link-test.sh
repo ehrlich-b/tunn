@@ -44,16 +44,16 @@ if [ ! -f "./certs/cert.pem" ]; then
 fi
 
 # Step 3: Start proxy server
-log_info "Starting proxy server (PUBLIC_MODE=false, JWT_SECRET set)..."
-ENV=dev \
-  PUBLIC_MODE=false \
-  DOMAIN=$DOMAIN \
-  HTTP2_ADDR=:$HTTP_PORT \
-  HTTP3_ADDR=:$HTTP_PORT \
-  JWT_SECRET=$JWT_SECRET \
-  PUBLIC_ADDR="$DOMAIN:$HTTP_PORT" \
-  NODE_ADDRESSES="" \
-  MOCK_OIDC_ADDR="" \
+log_info "Starting proxy server (TUNN_PUBLIC_MODE=false, TUNN_JWT_SECRET set)..."
+TUNN_ENV=dev \
+  TUNN_PUBLIC_MODE=false \
+  TUNN_DOMAIN=$DOMAIN \
+  TUNN_HTTP2_ADDR=:$HTTP_PORT \
+  TUNN_HTTP3_ADDR=:$HTTP_PORT \
+  TUNN_JWT_SECRET=$JWT_SECRET \
+  TUNN_PUBLIC_ADDR="$DOMAIN:$HTTP_PORT" \
+  TUNN_NODE_ADDRESSES="" \
+  TUNN_MOCK_OIDC_ADDR="" \
   ./bin/tunn -mode=host -cert=./certs/cert.pem -key=./certs/key.pem &
 PROXY_PID=$!
 sleep 3
@@ -67,7 +67,7 @@ log_info "Proxy server running (PID: $PROXY_PID)"
 
 # Step 4: Generate magic link token using tunn CLI
 log_info "Generating magic link token for $TEST_EMAIL..."
-MAGIC_TOKEN=$(JWT_SECRET=$JWT_SECRET ./bin/tunn magic-link "$TEST_EMAIL")
+MAGIC_TOKEN=$(TUNN_JWT_SECRET=$JWT_SECRET ./bin/tunn magic-link "$TEST_EMAIL")
 
 if [ -z "$MAGIC_TOKEN" ]; then
     log_error "Failed to generate magic link token"

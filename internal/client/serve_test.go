@@ -2,7 +2,6 @@ package client
 
 import (
 	"context"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -568,128 +567,6 @@ func (m *mockEstablishTunnelClientWithRecv) CloseSend() error              { ret
 func (m *mockEstablishTunnelClientWithRecv) Context() context.Context      { return context.Background() }
 func (m *mockEstablishTunnelClientWithRecv) SendMsg(msg interface{}) error { return nil }
 func (m *mockEstablishTunnelClientWithRecv) RecvMsg(msg interface{}) error { return nil }
-
-func TestHandleUdpPacket(t *testing.T) {
-	// Start a mock UDP server that echoes back data
-	udpAddr, err := net.ResolveUDPAddr("udp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("Failed to resolve UDP address: %v", err)
-	}
-
-	udpConn, err := net.ListenUDP("udp", udpAddr)
-	if err != nil {
-		t.Fatalf("Failed to create UDP listener: %v", err)
-	}
-	defer udpConn.Close()
-
-	// Get the actual port assigned
-	actualAddr := udpConn.LocalAddr().String()
-
-	// Start a goroutine to echo back data
-	go func() {
-		buf := make([]byte, 1024)
-		n, remoteAddr, err := udpConn.ReadFromUDP(buf)
-		if err != nil {
-			return
-		}
-		// Echo back with a prefix
-		response := append([]byte("ECHO:"), buf[:n]...)
-		udpConn.WriteToUDP(response, remoteAddr)
-	}()
-
-	client := &ServeClient{
-		TunnelID:         "udp-test",
-		TargetURL:        "http://localhost:8000",
-		UDPTargetAddress: actualAddr,
-	}
-
-	stream := &mockEstablishTunnelClient{
-		sentMsgs: make([]*pb.TunnelMessage, 0),
-	}
-
-	udpPacket := &pb.UdpPacket{
-		TunnelId:           "udp-test",
-		SourceAddress:      "192.168.1.100:54321",
-		DestinationAddress: actualAddr,
-		Data:               []byte("test UDP data"),
-		FromClient:         false,
-		TimestampMs:        time.Now().UnixMilli(),
-	}
-
-	// Call handleUdpPacket
-	client.handleUdpPacket(stream, udpPacket)
-
-	// Wait a bit for the response
-	time.Sleep(100 * time.Millisecond)
-
-	// Verify response was sent
-	if stream.getSentCount() != 1 {
-		t.Fatalf("Expected 1 response message, got %d", stream.getSentCount())
-	}
-
-	msg := stream.getSentMsg(0)
-	respPacket := msg.GetUdpPacket()
-	if respPacket == nil {
-		t.Fatal("Expected UdpPacket response")
-	}
-
-	// Verify the response data was echoed back
-	expectedData := "ECHO:test UDP data"
-	if string(respPacket.Data) != expectedData {
-		t.Errorf("Expected response data '%s', got '%s'", expectedData, string(respPacket.Data))
-	}
-
-	// Verify FromClient is true (response going back)
-	if !respPacket.FromClient {
-		t.Error("Expected FromClient to be true for response")
-	}
-}
-
-func TestHandleUdpPacketNoResponse(t *testing.T) {
-	// Start a mock UDP server that doesn't respond (simulates one-way UDP)
-	udpAddr, err := net.ResolveUDPAddr("udp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("Failed to resolve UDP address: %v", err)
-	}
-
-	udpConn, err := net.ListenUDP("udp", udpAddr)
-	if err != nil {
-		t.Fatalf("Failed to create UDP listener: %v", err)
-	}
-	defer udpConn.Close()
-
-	actualAddr := udpConn.LocalAddr().String()
-
-	// Read and discard (no response)
-	go func() {
-		buf := make([]byte, 1024)
-		udpConn.ReadFromUDP(buf)
-		// Don't send response
-	}()
-
-	client := &ServeClient{
-		TunnelID:         "udp-test",
-		TargetURL:        "http://localhost:8000",
-		UDPTargetAddress: actualAddr,
-	}
-
-	stream := &mockEstablishTunnelClient{
-		sentMsgs: make([]*pb.TunnelMessage, 0),
-	}
-
-	udpPacket := &pb.UdpPacket{
-		TunnelId:    "udp-test",
-		Data:        []byte("one-way data"),
-		FromClient:  false,
-		TimestampMs: time.Now().UnixMilli(),
-	}
-
-	// Call handleUdpPacket - should timeout without error
-	client.handleUdpPacket(stream, udpPacket)
-
-	// No response expected (timeout is OK for UDP)
-	// Just verify no panic occurred
-}
 
 func TestExponentialBackoffCap(t *testing.T) {
 	// Test that backoff is capped at MaxReconnectDelay

@@ -6,10 +6,8 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"google.golang.org/grpc"
@@ -21,15 +19,13 @@ import (
 
 // ServeClient is the new gRPC-based tunnel client for "tunn serve"
 type ServeClient struct {
-	TunnelID         string
-	TargetURL        string
-	ServerAddr       string
-	AuthToken        string
-	TunnelKey        string
-	AllowedEmails    []string
-	SkipVerify       bool
-	Protocol         string // "http", "udp", or "both"
-	UDPTargetAddress string // For UDP tunnels (e.g., "localhost:25565")
+	TunnelID      string
+	TargetURL     string
+	ServerAddr    string
+	AuthToken     string
+	TunnelKey     string
+	AllowedEmails []string
+	SkipVerify    bool
 
 	// Reconnection settings
 	MaxReconnectDelay time.Duration // Maximum delay between reconnects (default: 30s)
@@ -37,10 +33,6 @@ type ServeClient struct {
 
 	// HTTP client settings
 	HTTPTimeout time.Duration // Timeout for HTTP requests to local target (default: 30s)
-
-	// UDP connection management
-	udpConn *net.UDPConn
-	udpMu   sync.Mutex
 }
 
 // Run establishes a gRPC tunnel with automatic reconnection on failure.
@@ -132,24 +124,16 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 		creatorEmail = ""
 	}
 
-	// Determine protocol (default to "http" if not specified)
-	protocol := s.Protocol
-	if protocol == "" {
-		protocol = "http"
-	}
-
 	// Send registration message
 	regMsg := &pb.TunnelMessage{
 		Message: &pb.TunnelMessage_RegisterClient{
 			RegisterClient: &pb.RegisterClient{
-				TunnelId:         s.TunnelID,
-				TargetUrl:        s.TargetURL,
-				AuthToken:        s.AuthToken,
-				CreatorEmail:     creatorEmail,
-				AllowedEmails:    s.AllowedEmails,
-				TunnelKey:        s.TunnelKey,
-				Protocol:         protocol,
-				UdpTargetAddress: s.UDPTargetAddress,
+				TunnelId:      s.TunnelID,
+				TargetUrl:     s.TargetURL,
+				AuthToken:     s.AuthToken,
+				CreatorEmail:  creatorEmail,
+				AllowedEmails: s.AllowedEmails,
+				TunnelKey:     s.TunnelKey,
 			},
 		},
 	}
@@ -208,10 +192,6 @@ func (s *ServeClient) processMessages(ctx context.Context, stream pb.TunnelServi
 		case *pb.TunnelMessage_HttpRequest:
 			// Handle HTTP request from proxy - make request to local target and send response
 			go s.handleHttpRequest(stream, m.HttpRequest)
-
-		case *pb.TunnelMessage_UdpPacket:
-			// Handle UDP packet from proxy - forward to local UDP target and send response
-			go s.handleUdpPacket(stream, m.UdpPacket)
 
 		case *pb.TunnelMessage_HealthCheckResponse:
 			// Calculate RTT
@@ -323,89 +303,6 @@ func (s *ServeClient) sendErrorResponse(stream pb.TunnelService_EstablishTunnelC
 	if err := stream.Send(msg); err != nil {
 		common.LogError("failed to send error response", "error", err)
 	}
-}
-
-// handleUdpPacket handles a UDP packet from the proxy, forwards it to the local UDP target, and sends back the response
-func (s *ServeClient) handleUdpPacket(stream pb.TunnelService_EstablishTunnelClient, udpPkt *pb.UdpPacket) {
-	common.LogDebug("udp packet received",
-		"tunnel_id", udpPkt.TunnelId,
-		"source", udpPkt.SourceAddress,
-		"bytes", len(udpPkt.Data))
-
-	// Ensure we have a UDP connection
-	s.udpMu.Lock()
-	if s.udpConn == nil {
-		// Create UDP connection to local target
-		targetAddr, err := net.ResolveUDPAddr("udp", s.UDPTargetAddress)
-		if err != nil {
-			common.LogError("failed to resolve UDP target address", "error", err, "target", s.UDPTargetAddress)
-			s.udpMu.Unlock()
-			return
-		}
-
-		// Create a UDP connection (not bound to local address, will use any available port)
-		conn, err := net.DialUDP("udp", nil, targetAddr)
-		if err != nil {
-			common.LogError("failed to create UDP connection", "error", err, "target", s.UDPTargetAddress)
-			s.udpMu.Unlock()
-			return
-		}
-
-		s.udpConn = conn
-		common.LogInfo("UDP connection established", "target", s.UDPTargetAddress)
-	}
-	conn := s.udpConn
-	s.udpMu.Unlock()
-
-	// Send packet to local UDP target
-	_, err := conn.Write(udpPkt.Data)
-	if err != nil {
-		common.LogError("failed to send UDP packet to target", "error", err)
-		return
-	}
-
-	common.LogDebug("udp packet sent to local target", "bytes", len(udpPkt.Data))
-
-	// Wait for response with timeout
-	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-
-	buf := make([]byte, 65535) // Max UDP packet size
-	n, err := conn.Read(buf)
-	if err != nil {
-		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-			// Timeout is OK for UDP - not all protocols are request-response
-			common.LogDebug("udp read timeout (no response from target)")
-			return
-		}
-		common.LogError("failed to read UDP response from target", "error", err)
-		return
-	}
-
-	responseData := buf[:n]
-	common.LogDebug("udp response received from local target", "bytes", n)
-
-	// Send response back to proxy
-	respPacket := &pb.UdpPacket{
-		TunnelId:           udpPkt.TunnelId,
-		SourceAddress:      udpPkt.DestinationAddress, // Swap: response goes back to original source
-		DestinationAddress: udpPkt.SourceAddress,      // Swap: from our target back to original source
-		Data:               responseData,
-		FromClient:         true, // From client to proxy
-		TimestampMs:        udpPkt.TimestampMs,
-	}
-
-	msg := &pb.TunnelMessage{
-		Message: &pb.TunnelMessage_UdpPacket{
-			UdpPacket: respPacket,
-		},
-	}
-
-	if err := stream.Send(msg); err != nil {
-		common.LogError("failed to send UDP response", "error", err)
-		return
-	}
-
-	common.LogDebug("udp response sent to proxy", "bytes", len(responseData))
 }
 
 // sendHealthChecks periodically sends health check pings

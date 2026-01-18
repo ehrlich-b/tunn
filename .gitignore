@@ -36,4 +36,9 @@ Thumbs.db
 # Ignore fly.toml (use fly.toml.dist as template)
 fly.toml
 
+# Environment files (use .env.dist as template)
+.env
+.env.local
+.env.*.local
+
 bin/

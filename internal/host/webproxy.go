@@ -141,6 +141,17 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		common.LogDebug("public mode - skipping auth", "tunnel_id", tunnelID)
 	}
 
+	// Check quota before proxying (skip in public mode since there's no creator to bill)
+	if !p.config.PublicMode && tunnel.CreatorEmail != "" {
+		if !p.CheckQuota(r.Context(), tunnel.CreatorEmail, "free") {
+			common.LogInfo("quota exceeded, rejecting request",
+				"tunnel_id", tunnelID,
+				"creator", tunnel.CreatorEmail)
+			http.Error(w, "Quota exceeded - tunnel owner's monthly limit reached", http.StatusTooManyRequests)
+			return
+		}
+	}
+
 	// Proxy the HTTP request over gRPC
 	if err := p.proxyHTTPOverGRPC(w, r, tunnel); err != nil {
 		common.LogError("failed to proxy request", "error", err, "tunnel_id", tunnelID)
@@ -231,6 +242,12 @@ func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, 
 			"status", httpResp.StatusCode,
 			"body_size", len(httpResp.Body))
 
+		// Record usage (request body + response body)
+		if tunnel.CreatorEmail != "" {
+			totalBytes := int64(len(body) + len(httpResp.Body))
+			p.RecordUsage(r.Context(), tunnel.CreatorEmail, totalBytes)
+		}
+
 		return nil
 
 	case <-time.After(timeout):
@@ -271,8 +288,15 @@ func (p *ProxyServer) proxyToNode(w http.ResponseWriter, r *http.Request, nodeAd
 // handleApexDomain handles requests to the apex domain (e.g., tunn.to)
 func (p *ProxyServer) handleApexDomain(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
-	fmt.Fprint(w, homepageHTML)
+
+	switch r.URL.Path {
+	case "/privacy":
+		fmt.Fprint(w, privacyHTML)
+	case "/terms":
+		fmt.Fprint(w, termsHTML)
+	default:
+		fmt.Fprint(w, homepageHTML)
+	}
 }
 
 // isEmailAllowed checks if an email is on the allow-list

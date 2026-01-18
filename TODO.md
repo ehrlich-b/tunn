@@ -366,11 +366,14 @@ func isAllowed(sessionEmail string, allowList []string) bool {
 - [ ] **.env file support** - Load config from `.env` file (standard dotenv format), simpler than env vars for self-hosters
 - [ ] **Prefix all env vars with TUNN_** - Standardize env var names (e.g., `TUNN_JWT_SECRET`, `TUNN_NODE_SECRET`)
 - [ ] **Support double-dash flags** - Fix flag parsing to properly handle `--flag` style in subcommands
-- [ ] **Hide raw UDP support** - Don't advertise `tunn connect` (raw UDP ingress)
+- [ ] **Remove raw UDP support entirely** - Delete `tunn connect` (raw UDP ingress)
       - Port scarcity problem unsolved (65k ports globally vs infinite subdomains)
-      - Multi-node routing probably broken (no Host header equivalent)
+      - Multi-node routing broken (no Host header equivalent for UDP)
       - No auth story for "dumb UDP clients"
-      - Leave code in place, just don't document/expose
+      - Delete: `internal/client/connect.go`, `internal/host/udpproxy.go`, UDP proto messages
+      - Remove UDP handlers from `grpc_server.go`, `internal_server.go`
+      - Remove `tunn connect` command from `main.go`
+      - Configure Fly to not accept UDP if possible
       - Pro UDP solution is `tunn relay` (V1.3) - both ends run tunn, JWT auth
 
 ## Pre-Launch Manual Setup (Required)

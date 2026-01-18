@@ -125,13 +125,21 @@ func (p *ProxyServer) handleMagicLinkVerify(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
+	// Create or update account in database (if storage available)
+	if p.storage.Available() {
+		_, err := p.storage.FindOrCreateByEmails(r.Context(), []string{email}, "magic_link")
+		if err != nil {
+			common.LogError("failed to create account", "email", email, "error", err)
+			// Continue anyway - session auth still works without DB record
+		}
+	}
+
 	// Create session for browser auth
 	p.sessionManager.Put(r.Context(), "user_email", email)
 	p.sessionManager.Put(r.Context(), "authenticated", true)
 
-	// Redirect to original destination or home (sanitized to prevent open redirect)
-	returnTo := sanitizeReturnTo(r.URL.Query().Get("return_to"))
-	http.Redirect(w, r, returnTo, http.StatusFound)
+	// Redirect to account page
+	http.Redirect(w, r, "/account", http.StatusFound)
 }
 
 // generateMagicLinkToken creates a JWT for magic link authentication

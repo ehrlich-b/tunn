@@ -113,12 +113,8 @@ func (p *ProxyServer) handleMagicLinkVerify(w http.ResponseWriter, r *http.Reque
 	p.sessionManager.Put(r.Context(), "user_email", email)
 	p.sessionManager.Put(r.Context(), "authenticated", true)
 
-	// Redirect to original destination or home
-	returnTo := r.URL.Query().Get("return_to")
-	if returnTo == "" {
-		returnTo = "/"
-	}
-
+	// Redirect to original destination or home (sanitized to prevent open redirect)
+	returnTo := sanitizeReturnTo(r.URL.Query().Get("return_to"))
 	http.Redirect(w, r, returnTo, http.StatusFound)
 }
 

@@ -475,7 +475,8 @@ func TestProcessMessagesHttpRequest(t *testing.T) {
 	defer cancel()
 
 	// Run processMessages - it will process the HTTP request then exit on context timeout
-	err := client.processMessages(ctx, stream)
+	// Pass stream as both the receiver (for Recv) and sender (for Send via messageSender interface)
+	err := client.processMessages(ctx, stream, stream)
 
 	// Should exit with context error
 	if err != context.DeadlineExceeded {
@@ -516,7 +517,8 @@ func TestProcessMessagesHealthCheckResponse(t *testing.T) {
 	defer cancel()
 
 	// Run processMessages - it should process the health check response without error
-	err := client.processMessages(ctx, stream)
+	// Pass stream as both the receiver and sender
+	err := client.processMessages(ctx, stream, stream)
 
 	// Should exit with context error (not stream error)
 	if err != context.DeadlineExceeded {

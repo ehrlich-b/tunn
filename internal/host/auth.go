@@ -23,6 +23,28 @@ const (
 	githubEmailsURL    = "https://api.github.com/user/emails"
 )
 
+// sanitizeReturnTo validates and sanitizes a return_to URL parameter.
+// Only allows relative paths starting with "/" to prevent open redirect attacks.
+// Returns "/" if the input is empty or invalid.
+func sanitizeReturnTo(returnTo string) string {
+	if returnTo == "" {
+		return "/"
+	}
+	// Reject absolute URLs (contain "://")
+	if strings.Contains(returnTo, "://") {
+		return "/"
+	}
+	// Reject protocol-relative URLs ("//example.com")
+	if strings.HasPrefix(returnTo, "//") {
+		return "/"
+	}
+	// Must start with "/" for safety
+	if !strings.HasPrefix(returnTo, "/") {
+		return "/"
+	}
+	return returnTo
+}
+
 // handleLogin shows the login page with OAuth and email options
 func (p *ProxyServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 	// In dev mode with mock OIDC, skip to mock login directly
@@ -31,11 +53,8 @@ func (p *ProxyServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Store return_to in session for after auth
-	returnTo := r.URL.Query().Get("return_to")
-	if returnTo == "" {
-		returnTo = "/"
-	}
+	// Store sanitized return_to in session for after auth (prevents open redirect)
+	returnTo := sanitizeReturnTo(r.URL.Query().Get("return_to"))
 	p.sessionManager.Put(r.Context(), "return_to", returnTo)
 
 	// Build login page
@@ -124,13 +143,14 @@ func (p *ProxyServer) handleGitHubLogin(w http.ResponseWriter, r *http.Request) 
 	// Store state in session
 	p.sessionManager.Put(r.Context(), "oauth_state", state)
 
-	// Store original URL to redirect back after auth (from query or session)
-	returnTo := r.URL.Query().Get("return_to")
-	if returnTo == "" {
-		returnTo = p.sessionManager.GetString(r.Context(), "return_to")
-	}
-	if returnTo == "" {
-		returnTo = "/"
+	// Store sanitized return_to URL (from query or session) - prevents open redirect
+	returnTo := sanitizeReturnTo(r.URL.Query().Get("return_to"))
+	if returnTo == "/" {
+		// Try session if query was empty/invalid
+		sessionReturnTo := p.sessionManager.GetString(r.Context(), "return_to")
+		if sessionReturnTo != "" {
+			returnTo = sanitizeReturnTo(sessionReturnTo)
+		}
 	}
 	p.sessionManager.Put(r.Context(), "return_to", returnTo)
 
@@ -334,10 +354,8 @@ func (p *ProxyServer) handleMockLogin(w http.ResponseWriter, r *http.Request) {
 
 	p.sessionManager.Put(r.Context(), "oauth_state", state)
 
-	returnTo := r.URL.Query().Get("return_to")
-	if returnTo == "" {
-		returnTo = "/"
-	}
+	// Sanitize return_to to prevent open redirect
+	returnTo := sanitizeReturnTo(r.URL.Query().Get("return_to"))
 	p.sessionManager.Put(r.Context(), "return_to", returnTo)
 
 	authURL := fmt.Sprintf("%s/oauth/authorize?response_type=code&client_id=tunn&redirect_uri=%s&state=%s",

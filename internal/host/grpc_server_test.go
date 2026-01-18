@@ -23,6 +23,16 @@ func testConfig() *config.Config {
 	}
 }
 
+// createTestJWT creates a valid JWT for testing
+func createTestJWT(email string, secret string) string {
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"email": email,
+		"exp":   time.Now().Add(time.Hour).Unix(),
+	})
+	tokenString, _ := token.SignedString([]byte(secret))
+	return tokenString
+}
+
 func TestNewTunnelServer(t *testing.T) {
 	srv := NewTunnelServer(testConfig(), nil, nil, nil)
 	if srv == nil {
@@ -47,14 +57,17 @@ func TestTunnelServerRegistration(t *testing.T) {
 		sentMsgs:  make([]*pb.TunnelMessage, 0),
 	}
 
-	// Send registration message
+	// Create a valid JWT for registration
+	testJWT := createTestJWT("test@example.com", "test-jwt-secret")
+
+	// Send registration message with valid JWT
 	stream.recvQueue <- &pb.TunnelMessage{
 		Message: &pb.TunnelMessage_RegisterClient{
 			RegisterClient: &pb.RegisterClient{
-				TunnelId:     "test123",
-				TargetUrl:    "http://localhost:8000",
-				TunnelKey:    "test-key",
-				CreatorEmail: "test@example.com",
+				TunnelId:  "test123",
+				TargetUrl: "http://localhost:8000",
+				TunnelKey: "test-key",
+				AuthToken: testJWT, // JWT required for authentication
 			},
 		},
 	}
@@ -115,13 +128,15 @@ func TestTunnelServerDuplicateRegistration(t *testing.T) {
 		sentMsgs:  make([]*pb.TunnelMessage, 0),
 	}
 
+	testJWT := createTestJWT("test@example.com", "test-jwt-secret")
+
 	stream1.recvQueue <- &pb.TunnelMessage{
 		Message: &pb.TunnelMessage_RegisterClient{
 			RegisterClient: &pb.RegisterClient{
-				TunnelId:     "duplicate",
-				TargetUrl:    "http://localhost:8000",
-				TunnelKey:    "test-key",
-				CreatorEmail: "test@example.com",
+				TunnelId:  "duplicate",
+				TargetUrl: "http://localhost:8000",
+				TunnelKey: "test-key",
+				AuthToken: testJWT,
 			},
 		},
 	}
@@ -143,10 +158,10 @@ func TestTunnelServerDuplicateRegistration(t *testing.T) {
 	stream2.recvQueue <- &pb.TunnelMessage{
 		Message: &pb.TunnelMessage_RegisterClient{
 			RegisterClient: &pb.RegisterClient{
-				TunnelId:     "duplicate",
-				TargetUrl:    "http://localhost:9000",
-				TunnelKey:    "test-key",
-				CreatorEmail: "test@example.com",
+				TunnelId:  "duplicate",
+				TargetUrl: "http://localhost:9000",
+				TunnelKey: "test-key",
+				AuthToken: testJWT,
 			},
 		},
 	}
@@ -288,6 +303,57 @@ func TestIsReservedSubdomain(t *testing.T) {
 		t.Run(tt.subdomain, func(t *testing.T) {
 			if got := isReservedSubdomain(tt.subdomain); got != tt.expected {
 				t.Errorf("isReservedSubdomain(%q) = %v, want %v", tt.subdomain, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestValidDNSLabel(t *testing.T) {
+	tests := []struct {
+		tunnelID string
+		valid    bool
+	}{
+		// Valid labels
+		{"myapp", true},
+		{"test123", true},
+		{"my-app", true},
+		{"a", true},
+		{"1", true},
+		{"a1b2c3", true},
+		{"my-cool-app", true},
+
+		// Invalid: empty
+		{"", false},
+
+		// Invalid: too long (64 chars)
+		{"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", false},
+
+		// Invalid: starts with hyphen
+		{"-myapp", false},
+
+		// Invalid: ends with hyphen
+		{"myapp-", false},
+
+		// Invalid: uppercase (should be normalized before check)
+		{"MyApp", false},
+
+		// Invalid: contains dot
+		{"my.app", false},
+
+		// Invalid: contains underscore
+		{"my_app", false},
+
+		// Invalid: contains space
+		{"my app", false},
+
+		// Invalid: contains special chars
+		{"my@app", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.tunnelID, func(t *testing.T) {
+			if got := isValidDNSLabel(tt.tunnelID); got != tt.valid {
+				t.Errorf("isValidDNSLabel(%q) = %v, want %v", tt.tunnelID, got, tt.valid)
 			}
 		})
 	}

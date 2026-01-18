@@ -18,6 +18,45 @@ import (
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
 )
 
+// MaxBodySize is the maximum request/response body size (100 MB).
+// Prevents memory exhaustion from large requests.
+const MaxBodySize = 100 * 1024 * 1024
+
+// platformCookies lists cookies that should NOT be forwarded to tunnel targets.
+// These are tunn platform cookies that tunnel owners should never see.
+var platformCookies = map[string]bool{
+	"tunn_session": true,
+}
+
+// stripPlatformCookies removes platform cookies from a Cookie header value.
+// Returns the sanitized cookie string, or empty if no cookies remain.
+func stripPlatformCookies(cookieHeader string) string {
+	if cookieHeader == "" {
+		return ""
+	}
+
+	var kept []string
+	for _, part := range strings.Split(cookieHeader, ";") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		// Cookie format: name=value
+		name := part
+		if idx := strings.Index(part, "="); idx > 0 {
+			name = part[:idx]
+		}
+		if !platformCookies[name] {
+			kept = append(kept, part)
+		}
+	}
+
+	if len(kept) == 0 {
+		return ""
+	}
+	return strings.Join(kept, "; ")
+}
+
 // handleWebProxy handles incoming web requests to tunnel subdomains
 func (p *ProxyServer) handleWebProxy(w http.ResponseWriter, r *http.Request) {
 	// Extract tunnel ID from hostname
@@ -87,9 +126,9 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		// Check authentication (web requests require a session)
 		authenticated := p.sessionManager.GetBool(r.Context(), "authenticated")
 		if !authenticated {
-			// Redirect to login with return_to parameter
+			// Redirect to login with return_to parameter (URL escaped)
 			returnTo := r.URL.String()
-			loginURL := fmt.Sprintf("/auth/login?return_to=%s", returnTo)
+			loginURL := fmt.Sprintf("/auth/login?return_to=%s", url.QueryEscape(returnTo))
 
 			common.LogInfo("unauthenticated tunnel access, redirecting to login",
 				"tunnel_id", tunnelID,
@@ -169,17 +208,25 @@ func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, 
 		return fmt.Errorf("failed to generate connection ID: %w", err)
 	}
 
-	// Read request body
-	body, err := io.ReadAll(r.Body)
+	// Read request body with size limit to prevent memory exhaustion
+	body, err := io.ReadAll(io.LimitReader(r.Body, MaxBodySize))
 	if err != nil {
 		return fmt.Errorf("failed to read request body: %w", err)
 	}
 	defer r.Body.Close()
 
 	// Convert headers to map (join multi-value headers per HTTP spec)
+	// SECURITY: Strip platform cookies to prevent tunnel owners from stealing sessions
 	headers := make(map[string]string)
 	for key, values := range r.Header {
-		headers[key] = strings.Join(values, ", ")
+		value := strings.Join(values, ", ")
+		if strings.EqualFold(key, "Cookie") {
+			value = stripPlatformCookies(value)
+			if value == "" {
+				continue // Don't include empty Cookie header
+			}
+		}
+		headers[key] = value
 	}
 
 	// Create HttpRequest message
@@ -197,12 +244,14 @@ func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, 
 	tunnel.pendingRequests[connectionID] = respChan
 	tunnel.pendingMu.Unlock()
 
-	// Cleanup on return
+	// Cleanup on return - remove from map so no new sends can happen
+	// Note: We don't close the channel to avoid "send on closed channel" panic.
+	// The gRPC receive loop may still have a reference and try to send.
+	// The channel will be GC'd after removal from the map.
 	defer func() {
 		tunnel.pendingMu.Lock()
 		delete(tunnel.pendingRequests, connectionID)
 		tunnel.pendingMu.Unlock()
-		close(respChan)
 	}()
 
 	// Send HttpRequest to client
@@ -212,7 +261,7 @@ func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, 
 		},
 	}
 
-	if err := tunnel.Stream.Send(msg); err != nil {
+	if err := tunnel.SendMessage(msg); err != nil {
 		return fmt.Errorf("failed to send http request: %w", err)
 	}
 
@@ -285,6 +334,16 @@ func (p *ProxyServer) proxyToNode(w http.ResponseWriter, r *http.Request, nodeAd
 	}
 
 	proxy := httputil.NewSingleHostReverseProxy(target)
+
+	// CRITICAL: Preserve original Host header so remote node can extract tunnel ID.
+	// NewSingleHostReverseProxy's default Director rewrites Host to target.Host,
+	// but the remote node needs the original subdomain (e.g., abc123.tunn.to).
+	originalDirector := proxy.Director
+	proxy.Director = func(req *http.Request) {
+		originalHost := req.Host // Save original before Director modifies it
+		originalDirector(req)
+		req.Host = originalHost // Restore original Host
+	}
 
 	// We need to create a custom transport to skip TLS verification if needed,
 	// since we are using self-signed certs in development.

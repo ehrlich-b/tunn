@@ -1,227 +1,346 @@
-# Code Review: tunn Audit Summary
+# REVIEW.md: Pre-Launch Security & Quality Audit
 
-**Review Date:** 2025-01-17
-**Reviewers:** Claude Code (internal), Third-party review (codex)
-**Status:** Pre-release fixes required
+**Last Updated:** 2026-01-18
+**Sources:** Internal review (2025-01-17), Third-party review (codex, 2025-01-18)
+**Status:** P0 critical FIXED, P1 mostly FIXED (1 deferred)
 
 ---
 
 ## Executive Summary
 
-The codebase architecture is sound with clean separation, proper concurrency patterns, and good test coverage. However, a third-party review identified several security issues that must be fixed before launch. These are fixable - no architectural rewrites needed.
+Third-party review identified multiple security and correctness issues. **All 5 P0 critical issues have been fixed.** Most P1 issues fixed; 1 deferred (requires proto change).
 
-**Pre-Release Blockers:** 6 issues (see below)
-
-**Production Requirements (after fixes):**
-1. Create GitHub OAuth App → set `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET`
-2. Set `JWT_SECRET` to a cryptographically random string
-3. Set `NODE_SECRET` for multi-node deployments
-4. Deploy to Fly.io with TLS certificates
+**P0 Critical Issues:** 5/5 FIXED
+**P1 High Issues:** 6/7 FIXED (1 deferred - proto change)
+**P2 Medium Issues:** 2/4 fixed (cosmetic)
 
 ---
 
-## Pre-Release Fixes Required
+## Critical (P0) - All Fixed
 
-### P0 - Security (Must Fix)
+### 1. JWT Validation Bypass on Tunnel Registration
 
-#### 1. JWT Not Validated on Tunnel Registration
+**Status:** FIXED (2025-01-18)
+**Verified:** YES
+**Location:** `internal/host/grpc_server.go:227-259`
 
-**File:** `internal/host/grpc_server.go:194`
-
-When a client registers a tunnel with a JWT, the server uses `ExtractEmailFromJWT()` which explicitly does NOT validate the signature. Anyone can forge a JWT payload claiming any email.
-
-```go
-// Current (INSECURE):
-creatorEmail = common.ExtractEmailFromJWT(regClient.AuthToken) // No signature check!
-
-// Required: Validate signature with getJWTSigningKey()
-```
-
-**Impact:** Attacker can impersonate any email, bypass allow-lists, claim reserved subdomains.
-**Fix:** Validate JWT signature in `EstablishTunnel()` using the same `getJWTSigningKey()` used in `CheckJWT()`.
-
-#### 2. Magic Link Session Key Mismatch
-
-**File:** `internal/host/magiclink.go:113`
-
-Magic link verification stores `"email"` in session, but all other code reads `"user_email"`.
+**The Bug:** If a client sends `CreatorEmail` already populated, the server uses it directly WITHOUT validating the JWT signature. JWT validation only happens when `CreatorEmail == ""`.
 
 ```go
-// magiclink.go (WRONG):
-p.sessionManager.Put(r.Context(), "email", email)
-
-// auth.go, webproxy.go expect (CORRECT):
-p.sessionManager.GetString(r.Context(), "user_email")
+// grpc_server.go:227-228
+creatorEmail = regClient.CreatorEmail
+if creatorEmail == "" {
+    // JWT validation happens here - but SKIPPED if CreatorEmail already set!
 ```
 
-**Impact:** Magic link users appear unauthenticated - can't access protected tunnels.
-**Fix:** Change `"email"` to `"user_email"` in magiclink.go.
+**Impact:** Malicious client can:
+- Create tunnels as any email (impersonation)
+- Bypass allow-list ownership checks
+- Steal quota from other accounts
+- Claim reserved subdomains
 
-#### 3. Logging Secrets
+**Fix:** Always validate JWT signature on server. IGNORE client-provided `CreatorEmail`. Derive email only from validated token.
 
-**File:** `internal/host/grpc_server.go:176`
+---
 
-The tunnel key (a secret) is logged in error messages:
+### 2. Session Cookies Leaked to Tunnel Owners
+
+**Status:** FIXED (2025-01-18)
+**Verified:** YES
+**Locations:**
+- `internal/host/proxy.go:177` - cookie domain set to `.<domain>`
+- `internal/host/webproxy.go:179-183` - all headers forwarded to tunnel target
+
+**The Bug:** Session cookie domain is `.tunn.to`, making it available on ALL tunnel subdomains (`*.tunn.to`). HTTP requests forward all headers including `Cookie` to the user's local service.
 
 ```go
-common.LogError("invalid tunnel key", "tunnel_id", tunnelID, "provided_key", regClient.TunnelKey)
+// proxy.go:177
+sessionManager.Cookie.Domain = "." + cfg.Domain
+
+// webproxy.go:179-183 - Includes Cookie header!
+for key, values := range r.Header {
+    headers[key] = strings.Join(values, ", ")
+}
 ```
 
-**Impact:** Secrets exposed in logs.
-**Fix:** Remove `provided_key` from log output.
+**Impact:** Tunnel owner can read `tunn_session` cookie for ANY visitor who's logged in. Enables session hijacking and account takeover.
 
-#### 4. JWT_SECRET Falls Back to Weak Default
+**Fix Options:**
+1. **Strip platform cookies** before proxying to tunnel target (recommended for V1)
+2. Use separate domain for auth (e.g., `auth.tunn.to` with cookies scoped only there)
+3. Host tunnels on different apex domain (e.g., `*.tunnels.to`)
 
-**File:** `internal/host/auth.go:541`
+---
 
-If `JWT_SECRET` is not configured, the code logs an error but returns a hardcoded fallback key instead of failing.
+### 3. Concurrent gRPC Stream.Send (Data Race)
+
+**Status:** FIXED (2025-01-18)
+**Verified:** YES
+**Locations:**
+- Client: `internal/client/serve.go:166` (health checks in goroutine)
+- Client: `internal/client/serve.go:194` (request handlers spawn goroutines)
+- Client: `internal/client/serve.go:275,303,326` (all call `stream.Send`)
+- Server: `internal/host/webproxy.go:215` (concurrent HTTP requests call `tunnel.Stream.Send`)
+
+**The Bug:** gRPC streams are NOT thread-safe for concurrent `Send()`. Multiple goroutines call `Send()` without synchronization.
 
 ```go
-common.LogError("JWT_SECRET not configured")
-return []byte("unconfigured-jwt-secret")  // DANGEROUS
+// serve.go - health checks run in separate goroutine
+go s.sendHealthChecks(ctx, stream)  // line 166
+
+// serve.go - each request spawns a goroutine that calls stream.Send
+go s.handleHttpRequest(stream, m.HttpRequest)  // line 194
 ```
 
-**Impact:** In prod without JWT_SECRET, all JWTs are signed with a known key.
-**Fix:** Panic or fail startup in non-dev mode if JWT_SECRET is missing.
+**Impact:** Data races, corrupted frames, random stream failures, intermittent tunnel drops under load.
 
-#### 5. Internal gRPC Uses InsecureSkipVerify
+**Fix:** Serialize all sends through a single goroutine with a channel, or protect `Send()` with a mutex.
 
-**File:** `internal/host/proxy.go:165`
+---
 
-Node-to-node gRPC disables TLS verification entirely. This allows MITM to intercept node secrets.
+### 4. Response Channel Close Race (Panic)
+
+**Status:** FIXED (2025-01-18)
+**Verified:** YES
+**Locations:**
+- `internal/host/webproxy.go:205` - channel closed in defer
+- `internal/host/grpc_server.go:429` - send to potentially-closed channel
+
+**The Bug:** The response channel is closed after timeout in `proxyHTTPOverGRPC`. The server receive loop can still try to send to this closed channel, causing a panic.
 
 ```go
-// Current (INSECURE):
-tls.Config{InsecureSkipVerify: true}
+// webproxy.go:205 - closes channel on return
+defer func() {
+    ...
+    close(respChan)
+}()
 
-// Required: Proper TLS verification
+// grpc_server.go:429 - sends to channel that might be closed
+case respChan <- m.HttpResponse:  // PANIC if closed
 ```
 
-**Impact:** On any network, attacker can MITM internal traffic and harvest node secret.
+The `select` with `default` only handles a full channel, NOT a closed one.
+
+**Impact:** `panic: send on closed channel` - crashes request handling, can drop tunnels.
+
+**Fix:** Use a non-closing channel pattern, or add synchronization (e.g., `sync.Once` for close, check before send).
+
+---
+
+### 5. Open Redirect Vulnerability
+
+**Status:** FIXED (2025-01-18)
+**Verified:** YES
+**Locations:**
+- `internal/host/auth.go:35-39` - stores `return_to` without validation
+- `internal/host/auth.go:220` - redirects to it
+- `internal/host/webproxy.go:92` - embeds without URL escaping
+
+**The Bug:** `return_to` parameter accepted from query string and used as redirect target without validation.
+
+```go
+// auth.go:35-39
+returnTo := r.URL.Query().Get("return_to")
+p.sessionManager.Put(r.Context(), "return_to", returnTo)
+
+// webproxy.go:92 - not escaped
+loginURL := fmt.Sprintf("/auth/login?return_to=%s", returnTo)
+```
+
+**Impact:** Phishing vector - attacker crafts `tunn.to/auth/login?return_to=https://evil.com` to redirect users after login.
+
 **Fix:**
-- tunn.to (Fly.io): Use real Let's Encrypt certs, verify against system CA pool
-- Self-hosters: Add `TUNN_CA_CERT` env var to specify custom CA chain for internal TLS
-
-Note: We're NOT doing mTLS (mutual TLS with client certs) - just proper server cert verification.
-
-### P1 - Documentation
-
-#### 6. README Says "Google" but Code Uses GitHub
-
-**File:** `README.md` lines 27-28, 37
-
-README says "Login with Google" but the actual auth is GitHub OAuth.
-
-**Fix:** Replace "Google" with "GitHub" in README.
+1. Validate `return_to` is a relative path only (reject if contains `://` or starts with `//`)
+2. Always use `url.QueryEscape()` when embedding
 
 ---
 
-## Post-Release Improvements
+## High (P1) - Should Fix Before Launch
 
-### Security Hardening
+### 6. Multi-Node Proxying Host Rewriting
 
-| Issue | Description | Priority |
-|-------|-------------|----------|
-| Constant-time comparisons | Use `subtle.ConstantTimeCompare` for secrets | Low |
-| SMTP TLS | Explicitly configure TLS for SMTP (currently relies on STARTTLS) | Low |
+**Status:** FIXED (2026-01-18)
+**Verified:** YES
+**Location:** `internal/host/webproxy.go:327-356`
 
-### Code Quality
+**The Bug:** `httputil.NewSingleHostReverseProxy` rewrites `Host` header to the target node address. The remote node uses `r.Host` to extract tunnel ID, so it won't find the tunnel.
 
-| Issue | Description | Priority |
-|-------|-------------|----------|
-| Cache TTL | Remote tunnel cache has no TTL - stale if tunnel moves nodes | Medium |
-| Extract HTML templates | Large inline HTML in webproxy.go is hard to maintain | Low |
-| More reserved subdomains | Add "root", "admin", "support" to reserved list | Low |
-| RandID error handling | `RandID()` panics if crypto/rand fails - consider returning error | Low |
+**Impact:** Multi-node routing broken - remote tunnels may 503 or show homepage.
 
-### Test Gaps
-
-| Test | Description |
-|------|-------------|
-| Forged JWT registration | Test that unsigned/wrongly-signed JWT is rejected on tunnel registration |
-| Magic link E2E | Test magic link → session → tunnel access with allow-list |
+**Fix:** Custom Director function preserves original Host header before proxying.
 
 ---
 
-## Known Limitations (Accepted)
+### 7. Internal gRPC TLS Hostname Verification Fragile
 
-### ExtractEmailFromJWT in Client
+**Status:** FIXED (2026-01-18)
+**Verified:** YES
+**Location:** `internal/host/proxy.go:248-253`
 
-**File:** `internal/client/serve.go:125`
+**The Bug:** Internal clients dial by IP (`[ipv6]:port`) but don't set `ServerName` in TLS config. Certificate validation fails unless cert has IP SANs.
 
-The client uses `ExtractEmailFromJWT` for local display only (showing logged-in user). The JWT came from the user's own `~/.tunn/token` file. This is safe - users can only "spoof" to themselves.
+**Impact:** Multi-node auth fails in production.
 
-### Dev JWT Secret
-
-**File:** `internal/config/config.go:109`
-
-Dev mode uses `"dev-jwt-secret-do-not-use-in-prod"`. This is intentional - production requires `JWT_SECRET` env var.
+**Fix:** Set `tlsConfig.ServerName = cfg.Domain` so TLS validation uses the domain name.
 
 ---
 
-## What's Working Well
+### 8. Unbounded Goroutine Creation
 
-### Architecture
-- Clean separation: proxy (host), client, common, config
-- gRPC bidirectional streaming for efficient tunneling
-- HTTP/2 + HTTP/3 support
-- Stateless core - no database required for basic tunneling
-- Email bucket identity model is elegant
+**Status:** FIXED (2025-01-18)
+**Verified:** YES
+**Location:** `internal/client/serve.go:194`
 
-### Security Controls
-- CSRF protection on OAuth (state parameter with crypto/rand)
-- JWT signature verification in CheckJWT middleware
-- Session cookies: Secure, SameSite=Lax, HttpOnly
-- Node-to-node: shared secret + IP blacklisting
-- Token file permissions: 0600
+**The Bug:** Each inbound HTTP request spawns a new goroutine without limit.
 
-### Concurrency
-- Proper mutex usage (RWMutex where appropriate)
-- Channel-based response routing for HTTP-over-gRPC
-- Background cleanup goroutines
+**Impact:** DoS on client - flood of requests exhausts memory/scheduler.
 
-### Testing
-- Good coverage for core paths
-- Race detection passes
-- Edge cases: expired tokens, wrong signatures, domain wildcards
+**Fix:** Use worker pool or semaphore to limit concurrent in-flight requests.
+
+---
+
+### 9. No Request/Response Size Limits
+
+**Status:** FIXED (2025-01-18)
+**Verified:** YES
+**Locations:**
+- `internal/host/webproxy.go:173` - `io.ReadAll(r.Body)`
+- `internal/client/serve.go:248` - `io.ReadAll(resp.Body)`
+
+**The Bug:** Unbounded `io.ReadAll` can consume all memory.
+
+**Impact:** Memory exhaustion on both proxy and client.
+
+**Fix:** Use `io.LimitReader` with reasonable cap (e.g., 100MB).
+
+---
+
+### 10. Tunnel ID Not Validated Against DNS Labels
+
+**Status:** FIXED (2026-01-18)
+**Verified:** YES
+**Location:** `internal/host/grpc_server.go:57-86,201-214`
+
+**The Bug:** Tunnel IDs can contain invalid DNS characters or dots.
+
+**Impact:** User-visible failures, URL confusion.
+
+**Fix:** Added `isValidDNSLabel()` function that validates RFC 1123 DNS labels. Tunnel IDs are normalized to lowercase and rejected if invalid.
+
+---
+
+### 11. Header Map Flattens Multi-Value Headers (Set-Cookie Broken)
+
+**Status:** DEFERRED (>2hr - requires proto change)
+**Verified:** YES
+**Locations:**
+- `proto/tunnel.proto:113,126` - `map<string, string> headers`
+- `internal/client/serve.go:255-259` - joins with ", "
+
+**The Bug:** Proto uses `map<string, string>` which loses multi-value headers. `Set-Cookie` values contain commas in dates, so joining breaks them.
+
+**Note:** This requires changing the proto schema and updating all code that handles headers. Deferred to post-launch.
+
+**Fix:** Change proto to `repeated HeaderEntry` with `repeated string values`.
+
+---
+
+### 12. NodeSecret Not Enforced in Production
+
+**Status:** FIXED (2026-01-18)
+**Verified:** YES
+**Location:** `internal/host/proxy.go:93-96`
+
+**The Bug:** If `NodeSecret` is empty, internal RPC auth is a no-op.
+
+**Impact:** Internal APIs exposed if port is reachable.
+
+**Fix:** `NewProxyServer()` returns error if `NodeAddresses` is set but `NodeSecret` is empty.
+
+---
+
+## Medium (P2) - Fix Before Launch
+
+### 13. AI Placeholder Comment
+
+**Verified:** YES
+**Location:** `internal/host/proxy.go:242`
+
+Contains `// ... (rest of the file)` - looks unprofessional.
+
+**Fix:** Delete the comment.
+
+---
+
+### 14. Missing Documentation
+
+**Verified:** YES
+**Location:** `README.md:46,58`
+
+References docs that don't exist:
+- `docs/self-hosting.md`
+- `docs/DEVELOPMENT.md`
+
+**Fix:** Create the docs or remove references.
+
+---
+
+### 15. No Cache TTL for tunnelCache
+
+**Location:** `internal/host/webproxy.go`
+
+Tunnel routing cache has no expiry - stale if tunnel moves nodes.
+
+**Fix:** Add TTL (e.g., 30 seconds).
+
+---
+
+### 16. Duplicate Install Script
+
+**Locations:** `install.sh` and embedded in `internal/host/proxy.go`
+
+Same script in two places can drift.
+
+**Fix:** Use `//go:embed install.sh` instead of duplicating.
+
+---
+
+## Already Tracked (Accepted V1 Limitations)
+
+- **Usage tracking uses email instead of account ID** - See TODO.md lines 377-383
+
+---
+
+## Positive Notes
+
+Solid aspects from the review:
+- TLS termination correctly configured for HTTP/2 and HTTP/3
+- OAuth state parameter uses crypto-secure randomness
+- Device code storage uses secure random generation
+- Session cookie settings include `Secure` and `SameSite=Lax`
+- Structured logging doesn't expose secrets
+
+---
+
+## Recommended Test Additions
+
+1. **Auth bypass regression** - Ensure tunnel registration fails with forged JWT
+2. **gRPC stream concurrency** - Run with `-race` after fixing
+3. **Cookie isolation** - Ensure `tunn_session` NOT forwarded to targets
+4. **Return-to validation** - Only relative paths allowed
+5. **Header fidelity** - `Set-Cookie` survives round-trip
 
 ---
 
 ## Previously Fixed (2025-01-17)
 
-These issues were identified and fixed:
+These issues were fixed in the previous review cycle:
 
-- ✅ HTTP client timeouts added to GitHub API calls
-- ✅ JSON encode error handling added
-- ✅ Dead code branch removed in `getCallbackURL()`
+1. ✅ **JWT validation on tunnel registration** - `grpc_server.go` now uses `validateJWTAndExtractEmail()`
+2. ✅ **Magic link session key** - Changed `"email"` to `"user_email"` in magiclink.go
+3. ✅ **Secret logging** - Removed `provided_key` from log output
+4. ✅ **JWT_SECRET fallback** - Production panics if not configured
+5. ✅ **InsecureSkipVerify** - Removed, uses system CA or `TUNN_CA_CERT`
+6. ✅ **README Google → GitHub** - Updated
 
----
-
-## Test Results
-
-```
-$ make test
-ok      github.com/ehrlich-b/tunn/internal/client
-ok      github.com/ehrlich-b/tunn/internal/common
-ok      github.com/ehrlich-b/tunn/internal/config
-ok      github.com/ehrlich-b/tunn/internal/host
-ok      github.com/ehrlich-b/tunn/internal/mockoidc
-
-$ make test-race
-All tests pass. Race detection clean.
-```
-
----
-
-## Conclusion
-
-The code quality is good - clean architecture, proper concurrency, solid test coverage. The security issues identified are implementation bugs, not design flaws. They're straightforward to fix:
-
-1. Add JWT signature validation to `EstablishTunnel()`
-2. Fix session key `"email"` → `"user_email"`
-3. Remove secret from log message
-4. Fail startup if `JWT_SECRET` missing in prod
-5. Remove `InsecureSkipVerify`, add `TUNN_CA_CERT` for self-hosters
-6. Update README (Google → GitHub)
-
-After these fixes, the code is production-ready.
+**Note:** Issue #1 in the new review (JWT bypass when CreatorEmail is set) is a DIFFERENT bug than the one fixed. The previous fix added signature validation but only when `CreatorEmail` is empty.

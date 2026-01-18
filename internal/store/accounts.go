@@ -127,9 +127,10 @@ func (s *AccountStore) FindOrCreateByEmails(emails []string, verifiedVia string)
 	return account, nil
 }
 
-// GetByEmail finds an account by any email in its bucket
+// GetByEmail finds an account by any email in its bucket.
+// Uses NFKC normalization to prevent Unicode homograph attacks.
 func (s *AccountStore) GetByEmail(email string) (*Account, error) {
-	email = strings.ToLower(strings.TrimSpace(email))
+	email = common.NormalizeEmail(email)
 
 	var account Account
 	var createdAtUnix int64

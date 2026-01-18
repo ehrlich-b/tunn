@@ -87,6 +87,10 @@ type ProxyServer struct {
 	// Graceful degradation (non-login nodes)
 	usageBuffer *UsageBuffer
 	quotaCache  *QuotaCache
+
+	// Device code rate limiting (per-IP)
+	deviceCodeRateMu   sync.Mutex
+	deviceCodeRateByIP map[string][]time.Time
 }
 
 // NewProxyServer creates a new dual-listener proxy server
@@ -212,6 +216,7 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 		isLoginNode:        cfg.LoginNode,
 		usageBuffer:        NewUsageBuffer(),
 		quotaCache:         NewQuotaCache(30 * time.Second),
+		deviceCodeRateByIP: make(map[string][]time.Time),
 	}
 
 	// Discover and connect to other nodes in the mesh
@@ -556,9 +561,9 @@ func (p *ProxyServer) startHTTP2Server(ctx context.Context, handler http.Handler
 		Handler:   router,
 		TLSConfig: p.tlsConfig,
 		// Timeouts to prevent slowloris and resource exhaustion
-		ReadTimeout:       30 * time.Second, // Max time to read request headers
-		ReadHeaderTimeout: 10 * time.Second, // Max time to read headers specifically
-		WriteTimeout:      60 * time.Second, // Max time to write response (includes processing)
+		ReadTimeout:       30 * time.Second,  // Max time to read request headers
+		ReadHeaderTimeout: 10 * time.Second,  // Max time to read headers specifically
+		WriteTimeout:      60 * time.Second,  // Max time to write response (includes processing)
 		IdleTimeout:       120 * time.Second, // Max time connection can be idle between requests
 	}
 

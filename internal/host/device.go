@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/ehrlich-b/tunn/internal/common"
@@ -11,10 +12,24 @@ import (
 	"github.com/golang-jwt/jwt/v4"
 )
 
+// Device code rate limiting constants
+const (
+	deviceCodeRateWindow   = 5 * time.Minute
+	deviceCodeRateMaxCount = 5 // 5 device codes per 5 minutes per IP
+)
+
 // handleDeviceCode handles POST /api/device/code - creates a new device code
 func (p *ProxyServer) handleDeviceCode(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Rate limit by IP address
+	clientIP := extractClientIP(r)
+	if !p.checkDeviceCodeRateLimit(clientIP) {
+		common.LogInfo("device code rate limit exceeded", "ip", clientIP)
+		http.Error(w, "Too many requests. Please try again later.", http.StatusTooManyRequests)
 		return
 	}
 
@@ -172,4 +187,59 @@ func (p *ProxyServer) generateJWT(email string) (string, error) {
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString(p.getJWTSigningKey())
+}
+
+// checkDeviceCodeRateLimit checks if an IP can create a device code.
+// Returns true if allowed, false if rate limited.
+// Also records the request if allowed.
+func (p *ProxyServer) checkDeviceCodeRateLimit(ip string) bool {
+	p.deviceCodeRateMu.Lock()
+	defer p.deviceCodeRateMu.Unlock()
+
+	now := time.Now()
+	windowStart := now.Add(-deviceCodeRateWindow)
+
+	// Get existing requests and filter to current window
+	requests := p.deviceCodeRateByIP[ip]
+	var validRequests []time.Time
+	for _, t := range requests {
+		if t.After(windowStart) {
+			validRequests = append(validRequests, t)
+		}
+	}
+
+	// Check if rate limited
+	if len(validRequests) >= deviceCodeRateMaxCount {
+		p.deviceCodeRateByIP[ip] = validRequests
+		return false
+	}
+
+	// Record this request
+	validRequests = append(validRequests, now)
+	p.deviceCodeRateByIP[ip] = validRequests
+	return true
+}
+
+// extractClientIP extracts the client IP from the request, handling proxies.
+func extractClientIP(r *http.Request) string {
+	// Check X-Forwarded-For header (set by proxies like Fly.io)
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		// Take the first IP in the chain (original client)
+		if idx := strings.Index(xff, ","); idx != -1 {
+			return strings.TrimSpace(xff[:idx])
+		}
+		return strings.TrimSpace(xff)
+	}
+
+	// Check X-Real-IP header
+	if xri := r.Header.Get("X-Real-IP"); xri != "" {
+		return strings.TrimSpace(xri)
+	}
+
+	// Fall back to RemoteAddr (strip port if present)
+	addr := r.RemoteAddr
+	if idx := strings.LastIndex(addr, ":"); idx != -1 {
+		return addr[:idx]
+	}
+	return addr
 }

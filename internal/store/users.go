@@ -1,6 +1,7 @@
 package store
 
 import (
+	"crypto/subtle"
 	"os"
 	"strings"
 	"sync"
@@ -59,13 +60,14 @@ func (s *UserStore) Load(filePath string) error {
 	return nil
 }
 
-// ValidateToken checks if a token is valid and returns the associated email
+// ValidateToken checks if a token is valid and returns the associated email.
+// Uses constant-time comparison to prevent timing attacks.
 func (s *UserStore) ValidateToken(token string) (email string, ok bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	for email, user := range s.users {
-		if user.Token == token {
+		if subtle.ConstantTimeCompare([]byte(user.Token), []byte(token)) == 1 {
 			return email, true
 		}
 	}

@@ -1,6 +1,7 @@
 package common
 
 import (
+	"crypto/subtle"
 	"fmt"
 	"net/http"
 
@@ -8,6 +9,7 @@ import (
 )
 
 // AuthMiddleware creates an authentication middleware
+// Uses constant-time comparison to prevent timing attacks
 func AuthMiddleware(token string) func(http.HandlerFunc) http.HandlerFunc {
 	return func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
@@ -16,7 +18,7 @@ func AuthMiddleware(token string) func(http.HandlerFunc) http.HandlerFunc {
 
 			LogDebug("auth: checking token", "remote_addr", r.RemoteAddr)
 
-			if receivedAuth != expectedAuth {
+			if subtle.ConstantTimeCompare([]byte(receivedAuth), []byte(expectedAuth)) != 1 {
 				LogError("auth: invalid token", "remote_addr", r.RemoteAddr)
 				w.WriteHeader(http.StatusUnauthorized)
 				return

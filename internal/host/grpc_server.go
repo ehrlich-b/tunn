@@ -1,6 +1,7 @@
 package host
 
 import (
+	"crypto/subtle"
 	"fmt"
 	"io"
 	"strings"
@@ -92,9 +93,9 @@ type TunnelServer struct {
 	mu         sync.RWMutex
 	tunnels    map[string]*TunnelConnection
 	cfg        *config.Config
-	userTokens map[string]string     // email -> token from users.yaml
-	accounts   *store.AccountStore   // Account storage for subdomain reservations
-	storage    storage.Storage       // Unified storage for tunnel registration/limits
+	userTokens map[string]string   // email -> token from users.yaml
+	accounts   *store.AccountStore // Account storage for subdomain reservations
+	storage    storage.Storage     // Unified storage for tunnel registration/limits
 }
 
 // Bandwidth limits per plan (Mbps)
@@ -589,12 +590,13 @@ func (s *TunnelServer) countTunnelsForEmail(email string) int {
 
 // validateUserToken checks if a token matches any user in users.yaml
 // Returns the email if valid, empty string if not
+// Uses constant-time comparison to prevent timing attacks
 func (s *TunnelServer) validateUserToken(token string) string {
 	if token == "" || len(s.userTokens) == 0 {
 		return ""
 	}
 	for email, userToken := range s.userTokens {
-		if userToken == token {
+		if subtle.ConstantTimeCompare([]byte(userToken), []byte(token)) == 1 {
 			return email
 		}
 	}

@@ -56,6 +56,13 @@ func (p *ProxyServer) handleStripeWebhook(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Check if storage is available (Stripe will retry on 503)
+	if p.storage != nil && !p.storage.Available() {
+		common.LogError("Stripe webhook received but storage not available")
+		http.Error(w, "Service temporarily unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
 	// Read the request body
 	body, err := io.ReadAll(io.LimitReader(r.Body, 65536)) // 64KB limit
 	if err != nil {

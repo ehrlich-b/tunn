@@ -341,12 +341,13 @@ func isAllowed(sessionEmail string, allowList []string) bool {
 
 ### Architecture
 
-1. [ ] **Login Node Architecture** - See [docs/login-node-architecture.md](docs/login-node-architecture.md)
+1. [x] **Login Node Architecture** - See [docs/login-node-architecture.md](docs/login-node-architecture.md)
       - One node designated as "login node" (`LOGIN_NODE=true`) owns SQLite
       - Other nodes discover it via config (self-host) or Fly DNS (tunn.to)
       - Graceful degradation: buffer usage if login node down, fail auth with 503
       - Self-hosting first: works with static config, no Fly dependency
-      - **Must be implemented before rate limiting**
+      - Phases 1-4 complete: basics, discovery, DB proxy RPCs, graceful degradation
+      - Phase 5 (Litestream): configured during Fly.io deploy
 
 2. [ ] **Rate Limiting** - See [docs/rate-limiting-design.md](docs/rate-limiting-design.md)
       - Concurrent tunnels: 3 (free) / 10 (pro)

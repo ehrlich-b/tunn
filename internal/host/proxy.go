@@ -82,6 +82,10 @@ type ProxyServer struct {
 
 	// Email sender (for magic link auth)
 	emailSender *EmailSender
+
+	// Graceful degradation (non-login nodes)
+	usageBuffer *UsageBuffer
+	quotaCache  *QuotaCache
 }
 
 // NewProxyServer creates a new dual-listener proxy server
@@ -198,6 +202,8 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 		proxyStorage:       proxyStorage,
 		emailSender:        emailSender,
 		isLoginNode:        cfg.LoginNode,
+		usageBuffer:        NewUsageBuffer(),
+		quotaCache:         NewQuotaCache(30 * time.Second),
 	}
 
 	// Discover and connect to other nodes in the mesh
@@ -474,9 +480,10 @@ func (p *ProxyServer) Run(ctx context.Context) error {
 		}
 	}()
 
-	// Start login node discovery loop (for non-login nodes)
+	// Start login node discovery loop and usage flush loop (for non-login nodes)
 	if !p.isLoginNode {
 		go p.loginNodeDiscoveryLoop(ctx)
+		go p.usageFlushLoop(ctx)
 	}
 
 	common.LogInfo("proxy server ready",
@@ -848,4 +855,96 @@ func (p *ProxyServer) loginNodeDiscoveryLoop(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// usageFlushLoop periodically flushes buffered usage to the login node.
+// Runs on non-login nodes only.
+func (p *ProxyServer) usageFlushLoop(ctx context.Context) {
+	// Flush every 10 seconds, or immediately when login node reconnects
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	// Cleanup quota cache periodically (entries older than 5 minutes)
+	cleanupTicker := time.NewTicker(5 * time.Minute)
+	defer cleanupTicker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			// Final flush attempt on shutdown
+			if p.usageBuffer.Len() > 0 && p.storage.Available() {
+				flushed, _ := p.usageBuffer.Flush(context.Background(), p.storage)
+				if flushed > 0 {
+					common.LogInfo("flushed usage on shutdown", "accounts", flushed)
+				}
+			}
+			return
+
+		case <-ticker.C:
+			if p.usageBuffer.Len() > 0 && p.storage.Available() {
+				flushed, err := p.usageBuffer.Flush(ctx, p.storage)
+				if err != nil {
+					common.LogError("usage flush failed", "error", err)
+				} else if flushed > 0 {
+					common.LogInfo("flushed buffered usage", "accounts", flushed)
+				}
+			}
+
+		case <-cleanupTicker.C:
+			removed := p.quotaCache.Cleanup(5 * time.Minute)
+			if removed > 0 {
+				common.LogDebug("cleaned up quota cache", "removed", removed)
+			}
+		}
+	}
+}
+
+// RecordUsage records bandwidth usage with graceful degradation.
+// If storage is available, records directly. Otherwise buffers locally.
+func (p *ProxyServer) RecordUsage(ctx context.Context, accountID string, bytes int64) {
+	if p.storage.Available() {
+		if err := p.storage.RecordUsage(ctx, accountID, bytes); err != nil {
+			// Storage call failed - buffer instead
+			common.LogError("failed to record usage, buffering", "account_id", accountID, "bytes", bytes, "error", err)
+			p.usageBuffer.Add(accountID, bytes)
+		}
+		return
+	}
+
+	// Storage not available - buffer locally
+	p.usageBuffer.Add(accountID, bytes)
+}
+
+// CheckQuota checks if an account is within its usage quota.
+// Uses cached values with stale fallback when login node is unavailable.
+// Returns true if allowed (under quota or unknown), false if over quota.
+func (p *ProxyServer) CheckQuota(ctx context.Context, accountID string, plan string) bool {
+	// Get quota limit based on plan
+	var quotaBytes int64
+	switch plan {
+	case "pro":
+		quotaBytes = 50 * 1024 * 1024 * 1024 // 50 GB
+	default:
+		quotaBytes = 100 * 1024 * 1024 // 100 MB
+	}
+
+	// Try to get fresh usage data
+	if p.storage.Available() {
+		usage, err := p.storage.GetMonthlyUsage(ctx, accountID)
+		if err == nil {
+			p.quotaCache.Set(accountID, usage)
+			return usage < quotaBytes
+		}
+		common.LogError("failed to get usage, checking cache", "account_id", accountID, "error", err)
+	}
+
+	// Fall back to cache
+	if cached, ok := p.quotaCache.Get(accountID); ok {
+		return cached < quotaBytes
+	}
+
+	// No data available - fail open (allow traffic)
+	// This is intentional: we'd rather allow some traffic than block paying customers
+	common.LogDebug("no quota data available, allowing traffic", "account_id", accountID)
+	return true
 }

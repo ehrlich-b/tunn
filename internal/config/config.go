@@ -112,7 +112,7 @@ func (c *Config) loadDevConfig() {
 	c.NodeAddresses = getEnvOrDefault("NODE_ADDRESSES", "")
 	c.NodeSecret = getEnvOrDefault("NODE_SECRET", "dev-node-secret")
 	c.PublicAddr = getEnvOrDefault("PUBLIC_ADDR", "localhost:8443")
-	c.FlyAppName = getEnvOrDefault("FLY_APP_NAME", "") // Fly.io sets this automatically
+	c.FlyAppName = getEnvOrDefault("FLY_APP_NAME", "")     // Fly.io sets this automatically
 	c.InternalCACert = getEnvOrDefault("TUNN_CA_CERT", "") // Custom CA for internal TLS (self-hosters)
 
 	// Mock OIDC provider runs locally (set MOCK_OIDC_ADDR="" to disable)
@@ -174,7 +174,7 @@ func (c *Config) loadProdConfig() {
 	c.NodeAddresses = getEnvOrDefault("NODE_ADDRESSES", "")
 	c.NodeSecret = getEnvOrDefault("NODE_SECRET", "") // Must be set in prod for multi-node
 	c.PublicAddr = getEnvOrDefault("PUBLIC_ADDR", "tunn.to:443")
-	c.FlyAppName = getEnvOrDefault("FLY_APP_NAME", "") // Fly.io sets this automatically
+	c.FlyAppName = getEnvOrDefault("FLY_APP_NAME", "")     // Fly.io sets this automatically
 	c.InternalCACert = getEnvOrDefault("TUNN_CA_CERT", "") // Custom CA for internal TLS (self-hosters)
 
 	// No mock OIDC in production

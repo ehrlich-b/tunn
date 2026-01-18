@@ -6,7 +6,6 @@ option go_package = "github.com/ehrlich-b/tunn/pkg/proto/internalv1";
 
 service InternalService {
   rpc FindTunnel(FindTunnelRequest) returns (FindTunnelResponse);
-  rpc ForwardUdpPacket(ForwardUdpPacketRequest) returns (ForwardUdpPacketResponse);
   rpc GetNodeInfo(NodeInfoRequest) returns (NodeInfoResponse);
 }
 
@@ -33,6 +32,12 @@ service LoginNodeDB {
   rpc RegisterTunnel(RegisterTunnelRequest) returns (RegisterTunnelResponse);
   rpc UnregisterTunnel(UnregisterTunnelRequest) returns (UnregisterTunnelResponse);
   rpc GetTunnelCount(GetTunnelCountRequest) returns (GetTunnelCountResponse);
+
+  // Magic link replay protection (cross-node)
+  rpc MarkMagicTokenUsed(MarkMagicTokenUsedRequest) returns (MarkMagicTokenUsedResponse);
+
+  // Magic link rate limiting (per-email throttle)
+  rpc CheckMagicLinkRateLimit(CheckMagicLinkRateLimitRequest) returns (CheckMagicLinkRateLimitResponse);
 }
 
 // Node information for login node discovery
@@ -53,18 +58,6 @@ message FindTunnelResponse {
   // If found is true, this will be the address of the node.
   // The caller can then use this address to forward the request.
   string node_address = 2;
-}
-
-message ForwardUdpPacketRequest {
-  string tunnel_id = 1;
-  string source_address = 2;
-  bytes data = 3;
-}
-
-message ForwardUdpPacketResponse {
-  bool success = 1;
-  bytes response_data = 2;
-  string error_message = 3;
 }
 
 // Usage tracking messages
@@ -180,4 +173,25 @@ message GetTunnelCountRequest {
 
 message GetTunnelCountResponse {
   int32 count = 1;
+}
+
+// Magic link replay protection messages
+message MarkMagicTokenUsedRequest {
+  string jti = 1;
+  int64 expiry_unix = 2;  // When the token expires (for cleanup)
+}
+
+message MarkMagicTokenUsedResponse {
+  bool was_unused = 1;  // true if token was unused and is now marked, false if already used
+}
+
+// Magic link rate limiting messages
+message CheckMagicLinkRateLimitRequest {
+  string email = 1;
+}
+
+message CheckMagicLinkRateLimitResponse {
+  bool allowed = 1;           // true if request is allowed
+  int32 remaining = 2;        // requests remaining in window
+  int64 reset_at_unix = 3;    // when the rate limit resets
 }

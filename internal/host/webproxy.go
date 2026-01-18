@@ -86,10 +86,12 @@ func (p *ProxyServer) handleWebProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 3. Probe other nodes
+	// 3. Probe other nodes (with timeout to prevent slow nodes from blocking)
 	for addr, client := range p.nodeClients {
 		common.LogInfo("probing node for tunnel", "tunnel_id", tunnelID, "node_addr", addr)
-		resp, err := client.FindTunnel(context.Background(), &internalv1.FindTunnelRequest{TunnelId: tunnelID})
+		probeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		resp, err := client.FindTunnel(probeCtx, &internalv1.FindTunnelRequest{TunnelId: tunnelID})
+		cancel()
 		if err != nil {
 			common.LogError("failed to probe node", "error", err, "node_addr", addr)
 			continue
@@ -210,11 +212,16 @@ func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, 
 	}
 
 	// Read request body with size limit to prevent memory exhaustion
-	body, err := io.ReadAll(io.LimitReader(r.Body, MaxBodySize))
+	// Read one extra byte to detect if body exceeds limit
+	limitedBody, err := io.ReadAll(io.LimitReader(r.Body, MaxBodySize+1))
 	if err != nil {
 		return fmt.Errorf("failed to read request body: %w", err)
 	}
 	defer r.Body.Close()
+	if int64(len(limitedBody)) > MaxBodySize {
+		return fmt.Errorf("request body too large (max %d bytes)", MaxBodySize)
+	}
+	body := limitedBody
 
 	// Convert headers to map (join multi-value headers per HTTP spec)
 	// SECURITY: Strip platform cookies to prevent tunnel owners from stealing sessions

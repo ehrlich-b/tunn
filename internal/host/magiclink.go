@@ -1,57 +1,18 @@
 package host
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/golang-jwt/jwt/v4"
 )
-
-// usedMagicTokens tracks magic link JTIs that have been used to prevent replay attacks.
-// Tokens are stored with their expiry time and cleaned up periodically.
-var usedMagicTokens = struct {
-	sync.RWMutex
-	entries map[string]time.Time // jti -> expiry time
-}{entries: make(map[string]time.Time)}
-
-func init() {
-	go cleanupUsedMagicTokens()
-}
-
-// cleanupUsedMagicTokens periodically removes expired entries from the used tokens map
-func cleanupUsedMagicTokens() {
-	ticker := time.NewTicker(1 * time.Minute)
-	defer ticker.Stop()
-	for range ticker.C {
-		now := time.Now()
-		usedMagicTokens.Lock()
-		for jti, expiry := range usedMagicTokens.entries {
-			if now.After(expiry) {
-				delete(usedMagicTokens.entries, jti)
-			}
-		}
-		usedMagicTokens.Unlock()
-	}
-}
-
-// markMagicTokenUsed marks a magic link token as used. Returns false if already used.
-func markMagicTokenUsed(jti string, expiry time.Time) bool {
-	usedMagicTokens.Lock()
-	defer usedMagicTokens.Unlock()
-
-	if _, exists := usedMagicTokens.entries[jti]; exists {
-		return false // Already used
-	}
-	usedMagicTokens.entries[jti] = expiry
-	return true
-}
 
 // handleMagicLinkRequest handles POST /auth/magic - sends magic link email
 func (p *ProxyServer) handleMagicLinkRequest(w http.ResponseWriter, r *http.Request) {
@@ -79,6 +40,19 @@ func (p *ProxyServer) handleMagicLinkRequest(w http.ResponseWriter, r *http.Requ
 	if email == "" || !strings.Contains(email, "@") {
 		http.Error(w, "Invalid email address", http.StatusBadRequest)
 		return
+	}
+
+	// Check rate limit via login node
+	if p.storage.Available() {
+		allowed, _, _, err := p.storage.CheckMagicLinkRateLimit(r.Context(), email)
+		if err != nil {
+			common.LogError("failed to check magic link rate limit", "email", email, "error", err)
+			// Fail open on error - allow the request but log it
+		} else if !allowed {
+			common.LogInfo("magic link rate limited", "email", email)
+			http.Error(w, "Too many requests. Please try again in a few minutes.", http.StatusTooManyRequests)
+			return
+		}
 	}
 
 	// Generate magic link JWT (5 minute expiry)
@@ -122,7 +96,7 @@ func (p *ProxyServer) handleMagicLinkVerify(w http.ResponseWriter, r *http.Reque
 	}
 
 	// Verify the magic link token
-	email, err := p.verifyMagicLinkToken(tokenString)
+	email, err := p.verifyMagicLinkToken(r.Context(), tokenString)
 	if err != nil {
 		common.LogError("invalid magic link token", "error", err)
 		http.Error(w, "Invalid or expired link", http.StatusBadRequest)
@@ -182,8 +156,8 @@ func (p *ProxyServer) generateMagicLinkToken(email string) (string, error) {
 }
 
 // verifyMagicLinkToken verifies a magic link JWT and returns the email
-// Each token can only be used once (replay protection via JTI tracking)
-func (p *ProxyServer) verifyMagicLinkToken(tokenString string) (string, error) {
+// Each token can only be used once (replay protection via JTI tracking on login node)
+func (p *ProxyServer) verifyMagicLinkToken(ctx context.Context, tokenString string) (string, error) {
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 		// Validate signing method
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
@@ -220,8 +194,17 @@ func (p *ProxyServer) verifyMagicLinkToken(tokenString string) (string, error) {
 	}
 	expiry := time.Unix(int64(exp), 0)
 
-	// Mark token as used (returns false if already used)
-	if !markMagicTokenUsed(jti, expiry) {
+	// Mark token as used via login node (returns false if already used)
+	// This ensures cross-node replay protection
+	if !p.storage.Available() {
+		return "", fmt.Errorf("login service temporarily unavailable")
+	}
+	wasUnused, err := p.storage.MarkMagicTokenUsed(ctx, jti, expiry)
+	if err != nil {
+		common.LogError("failed to check magic token usage", "error", err)
+		return "", fmt.Errorf("failed to verify token")
+	}
+	if !wasUnused {
 		return "", fmt.Errorf("token already used")
 	}
 

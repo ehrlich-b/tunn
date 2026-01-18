@@ -2,6 +2,7 @@ package host
 
 import (
 	"context"
+	"time"
 
 	"github.com/ehrlich-b/tunn/internal/storage"
 	internalv1 "github.com/ehrlich-b/tunn/pkg/proto/internalv1"
@@ -174,6 +175,31 @@ func (s *LoginNodeDBServer) GetTunnelCount(ctx context.Context, req *internalv1.
 		return nil, status.Errorf(codes.Internal, "failed to get tunnel count: %v", err)
 	}
 	return &internalv1.GetTunnelCountResponse{Count: count}, nil
+}
+
+// MarkMagicTokenUsed marks a magic link JTI as used (replay protection).
+// Returns was_unused=true if the token was unused and is now marked.
+// Returns was_unused=false if the token was already used (replay attempt).
+func (s *LoginNodeDBServer) MarkMagicTokenUsed(ctx context.Context, req *internalv1.MarkMagicTokenUsedRequest) (*internalv1.MarkMagicTokenUsedResponse, error) {
+	expiry := time.Unix(req.ExpiryUnix, 0)
+	wasUnused, err := s.storage.MarkMagicTokenUsed(ctx, req.Jti, expiry)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to mark token used: %v", err)
+	}
+	return &internalv1.MarkMagicTokenUsedResponse{WasUnused: wasUnused}, nil
+}
+
+// CheckMagicLinkRateLimit checks if an email can request a magic link.
+func (s *LoginNodeDBServer) CheckMagicLinkRateLimit(ctx context.Context, req *internalv1.CheckMagicLinkRateLimitRequest) (*internalv1.CheckMagicLinkRateLimitResponse, error) {
+	allowed, remaining, resetAt, err := s.storage.CheckMagicLinkRateLimit(ctx, req.Email)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to check rate limit: %v", err)
+	}
+	return &internalv1.CheckMagicLinkRateLimitResponse{
+		Allowed:     allowed,
+		Remaining:   remaining,
+		ResetAtUnix: resetAt.Unix(),
+	}, nil
 }
 
 // accountToProto converts a storage.Account to proto AccountResponse

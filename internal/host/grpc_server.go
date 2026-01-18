@@ -1,6 +1,7 @@
 package host
 
 import (
+	"context"
 	"crypto/subtle"
 	"fmt"
 	"io"
@@ -123,14 +124,6 @@ type TunnelConnection struct {
 	// HTTP request tracking
 	pendingMu       sync.RWMutex
 	pendingRequests map[string]chan *pb.HttpResponse
-
-	// UDP response tracking
-	mu           sync.RWMutex
-	udpResponses map[string]chan []byte
-
-	// Protocol support
-	Protocol         string // "http", "udp", or "both"
-	UDPTargetAddress string // For UDP tunnels
 }
 
 // SendMessage sends a message on the stream in a thread-safe manner.
@@ -359,41 +352,40 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		}
 	}
 
-	// Determine protocol (default to "http" for backwards compatibility)
-	protocol := regClient.Protocol
-	if protocol == "" {
-		protocol = "http"
-	}
-
-	// Look up plan for quota enforcement (default to "free" if lookup fails)
+	// Look up plan and accountID for quota enforcement (default to "free" if lookup fails)
 	plan := "free"
-	if s.accounts != nil && creatorEmail != "" {
+	var accountID string
+	if s.storage != nil && s.storage.Available() && creatorEmail != "" {
+		// Cross-node: use storage interface (proxies to login node if needed)
+		if account, err := s.storage.GetAccountByEmail(stream.Context(), creatorEmail); err == nil && account != nil {
+			plan = account.Plan
+			accountID = account.ID
+		}
+	} else if s.accounts != nil && creatorEmail != "" {
+		// Local fallback: direct account store access
 		if account, err := s.accounts.GetByEmail(creatorEmail); err == nil && account != nil {
 			plan = account.Plan
+			accountID = account.ID
 		}
 	}
 
 	// Create tunnel connection
 	conn := &TunnelConnection{
-		TunnelID:         tunnelID,
-		TargetURL:        targetURL,
-		Stream:           stream,
-		Connected:        time.Now(),
-		CreatorEmail:     creatorEmail,
-		AllowedEmails:    allowedEmails,
-		Plan:             plan,
-		rateLimiter:      newRateLimiter(plan),
-		pendingRequests:  make(map[string]chan *pb.HttpResponse),
-		udpResponses:     make(map[string]chan []byte),
-		Protocol:         protocol,
-		UDPTargetAddress: regClient.UdpTargetAddress,
+		TunnelID:        tunnelID,
+		TargetURL:       targetURL,
+		Stream:          stream,
+		Connected:       time.Now(),
+		CreatorEmail:    creatorEmail,
+		AllowedEmails:   allowedEmails,
+		Plan:            plan,
+		rateLimiter:     newRateLimiter(plan),
+		pendingRequests: make(map[string]chan *pb.HttpResponse),
 	}
 
-	// Register the tunnel with limit checking
+	// Check if tunnel exists locally first
 	s.mu.Lock()
 	if _, exists := s.tunnels[tunnelID]; exists {
 		s.mu.Unlock()
-		// Send error response
 		respMsg := &pb.TunnelMessage{
 			Message: &pb.TunnelMessage_RegisterResponse{
 				RegisterResponse: &pb.RegisterResponse{
@@ -405,28 +397,78 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		stream.Send(respMsg)
 		return fmt.Errorf("tunnel ID %s already registered", tunnelID)
 	}
+	s.mu.Unlock()
 
-	// Check concurrent tunnel limit (per-node for now)
-	maxTunnels := storage.FreeTunnelLimit
-	if plan == "pro" {
-		maxTunnels = storage.ProTunnelLimit
+	// Register tunnel and check limits (cross-node if available)
+	var registeredWithStorage bool
+	if s.storage != nil && s.storage.Available() && accountID != "" {
+		// Cross-node: register with login node (includes duplicate and limit checks)
+		reg, err := s.storage.RegisterTunnel(stream.Context(), tunnelID, accountID, s.cfg.Domain)
+		if err != nil {
+			common.LogError("failed to register tunnel with login node", "tunnel_id", tunnelID, "error", err)
+			// Fall back to local check
+		} else if !reg.Allowed {
+			respMsg := &pb.TunnelMessage{
+				Message: &pb.TunnelMessage_RegisterResponse{
+					RegisterResponse: &pb.RegisterResponse{
+						Success:      false,
+						ErrorMessage: reg.Reason,
+					},
+				},
+			}
+			stream.Send(respMsg)
+			common.LogInfo("tunnel registration denied", "tunnel_id", tunnelID, "reason", reg.Reason)
+			return fmt.Errorf("tunnel registration denied: %s", reg.Reason)
+		} else {
+			registeredWithStorage = true
+			common.LogDebug("tunnel registered with login node", "tunnel_id", tunnelID, "count", reg.CurrentCount, "max", reg.MaxAllowed)
+		}
 	}
-	currentCount := s.countTunnelsForEmail(creatorEmail)
-	if currentCount >= maxTunnels {
+
+	// If cross-node registration didn't happen, check limits locally
+	if !registeredWithStorage {
+		maxTunnels := storage.FreeTunnelLimit
+		if plan == "pro" {
+			maxTunnels = storage.ProTunnelLimit
+		}
+		s.mu.Lock()
+		currentCount := s.countTunnelsForEmail(creatorEmail)
+		if currentCount >= maxTunnels {
+			s.mu.Unlock()
+			respMsg := &pb.TunnelMessage{
+				Message: &pb.TunnelMessage_RegisterResponse{
+					RegisterResponse: &pb.RegisterResponse{
+						Success:      false,
+						ErrorMessage: fmt.Sprintf("tunnel limit reached (%d/%d)", currentCount, maxTunnels),
+					},
+				},
+			}
+			stream.Send(respMsg)
+			common.LogInfo("tunnel limit reached", "email", creatorEmail, "count", currentCount, "max", maxTunnels)
+			return fmt.Errorf("tunnel limit reached for %s", creatorEmail)
+		}
 		s.mu.Unlock()
+	}
+
+	// Add to local map (re-check for race condition)
+	s.mu.Lock()
+	if _, exists := s.tunnels[tunnelID]; exists {
+		s.mu.Unlock()
+		// Unregister from storage if we registered
+		if registeredWithStorage && s.storage != nil {
+			s.storage.UnregisterTunnel(stream.Context(), tunnelID)
+		}
 		respMsg := &pb.TunnelMessage{
 			Message: &pb.TunnelMessage_RegisterResponse{
 				RegisterResponse: &pb.RegisterResponse{
 					Success:      false,
-					ErrorMessage: fmt.Sprintf("tunnel limit reached (%d/%d)", currentCount, maxTunnels),
+					ErrorMessage: "tunnel ID already in use",
 				},
 			},
 		}
 		stream.Send(respMsg)
-		common.LogInfo("tunnel limit reached", "email", creatorEmail, "count", currentCount, "max", maxTunnels)
-		return fmt.Errorf("tunnel limit reached for %s", creatorEmail)
+		return fmt.Errorf("tunnel ID %s already registered (race)", tunnelID)
 	}
-
 	s.tunnels[tunnelID] = conn
 	s.mu.Unlock()
 
@@ -435,6 +477,14 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		s.mu.Lock()
 		delete(s.tunnels, tunnelID)
 		s.mu.Unlock()
+
+		// Unregister from login node if we registered
+		if registeredWithStorage && s.storage != nil && s.storage.Available() {
+			if err := s.storage.UnregisterTunnel(context.Background(), tunnelID); err != nil {
+				common.LogError("failed to unregister tunnel from login node", "tunnel_id", tunnelID, "error", err)
+			}
+		}
+
 		common.LogInfo("tunnel disconnected", "tunnel_id", tunnelID)
 	}()
 
@@ -494,36 +544,6 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 				common.LogDebug("no pending request for http response",
 					"tunnel_id", tunnelID,
 					"connection_id", m.HttpResponse.ConnectionId)
-			}
-
-		case *pb.TunnelMessage_UdpPacket:
-			// UDP packet from client - route to waiting request if it's a response
-			if m.UdpPacket.FromClient {
-				// This is a response from the serve client to be sent back to tunn connect
-				// Extract connection ID from source address (format: udp-{source}-{timestamp})
-				connID := fmt.Sprintf("udp-%s-%d", m.UdpPacket.DestinationAddress, m.UdpPacket.TimestampMs)
-
-				conn.mu.RLock()
-				respChan, exists := conn.udpResponses[connID]
-				conn.mu.RUnlock()
-
-				if exists {
-					select {
-					case respChan <- m.UdpPacket.Data:
-						common.LogDebug("routed udp response",
-							"tunnel_id", tunnelID,
-							"bytes", len(m.UdpPacket.Data))
-					default:
-						common.LogDebug("udp response channel full, dropping packet",
-							"tunnel_id", tunnelID)
-					}
-				} else {
-					common.LogDebug("no pending request for udp response",
-						"tunnel_id", tunnelID,
-						"destination", m.UdpPacket.DestinationAddress)
-				}
-			} else {
-				common.LogInfo("received UDP packet from proxy (should not happen in this direction)")
 			}
 
 		default:

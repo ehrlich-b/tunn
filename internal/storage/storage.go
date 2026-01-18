@@ -42,6 +42,12 @@ type Storage interface {
 	UnregisterTunnel(ctx context.Context, tunnelID string) error
 	GetTunnelCount(ctx context.Context, accountID string) (int32, error)
 
+	// Magic link replay protection (cross-node)
+	MarkMagicTokenUsed(ctx context.Context, jti string, expiry time.Time) (wasUnused bool, err error)
+
+	// Magic link rate limiting (per-email throttle)
+	CheckMagicLinkRateLimit(ctx context.Context, email string) (allowed bool, remaining int32, resetAt time.Time, err error)
+
 	// Availability
 	Available() bool
 }

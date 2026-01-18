@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Account - tunn</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  background: #f6f8fa;
+  color: #1f2328;
+  line-height: 1.6;
+}
+a { color: #0969da; text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  background: rgba(255,255,255,0.95);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid #e5e7eb;
+  z-index: 100;
+  padding: 0 24px;
+}
+.header-inner {
+  max-width: 900px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 56px;
+}
+.header-logo {
+  font-size: 22px;
+  font-weight: 700;
+  color: #0969da;
+  text-decoration: none;
+}
+.header-user {
+  font-size: 14px;
+  color: #57606a;
+}
+.header-user a { margin-left: 16px; }
+
+.container {
+  max-width: 700px;
+  margin: 0 auto;
+  padding: 100px 24px 64px;
+}
+h1 {
+  font-size: 28px;
+  font-weight: 700;
+  margin-bottom: 24px;
+}
+
+.card {
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 24px;
+  margin-bottom: 24px;
+}
+.card-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  color: #1f2328;
+}
+.card-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+.card-row:last-child { border-bottom: none; }
+.card-label { color: #57606a; font-size: 14px; }
+.card-value { font-weight: 500; font-size: 14px; }
+
+.plan-badge {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.plan-free { background: #f0f0f0; color: #57606a; }
+.plan-pro { background: #ddf4ff; color: #0550ae; }
+
+.usage-bar {
+  width: 100%;
+  height: 8px;
+  background: #f0f0f0;
+  border-radius: 4px;
+  overflow: hidden;
+  margin: 8px 0;
+}
+.usage-fill {
+  height: 100%;
+  background: #0969da;
+  border-radius: 4px;
+  transition: width 0.3s;
+}
+.usage-fill.warning { background: #d1242f; }
+.usage-text {
+  font-size: 13px;
+  color: #57606a;
+}
+
+.upgrade-btn {
+  display: inline-block;
+  background: #0969da;
+  color: white;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 14px;
+  text-decoration: none;
+}
+.upgrade-btn:hover { background: #0550ae; text-decoration: none; }
+
+.upgrade-card {
+  background: linear-gradient(135deg, #0969da 0%, #0550ae 100%);
+  color: white;
+  text-align: center;
+}
+.upgrade-card .card-title { color: white; }
+.upgrade-card p { color: rgba(255,255,255,0.9); margin-bottom: 20px; font-size: 15px; }
+.upgrade-btn-white {
+  display: inline-block;
+  background: white;
+  color: #0969da;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 14px;
+  text-decoration: none;
+}
+.upgrade-btn-white:hover { background: #f6f8fa; text-decoration: none; }
+
+.footer {
+  background: #f6f8fa;
+  border-top: 1px solid #e5e7eb;
+  padding: 32px 24px;
+  text-align: center;
+  font-size: 14px;
+  color: #57606a;
+}
+.footer a { margin: 0 12px; }
+</style>
+</head>
+<body>
+
+<header class="header">
+  <div class="header-inner">
+    <a href="/" class="header-logo">tunn</a>
+    <div class="header-user">
+      {{.Email}}
+      <a href="/auth/logout">Logout</a>
+    </div>
+  </div>
+</header>
+
+<div class="container">
+  <h1>Account</h1>
+
+  <div class="card">
+    <div class="card-title">Profile</div>
+    <div class="card-row">
+      <span class="card-label">Email</span>
+      <span class="card-value">{{.Email}}</span>
+    </div>
+    <div class="card-row">
+      <span class="card-label">Plan</span>
+      <span class="plan-badge {{if eq .Plan "pro"}}plan-pro{{else}}plan-free{{end}}">{{.Plan}}</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Usage This Month</div>
+    <div class="card-row" style="display: block;">
+      <div class="usage-bar">
+        <div class="usage-fill {{if gt .UsagePercent 90}}warning{{end}}" style="width: {{.UsagePercent}}%;"></div>
+      </div>
+      <div class="usage-text">{{.UsageFormatted}} of {{.QuotaFormatted}} used</div>
+    </div>
+  </div>
+
+  {{if eq .Plan "free"}}
+  <div class="card upgrade-card">
+    <div class="card-title">Upgrade to Pro</div>
+    <p>Get 50 GB/month, reserved subdomains, and priority support for just $4/month.</p>
+    <a href="{{.StripeCheckoutURL}}" class="upgrade-btn-white">Upgrade Now</a>
+  </div>
+  {{end}}
+</div>
+
+<footer class="footer">
+  <a href="/privacy">Privacy</a>
+  <a href="/terms">Terms</a>
+  <a href="mailto:support@tunn.to">Support</a>
+</footer>
+
+</body>
+</html>

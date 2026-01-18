@@ -629,14 +629,15 @@ func (p *ProxyServer) createHandler() http.Handler {
 	mux.HandleFunc("/auth/callback", p.handleCallback)
 	mux.HandleFunc("/auth/magic", p.handleMagicLinkRequest)
 	mux.HandleFunc("/auth/verify", p.handleMagicLinkVerify)
+	mux.HandleFunc("/auth/logout", p.handleLogout)
+
+	// Account page (requires auth)
+	mux.HandleFunc("/account", p.handleAccount)
 
 	// Device code flow for CLI login
 	mux.HandleFunc("/api/device/code", p.handleDeviceCode)
 	mux.HandleFunc("/api/device/token", p.handleDeviceToken)
 	mux.HandleFunc("/login", p.handleLoginPage)
-
-	// UDP proxy endpoint (for tunn connect)
-	mux.HandleFunc("/udp/", p.handleUDPProxy)
 
 	// Stripe webhook endpoint
 	mux.HandleFunc("/webhooks/stripe", p.handleStripeWebhook)

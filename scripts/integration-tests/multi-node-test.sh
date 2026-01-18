@@ -72,17 +72,17 @@ NODE_SECRET="integration-test-secret"
 
 # Step 4: Start Node 1
 log_info "Starting Node 1 on :$NODE1_PORT (internal :$NODE1_INTERNAL)..."
-ENV=dev \
-  TOKEN=$TOKEN \
-  PUBLIC_MODE=true \
-  DOMAIN=$DOMAIN \
-  HTTP2_ADDR=:$NODE1_PORT \
-  HTTP3_ADDR=:$NODE1_PORT \
-  INTERNAL_GRPC_PORT=:$NODE1_INTERNAL \
-  NODE_ADDRESSES="$DOMAIN:$NODE2_INTERNAL" \
-  NODE_SECRET="$NODE_SECRET" \
-  PUBLIC_ADDR="localhost:$NODE1_PORT" \
-  MOCK_OIDC_ADDR="" \
+TUNN_ENV=dev \
+  TUNN_PUBLIC_MODE=true \
+  TUNN_DOMAIN=$DOMAIN \
+  TUNN_HTTP2_ADDR=:$NODE1_PORT \
+  TUNN_HTTP3_ADDR=:$NODE1_PORT \
+  TUNN_INTERNAL_GRPC_PORT=:$NODE1_INTERNAL \
+  TUNN_NODE_ADDRESSES="$DOMAIN:$NODE2_INTERNAL" \
+  TUNN_NODE_SECRET="$NODE_SECRET" \
+  TUNN_PUBLIC_ADDR="localhost:$NODE1_PORT" \
+  TUNN_MOCK_OIDC_ADDR="" \
+  TUNN_CA_CERT=./certs/ca.pem \
   ./bin/tunn -mode=host -cert=./certs/cert.pem -key=./certs/key.pem &
 NODE1_PID=$!
 sleep 2
@@ -95,17 +95,17 @@ log_info "Node 1 running (PID: $NODE1_PID)"
 
 # Step 5: Start Node 2
 log_info "Starting Node 2 on :$NODE2_PORT (internal :$NODE2_INTERNAL)..."
-ENV=dev \
-  TOKEN=$TOKEN \
-  PUBLIC_MODE=true \
-  DOMAIN=$DOMAIN \
-  HTTP2_ADDR=:$NODE2_PORT \
-  HTTP3_ADDR=:$NODE2_PORT \
-  INTERNAL_GRPC_PORT=:$NODE2_INTERNAL \
-  NODE_ADDRESSES="$DOMAIN:$NODE1_INTERNAL" \
-  NODE_SECRET="$NODE_SECRET" \
-  PUBLIC_ADDR="localhost:$NODE2_PORT" \
-  MOCK_OIDC_ADDR="" \
+TUNN_ENV=dev \
+  TUNN_PUBLIC_MODE=true \
+  TUNN_DOMAIN=$DOMAIN \
+  TUNN_HTTP2_ADDR=:$NODE2_PORT \
+  TUNN_HTTP3_ADDR=:$NODE2_PORT \
+  TUNN_INTERNAL_GRPC_PORT=:$NODE2_INTERNAL \
+  TUNN_NODE_ADDRESSES="$DOMAIN:$NODE1_INTERNAL" \
+  TUNN_NODE_SECRET="$NODE_SECRET" \
+  TUNN_PUBLIC_ADDR="localhost:$NODE2_PORT" \
+  TUNN_MOCK_OIDC_ADDR="" \
+  TUNN_CA_CERT=./certs/ca.pem \
   ./bin/tunn -mode=host -cert=./certs/cert.pem -key=./certs/key.pem &
 NODE2_PID=$!
 sleep 2
@@ -118,9 +118,9 @@ log_info "Node 2 running (PID: $NODE2_PID)"
 
 # Step 6: Connect tunnel client to Node 1
 log_info "Connecting tunnel client to Node 1..."
-ENV=dev \
-  SERVER_ADDR=localhost:$NODE1_PORT \
-  PUBLIC_MODE=true \
+TUNN_ENV=dev \
+  TUNN_SERVER_ADDR=localhost:$NODE1_PORT \
+  TUNN_PUBLIC_MODE=true \
   ./bin/tunn $TARGET_PORT --id=$TUNNEL_ID  &
 CLIENT_PID=$!
 sleep 2

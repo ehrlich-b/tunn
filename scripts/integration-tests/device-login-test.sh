@@ -43,18 +43,17 @@ if [ ! -f "./certs/cert.pem" ]; then
     ./scripts/gen-test-certs.sh
 fi
 
-# Step 3: Start proxy server (with mock OIDC, no PUBLIC_MODE)
-log_info "Starting proxy server with mock OIDC (PUBLIC_MODE=false)..."
-ENV=dev \
-  TOKEN=$TOKEN \
-  PUBLIC_MODE=false \
-  DOMAIN=$DOMAIN \
-  HTTP2_ADDR=:$HTTP_PORT \
-  HTTP3_ADDR=:$HTTP_PORT \
-  MOCK_OIDC_ADDR=:$MOCK_OIDC_PORT \
-  MOCK_OIDC_ISSUER="http://localhost:$MOCK_OIDC_PORT" \
-  PUBLIC_ADDR="$DOMAIN:$HTTP_PORT" \
-  NODE_ADDRESSES="" \
+# Step 3: Start proxy server (with mock OIDC, no TUNN_PUBLIC_MODE)
+log_info "Starting proxy server with mock OIDC (TUNN_PUBLIC_MODE=false)..."
+TUNN_ENV=dev \
+  TUNN_PUBLIC_MODE=false \
+  TUNN_DOMAIN=$DOMAIN \
+  TUNN_HTTP2_ADDR=:$HTTP_PORT \
+  TUNN_HTTP3_ADDR=:$HTTP_PORT \
+  TUNN_MOCK_OIDC_ADDR=:$MOCK_OIDC_PORT \
+  TUNN_MOCK_OIDC_ISSUER="http://localhost:$MOCK_OIDC_PORT" \
+  TUNN_PUBLIC_ADDR="$DOMAIN:$HTTP_PORT" \
+  TUNN_NODE_ADDRESSES="" \
   ./bin/tunn -mode=host -cert=./certs/cert.pem -key=./certs/key.pem &
 PROXY_PID=$!
 sleep 3

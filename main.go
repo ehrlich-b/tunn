@@ -15,6 +15,7 @@ import (
 	"github.com/ehrlich-b/tunn/internal/config"
 	"github.com/ehrlich-b/tunn/internal/host"
 	"github.com/golang-jwt/jwt/v4"
+	"github.com/joho/godotenv"
 )
 
 // Global flags (parsed before subcommand)
@@ -32,6 +33,9 @@ var (
 )
 
 func main() {
+	// Load .env file if present (silently ignored if not found)
+	_ = godotenv.Load()
+
 	// Custom usage message
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, `tunn - expose localhost to the internet
@@ -40,8 +44,7 @@ Usage:
   tunn <port>                    Tunnel localhost:<port> to a public URL
   tunn <host:port>               Tunnel host:port to a public URL
   tunn <url>                     Tunnel any URL to a public URL
-  tunn login                     Authenticate with Google
-  tunn connect -id=<tunnel>      Connect to a UDP tunnel
+  tunn login                     Authenticate with GitHub
   tunn serve [options] <target>  Explicit serve mode (same as default)
 
 Examples:
@@ -79,8 +82,6 @@ Options:
 	switch args[0] {
 	case "login":
 		runLogin()
-	case "connect":
-		runConnect(args[1:])
 	case "serve":
 		runServe(args[1:])
 	case "magic-link":
@@ -95,14 +96,12 @@ Options:
 }
 
 // Serve subcommand flags
-func parseServeFlags(args []string) (target string, tunnelID string, allowedEmails []string, tunnelKey string, protocol string, udpTarget string, clientSecret string) {
+func parseServeFlags(args []string) (target string, tunnelID string, allowedEmails []string, tunnelKey string, clientSecret string) {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	idFlag := fs.String("id", "", "tunnel ID (blank → random)")
 	subdomainFlag := fs.String("subdomain", "", "reserved subdomain (Pro feature, alias for -id)")
 	allowFlag := fs.String("allow", "", "comma-separated list of emails allowed to access tunnel")
 	keyFlag := fs.String("tunnel-key", "", "tunnel creation authorization key")
-	protoFlag := fs.String("protocol", "http", "tunnel protocol: http, udp, or both")
-	udpFlag := fs.String("udp-target", "localhost:25565", "UDP target address for UDP tunnels")
 	secretFlag := fs.String("secret", "", "client secret for auth (or set TUNN_SECRET env var)")
 
 	fs.Usage = func() {
@@ -113,10 +112,10 @@ Usage:
   tunn <target>                  (shorthand)
 
 Examples:
-  tunn 8080                      # Tunnel localhost:8080
-  tunn 8080 --allow bob@co.com   # Share with specific people
-  tunn serve -id=myapp 3000      # Custom tunnel ID
-  tunn serve -subdomain=myapp 3000  # Reserved subdomain (Pro)
+  tunn 8080                         # Tunnel localhost:8080
+  tunn 8080 --allow bob@co.com      # Share with specific people
+  tunn serve --id=myapp 3000        # Custom tunnel ID
+  tunn serve --subdomain=myapp 3000 # Reserved subdomain (Pro)
 
 Options:
 `)
@@ -150,8 +149,6 @@ Options:
 		tunnelID = *subdomainFlag
 	}
 	tunnelKey = *keyFlag
-	protocol = *protoFlag
-	udpTarget = *udpFlag
 
 	// Client secret: flag takes precedence, then env var
 	clientSecret = *secretFlag
@@ -167,34 +164,6 @@ Options:
 	}
 
 	return
-}
-
-// Connect subcommand flags
-func parseConnectFlags(args []string) (tunnelID string, localAddr string) {
-	fs := flag.NewFlagSet("connect", flag.ExitOnError)
-	idFlag := fs.String("id", "", "tunnel ID to connect to (required)")
-	localFlag := fs.String("local", "localhost:25566", "local UDP address to listen on")
-
-	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, `tunn connect - connect to a UDP tunnel
-
-Usage:
-  tunn connect -id=<tunnel-id> [options]
-
-Options:
-`)
-		fs.PrintDefaults()
-	}
-
-	fs.Parse(args)
-
-	if *idFlag == "" {
-		common.LogError("tunnel ID required: tunn connect -id=<tunnel-id>")
-		fs.Usage()
-		os.Exit(1)
-	}
-
-	return *idFlag, *localFlag
 }
 
 func runLogin() {
@@ -268,7 +237,7 @@ func runHost() {
 }
 
 func runServe(args []string) {
-	target, tunnelID, allowedEmails, tunnelKey, protocol, udpTarget, clientSecret := parseServeFlags(args)
+	target, tunnelID, allowedEmails, tunnelKey, clientSecret := parseServeFlags(args)
 
 	cfg, err := config.LoadConfig()
 	if err != nil {
@@ -312,15 +281,13 @@ func runServe(args []string) {
 	}
 
 	serveClient := &client.ServeClient{
-		TunnelID:         tunnelID,
-		TargetURL:        normalizedTarget,
-		ServerAddr:       cfg.ServerAddr,
-		AuthToken:        token,
-		TunnelKey:        tunnelKey,
-		AllowedEmails:    allowedEmails,
-		SkipVerify:       cfg.SkipVerify || *skipVerify,
-		Protocol:         protocol,
-		UDPTargetAddress: udpTarget,
+		TunnelID:      tunnelID,
+		TargetURL:     normalizedTarget,
+		ServerAddr:    cfg.ServerAddr,
+		AuthToken:     token,
+		TunnelKey:     tunnelKey,
+		AllowedEmails: allowedEmails,
+		SkipVerify:    cfg.SkipVerify || *skipVerify,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -336,44 +303,6 @@ func runServe(args []string) {
 
 	if err := serveClient.Run(ctx); err != nil && err != context.Canceled {
 		common.LogError("tunnel error", "error", err)
-		os.Exit(1)
-	}
-}
-
-func runConnect(args []string) {
-	tunnelID, localAddr := parseConnectFlags(args)
-
-	cfg, err := config.LoadConfig()
-	if err != nil {
-		common.LogError("failed to load config", "error", err)
-		os.Exit(1)
-	}
-
-	proxyAddr := cfg.ServerAddr
-	if !strings.HasPrefix(proxyAddr, "http://") && !strings.HasPrefix(proxyAddr, "https://") {
-		proxyAddr = "https://" + proxyAddr
-	}
-
-	connectClient := &client.ConnectClient{
-		TunnelID:   tunnelID,
-		LocalAddr:  localAddr,
-		ProxyAddr:  proxyAddr,
-		SkipVerify: cfg.SkipVerify || *skipVerify,
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-	go func() {
-		<-sigChan
-		common.LogInfo("received shutdown signal")
-		cancel()
-	}()
-
-	if err := connectClient.Run(ctx); err != nil && err != context.Canceled {
-		common.LogError("connect error", "error", err)
 		os.Exit(1)
 	}
 }
@@ -409,7 +338,7 @@ func normalizeTargetURL(input string) (string, error) {
 
 func runMagicLink(args []string) {
 	fs := flag.NewFlagSet("magic-link", flag.ExitOnError)
-	secretFlag := fs.String("secret", "", "JWT signing secret (or set JWT_SECRET env var)")
+	secretFlag := fs.String("secret", "", "JWT signing secret (or set TUNN_JWT_SECRET env var)")
 	domainFlag := fs.String("domain", "", "domain for full URL output (e.g., tunn.to)")
 	expiryFlag := fs.Duration("expiry", 5*time.Minute, "token expiry duration")
 	tokenOnlyFlag := fs.Bool("token-only", false, "output only the token, not the full URL")
@@ -421,9 +350,9 @@ Usage:
   tunn magic-link [options] <email>
 
 Examples:
-  tunn magic-link alice@example.com                    # Token only (uses JWT_SECRET env)
-  tunn magic-link -secret=mysecret alice@example.com   # With explicit secret
-  tunn magic-link -domain=tunn.to alice@example.com    # Full URL output
+  tunn magic-link alice@example.com                       # Token only (uses TUNN_JWT_SECRET)
+  tunn magic-link --secret=mysecret alice@example.com     # With explicit secret
+  tunn magic-link --domain=tunn.to alice@example.com      # Full URL output
 
 Options:
 `)
@@ -458,10 +387,10 @@ Options:
 	// Get secret from flag or env
 	secret := *secretFlag
 	if secret == "" {
-		secret = os.Getenv("JWT_SECRET")
+		secret = os.Getenv("TUNN_JWT_SECRET")
 	}
 	if secret == "" {
-		common.LogError("JWT secret required: use -secret flag or set JWT_SECRET env var")
+		common.LogError("JWT secret required: use -secret flag or set TUNN_JWT_SECRET env var")
 		os.Exit(1)
 	}
 

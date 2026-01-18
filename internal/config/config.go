@@ -60,6 +60,7 @@ type Config struct {
 
 	// Stripe configuration (for billing)
 	StripeWebhookSecret string
+	StripeCheckoutURL   string // Stripe Payment Link URL for Pro tier upgrade
 
 	// Client configuration
 	ServerAddr string
@@ -96,85 +97,86 @@ func LoadConfig() (*Config, error) {
 func (c *Config) loadDevConfig() {
 	// Use nip.io for local wildcard DNS
 	// Format: *.tunn.local.127.0.0.1.nip.io resolves to 127.0.0.1
-	c.Domain = getEnvOrDefault("DOMAIN", "tunn.local.127.0.0.1.nip.io")
+	c.Domain = getEnvOrDefault("TUNN_DOMAIN", "tunn.local.127.0.0.1.nip.io")
 
 	// Use local test certificates
-	c.CertFile = getEnvOrDefault("CERT_FILE", "./certs/cert.pem")
-	c.KeyFile = getEnvOrDefault("KEY_FILE", "./certs/key.pem")
+	c.CertFile = getEnvOrDefault("TUNN_CERT_FILE", "./certs/cert.pem")
+	c.KeyFile = getEnvOrDefault("TUNN_KEY_FILE", "./certs/key.pem")
 
-	// HTTP listener address (ADDR sets both, or use HTTP2_ADDR/HTTP3_ADDR for separate control)
-	defaultAddr := getEnvOrDefault("ADDR", ":8443")
-	c.HTTP2Addr = getEnvOrDefault("HTTP2_ADDR", defaultAddr)
-	c.HTTP3Addr = getEnvOrDefault("HTTP3_ADDR", defaultAddr)
+	// HTTP listener address (TUNN_ADDR sets both, or use TUNN_HTTP2_ADDR/TUNN_HTTP3_ADDR for separate control)
+	defaultAddr := getEnvOrDefault("TUNN_ADDR", ":8443")
+	c.HTTP2Addr = getEnvOrDefault("TUNN_HTTP2_ADDR", defaultAddr)
+	c.HTTP3Addr = getEnvOrDefault("TUNN_HTTP3_ADDR", defaultAddr)
 
 	// Internal gRPC
-	c.InternalGRPCPort = getEnvOrDefault("INTERNAL_GRPC_PORT", ":50051")
-	c.NodeAddresses = getEnvOrDefault("NODE_ADDRESSES", "")
-	c.NodeSecret = getEnvOrDefault("NODE_SECRET", "dev-node-secret")
-	c.PublicAddr = getEnvOrDefault("PUBLIC_ADDR", "localhost:8443")
-	c.FlyAppName = getEnvOrDefault("FLY_APP_NAME", "")     // Fly.io sets this automatically
+	c.InternalGRPCPort = getEnvOrDefault("TUNN_INTERNAL_GRPC_PORT", ":50051")
+	c.NodeAddresses = getEnvOrDefault("TUNN_NODE_ADDRESSES", "")
+	c.NodeSecret = getEnvOrDefault("TUNN_NODE_SECRET", "dev-node-secret")
+	c.PublicAddr = getEnvOrDefault("TUNN_PUBLIC_ADDR", "localhost:8443")
+	c.FlyAppName = getEnvOrDefault("FLY_APP_NAME", "")   // Fly.io sets this automatically
 	c.InternalCACert = getEnvOrDefault("TUNN_CA_CERT", "") // Custom CA for internal TLS (self-hosters)
 
-	// Mock OIDC provider runs locally (set MOCK_OIDC_ADDR="" to disable)
-	c.MockOIDCAddr = getEnvAllowEmpty("MOCK_OIDC_ADDR", ":9000")
-	c.MockOIDCIssuer = getEnvOrDefault("MOCK_OIDC_ISSUER", "http://localhost:9000")
+	// Mock OIDC provider runs locally (set TUNN_MOCK_OIDC_ADDR="" to disable)
+	c.MockOIDCAddr = getEnvAllowEmpty("TUNN_MOCK_OIDC_ADDR", ":9000")
+	c.MockOIDCIssuer = getEnvOrDefault("TUNN_MOCK_OIDC_ISSUER", "http://localhost:9000")
 
 	// Server address for clients
-	c.ServerAddr = getEnvOrDefault("SERVER_ADDR", "localhost:8443")
+	c.ServerAddr = getEnvOrDefault("TUNN_SERVER_ADDR", "localhost:8443")
 
 	// Tunnel creation key (free tier)
-	c.WellKnownKey = getEnvOrDefault("WELL_KNOWN_KEY", "tunn-free-v1-2025")
+	c.WellKnownKey = getEnvOrDefault("TUNN_WELL_KNOWN_KEY", "tunn-free-v1-2025")
 
 	// Public mode (disable all auth for testing)
-	c.PublicMode = getEnvOrDefault("PUBLIC_MODE", "") == "true"
+	c.PublicMode = getEnvOrDefault("TUNN_PUBLIC_MODE", "") == "true"
 
 	// GitHub OAuth (optional in dev - uses mock OIDC if not set)
-	c.GitHubClientID = getEnvOrDefault("GITHUB_CLIENT_ID", "")
-	c.GitHubClientSecret = getEnvOrDefault("GITHUB_CLIENT_SECRET", "")
-	c.JWTSecret = getEnvOrDefault("JWT_SECRET", "dev-jwt-secret-do-not-use-in-prod")
+	c.GitHubClientID = getEnvOrDefault("TUNN_GITHUB_CLIENT_ID", "")
+	c.GitHubClientSecret = getEnvOrDefault("TUNN_GITHUB_CLIENT_SECRET", "")
+	c.JWTSecret = getEnvOrDefault("TUNN_JWT_SECRET", "dev-jwt-secret-do-not-use-in-prod")
 
 	// Client secret (self-hosters can bypass OAuth with this)
-	c.ClientSecret = getEnvOrDefault("CLIENT_SECRET", "")
-	c.UsersFile = getEnvOrDefault("USERS_FILE", "")
+	c.ClientSecret = getEnvOrDefault("TUNN_CLIENT_SECRET", "")
+	c.UsersFile = getEnvOrDefault("TUNN_USERS_FILE", "")
 
 	// SMTP (optional in dev)
-	c.SMTPHost = getEnvOrDefault("SMTP_HOST", "")
-	c.SMTPPort = getEnvOrDefault("SMTP_PORT", "587")
-	c.SMTPUser = getEnvOrDefault("SMTP_USER", "")
-	c.SMTPPassword = getEnvOrDefault("SMTP_PASSWORD", "")
-	c.SMTPFrom = getEnvOrDefault("SMTP_FROM", "")
+	c.SMTPHost = getEnvOrDefault("TUNN_SMTP_HOST", "")
+	c.SMTPPort = getEnvOrDefault("TUNN_SMTP_PORT", "587")
+	c.SMTPUser = getEnvOrDefault("TUNN_SMTP_USER", "")
+	c.SMTPPassword = getEnvOrDefault("TUNN_SMTP_PASSWORD", "")
+	c.SMTPFrom = getEnvOrDefault("TUNN_SMTP_FROM", "")
 
 	// Stripe (optional in dev)
-	c.StripeWebhookSecret = getEnvOrDefault("STRIPE_WEBHOOK_SECRET", "")
+	c.StripeWebhookSecret = getEnvOrDefault("TUNN_STRIPE_WEBHOOK_SECRET", "")
+	c.StripeCheckoutURL = getEnvOrDefault("TUNN_STRIPE_CHECKOUT_URL", "")
 
 	// Skip TLS verification in dev
 	c.SkipVerify = true
 
 	// Login node (defaults to true in dev for simplicity)
-	c.LoginNode = IsLoginNode() || getEnvOrDefault("LOGIN_NODE", "true") == "true"
+	c.LoginNode = IsLoginNode() || getEnvOrDefault("TUNN_LOGIN_NODE", "true") == "true"
 	c.DBPath = getEnvOrDefault("TUNN_DB_PATH", "")
 }
 
 // loadProdConfig loads production configuration
 func (c *Config) loadProdConfig() {
 	// Production domain
-	c.Domain = getEnvOrDefault("DOMAIN", "tunn.to")
+	c.Domain = getEnvOrDefault("TUNN_DOMAIN", "tunn.to")
 
 	// Production certificates (Fly.io paths)
-	c.CertFile = getEnvOrDefault("CERT_FILE", "/app/certs/fullchain.pem")
-	c.KeyFile = getEnvOrDefault("KEY_FILE", "/app/certs/privkey.pem")
+	c.CertFile = getEnvOrDefault("TUNN_CERT_FILE", "/app/certs/fullchain.pem")
+	c.KeyFile = getEnvOrDefault("TUNN_KEY_FILE", "/app/certs/privkey.pem")
 
-	// HTTP listener address (ADDR sets both, or use HTTP2_ADDR/HTTP3_ADDR for separate control)
-	prodDefaultAddr := getEnvOrDefault("ADDR", ":8443")
-	c.HTTP2Addr = getEnvOrDefault("HTTP2_ADDR", prodDefaultAddr)
-	c.HTTP3Addr = getEnvOrDefault("HTTP3_ADDR", prodDefaultAddr)
+	// HTTP listener address (TUNN_ADDR sets both, or use TUNN_HTTP2_ADDR/TUNN_HTTP3_ADDR for separate control)
+	prodDefaultAddr := getEnvOrDefault("TUNN_ADDR", ":8443")
+	c.HTTP2Addr = getEnvOrDefault("TUNN_HTTP2_ADDR", prodDefaultAddr)
+	c.HTTP3Addr = getEnvOrDefault("TUNN_HTTP3_ADDR", prodDefaultAddr)
 
 	// Internal gRPC
-	c.InternalGRPCPort = getEnvOrDefault("INTERNAL_GRPC_PORT", ":50051")
-	c.NodeAddresses = getEnvOrDefault("NODE_ADDRESSES", "")
-	c.NodeSecret = getEnvOrDefault("NODE_SECRET", "") // Must be set in prod for multi-node
-	c.PublicAddr = getEnvOrDefault("PUBLIC_ADDR", "tunn.to:443")
-	c.FlyAppName = getEnvOrDefault("FLY_APP_NAME", "")     // Fly.io sets this automatically
+	c.InternalGRPCPort = getEnvOrDefault("TUNN_INTERNAL_GRPC_PORT", ":50051")
+	c.NodeAddresses = getEnvOrDefault("TUNN_NODE_ADDRESSES", "")
+	c.NodeSecret = getEnvOrDefault("TUNN_NODE_SECRET", "") // Must be set in prod for multi-node
+	c.PublicAddr = getEnvOrDefault("TUNN_PUBLIC_ADDR", "tunn.to:443")
+	c.FlyAppName = getEnvOrDefault("FLY_APP_NAME", "")   // Fly.io sets this automatically
 	c.InternalCACert = getEnvOrDefault("TUNN_CA_CERT", "") // Custom CA for internal TLS (self-hosters)
 
 	// No mock OIDC in production
@@ -182,29 +184,30 @@ func (c *Config) loadProdConfig() {
 	c.MockOIDCIssuer = ""
 
 	// Server address for clients
-	c.ServerAddr = getEnvOrDefault("SERVER_ADDR", "tunn.to:443")
+	c.ServerAddr = getEnvOrDefault("TUNN_SERVER_ADDR", "tunn.to:443")
 
 	// Tunnel creation key (free tier)
-	c.WellKnownKey = getEnvOrDefault("WELL_KNOWN_KEY", "tunn-free-v1-2025")
+	c.WellKnownKey = getEnvOrDefault("TUNN_WELL_KNOWN_KEY", "tunn-free-v1-2025")
 
 	// GitHub OAuth (required in prod for tunn.to)
-	c.GitHubClientID = getEnvOrDefault("GITHUB_CLIENT_ID", "")
-	c.GitHubClientSecret = getEnvOrDefault("GITHUB_CLIENT_SECRET", "")
-	c.JWTSecret = getEnvOrDefault("JWT_SECRET", "") // Must be set in prod
+	c.GitHubClientID = getEnvOrDefault("TUNN_GITHUB_CLIENT_ID", "")
+	c.GitHubClientSecret = getEnvOrDefault("TUNN_GITHUB_CLIENT_SECRET", "")
+	c.JWTSecret = getEnvOrDefault("TUNN_JWT_SECRET", "") // Must be set in prod
 
 	// Client secret (self-hosters only - tunn.to leaves this empty)
-	c.ClientSecret = getEnvOrDefault("CLIENT_SECRET", "")
-	c.UsersFile = getEnvOrDefault("USERS_FILE", "")
+	c.ClientSecret = getEnvOrDefault("TUNN_CLIENT_SECRET", "")
+	c.UsersFile = getEnvOrDefault("TUNN_USERS_FILE", "")
 
 	// SMTP (for magic link auth)
-	c.SMTPHost = getEnvOrDefault("SMTP_HOST", "")
-	c.SMTPPort = getEnvOrDefault("SMTP_PORT", "587")
-	c.SMTPUser = getEnvOrDefault("SMTP_USER", "")
-	c.SMTPPassword = getEnvOrDefault("SMTP_PASSWORD", "")
-	c.SMTPFrom = getEnvOrDefault("SMTP_FROM", "")
+	c.SMTPHost = getEnvOrDefault("TUNN_SMTP_HOST", "")
+	c.SMTPPort = getEnvOrDefault("TUNN_SMTP_PORT", "587")
+	c.SMTPUser = getEnvOrDefault("TUNN_SMTP_USER", "")
+	c.SMTPPassword = getEnvOrDefault("TUNN_SMTP_PASSWORD", "")
+	c.SMTPFrom = getEnvOrDefault("TUNN_SMTP_FROM", "")
 
 	// Stripe (for billing)
-	c.StripeWebhookSecret = getEnvOrDefault("STRIPE_WEBHOOK_SECRET", "")
+	c.StripeWebhookSecret = getEnvOrDefault("TUNN_STRIPE_WEBHOOK_SECRET", "")
+	c.StripeCheckoutURL = getEnvOrDefault("TUNN_STRIPE_CHECKOUT_URL", "")
 
 	// Verify TLS in production
 	c.SkipVerify = false
@@ -227,10 +230,10 @@ func (c *Config) IsProd() bool {
 // IsLoginNode returns true if this node is the login node.
 // Login node owns SQLite and handles all auth/account operations.
 // Determined by:
-//   - LOGIN_NODE=true env var (self-host)
+//   - TUNN_LOGIN_NODE=true env var (self-host)
 //   - FLY_PROCESS_GROUP=login (Fly.io automatic)
 func IsLoginNode() bool {
-	if os.Getenv("LOGIN_NODE") == "true" {
+	if os.Getenv("TUNN_LOGIN_NODE") == "true" {
 		return true
 	}
 	if os.Getenv("FLY_PROCESS_GROUP") == "login" {
@@ -241,7 +244,7 @@ func IsLoginNode() bool {
 
 // getEnvironment determines the current environment
 func getEnvironment() Environment {
-	env := os.Getenv("ENV")
+	env := os.Getenv("TUNN_ENV")
 	switch env {
 	case "dev", "development":
 		return EnvDev

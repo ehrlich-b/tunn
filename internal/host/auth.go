@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"html/template"
 	"io"
 	"net/http"
 	"net/url"
@@ -545,4 +546,120 @@ func (p *ProxyServer) getJWTSigningKey() []byte {
 
 	// In production, refuse to operate without JWT_SECRET
 	panic("FATAL: JWT_SECRET environment variable is required in production")
+}
+
+// handleLogout clears the session and redirects to home
+func (p *ProxyServer) handleLogout(w http.ResponseWriter, r *http.Request) {
+	p.sessionManager.Destroy(r.Context())
+	http.Redirect(w, r, "/", http.StatusFound)
+}
+
+// AccountPageData holds data for the account page template
+type AccountPageData struct {
+	Email             string
+	Plan              string
+	UsageBytes        int64
+	QuotaBytes        int64
+	UsagePercent      int
+	UsageFormatted    string
+	QuotaFormatted    string
+	StripeCheckoutURL string
+}
+
+// handleAccount shows the account dashboard page
+func (p *ProxyServer) handleAccount(w http.ResponseWriter, r *http.Request) {
+	// Check authentication
+	authenticated := p.sessionManager.GetBool(r.Context(), "authenticated")
+	if !authenticated {
+		loginURL := fmt.Sprintf("/auth/login?return_to=%s", url.QueryEscape(r.URL.String()))
+		http.Redirect(w, r, loginURL, http.StatusFound)
+		return
+	}
+
+	email := p.sessionManager.GetString(r.Context(), "user_email")
+
+	// Get account info
+	plan := "free"
+	var usageBytes int64 = 0
+	var quotaBytes int64 = 100 * 1024 * 1024 // 100 MB free tier
+
+	if p.storage.Available() {
+		// Try to get account info
+		if account, err := p.storage.GetAccountByEmail(r.Context(), email); err == nil && account != nil {
+			plan = account.Plan
+			if plan == "pro" {
+				quotaBytes = 50 * 1024 * 1024 * 1024 // 50 GB
+			}
+		}
+
+		// Get usage
+		if usage, err := p.storage.GetMonthlyUsage(r.Context(), email); err == nil {
+			usageBytes = usage
+		}
+	}
+
+	// Calculate percentage
+	usagePercent := 0
+	if quotaBytes > 0 {
+		usagePercent = int((usageBytes * 100) / quotaBytes)
+		if usagePercent > 100 {
+			usagePercent = 100
+		}
+	}
+
+	// Format bytes
+	usageFormatted := formatBytes(usageBytes)
+	quotaFormatted := formatBytes(quotaBytes)
+
+	// Stripe checkout URL - use Stripe Payment Links for simplicity
+	stripeCheckoutURL := p.config.StripeCheckoutURL
+	if stripeCheckoutURL == "" {
+		stripeCheckoutURL = "#" // Placeholder if not configured
+	}
+
+	data := AccountPageData{
+		Email:             email,
+		Plan:              plan,
+		UsageBytes:        usageBytes,
+		QuotaBytes:        quotaBytes,
+		UsagePercent:      usagePercent,
+		UsageFormatted:    usageFormatted,
+		QuotaFormatted:    quotaFormatted,
+		StripeCheckoutURL: stripeCheckoutURL,
+	}
+
+	// Render template
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	tmpl, err := template.New("account").Parse(accountHTML)
+	if err != nil {
+		common.LogError("failed to parse account template", "error", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if err := tmpl.Execute(w, data); err != nil {
+		common.LogError("failed to execute account template", "error", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+}
+
+// formatBytes formats bytes as a human-readable string
+func formatBytes(bytes int64) string {
+	const (
+		KB = 1024
+		MB = KB * 1024
+		GB = MB * 1024
+	)
+
+	switch {
+	case bytes >= GB:
+		return fmt.Sprintf("%.1f GB", float64(bytes)/GB)
+	case bytes >= MB:
+		return fmt.Sprintf("%.1f MB", float64(bytes)/MB)
+	case bytes >= KB:
+		return fmt.Sprintf("%.1f KB", float64(bytes)/KB)
+	default:
+		return fmt.Sprintf("%d B", bytes)
+	}
 }

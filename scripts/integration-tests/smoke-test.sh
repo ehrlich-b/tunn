@@ -65,16 +65,15 @@ fi
 log_info "Target server running (PID: $TARGET_PID)"
 
 # Step 4: Start proxy server
-log_info "Starting proxy server on :$HTTP_PORT (PUBLIC_MODE=true)..."
-ENV=dev \
-  TOKEN=$TOKEN \
-  PUBLIC_MODE=true \
-  DOMAIN=$DOMAIN \
-  HTTP2_ADDR=:$HTTP_PORT \
-  HTTP3_ADDR=:$HTTP_PORT \
-  MOCK_OIDC_ADDR=:19000 \
-  MOCK_OIDC_ISSUER="http://localhost:19000" \
-  NODE_ADDRESSES="" \
+log_info "Starting proxy server on :$HTTP_PORT (TUNN_PUBLIC_MODE=true)..."
+TUNN_ENV=dev \
+  TUNN_PUBLIC_MODE=true \
+  TUNN_DOMAIN=$DOMAIN \
+  TUNN_HTTP2_ADDR=:$HTTP_PORT \
+  TUNN_HTTP3_ADDR=:$HTTP_PORT \
+  TUNN_MOCK_OIDC_ADDR=:19000 \
+  TUNN_MOCK_OIDC_ISSUER="http://localhost:19000" \
+  TUNN_NODE_ADDRESSES="" \
   ./bin/tunn -mode=host -cert=./certs/cert.pem -key=./certs/key.pem &
 PROXY_PID=$!
 sleep 2
@@ -88,9 +87,9 @@ log_info "Proxy server running (PID: $PROXY_PID)"
 
 # Step 5: Start tunnel client
 log_info "Connecting tunnel client (ID: $TUNNEL_ID)..."
-ENV=dev \
-  SERVER_ADDR=localhost:$HTTP_PORT \
-  PUBLIC_MODE=true \
+TUNN_ENV=dev \
+  TUNN_SERVER_ADDR=localhost:$HTTP_PORT \
+  TUNN_PUBLIC_MODE=true \
   ./bin/tunn $TARGET_PORT --id=$TUNNEL_ID &
 CLIENT_PID=$!
 sleep 2

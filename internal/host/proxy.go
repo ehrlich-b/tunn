@@ -667,6 +667,7 @@ func (p *ProxyServer) createHandler() http.Handler {
 	// Auth endpoints (no auth required on these)
 	mux.HandleFunc("/auth/login", p.handleLogin)
 	mux.HandleFunc("/auth/github", p.handleGitHubLogin)
+	mux.HandleFunc("/auth/mock", p.handleMockLogin)
 	mux.HandleFunc("/auth/callback", p.handleCallback)
 	mux.HandleFunc("/auth/magic", p.handleMagicLinkRequest)
 	mux.HandleFunc("/auth/verify", p.handleMagicLinkVerify)
@@ -981,13 +982,13 @@ func (p *ProxyServer) flushUsageBuffer(ctx context.Context) {
 // Uses cached values with stale fallback when login node is unavailable.
 // Returns true if allowed (under quota or unknown), false if over quota.
 func (p *ProxyServer) CheckQuota(ctx context.Context, accountID string, plan string) bool {
-	// Get quota limit based on plan
+	// Get quota limit based on plan (SI decimal units: 1 GB = 1,000,000,000 bytes)
 	var quotaBytes int64
 	switch plan {
 	case "pro":
-		quotaBytes = 50 * 1024 * 1024 * 1024 // 50 GB
+		quotaBytes = 50 * 1000 * 1000 * 1000 // 50 GB
 	default:
-		quotaBytes = 100 * 1024 * 1024 // 100 MB
+		quotaBytes = 100 * 1000 * 1000 // 100 MB
 	}
 
 	// Try to get fresh usage data

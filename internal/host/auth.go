@@ -48,19 +48,15 @@ func sanitizeReturnTo(returnTo string) string {
 
 // handleLogin shows the login page with OAuth and email options
 func (p *ProxyServer) handleLogin(w http.ResponseWriter, r *http.Request) {
-	// In dev mode with mock OIDC, skip to mock login directly
-	if p.config.GitHubClientID == "" && p.config.IsDev() && p.config.MockOIDCIssuer != "" {
-		p.handleMockLogin(w, r)
-		return
-	}
-
 	// Store sanitized return_to in session for after auth (prevents open redirect)
 	returnTo := sanitizeReturnTo(r.URL.Query().Get("return_to"))
 	p.sessionManager.Put(r.Context(), "return_to", returnTo)
 
 	// Build login page
 	hasGitHub := p.config.GitHubClientID != ""
+	hasMockOIDC := p.config.IsDev() && p.config.MockOIDCIssuer != ""
 	hasEmail := p.emailSender != nil
+	hasOAuth := hasGitHub || hasMockOIDC
 
 	w.Header().Set("Content-Type", "text/html")
 	writePageStart(w, "tunn - Login")
@@ -68,11 +64,14 @@ func (p *ProxyServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 <p class="page-subtitle">Access your tunnels and account settings.</p>
 <div id="message"></div>`)
 
+	// Show OAuth button (GitHub in prod, Mock OIDC in dev)
 	if hasGitHub {
 		fmt.Fprintf(w, `<a href="/auth/github?return_to=%s" class="btn btn-github">Continue with GitHub</a>`, url.QueryEscape(returnTo))
+	} else if hasMockOIDC {
+		fmt.Fprintf(w, `<a href="/auth/mock?return_to=%s" class="btn btn-github">Continue with Mock Login</a>`, url.QueryEscape(returnTo))
 	}
 
-	if hasGitHub && hasEmail {
+	if hasOAuth && hasEmail {
 		fmt.Fprint(w, `<div class="divider"><span>or</span></div>`)
 	}
 
@@ -117,7 +116,7 @@ document.getElementById('email-form').addEventListener('submit', async (e) => {
 </script>`)
 	}
 
-	if !hasGitHub && !hasEmail {
+	if !hasOAuth && !hasEmail {
 		fmt.Fprint(w, `<p>No login methods configured. Contact your administrator.</p>`)
 	}
 
@@ -218,6 +217,15 @@ func (p *ProxyServer) handleCallback(w http.ResponseWriter, r *http.Request) {
 
 	common.LogInfo("user authenticated via GitHub", "email", email)
 
+	// Create or update account in database (if storage available)
+	if p.storage.Available() {
+		_, err := p.storage.FindOrCreateByEmails(r.Context(), []string{email}, "github")
+		if err != nil {
+			common.LogError("failed to create account", "email", email, "error", err)
+			// Continue anyway - session auth still works without DB record
+		}
+	}
+
 	// Check if this is a device code flow (CLI login)
 	deviceUserCode := p.sessionManager.PopString(r.Context(), "device_user_code")
 	if deviceUserCode != "" && p.storage.Available() {
@@ -232,10 +240,10 @@ func (p *ProxyServer) handleCallback(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Redirect to original URL
+	// Redirect to return_to if set (e.g., accessing a tunnel), otherwise account page
 	returnTo := p.sessionManager.PopString(r.Context(), "return_to")
-	if returnTo == "" {
-		returnTo = "/"
+	if returnTo == "" || returnTo == "/" {
+		returnTo = "/account"
 	}
 
 	http.Redirect(w, r, returnTo, http.StatusFound)
@@ -396,6 +404,14 @@ func (p *ProxyServer) handleMockCallback(w http.ResponseWriter, r *http.Request)
 
 	common.LogInfo("user authenticated via mock OIDC", "email", email)
 
+	// Create or update account in database (if storage available)
+	if p.storage.Available() {
+		_, err := p.storage.FindOrCreateByEmails(r.Context(), []string{email}, "mock_oidc")
+		if err != nil {
+			common.LogError("failed to create account", "email", email, "error", err)
+		}
+	}
+
 	// Check if this is a device code flow (CLI login)
 	deviceUserCode := p.sessionManager.PopString(r.Context(), "device_user_code")
 	if deviceUserCode != "" && p.storage.Available() {
@@ -411,8 +427,8 @@ func (p *ProxyServer) handleMockCallback(w http.ResponseWriter, r *http.Request)
 	}
 
 	returnTo := p.sessionManager.PopString(r.Context(), "return_to")
-	if returnTo == "" {
-		returnTo = "/"
+	if returnTo == "" || returnTo == "/" {
+		returnTo = "/account"
 	}
 
 	http.Redirect(w, r, returnTo, http.StatusFound)
@@ -547,14 +563,14 @@ func (p *ProxyServer) CheckJWT(next http.Handler) http.Handler {
 
 // getJWTSigningKey returns the signing key for JWT validation
 func (p *ProxyServer) getJWTSigningKey() []byte {
-	// In dev mode with mock OIDC, use mock signing key
-	if p.config.IsDev() && p.mockOIDC != nil {
-		return p.mockOIDC.GetSigningKey()
-	}
-
-	// Use configured JWT secret
+	// Use configured JWT secret if set (takes precedence over mock OIDC)
 	if p.config.JWTSecret != "" {
 		return []byte(p.config.JWTSecret)
+	}
+
+	// In dev mode with mock OIDC but no explicit secret, use mock signing key
+	if p.config.IsDev() && p.mockOIDC != nil {
+		return p.mockOIDC.GetSigningKey()
 	}
 
 	// In dev mode, allow fallback to weak secret (for testing without full config)
@@ -600,20 +616,19 @@ func (p *ProxyServer) handleAccount(w http.ResponseWriter, r *http.Request) {
 	// Get account info
 	plan := "free"
 	var usageBytes int64 = 0
-	var quotaBytes int64 = 100 * 1024 * 1024 // 100 MB free tier
+	var quotaBytes int64 = 100 * 1000 * 1000 // 100 MB free tier
 
 	if p.storage.Available() {
 		// Try to get account info
 		if account, err := p.storage.GetAccountByEmail(r.Context(), email); err == nil && account != nil {
 			plan = account.Plan
 			if plan == "pro" {
-				quotaBytes = 50 * 1024 * 1024 * 1024 // 50 GB
+				quotaBytes = 50 * 1000 * 1000 * 1000 // 50 GB
 			}
-		}
-
-		// Get usage
-		if usage, err := p.storage.GetMonthlyUsage(r.Context(), email); err == nil {
-			usageBytes = usage
+			// Get usage (by account ID, not email)
+			if usage, err := p.storage.GetMonthlyUsage(r.Context(), account.ID); err == nil {
+				usageBytes = usage
+			}
 		}
 	}
 
@@ -663,12 +678,13 @@ func (p *ProxyServer) handleAccount(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// formatBytes formats bytes as a human-readable string
+// formatBytes formats bytes as a human-readable string using SI decimal units
+// (1 GB = 1,000,000,000 bytes, not 1 GiB = 1,073,741,824 bytes)
 func formatBytes(bytes int64) string {
 	const (
-		KB = 1024
-		MB = KB * 1024
-		GB = MB * 1024
+		KB = 1000
+		MB = KB * 1000
+		GB = MB * 1000
 	)
 
 	switch {

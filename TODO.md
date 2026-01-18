@@ -2,10 +2,6 @@
 
 ## Pre-Launch
 
-### Code
-
-- [ ] **Cache invalidation on cross-node 503** - When `proxyToNode` gets 503, delete cache entry and re-probe. Location: `internal/host/webproxy.go`
-
 ### Manual Setup
 
 - [ ] GitHub OAuth App - Create in GitHub settings, get client ID/secret

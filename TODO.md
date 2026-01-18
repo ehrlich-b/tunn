@@ -497,19 +497,19 @@ See [REVIEW.md](REVIEW.md) for full audit summary.
 Use case: Intern trapped on school WiFi that blocks UDP, needs WireGuard to reach home/work.
 
 ```bash
-# Home server (open internet)
-tunn relay 51820 --id=home-wg --peer=intern-wg
+# Home server: accept relay from company emails (same --allow as HTTP tunnels!)
+tunn relay 51820 --id=home-wg --allow @company.com
 
 # Intern laptop (school WiFi, UDP blocked)
-tunn relay 51820 --id=intern-wg --peer=home-wg
+tunn relay 51820 --to=home-wg
 ```
 
-Both peers connect to tunn.to over TCP:443 (HTTPS). Server relays UDP packets between them. WireGuard works transparently.
+Both run `tunn login` first. Same email-based auth as HTTP tunnels. Server relays UDP packets between them over TCP:443.
 
-- [ ] Add `peer_id` field to UdpPacket proto
-- [ ] Server-side relay logic (~100 lines)
-- [ ] Client `tunn relay` command (~150 lines)
-- [ ] Mutual peering authorization
+- [ ] Add `target_tunnel` field to UdpPacket proto
+- [ ] Server-side relay logic (reuses `isEmailBucketAllowed`)
+- [ ] Client `tunn relay` command
+- [ ] `@self` shorthand for same-account relay
 - [ ] Pro tier gating
 
 **~500 lines total.** Builds on existing UDP tunneling.

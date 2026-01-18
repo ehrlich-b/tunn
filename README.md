@@ -16,7 +16,7 @@ Share with specific people:
 tunn 8080 --allow alice@gmail.com,bob@company.com
 ```
 
-Visitors log in with GitHub. If they're on your list, they're in. Otherwise, access denied.
+Visitors log in with GitHub or a magic link. If they're on your list, they're in. Otherwise, access denied.
 
 ## Install
 

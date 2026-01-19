@@ -42,3 +42,4 @@ fly.toml
 .env.*.local
 
 bin/
+image.png

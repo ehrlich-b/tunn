@@ -692,6 +692,7 @@ func (p *ProxyServer) createHandler() http.Handler {
 
 // handleInstallScript serves the install script for curl | sh installation
 func (p *ProxyServer) handleInstallScript(w http.ResponseWriter, r *http.Request) {
+	common.LogInfo("install script download")
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	fmt.Fprint(w, installScript)
 }

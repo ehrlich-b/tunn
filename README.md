@@ -13,7 +13,7 @@ https://abc123.tunn.to → localhost:8080
 Share with specific people:
 
 ```bash
-tunn 8080 --allow alice@gmail.com,bob@company.com
+tunn 8080 --allow=alice@gmail.com,bob@company.com
 ```
 
 Visitors log in with GitHub or a magic link. If they're on your list, they're in. Otherwise, access denied.
@@ -31,7 +31,7 @@ Or build from source: `make build`
 ```bash
 tunn login                    # One-time GitHub auth
 tunn 8080                     # Expose localhost:8080
-tunn 3000 --allow @company.com  # Allow entire domain
+tunn 3000 --allow=@company.com  # Allow entire domain
 tunn 8080 -id=myapp           # Custom URL (myapp.tunn.to)
 ```
 

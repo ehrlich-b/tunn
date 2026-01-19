@@ -209,7 +209,7 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 
 	// Warn if tunnel is open to the internet (no --allow specified)
 	if len(s.AllowedEmails) == 0 {
-		fmt.Println("Warning: Tunnel is open to the internet. Use --allow to restrict access.")
+		fmt.Println("Warning: Tunnel is open to the internet. Use --allow=email@example.com to restrict access.")
 	}
 
 	// Wrap stream with mutex for thread-safe sends

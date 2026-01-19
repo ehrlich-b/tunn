@@ -240,24 +240,12 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		if creatorEmail == "" {
 			creatorEmail = "client@local"
 		}
-		allowedEmails = make([]string, 0, len(regClient.AllowedEmails)+1)
-		allowedEmails = append(allowedEmails, creatorEmail)
-		for _, email := range regClient.AllowedEmails {
-			if email != "" && email != creatorEmail {
-				allowedEmails = append(allowedEmails, email)
-			}
-		}
+		allowedEmails = regClient.AllowedEmails
 	} else if email := s.validateUserToken(regClient.AuthToken); email != "" {
 		// User token auth (self-hosters - per-user from users.yaml)
 		common.LogInfo("user token auth", "tunnel_id", tunnelID, "email", email)
 		creatorEmail = email
-		allowedEmails = make([]string, 0, len(regClient.AllowedEmails)+1)
-		allowedEmails = append(allowedEmails, creatorEmail)
-		for _, e := range regClient.AllowedEmails {
-			if e != "" && e != creatorEmail {
-				allowedEmails = append(allowedEmails, e)
-			}
-		}
+		allowedEmails = regClient.AllowedEmails
 	} else {
 		// Validate tunnel_key (authorization to create tunnels)
 		if regClient.TunnelKey != s.cfg.WellKnownKey {
@@ -305,17 +293,9 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 			return fmt.Errorf("JWT validation failed for tunnel %s: %w", tunnelID, err)
 		}
 		creatorEmail = extractedEmail
+		allowedEmails = regClient.AllowedEmails
 
-		// Build complete allow-list (creator + allowed_emails)
-		allowedEmails = make([]string, 0, len(regClient.AllowedEmails)+1)
-		allowedEmails = append(allowedEmails, creatorEmail) // Creator always allowed
-		for _, email := range regClient.AllowedEmails {
-			if email != "" && email != creatorEmail {
-				allowedEmails = append(allowedEmails, email)
-			}
-		}
-
-		common.LogInfo("tunnel allow-list", "tunnel_id", tunnelID, "creator", creatorEmail, "allowed", allowedEmails)
+		common.LogInfo("tunnel registration", "tunnel_id", tunnelID, "creator", creatorEmail, "allowed", allowedEmails)
 	}
 
 	// Check subdomain reservations (if account store is available)

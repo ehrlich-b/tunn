@@ -389,6 +389,7 @@ func (p *ProxyServer) handleApexDomain(w http.ResponseWriter, r *http.Request) {
 	case "/terms":
 		fmt.Fprint(w, termsHTML)
 	default:
+		common.LogInfo("homepage visit")
 		fmt.Fprint(w, homepageHTML)
 	}
 }

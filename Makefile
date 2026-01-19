@@ -208,6 +208,25 @@ fly-status:
 	@echo "IPs (point DNS here):"
 	@fly ips list -a $(FLY_APP_NAME)
 
+# Run local server with .env
+run: build
+	@if [ ! -f .env ]; then echo "ERROR: .env not found. Copy .env.dist to .env and fill in values."; exit 1; fi
+	@if [ ! -f "./certs/cert.pem" ]; then ./scripts/gen-test-certs.sh; fi
+	@echo "Starting tunn server..."
+	@set -a && source .env && set +a && ./bin/tunn -mode=host
+
+# Run Stripe webhook listener for local dev
+# Copy the whsec_... output to .env as TUNN_STRIPE_WEBHOOK_SECRET
+stripe-listen:
+	@if [ ! -f .env ]; then echo "ERROR: .env not found."; exit 1; fi
+	@echo "Starting Stripe webhook listener..."
+	@echo "Copy the webhook signing secret (whsec_...) to your .env file"
+	@echo ""
+	@set -a && source .env && set +a && \
+		PORT=$${TUNN_HTTP2_ADDR:-$${TUNN_ADDR:-:8443}} && \
+		PORT=$${PORT#:} && \
+		stripe listen --forward-to https://localhost:$$PORT/webhooks/stripe --skip-verify
+
 # Dev environment
 dev:
 	@echo "Running in development mode..."
@@ -256,6 +275,10 @@ help:
 	@echo "Fly.io Maintenance:"
 	@echo "  make fly-logs      - Show Fly.io logs"
 	@echo "  make fly-status    - Show app status and IPs"
+	@echo ""
+	@echo "Local Development:"
+	@echo "  make run           - Run local server with .env"
+	@echo "  make stripe-listen - Run Stripe webhook listener"
 	@echo ""
 	@echo "Other:"
 	@echo "  make dev           - Run in development mode"

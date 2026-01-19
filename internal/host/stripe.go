@@ -1,6 +1,7 @@
 package host
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -34,6 +35,21 @@ type StripeSubscription struct {
 	ID       string `json:"id"`
 	Customer string `json:"customer"`
 	Status   string `json:"status"`
+}
+
+// StripeCheckoutSession represents a Stripe checkout session object
+type StripeCheckoutSession struct {
+	ID              string                 `json:"id"`
+	Customer        string                 `json:"customer"`
+	CustomerEmail   string                 `json:"customer_email"`
+	CustomerDetails *StripeCustomerDetails `json:"customer_details"`
+	Mode            string                 `json:"mode"` // "subscription" or "payment"
+	Status          string                 `json:"status"`
+}
+
+// StripeCustomerDetails contains customer info from checkout
+type StripeCustomerDetails struct {
+	Email string `json:"email"`
 }
 
 // StripeCustomer represents a Stripe customer object
@@ -95,17 +111,21 @@ func (p *ProxyServer) handleStripeWebhook(w http.ResponseWriter, r *http.Request
 
 	common.LogInfo("received Stripe webhook", "type", event.Type, "id", event.ID)
 
+	ctx := r.Context()
+
 	// Handle the event
 	switch event.Type {
-	case "customer.subscription.created", "customer.subscription.updated":
-		if err := p.handleSubscriptionEvent(event, true); err != nil {
-			common.LogError("failed to handle subscription event", "error", err)
+	case "checkout.session.completed":
+		// Best event for upgrades - has customer_email directly
+		if err := p.handleCheckoutCompleted(ctx, event); err != nil {
+			common.LogError("failed to handle checkout completed", "error", err)
 			http.Error(w, "Internal error", http.StatusInternalServerError)
 			return
 		}
 
 	case "customer.subscription.deleted":
-		if err := p.handleSubscriptionEvent(event, false); err != nil {
+		// Subscription cancelled - downgrade to free
+		if err := p.handleSubscriptionDeleted(ctx, event); err != nil {
 			common.LogError("failed to handle subscription deletion", "error", err)
 			http.Error(w, "Internal error", http.StatusInternalServerError)
 			return
@@ -120,45 +140,137 @@ func (p *ProxyServer) handleStripeWebhook(w http.ResponseWriter, r *http.Request
 	w.Write([]byte(`{"received": true}`))
 }
 
-// handleSubscriptionEvent processes subscription created/updated/deleted events
-func (p *ProxyServer) handleSubscriptionEvent(event StripeEvent, isPro bool) error {
-	// Parse the subscription object
+// handleCheckoutCompleted processes checkout.session.completed events
+// This is the best event for upgrades because it has customer_email directly
+func (p *ProxyServer) handleCheckoutCompleted(ctx context.Context, event StripeEvent) error {
+	var session StripeCheckoutSession
+	if err := json.Unmarshal(event.Data.Object, &session); err != nil {
+		return fmt.Errorf("failed to parse checkout session: %w", err)
+	}
+
+	// Only handle subscription checkouts
+	if session.Mode != "subscription" {
+		common.LogInfo("ignoring non-subscription checkout", "mode", session.Mode)
+		return nil
+	}
+
+	// Try multiple sources for email:
+	// 1. customer_email (pre-filled)
+	// 2. customer_details.email (entered during checkout)
+	// 3. Look up customer from Stripe API
+	email := session.CustomerEmail
+	if email == "" && session.CustomerDetails != nil {
+		email = session.CustomerDetails.Email
+	}
+	if email == "" && session.Customer != "" {
+		var err error
+		email, err = p.getStripeCustomerEmail(ctx, session.Customer)
+		if err != nil {
+			common.LogError("failed to get customer email from Stripe", "error", err)
+		}
+	}
+	if email == "" {
+		common.LogError("checkout session missing customer email", "session_id", session.ID)
+		return fmt.Errorf("missing customer email")
+	}
+
+	common.LogInfo("processing checkout completed",
+		"session_id", session.ID,
+		"email", email,
+		"customer_id", session.Customer,
+	)
+
+	// Find or create account - if someone pays without signing up first, create their account
+	account, err := p.storage.FindOrCreateByEmails(ctx, []string{email}, "stripe")
+	if err != nil {
+		return fmt.Errorf("failed to find/create account: %w", err)
+	}
+
+	// Upgrade to pro
+	if err := p.storage.UpdatePlan(ctx, account.ID, "pro"); err != nil {
+		return fmt.Errorf("failed to update plan: %w", err)
+	}
+
+	common.LogInfo("upgraded account to pro",
+		"account_id", account.ID,
+		"email", email,
+	)
+
+	return nil
+}
+
+// handleSubscriptionDeleted processes customer.subscription.deleted events
+func (p *ProxyServer) handleSubscriptionDeleted(ctx context.Context, event StripeEvent) error {
 	var subscription StripeSubscription
 	if err := json.Unmarshal(event.Data.Object, &subscription); err != nil {
 		return fmt.Errorf("failed to parse subscription: %w", err)
 	}
 
-	// For subscription.created/updated, only upgrade if status is active
-	if isPro && subscription.Status != "active" && subscription.Status != "trialing" {
-		common.LogInfo("ignoring subscription with non-active status", "status", subscription.Status)
-		return nil
-	}
-
-	// Get customer email - we need to look it up from Stripe
-	// For now, we'll store customer_id -> email mapping in metadata
-	// In production, you'd typically call Stripe API to get customer email
-	// or include customer email in subscription metadata
-
-	// The customer field contains the customer ID, not email
-	// We need the email to find the account
-	// For simplicity, we'll assume the customer email is stored in subscription metadata
-	// or we can look it up via Stripe API if needed
-
-	common.LogInfo("subscription event processed",
+	common.LogInfo("processing subscription deleted",
 		"subscription_id", subscription.ID,
 		"customer_id", subscription.Customer,
-		"status", subscription.Status,
-		"is_pro", isPro,
 	)
 
-	// TODO: To complete this, we need either:
-	// 1. Customer email in subscription metadata (Stripe Checkout can add this)
-	// 2. Call Stripe API to get customer email: GET /v1/customers/{id}
-	// 3. Store customer_id -> account_id mapping when checkout is created
+	// Need to look up customer email from Stripe
+	email, err := p.getStripeCustomerEmail(ctx, subscription.Customer)
+	if err != nil {
+		return fmt.Errorf("failed to get customer email: %w", err)
+	}
 
-	// For now, log and return success - the actual account update
-	// will require the email lookup logic above
+	// Find account by email
+	account, err := p.storage.GetAccountByEmail(ctx, email)
+	if err != nil {
+		return fmt.Errorf("failed to get account: %w", err)
+	}
+	if account == nil {
+		common.LogError("no account found for customer email", "email", email)
+		return nil // Don't error
+	}
+
+	// Downgrade to free
+	if err := p.storage.UpdatePlan(ctx, account.ID, "free"); err != nil {
+		return fmt.Errorf("failed to update plan: %w", err)
+	}
+
+	common.LogInfo("downgraded account to free",
+		"account_id", account.ID,
+		"email", email,
+	)
+
 	return nil
+}
+
+// getStripeCustomerEmail fetches a customer's email from Stripe API
+func (p *ProxyServer) getStripeCustomerEmail(ctx context.Context, customerID string) (string, error) {
+	if p.config.StripeSecretKey == "" {
+		return "", fmt.Errorf("STRIPE_SECRET_KEY not configured")
+	}
+
+	url := fmt.Sprintf("https://api.stripe.com/v1/customers/%s", customerID)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return "", err
+	}
+	req.SetBasicAuth(p.config.StripeSecretKey, "")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("stripe API error: %d %s", resp.StatusCode, string(body))
+	}
+
+	var customer StripeCustomer
+	if err := json.NewDecoder(resp.Body).Decode(&customer); err != nil {
+		return "", err
+	}
+
+	return customer.Email, nil
 }
 
 // verifyStripeSignature verifies the Stripe webhook signature

@@ -143,6 +143,74 @@ h1 {
 }
 .upgrade-btn-white:hover { background: #f6f8fa; text-decoration: none; }
 
+.billing-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.toggle-label {
+  font-size: 14px;
+  color: rgba(255,255,255,0.7);
+  transition: color 0.2s;
+}
+.toggle-label.active { color: white; font-weight: 600; }
+.save-badge {
+  background: rgba(255,255,255,0.2);
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.toggle-switch {
+  position: relative;
+  width: 44px;
+  height: 24px;
+}
+.toggle-switch input { opacity: 0; width: 0; height: 0; }
+.toggle-slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(255,255,255,0.3);
+  border-radius: 24px;
+  transition: 0.2s;
+}
+.toggle-slider:before {
+  position: absolute;
+  content: "";
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background: white;
+  border-radius: 50%;
+  transition: 0.2s;
+}
+.toggle-switch input:checked + .toggle-slider:before {
+  transform: translateX(20px);
+}
+.price-display {
+  margin-bottom: 20px;
+}
+.price {
+  font-size: 32px;
+  font-weight: 700;
+}
+.price-period {
+  font-size: 16px;
+  font-weight: 400;
+  opacity: 0.9;
+}
+.billed-yearly {
+  display: block;
+  font-size: 13px;
+  font-weight: 400;
+  opacity: 0.8;
+  margin-top: 4px;
+}
+
 .footer {
   background: #f6f8fa;
   border-top: 1px solid #e5e7eb;
@@ -194,9 +262,51 @@ h1 {
   {{if eq .Plan "free"}}
   <div class="card upgrade-card">
     <div class="card-title">Upgrade to Pro</div>
-    <p>Get 50 GB/month, reserved subdomains, and priority support for just $4/month.</p>
-    <a href="{{.StripeCheckoutURL}}" class="upgrade-btn-white">Upgrade Now</a>
+    <p>Get 50 GB/month, 10 concurrent tunnels, and priority support.</p>
+
+    <div class="billing-toggle">
+      <span class="toggle-label" id="label-monthly">Monthly</span>
+      <label class="toggle-switch">
+        <input type="checkbox" id="billing-toggle">
+        <span class="toggle-slider"></span>
+      </label>
+      <span class="toggle-label" id="label-yearly">Yearly <span class="save-badge">Save 20%</span></span>
+    </div>
+
+    <div class="price-display">
+      <span class="price" id="price-monthly">$5<span class="price-period">/mo</span></span>
+      <span class="price" id="price-yearly" style="display: none;">$4<span class="price-period">/mo</span> <span class="billed-yearly">billed yearly</span></span>
+    </div>
+
+    <a href="{{.StripeCheckoutURLMonthly}}" class="upgrade-btn-white" id="checkout-link">Upgrade Now</a>
   </div>
+  <script>
+    const toggle = document.getElementById('billing-toggle');
+    const link = document.getElementById('checkout-link');
+    const priceMonthly = document.getElementById('price-monthly');
+    const priceYearly = document.getElementById('price-yearly');
+    const labelMonthly = document.getElementById('label-monthly');
+    const labelYearly = document.getElementById('label-yearly');
+    const monthlyURL = "{{.StripeCheckoutURLMonthly}}";
+    const yearlyURL = "{{.StripeCheckoutURLYearly}}";
+
+    toggle.addEventListener('change', function() {
+      if (this.checked) {
+        link.href = yearlyURL;
+        priceMonthly.style.display = 'none';
+        priceYearly.style.display = 'inline';
+        labelYearly.classList.add('active');
+        labelMonthly.classList.remove('active');
+      } else {
+        link.href = monthlyURL;
+        priceMonthly.style.display = 'inline';
+        priceYearly.style.display = 'none';
+        labelMonthly.classList.add('active');
+        labelYearly.classList.remove('active');
+      }
+    });
+    labelMonthly.classList.add('active');
+  </script>
   {{end}}
 </div>
 

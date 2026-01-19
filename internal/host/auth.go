@@ -752,14 +752,15 @@ func (p *ProxyServer) handleLogout(w http.ResponseWriter, r *http.Request) {
 
 // AccountPageData holds data for the account page template
 type AccountPageData struct {
-	Email             string
-	Plan              string
-	UsageBytes        int64
-	QuotaBytes        int64
-	UsagePercent      int
-	UsageFormatted    string
-	QuotaFormatted    string
-	StripeCheckoutURL string
+	Email                   string
+	Plan                    string
+	UsageBytes              int64
+	QuotaBytes              int64
+	UsagePercent            int
+	UsageFormatted          string
+	QuotaFormatted          string
+	StripeCheckoutURLMonthly string
+	StripeCheckoutURLYearly  string
 }
 
 // handleAccount shows the account dashboard page
@@ -804,21 +805,26 @@ func (p *ProxyServer) handleAccount(w http.ResponseWriter, r *http.Request) {
 	usageFormatted := formatBytes(usageBytes)
 	quotaFormatted := formatBytes(quotaBytes)
 
-	// Stripe checkout URL - use Stripe Payment Links for simplicity
-	stripeCheckoutURL := p.config.StripeCheckoutURL
-	if stripeCheckoutURL == "" {
-		stripeCheckoutURL = "#" // Placeholder if not configured
+	// Stripe checkout URLs - use Stripe Payment Links for simplicity
+	stripeMonthly := p.config.StripeCheckoutURLMonthly
+	if stripeMonthly == "" {
+		stripeMonthly = "#"
+	}
+	stripeYearly := p.config.StripeCheckoutURLYearly
+	if stripeYearly == "" {
+		stripeYearly = "#"
 	}
 
 	data := AccountPageData{
-		Email:             email,
-		Plan:              plan,
-		UsageBytes:        usageBytes,
-		QuotaBytes:        quotaBytes,
-		UsagePercent:      usagePercent,
-		UsageFormatted:    usageFormatted,
-		QuotaFormatted:    quotaFormatted,
-		StripeCheckoutURL: stripeCheckoutURL,
+		Email:                    email,
+		Plan:                     plan,
+		UsageBytes:               usageBytes,
+		QuotaBytes:               quotaBytes,
+		UsagePercent:             usagePercent,
+		UsageFormatted:           usageFormatted,
+		QuotaFormatted:           quotaFormatted,
+		StripeCheckoutURLMonthly: stripeMonthly,
+		StripeCheckoutURLYearly:  stripeYearly,
 	}
 
 	// Render template

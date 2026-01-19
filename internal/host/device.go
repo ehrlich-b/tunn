@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -165,14 +166,17 @@ func (p *ProxyServer) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Store device code in session
-		p.sessionManager.Put(r.Context(), "device_user_code", userCode)
-
 		// If user is already logged in, show device authorization page
-		if p.sessionManager.GetBool(r.Context(), "authenticated") {
+		if p.isAuthenticated(r) {
 			p.showDeviceAuthorizePage(w, r, userCode)
 			return
 		}
+
+		// Not logged in - redirect to login with device_user_code in URL
+		// The OAuth flow will carry it through via the state JWT
+		loginURL := fmt.Sprintf("/auth/login?device_user_code=%s", url.QueryEscape(userCode))
+		http.Redirect(w, r, loginURL, http.StatusFound)
+		return
 	}
 
 	// Show the login page (with both GitHub and email options)
@@ -181,7 +185,7 @@ func (p *ProxyServer) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 
 // showDeviceAuthorizePage shows the "Authorize this device?" confirmation page
 func (p *ProxyServer) showDeviceAuthorizePage(w http.ResponseWriter, r *http.Request, userCode string) {
-	email := p.sessionManager.GetString(r.Context(), "user_email")
+	email := p.getAuthEmail(r)
 
 	w.Header().Set("Content-Type", "text/html")
 	writePageStart(w, "tunn - Authorize Device")
@@ -209,12 +213,11 @@ func (p *ProxyServer) handleDeviceAuthorize(w http.ResponseWriter, r *http.Reque
 	}
 
 	// Must be authenticated
-	if !p.sessionManager.GetBool(r.Context(), "authenticated") {
+	email, authenticated := p.getAuthFromCookie(r)
+	if !authenticated {
 		http.Redirect(w, r, "/login", http.StatusFound)
 		return
 	}
-
-	email := p.sessionManager.GetString(r.Context(), "user_email")
 	userCode := r.FormValue("code")
 
 	if userCode == "" {

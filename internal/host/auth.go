@@ -2,7 +2,6 @@ package host
 
 import (
 	"crypto/rand"
-	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -22,35 +21,194 @@ const (
 	githubTokenURL     = "https://github.com/login/oauth/access_token"
 	githubUserURL      = "https://api.github.com/user"
 	githubEmailsURL    = "https://api.github.com/user/emails"
+
+	// JWT auth cookie name - survives server restarts
+	authCookieName = "tunn_auth"
+	// JWT auth cookie lifetime (7 days)
+	authCookieLifetime = 7 * 24 * time.Hour
 )
 
+// setAuthCookie creates and sets a signed JWT auth cookie
+func (p *ProxyServer) setAuthCookie(w http.ResponseWriter, email string) error {
+	// Create JWT claims
+	claims := jwt.MapClaims{
+		"email": email,
+		"iat":   time.Now().Unix(),
+		"exp":   time.Now().Add(authCookieLifetime).Unix(),
+	}
+
+	// Create and sign the token
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tokenString, err := token.SignedString(p.getJWTSigningKey())
+	if err != nil {
+		return fmt.Errorf("failed to sign JWT: %w", err)
+	}
+
+	// Set the cookie
+	http.SetCookie(w, &http.Cookie{
+		Name:     authCookieName,
+		Value:    tokenString,
+		Path:     "/",
+		Domain:   "." + p.config.Domain,
+		MaxAge:   int(authCookieLifetime.Seconds()),
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+	})
+
+	return nil
+}
+
+// getAuthFromCookie reads and validates the JWT auth cookie, returning the email if valid
+func (p *ProxyServer) getAuthFromCookie(r *http.Request) (string, bool) {
+	cookie, err := r.Cookie(authCookieName)
+	if err != nil {
+		return "", false
+	}
+
+	// Parse and validate the token
+	token, err := jwt.Parse(cookie.Value, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return p.getJWTSigningKey(), nil
+	})
+	if err != nil || !token.Valid {
+		return "", false
+	}
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return "", false
+	}
+
+	email, ok := claims["email"].(string)
+	if !ok || email == "" {
+		return "", false
+	}
+
+	return email, true
+}
+
+// clearAuthCookie removes the JWT auth cookie
+func (p *ProxyServer) clearAuthCookie(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     authCookieName,
+		Value:    "",
+		Path:     "/",
+		Domain:   "." + p.config.Domain,
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+// OAuthState contains the data encoded in the OAuth state parameter
+type OAuthState struct {
+	State          string `json:"state"`           // Random CSRF token
+	ReturnTo       string `json:"return_to"`       // Where to redirect after login
+	DeviceUserCode string `json:"device_user_code"` // For device auth flow
+}
+
+// createOAuthState creates a signed JWT containing OAuth flow state
+func (p *ProxyServer) createOAuthState(returnTo, deviceUserCode string) (string, error) {
+	// Generate random CSRF token
+	state, err := generateRandomState()
+	if err != nil {
+		return "", err
+	}
+
+	claims := jwt.MapClaims{
+		"state":            state,
+		"return_to":        returnTo,
+		"device_user_code": deviceUserCode,
+		"exp":              time.Now().Add(10 * time.Minute).Unix(), // Short-lived
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString(p.getJWTSigningKey())
+}
+
+// parseOAuthState parses and validates the OAuth state JWT
+func (p *ProxyServer) parseOAuthState(stateToken string) (*OAuthState, error) {
+	token, err := jwt.Parse(stateToken, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return p.getJWTSigningKey(), nil
+	})
+	if err != nil || !token.Valid {
+		return nil, fmt.Errorf("invalid state token: %w", err)
+	}
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return nil, fmt.Errorf("invalid claims")
+	}
+
+	state := &OAuthState{}
+	if s, ok := claims["state"].(string); ok {
+		state.State = s
+	}
+	if r, ok := claims["return_to"].(string); ok {
+		state.ReturnTo = r
+	}
+	if d, ok := claims["device_user_code"].(string); ok {
+		state.DeviceUserCode = d
+	}
+
+	return state, nil
+}
+
+// isAuthenticated checks if the request has valid auth (JWT cookie)
+func (p *ProxyServer) isAuthenticated(r *http.Request) bool {
+	_, ok := p.getAuthFromCookie(r)
+	return ok
+}
+
+// getAuthEmail returns the authenticated user's email, or empty string if not authenticated
+func (p *ProxyServer) getAuthEmail(r *http.Request) string {
+	email, _ := p.getAuthFromCookie(r)
+	return email
+}
+
 // sanitizeReturnTo validates and sanitizes a return_to URL parameter.
-// Only allows relative paths starting with "/" to prevent open redirect attacks.
+// Allows relative paths starting with "/" or absolute URLs on the same domain.
 // Returns "/" if the input is empty or invalid.
-func sanitizeReturnTo(returnTo string) string {
+func (p *ProxyServer) sanitizeReturnTo(returnTo string) string {
 	if returnTo == "" {
 		return "/"
 	}
-	// Reject absolute URLs (contain "://")
-	if strings.Contains(returnTo, "://") {
-		return "/"
+
+	// Allow relative paths
+	if strings.HasPrefix(returnTo, "/") && !strings.HasPrefix(returnTo, "//") {
+		return returnTo
 	}
-	// Reject protocol-relative URLs ("//example.com")
-	if strings.HasPrefix(returnTo, "//") {
-		return "/"
+
+	// Allow absolute URLs on our domain or subdomains
+	if strings.HasPrefix(returnTo, "https://") {
+		parsed, err := url.Parse(returnTo)
+		if err != nil {
+			return "/"
+		}
+		// Check if it's our domain or a subdomain
+		if parsed.Host == p.config.Domain || strings.HasSuffix(parsed.Host, "."+p.config.Domain) {
+			return returnTo
+		}
 	}
-	// Must start with "/" for safety
-	if !strings.HasPrefix(returnTo, "/") {
-		return "/"
-	}
-	return returnTo
+
+	return "/"
 }
 
 // handleLogin shows the login page with OAuth and email options
 func (p *ProxyServer) handleLogin(w http.ResponseWriter, r *http.Request) {
-	// Store sanitized return_to in session for after auth (prevents open redirect)
-	returnTo := sanitizeReturnTo(r.URL.Query().Get("return_to"))
-	p.sessionManager.Put(r.Context(), "return_to", returnTo)
+	// Sanitize return_to (prevents open redirect) - passed via URL to OAuth endpoint
+	returnTo := p.sanitizeReturnTo(r.URL.Query().Get("return_to"))
+	deviceUserCode := r.URL.Query().Get("device_user_code")
+
+	// Check if this is a tunnel access login
+	tunnelID := r.URL.Query().Get("tunnel")
 
 	// Build login page
 	hasGitHub := p.config.GitHubClientID != ""
@@ -58,17 +216,30 @@ func (p *ProxyServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 	hasEmail := p.emailSender != nil
 	hasOAuth := hasGitHub || hasMockOIDC
 
+	// Build OAuth URL with return_to and device_user_code
+	oauthParams := fmt.Sprintf("return_to=%s", url.QueryEscape(returnTo))
+	if deviceUserCode != "" {
+		oauthParams += "&device_user_code=" + url.QueryEscape(deviceUserCode)
+	}
+
 	w.Header().Set("Content-Type", "text/html")
 	writePageStart(w, "tunn - Login")
-	fmt.Fprint(w, `<h1 class="page-title">Sign in to tunn</h1>
+
+	if tunnelID != "" {
+		fmt.Fprint(w, `<h1 class="page-title">Sign in to access tunnel</h1>
+<p class="page-subtitle">This tunnel requires authentication.</p>
+<div id="message"></div>`)
+	} else {
+		fmt.Fprint(w, `<h1 class="page-title">Sign in to tunn</h1>
 <p class="page-subtitle">Access your tunnels and account settings.</p>
 <div id="message"></div>`)
+	}
 
 	// Show OAuth button (GitHub in prod, Mock OIDC in dev)
 	if hasGitHub {
-		fmt.Fprintf(w, `<a href="/auth/github?return_to=%s" class="btn btn-github">Continue with GitHub</a>`, url.QueryEscape(returnTo))
+		fmt.Fprintf(w, `<a href="/auth/github?%s" class="btn btn-github">Continue with GitHub</a>`, oauthParams)
 	} else if hasMockOIDC {
-		fmt.Fprintf(w, `<a href="/auth/mock?return_to=%s" class="btn btn-github">Continue with Mock Login</a>`, url.QueryEscape(returnTo))
+		fmt.Fprintf(w, `<a href="/auth/mock?%s" class="btn btn-github">Continue with Mock Login</a>`, oauthParams)
 	}
 
 	if hasOAuth && hasEmail {
@@ -76,7 +247,12 @@ func (p *ProxyServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if hasEmail {
-		fmt.Fprint(w, `
+		// Pass device_user_code as URL param to magic link endpoint
+		magicURL := "/auth/magic"
+		if deviceUserCode != "" {
+			magicURL += "?device_user_code=" + url.QueryEscape(deviceUserCode)
+		}
+		fmt.Fprintf(w, `
 <form id="email-form">
 <input type="email" name="email" placeholder="you@example.com" required>
 <button type="submit" class="btn btn-secondary">Continue with Email</button>
@@ -90,7 +266,7 @@ document.getElementById('email-form').addEventListener('submit', async (e) => {
 	btn.disabled = true;
 	btn.textContent = 'Sending...';
 	try {
-		const resp = await fetch('/auth/magic', {
+		const resp = await fetch('%s', {
 			method: 'POST',
 			headers: {'Content-Type': 'application/json'},
 			body: JSON.stringify({email})
@@ -113,7 +289,7 @@ document.getElementById('email-form').addEventListener('submit', async (e) => {
 		btn.textContent = 'Continue with Email';
 	}
 });
-</script>`)
+</script>`, magicURL)
 	}
 
 	if !hasOAuth && !hasEmail {
@@ -132,27 +308,17 @@ func (p *ProxyServer) handleGitHubLogin(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Generate state parameter for CSRF protection
-	state, err := generateRandomState()
+	// Get return_to and device_user_code from URL params
+	returnTo := p.sanitizeReturnTo(r.URL.Query().Get("return_to"))
+	deviceUserCode := r.URL.Query().Get("device_user_code")
+
+	// Create signed state JWT containing return_to and device_user_code
+	stateToken, err := p.createOAuthState(returnTo, deviceUserCode)
 	if err != nil {
-		common.LogError("failed to generate state", "error", err)
+		common.LogError("failed to create OAuth state", "error", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-
-	// Store state in session
-	p.sessionManager.Put(r.Context(), "oauth_state", state)
-
-	// Store sanitized return_to URL (from query or session) - prevents open redirect
-	returnTo := sanitizeReturnTo(r.URL.Query().Get("return_to"))
-	if returnTo == "/" {
-		// Try session if query was empty/invalid
-		sessionReturnTo := p.sessionManager.GetString(r.Context(), "return_to")
-		if sessionReturnTo != "" {
-			returnTo = sanitizeReturnTo(sessionReturnTo)
-		}
-	}
-	p.sessionManager.Put(r.Context(), "return_to", returnTo)
 
 	// Build GitHub authorization URL
 	authURL := fmt.Sprintf("%s?client_id=%s&redirect_uri=%s&scope=%s&state=%s",
@@ -160,7 +326,7 @@ func (p *ProxyServer) handleGitHubLogin(w http.ResponseWriter, r *http.Request) 
 		url.QueryEscape(p.config.GitHubClientID),
 		url.QueryEscape(p.getCallbackURL()),
 		url.QueryEscape("user:email"),
-		url.QueryEscape(state))
+		url.QueryEscape(stateToken))
 
 	common.LogInfo("redirecting to GitHub", "url", authURL)
 	http.Redirect(w, r, authURL, http.StatusFound)
@@ -174,18 +340,14 @@ func (p *ProxyServer) handleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify state parameter
-	storedState := p.sessionManager.GetString(r.Context(), "oauth_state")
-	receivedState := r.URL.Query().Get("state")
-
-	if storedState == "" || subtle.ConstantTimeCompare([]byte(storedState), []byte(receivedState)) != 1 {
-		common.LogError("invalid state parameter", "stored", storedState, "received", receivedState)
+	// Parse and validate the state JWT (contains CSRF token, return_to, device_user_code)
+	stateToken := r.URL.Query().Get("state")
+	oauthState, err := p.parseOAuthState(stateToken)
+	if err != nil {
+		common.LogError("invalid state parameter", "error", err)
 		http.Error(w, "Invalid state parameter", http.StatusBadRequest)
 		return
 	}
-
-	// Remove state from session
-	p.sessionManager.Remove(r.Context(), "oauth_state")
 
 	// Get authorization code
 	code := r.URL.Query().Get("code")
@@ -214,9 +376,12 @@ func (p *ProxyServer) handleCallback(w http.ResponseWriter, r *http.Request) {
 	// Primary email is first in the list
 	primaryEmail := emails[0]
 
-	// Store user info in session
-	p.sessionManager.Put(r.Context(), "user_email", primaryEmail)
-	p.sessionManager.Put(r.Context(), "authenticated", true)
+	// Set JWT auth cookie (stateless, survives restarts)
+	if err := p.setAuthCookie(w, primaryEmail); err != nil {
+		common.LogError("failed to set auth cookie", "error", err)
+		http.Error(w, "Failed to complete login", http.StatusInternalServerError)
+		return
+	}
 
 	common.LogInfo("user authenticated via GitHub", "email", primaryEmail, "all_emails", emails)
 
@@ -225,22 +390,21 @@ func (p *ProxyServer) handleCallback(w http.ResponseWriter, r *http.Request) {
 		_, err := p.storage.FindOrCreateByEmails(r.Context(), emails, "github")
 		if err != nil {
 			common.LogError("failed to create account", "emails", emails, "error", err)
-			// Continue anyway - session auth still works without DB record
+			// Continue anyway - JWT auth still works without DB record
 		}
 	}
 
 	// Check if this is a device code flow (CLI login) - redirect to confirmation page
-	deviceUserCode := p.sessionManager.GetString(r.Context(), "device_user_code")
-	if deviceUserCode != "" && p.storage.Available() {
-		code, err := p.storage.GetDeviceCodeByUserCode(r.Context(), deviceUserCode)
-		if err == nil && code != nil {
-			http.Redirect(w, r, "/login?code="+deviceUserCode, http.StatusFound)
+	if oauthState.DeviceUserCode != "" && p.storage.Available() {
+		dc, err := p.storage.GetDeviceCodeByUserCode(r.Context(), oauthState.DeviceUserCode)
+		if err == nil && dc != nil {
+			http.Redirect(w, r, "/login?code="+oauthState.DeviceUserCode, http.StatusFound)
 			return
 		}
 	}
 
 	// Redirect to return_to if set (e.g., accessing a tunnel), otherwise account page
-	returnTo := p.sessionManager.PopString(r.Context(), "return_to")
+	returnTo := oauthState.ReturnTo
 	if returnTo == "" || returnTo == "/" {
 		returnTo = "/account"
 	}
@@ -356,23 +520,22 @@ func (p *ProxyServer) getGitHubEmails(accessToken string) ([]string, error) {
 
 // handleMockLogin handles login via mock OIDC (dev only)
 func (p *ProxyServer) handleMockLogin(w http.ResponseWriter, r *http.Request) {
-	state, err := generateRandomState()
+	// Get return_to and device_user_code from URL params
+	returnTo := p.sanitizeReturnTo(r.URL.Query().Get("return_to"))
+	deviceUserCode := r.URL.Query().Get("device_user_code")
+
+	// Create signed state JWT
+	stateToken, err := p.createOAuthState(returnTo, deviceUserCode)
 	if err != nil {
-		common.LogError("failed to generate state", "error", err)
+		common.LogError("failed to create OAuth state", "error", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	p.sessionManager.Put(r.Context(), "oauth_state", state)
-
-	// Sanitize return_to to prevent open redirect
-	returnTo := sanitizeReturnTo(r.URL.Query().Get("return_to"))
-	p.sessionManager.Put(r.Context(), "return_to", returnTo)
-
 	authURL := fmt.Sprintf("%s/oauth/authorize?response_type=code&client_id=tunn&redirect_uri=%s&state=%s",
 		p.config.MockOIDCIssuer,
 		url.QueryEscape(p.getCallbackURL()),
-		state)
+		stateToken)
 
 	common.LogInfo("redirecting to mock OIDC", "url", authURL)
 	http.Redirect(w, r, authURL, http.StatusFound)
@@ -380,16 +543,14 @@ func (p *ProxyServer) handleMockLogin(w http.ResponseWriter, r *http.Request) {
 
 // handleMockCallback handles callback from mock OIDC (dev only)
 func (p *ProxyServer) handleMockCallback(w http.ResponseWriter, r *http.Request) {
-	storedState := p.sessionManager.GetString(r.Context(), "oauth_state")
-	receivedState := r.URL.Query().Get("state")
-
-	if storedState == "" || subtle.ConstantTimeCompare([]byte(storedState), []byte(receivedState)) != 1 {
-		common.LogError("invalid state parameter", "stored", storedState, "received", receivedState)
+	// Parse and validate the state JWT
+	stateToken := r.URL.Query().Get("state")
+	oauthState, err := p.parseOAuthState(stateToken)
+	if err != nil {
+		common.LogError("invalid state parameter", "error", err)
 		http.Error(w, "Invalid state parameter", http.StatusBadRequest)
 		return
 	}
-
-	p.sessionManager.Remove(r.Context(), "oauth_state")
 
 	code := r.URL.Query().Get("code")
 	if code == "" {
@@ -401,8 +562,12 @@ func (p *ProxyServer) handleMockCallback(w http.ResponseWriter, r *http.Request)
 	// For mock OIDC, just use a test email
 	email := "dev@example.com"
 
-	p.sessionManager.Put(r.Context(), "user_email", email)
-	p.sessionManager.Put(r.Context(), "authenticated", true)
+	// Set JWT auth cookie
+	if err := p.setAuthCookie(w, email); err != nil {
+		common.LogError("failed to set auth cookie", "error", err)
+		http.Error(w, "Failed to complete login", http.StatusInternalServerError)
+		return
+	}
 
 	common.LogInfo("user authenticated via mock OIDC", "email", email)
 
@@ -415,16 +580,15 @@ func (p *ProxyServer) handleMockCallback(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Check if this is a device code flow (CLI login) - redirect to confirmation page
-	deviceUserCode := p.sessionManager.GetString(r.Context(), "device_user_code")
-	if deviceUserCode != "" && p.storage.Available() {
-		dc, err := p.storage.GetDeviceCodeByUserCode(r.Context(), deviceUserCode)
+	if oauthState.DeviceUserCode != "" && p.storage.Available() {
+		dc, err := p.storage.GetDeviceCodeByUserCode(r.Context(), oauthState.DeviceUserCode)
 		if err == nil && dc != nil {
-			http.Redirect(w, r, "/login?code="+deviceUserCode, http.StatusFound)
+			http.Redirect(w, r, "/login?code="+oauthState.DeviceUserCode, http.StatusFound)
 			return
 		}
 	}
 
-	returnTo := p.sessionManager.PopString(r.Context(), "return_to")
+	returnTo := oauthState.ReturnTo
 	if returnTo == "" || returnTo == "/" {
 		returnTo = "/account"
 	}
@@ -446,11 +610,11 @@ func generateRandomState() (string, error) {
 	return base64.URLEncoding.EncodeToString(b), nil
 }
 
-// CheckAuth is a middleware that checks for a valid session
+// CheckAuth is a middleware that checks for a valid JWT auth cookie
 func (p *ProxyServer) CheckAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Check if user is authenticated
-		authenticated := p.sessionManager.GetBool(r.Context(), "authenticated")
+		// Check if user is authenticated via JWT cookie
+		email, authenticated := p.getAuthFromCookie(r)
 		if !authenticated {
 			// Build login URL with return_to parameter
 			returnTo := r.URL.String()
@@ -462,8 +626,7 @@ func (p *ProxyServer) CheckAuth(next http.Handler) http.Handler {
 		}
 
 		// User is authenticated, proceed to handler
-		userEmail := p.sessionManager.GetString(r.Context(), "user_email")
-		common.LogInfo("authenticated request", "email", userEmail, "path", r.URL.Path)
+		common.LogInfo("authenticated request", "email", email, "path", r.URL.Path)
 		next.ServeHTTP(w, r)
 	})
 }
@@ -581,9 +744,9 @@ func (p *ProxyServer) getJWTSigningKey() []byte {
 	panic("FATAL: JWT_SECRET environment variable is required in production")
 }
 
-// handleLogout clears the session and redirects to home
+// handleLogout clears the auth cookie and redirects to home
 func (p *ProxyServer) handleLogout(w http.ResponseWriter, r *http.Request) {
-	p.sessionManager.Destroy(r.Context())
+	p.clearAuthCookie(w)
 	http.Redirect(w, r, "/", http.StatusFound)
 }
 
@@ -601,15 +764,13 @@ type AccountPageData struct {
 
 // handleAccount shows the account dashboard page
 func (p *ProxyServer) handleAccount(w http.ResponseWriter, r *http.Request) {
-	// Check authentication
-	authenticated := p.sessionManager.GetBool(r.Context(), "authenticated")
+	// Check authentication via JWT cookie
+	email, authenticated := p.getAuthFromCookie(r)
 	if !authenticated {
 		loginURL := fmt.Sprintf("/auth/login?return_to=%s", url.QueryEscape(r.URL.String()))
 		http.Redirect(w, r, loginURL, http.StatusFound)
 		return
 	}
-
-	email := p.sessionManager.GetString(r.Context(), "user_email")
 
 	// Get account info
 	plan := "free"

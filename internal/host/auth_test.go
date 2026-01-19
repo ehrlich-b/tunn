@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alexedwards/scs/v2"
 	"github.com/ehrlich-b/tunn/internal/config"
 	"github.com/ehrlich-b/tunn/internal/mockoidc"
 	"github.com/golang-jwt/jwt/v4"
@@ -26,8 +25,7 @@ func TestCheckJWT(t *testing.T) {
 	proxy := &ProxyServer{
 		Domain:         "tunn.local.127.0.0.1.nip.io",
 		config:         &config.Config{Environment: config.EnvDev},
-		sessionManager: scs.New(),
-		mockOIDC:       mockOIDC,
+				mockOIDC:       mockOIDC,
 	}
 
 	// Create a test handler that should be called on successful auth

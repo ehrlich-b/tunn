@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alexedwards/scs/v2"
 	"github.com/ehrlich-b/tunn/internal/config"
 )
 
@@ -76,8 +75,7 @@ func TestVerifyStripeSignature(t *testing.T) {
 func TestHandleStripeWebhookNotConfigured(t *testing.T) {
 	proxy := &ProxyServer{
 		config:         &config.Config{StripeWebhookSecret: ""},
-		sessionManager: scs.New(),
-	}
+			}
 
 	req := httptest.NewRequest("POST", "/webhooks/stripe", strings.NewReader(`{}`))
 	rec := httptest.NewRecorder()
@@ -92,8 +90,7 @@ func TestHandleStripeWebhookNotConfigured(t *testing.T) {
 func TestHandleStripeWebhookWrongMethod(t *testing.T) {
 	proxy := &ProxyServer{
 		config:         &config.Config{StripeWebhookSecret: "test-secret"},
-		sessionManager: scs.New(),
-	}
+			}
 
 	req := httptest.NewRequest("GET", "/webhooks/stripe", nil)
 	rec := httptest.NewRecorder()
@@ -108,8 +105,7 @@ func TestHandleStripeWebhookWrongMethod(t *testing.T) {
 func TestHandleStripeWebhookMissingSignature(t *testing.T) {
 	proxy := &ProxyServer{
 		config:         &config.Config{StripeWebhookSecret: "test-secret"},
-		sessionManager: scs.New(),
-	}
+			}
 
 	req := httptest.NewRequest("POST", "/webhooks/stripe", strings.NewReader(`{}`))
 	rec := httptest.NewRecorder()
@@ -134,8 +130,7 @@ func TestHandleStripeWebhookValidEvent(t *testing.T) {
 
 	proxy := &ProxyServer{
 		config:         &config.Config{StripeWebhookSecret: secret},
-		sessionManager: scs.New(),
-	}
+			}
 
 	req := httptest.NewRequest("POST", "/webhooks/stripe", strings.NewReader(payload))
 	req.Header.Set("Stripe-Signature", fmt.Sprintf("t=%s,v1=%s", timestamp, validSig))

@@ -66,8 +66,8 @@ func (p *ProxyServer) handleMagicLinkRequest(w http.ResponseWriter, r *http.Requ
 	// Build magic link URL
 	magicLinkURL := fmt.Sprintf("https://%s/auth/verify?token=%s", p.config.PublicAddr, token)
 
-	// Check for device code in session (for CLI login flow)
-	deviceUserCode := p.sessionManager.GetString(r.Context(), "device_user_code")
+	// Check for device code in URL params (for CLI login flow)
+	deviceUserCode := r.URL.Query().Get("device_user_code")
 	if deviceUserCode != "" {
 		magicLinkURL += "&device_code=" + deviceUserCode
 	}
@@ -110,13 +110,16 @@ func (p *ProxyServer) handleMagicLinkVerify(w http.ResponseWriter, r *http.Reque
 		_, err := p.storage.FindOrCreateByEmails(r.Context(), []string{email}, "magic_link")
 		if err != nil {
 			common.LogError("failed to create account", "email", email, "error", err)
-			// Continue anyway - session auth still works without DB record
+			// Continue anyway - JWT auth still works without DB record
 		}
 	}
 
-	// Create session for browser auth
-	p.sessionManager.Put(r.Context(), "user_email", email)
-	p.sessionManager.Put(r.Context(), "authenticated", true)
+	// Set JWT auth cookie (stateless, survives restarts)
+	if err := p.setAuthCookie(w, email); err != nil {
+		common.LogError("failed to set auth cookie", "error", err)
+		http.Error(w, "Failed to complete login", http.StatusInternalServerError)
+		return
+	}
 
 	// Check if this is a device code flow (CLI login) - redirect to confirmation page
 	deviceUserCode := r.URL.Query().Get("device_code")

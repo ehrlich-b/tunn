@@ -747,12 +747,23 @@ echo "tunn installed to $INSTALL_DIR/tunn"
 
 # Check if install dir is in PATH
 case ":$PATH:" in
-    *":$INSTALL_DIR:"*) ;;
-    *) echo "Add $INSTALL_DIR to your PATH to use tunn" ;;
+    *":$INSTALL_DIR:"*)
+        echo "Run 'tunn --help' to get started"
+        ;;
+    *)
+        echo "To add tunn to your PATH, run:"
+        echo ""
+        if [ "$OS" = "darwin" ]; then
+            echo "  echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.zshrc && source ~/.zshrc"
+        elif [ -n "$BASH_VERSION" ] || [ "$(basename "$SHELL")" = "bash" ]; then
+            echo "  echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.bashrc && source ~/.bashrc"
+        else
+            echo "  echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.profile"
+        fi
+        echo ""
+        echo "Then run 'tunn --help' to get started"
+        ;;
 esac
-
-echo ""
-echo "Run 'tunn --help' to get started"
 `
 
 func createInternalTLSConfig(cfg *config.Config) (*tls.Config, error) {

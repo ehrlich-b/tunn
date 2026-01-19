@@ -8,7 +8,7 @@ GO_FILES := $(wildcard *.go)
 DOCKER_IMAGE := $(APP_NAME):latest
 FLY_APP_NAME := $(APP_NAME)
 
-.PHONY: all build clean proto fmt tidy verify check test test-verbose test-coverage test-race integration-test integration-test-smoke docker docker-build docker-run cert-setup cert-renew fly-create fly-init fly-secrets fly-certs fly-deploy fly-logs fly-status help
+.PHONY: all build clean proto fmt tidy verify check test test-verbose test-coverage test-race integration-test integration-test-smoke docker docker-build docker-run cert-setup cert-renew fly-create fly-init fly-secrets fly-certs fly-deploy fly-logs fly-status analytics-hour analytics-day analytics-live help
 
 # Default target
 all: build
@@ -237,6 +237,24 @@ install: build
 	@echo "Installing $(BINARY_NAME) to /usr/local/bin..."
 	sudo cp $(BINARY_NAME) /usr/local/bin/
 
+# Analytics - count events from logs
+analytics-hour:
+	@echo "=== Last Hour ==="
+	@echo -n "Homepage visits: " && fly logs -a tunn --no-tail | grep "homepage visit" | tail -3600 | wc -l | tr -d ' '
+	@echo -n "Install script:  " && fly logs -a tunn --no-tail | grep "install script download" | tail -3600 | wc -l | tr -d ' '
+	@echo -n "GitHub auths:    " && fly logs -a tunn --no-tail | grep "authenticated via GitHub" | tail -3600 | wc -l | tr -d ' '
+	@echo -n "Tunnels created: " && fly logs -a tunn --no-tail | grep "tunnel registered" | tail -3600 | wc -l | tr -d ' '
+
+analytics-day:
+	@echo "=== Last 24 Hours ==="
+	@echo -n "Homepage visits: " && fly logs -a tunn --no-tail | grep "homepage visit" | wc -l | tr -d ' '
+	@echo -n "Install script:  " && fly logs -a tunn --no-tail | grep "install script download" | wc -l | tr -d ' '
+	@echo -n "GitHub auths:    " && fly logs -a tunn --no-tail | grep "authenticated via GitHub" | wc -l | tr -d ' '
+	@echo -n "Tunnels created: " && fly logs -a tunn --no-tail | grep "tunnel registered" | wc -l | tr -d ' '
+
+analytics-live:
+	@fly logs -a tunn | grep -E "homepage visit|install script|authenticated via|tunnel registered"
+
 # Show help
 help:
 	@echo "Makefile for $(APP_NAME) - Available targets:"
@@ -275,6 +293,11 @@ help:
 	@echo "Fly.io Maintenance:"
 	@echo "  make fly-logs      - Show Fly.io logs"
 	@echo "  make fly-status    - Show app status and IPs"
+	@echo ""
+	@echo "Analytics:"
+	@echo "  make analytics-hour - Event counts (last hour)"
+	@echo "  make analytics-day  - Event counts (last 24h)"
+	@echo "  make analytics-live - Live event stream"
 	@echo ""
 	@echo "Local Development:"
 	@echo "  make run           - Run local server with .env"

@@ -210,8 +210,12 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 	// Wrap stream with mutex for thread-safe sends
 	sender := &streamSender{stream: stream}
 
+	// Create a derived context that we cancel when this connection ends
+	connCtx, connCancel := context.WithCancel(ctx)
+	defer connCancel() // Cancel health check goroutine when connection ends
+
 	// Start health check sender
-	go s.sendHealthChecks(ctx, sender)
+	go s.sendHealthChecks(connCtx, sender)
 
 	// Enter message processing loop
 	return s.processMessages(ctx, stream, sender)

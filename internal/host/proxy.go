@@ -570,10 +570,9 @@ func (p *ProxyServer) startHTTP2Server(ctx context.Context, handler http.Handler
 		Addr:      p.HTTP2Addr,
 		Handler:   router,
 		TLSConfig: p.tlsConfig,
-		// Timeouts to prevent slowloris and resource exhaustion
-		ReadTimeout:       30 * time.Second,  // Max time to read request headers
+		// Timeouts - ReadTimeout/WriteTimeout disabled for gRPC streaming support
+		// gRPC streams are long-lived and use application-level health checks
 		ReadHeaderTimeout: 10 * time.Second,  // Max time to read headers specifically
-		WriteTimeout:      60 * time.Second,  // Max time to write response (includes processing)
 		IdleTimeout:       120 * time.Second, // Max time connection can be idle between requests
 	}
 

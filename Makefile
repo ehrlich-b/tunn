@@ -240,17 +240,17 @@ install: build
 # Analytics - count events from logs
 analytics-hour:
 	@echo "=== Last Hour ==="
-	@echo -n "Homepage visits: " && fly logs -a tunn --no-tail | grep "homepage visit" | tail -3600 | wc -l | tr -d ' '
-	@echo -n "Install script:  " && fly logs -a tunn --no-tail | grep "install script download" | tail -3600 | wc -l | tr -d ' '
-	@echo -n "GitHub auths:    " && fly logs -a tunn --no-tail | grep "authenticated via GitHub" | tail -3600 | wc -l | tr -d ' '
-	@echo -n "Tunnels created: " && fly logs -a tunn --no-tail | grep "tunnel registered" | tail -3600 | wc -l | tr -d ' '
+	@printf "Homepage visits: " && fly logs -a tunn --no-tail | grep "homepage visit" | tail -3600 | wc -l | tr -d ' '
+	@printf "Install script:  " && fly logs -a tunn --no-tail | grep "install script download" | tail -3600 | wc -l | tr -d ' '
+	@printf "GitHub auths:    " && fly logs -a tunn --no-tail | grep "authenticated via GitHub" | tail -3600 | wc -l | tr -d ' '
+	@printf "Tunnels created: " && fly logs -a tunn --no-tail | grep "tunnel registered" | tail -3600 | wc -l | tr -d ' '
 
 analytics-day:
 	@echo "=== Last 24 Hours ==="
-	@echo -n "Homepage visits: " && fly logs -a tunn --no-tail | grep "homepage visit" | wc -l | tr -d ' '
-	@echo -n "Install script:  " && fly logs -a tunn --no-tail | grep "install script download" | wc -l | tr -d ' '
-	@echo -n "GitHub auths:    " && fly logs -a tunn --no-tail | grep "authenticated via GitHub" | wc -l | tr -d ' '
-	@echo -n "Tunnels created: " && fly logs -a tunn --no-tail | grep "tunnel registered" | wc -l | tr -d ' '
+	@printf "Homepage visits: " && fly logs -a tunn --no-tail | grep "homepage visit" | wc -l | tr -d ' '
+	@printf "Install script:  " && fly logs -a tunn --no-tail | grep "install script download" | wc -l | tr -d ' '
+	@printf "GitHub auths:    " && fly logs -a tunn --no-tail | grep "authenticated via GitHub" | wc -l | tr -d ' '
+	@printf "Tunnels created: " && fly logs -a tunn --no-tail | grep "tunnel registered" | wc -l | tr -d ' '
 
 analytics-live:
 	@fly logs -a tunn | grep -E "homepage visit|install script|authenticated via|tunnel registered"

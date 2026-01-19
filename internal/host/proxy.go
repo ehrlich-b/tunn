@@ -13,7 +13,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/alexedwards/scs/v2"
 	"github.com/quic-go/quic-go/http3"
 	"golang.org/x/net/http2"
 	"google.golang.org/grpc"
@@ -56,11 +55,8 @@ type ProxyServer struct {
 	internalGRPCServer *grpc.Server
 	internalServer     *InternalServer
 	nodeClients        map[string]internalv1.InternalServiceClient
-	tunnelCache        map[string]string // tunnelID -> nodeAddress
-	cacheMu            sync.RWMutex
-
-	// Session manager for web auth
-	sessionManager *scs.SessionManager
+	tunnelCache map[string]string // tunnelID -> nodeAddress
+	cacheMu     sync.RWMutex
 
 	// Configuration
 	config *config.Config
@@ -186,18 +182,6 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 		common.LogInfo("registered LoginNodeDB gRPC service")
 	}
 
-	// Create session manager for web auth
-	sessionManager := scs.New()
-	sessionManager.Lifetime = 24 * time.Hour
-	sessionManager.Cookie.Name = "tunn_session"
-	sessionManager.Cookie.Persist = true
-	sessionManager.Cookie.SameSite = http.SameSiteLaxMode
-	sessionManager.Cookie.Secure = true
-
-	// Set cookie domain to allow sharing across subdomains
-	// e.g., .tunn.to allows cookie to be sent to *.tunn.to
-	sessionManager.Cookie.Domain = "." + cfg.Domain
-
 	// Create email sender if SMTP is configured
 	emailSender := NewEmailSender(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUser, cfg.SMTPPassword, cfg.SMTPFrom)
 	if emailSender != nil {
@@ -215,7 +199,6 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 		tunnelServer:       tunnelServer,
 		internalGRPCServer: internalGRPCServer,
 		internalServer:     internalServer,
-		sessionManager:     sessionManager,
 		nodeClients:        make(map[string]internalv1.InternalServiceClient),
 		tunnelCache:        make(map[string]string),
 		config:             cfg,
@@ -704,8 +687,7 @@ func (p *ProxyServer) createHandler() http.Handler {
 	// Main handler - check if this is apex domain or a tunnel subdomain
 	mux.HandleFunc("/", p.handleWebProxy)
 
-	// Wrap the mux with session manager middleware
-	return p.sessionManager.LoadAndSave(mux)
+	return mux
 }
 
 // handleInstallScript serves the install script for curl | sh installation

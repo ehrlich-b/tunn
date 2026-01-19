@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alexedwards/scs/v2"
 	"github.com/ehrlich-b/tunn/internal/config"
 )
 
@@ -87,10 +86,9 @@ func TestProxyServerHandler(t *testing.T) {
 		JWTSecret:    "test-jwt-secret",
 	}
 	proxy := &ProxyServer{
-		Domain:         "tunn.to",
-		config:         cfg,
-		sessionManager: scs.New(),
-		tunnelServer:   NewTunnelServer(cfg, nil, nil, nil),
+		Domain:       "tunn.to",
+		config:       cfg,
+		tunnelServer: NewTunnelServer(cfg, nil, nil, nil),
 	}
 
 	handler := proxy.createHandler()
@@ -121,10 +119,9 @@ func TestProxyServerHealthCheck(t *testing.T) {
 		JWTSecret:    "test-jwt-secret",
 	}
 	proxy := &ProxyServer{
-		Domain:         "tunn.to",
-		config:         cfg,
-		sessionManager: scs.New(),
-		tunnelServer:   NewTunnelServer(cfg, nil, nil, nil),
+		Domain:       "tunn.to",
+		config:       cfg,
+		tunnelServer: NewTunnelServer(cfg, nil, nil, nil),
 	}
 
 	handler := proxy.createHandler()

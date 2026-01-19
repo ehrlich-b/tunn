@@ -112,6 +112,7 @@ type TunnelConnection struct {
 	Stream        pb.TunnelService_EstablishTunnelServer
 	Connected     time.Time
 	CreatorEmail  string
+	AccountID     string   // Account ID for usage tracking (from storage)
 	AllowedEmails []string // Includes creator_email + any additional allowed emails
 	Plan          string   // "free" or "pro" - cached for quota checks
 
@@ -376,6 +377,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		Stream:          stream,
 		Connected:       time.Now(),
 		CreatorEmail:    creatorEmail,
+		AccountID:       accountID,
 		AllowedEmails:   allowedEmails,
 		Plan:            plan,
 		rateLimiter:     newRateLimiter(plan),

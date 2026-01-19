@@ -207,6 +207,11 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 	common.LogInfo("tunnel registered successfully", "public_url", regResp.PublicUrl)
 	fmt.Printf("%s -> %s\n", regResp.PublicUrl, s.TargetURL)
 
+	// Warn if tunnel is open to the internet (no --allow specified)
+	if len(s.AllowedEmails) == 0 {
+		fmt.Println("Warning: Tunnel is open to the internet. Use --allow to restrict access.")
+	}
+
 	// Wrap stream with mutex for thread-safe sends
 	sender := &streamSender{stream: stream}
 

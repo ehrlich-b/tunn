@@ -124,14 +124,16 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		"path", r.URL.Path,
 		"method", r.Method)
 
-	// Skip auth in public mode
-	if !p.config.PublicMode {
-		// Check authentication (web requests require a session)
-		authenticated := p.sessionManager.GetBool(r.Context(), "authenticated")
+	// Auth is only required if the tunnel has an allow-list (--allow was specified)
+	// If no allow-list, the tunnel is open to the internet (URLs are random, act like strong passwords)
+	if len(tunnel.AllowedEmails) > 0 {
+		// Check authentication via JWT cookie
+		userEmail, authenticated := p.getAuthFromCookie(r)
 		if !authenticated {
-			// Redirect to login with return_to parameter (URL escaped)
-			returnTo := r.URL.String()
-			loginURL := fmt.Sprintf("/auth/login?return_to=%s", url.QueryEscape(returnTo))
+			// Build full return URL including the tunnel subdomain
+			returnTo := fmt.Sprintf("https://%s%s", r.Host, r.URL.RequestURI())
+			loginURL := fmt.Sprintf("https://%s/auth/login?return_to=%s&tunnel=%s",
+				p.config.Domain, url.QueryEscape(returnTo), url.QueryEscape(tunnelID))
 
 			common.LogInfo("unauthenticated tunnel access, redirecting to login",
 				"tunnel_id", tunnelID,
@@ -140,8 +142,7 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 			return
 		}
 
-		// User is authenticated, proceed with proxying
-		userEmail := p.sessionManager.GetString(r.Context(), "user_email")
+		// User is authenticated, check allow-list
 		common.LogDebug("authenticated tunnel access",
 			"email", userEmail,
 			"tunnel_id", tunnelID,
@@ -180,11 +181,11 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 			"email", userEmail,
 			"tunnel_id", tunnelID)
 	} else {
-		common.LogDebug("public mode - skipping auth", "tunnel_id", tunnelID)
+		common.LogDebug("open tunnel - no allow-list", "tunnel_id", tunnelID)
 	}
 
-	// Check quota before proxying (skip in public mode since there's no creator to bill)
-	if !p.config.PublicMode && tunnel.CreatorEmail != "" {
+	// Check quota before proxying
+	if tunnel.CreatorEmail != "" {
 		if !p.CheckQuota(r.Context(), tunnel.CreatorEmail, tunnel.Plan) {
 			common.LogInfo("quota exceeded, rejecting request",
 				"tunnel_id", tunnelID,
@@ -311,9 +312,9 @@ func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, 
 			"status", httpResp.StatusCode,
 			"body_size", len(httpResp.Body))
 
-		// Record usage (request body + response body)
-		if tunnel.CreatorEmail != "" {
-			p.RecordUsage(r.Context(), tunnel.CreatorEmail, int64(totalSize))
+		// Record usage (request body + response body) using account ID
+		if tunnel.AccountID != "" {
+			p.RecordUsage(r.Context(), tunnel.AccountID, int64(totalSize))
 		}
 
 		return nil

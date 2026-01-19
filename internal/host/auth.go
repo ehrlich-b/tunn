@@ -203,39 +203,38 @@ func (p *ProxyServer) handleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get user email from GitHub
-	email, err := p.getGitHubEmail(accessToken)
+	// Get all verified emails from GitHub
+	emails, err := p.getGitHubEmails(accessToken)
 	if err != nil {
-		common.LogError("failed to get user email", "error", err)
+		common.LogError("failed to get user emails", "error", err)
 		http.Error(w, "Failed to get user info", http.StatusInternalServerError)
 		return
 	}
 
+	// Primary email is first in the list
+	primaryEmail := emails[0]
+
 	// Store user info in session
-	p.sessionManager.Put(r.Context(), "user_email", email)
+	p.sessionManager.Put(r.Context(), "user_email", primaryEmail)
 	p.sessionManager.Put(r.Context(), "authenticated", true)
 
-	common.LogInfo("user authenticated via GitHub", "email", email)
+	common.LogInfo("user authenticated via GitHub", "email", primaryEmail, "all_emails", emails)
 
-	// Create or update account in database (if storage available)
+	// Create or update account in database with ALL emails (enables account merging)
 	if p.storage.Available() {
-		_, err := p.storage.FindOrCreateByEmails(r.Context(), []string{email}, "github")
+		_, err := p.storage.FindOrCreateByEmails(r.Context(), emails, "github")
 		if err != nil {
-			common.LogError("failed to create account", "email", email, "error", err)
+			common.LogError("failed to create account", "emails", emails, "error", err)
 			// Continue anyway - session auth still works without DB record
 		}
 	}
 
-	// Check if this is a device code flow (CLI login)
-	deviceUserCode := p.sessionManager.PopString(r.Context(), "device_user_code")
+	// Check if this is a device code flow (CLI login) - redirect to confirmation page
+	deviceUserCode := p.sessionManager.GetString(r.Context(), "device_user_code")
 	if deviceUserCode != "" && p.storage.Available() {
 		code, err := p.storage.GetDeviceCodeByUserCode(r.Context(), deviceUserCode)
 		if err == nil && code != nil {
-			p.storage.AuthorizeDeviceCode(r.Context(), code.Code, email)
-			common.LogInfo("device code authorized via OAuth", "user_code", deviceUserCode, "email", email)
-			// Show success page for device flow
-			w.Header().Set("Content-Type", "text/html")
-			writeSuccessPage(w, "Login successful", "Return to your terminal.")
+			http.Redirect(w, r, "/login?code="+deviceUserCode, http.StatusFound)
 			return
 		}
 	}
@@ -299,11 +298,11 @@ func (p *ProxyServer) exchangeGitHubCode(code string) (string, error) {
 	return tokenResp.AccessToken, nil
 }
 
-// getGitHubEmail fetches the user's primary email from GitHub
-func (p *ProxyServer) getGitHubEmail(accessToken string) (string, error) {
+// getGitHubEmails fetches all verified emails from GitHub, with primary first
+func (p *ProxyServer) getGitHubEmails(accessToken string) ([]string, error) {
 	req, err := http.NewRequest("GET", githubEmailsURL, nil)
 	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
+		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Accept", "application/vnd.github+json")
@@ -311,45 +310,48 @@ func (p *ProxyServer) getGitHubEmail(accessToken string) (string, error) {
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("email request failed: %w", err)
+		return nil, fmt.Errorf("email request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("email request returned status %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("email request returned status %d: %s", resp.StatusCode, string(body))
 	}
 
-	var emails []struct {
+	var ghEmails []struct {
 		Email    string `json:"email"`
 		Primary  bool   `json:"primary"`
 		Verified bool   `json:"verified"`
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(&emails); err != nil {
-		return "", fmt.Errorf("failed to decode email response: %w", err)
+	if err := json.NewDecoder(resp.Body).Decode(&ghEmails); err != nil {
+		return nil, fmt.Errorf("failed to decode email response: %w", err)
 	}
 
-	// Find primary verified email
-	for _, e := range emails {
-		if e.Primary && e.Verified {
-			return e.Email, nil
-		}
-	}
-
-	// Fall back to first verified email
-	for _, e := range emails {
+	// Collect all verified emails, primary first
+	var primaryEmail string
+	var emails []string
+	for _, e := range ghEmails {
 		if e.Verified {
-			return e.Email, nil
+			if e.Primary {
+				primaryEmail = e.Email
+			} else {
+				emails = append(emails, e.Email)
+			}
 		}
 	}
 
-	// Fall back to first email
-	if len(emails) > 0 {
-		return emails[0].Email, nil
+	// Put primary first
+	if primaryEmail != "" {
+		emails = append([]string{primaryEmail}, emails...)
 	}
 
-	return "", fmt.Errorf("no email found")
+	if len(emails) == 0 {
+		return nil, fmt.Errorf("no verified emails found")
+	}
+
+	return emails, nil
 }
 
 // handleMockLogin handles login via mock OIDC (dev only)
@@ -412,16 +414,12 @@ func (p *ProxyServer) handleMockCallback(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	// Check if this is a device code flow (CLI login)
-	deviceUserCode := p.sessionManager.PopString(r.Context(), "device_user_code")
+	// Check if this is a device code flow (CLI login) - redirect to confirmation page
+	deviceUserCode := p.sessionManager.GetString(r.Context(), "device_user_code")
 	if deviceUserCode != "" && p.storage.Available() {
 		dc, err := p.storage.GetDeviceCodeByUserCode(r.Context(), deviceUserCode)
 		if err == nil && dc != nil {
-			p.storage.AuthorizeDeviceCode(r.Context(), dc.Code, email)
-			common.LogInfo("device code authorized via mock OIDC", "user_code", deviceUserCode, "email", email)
-			// Show success page for device flow
-			w.Header().Set("Content-Type", "text/html")
-			writeSuccessPage(w, "Login successful", "Return to your terminal.")
+			http.Redirect(w, r, "/login?code="+deviceUserCode, http.StatusFound)
 			return
 		}
 	}

@@ -20,6 +20,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
@@ -152,8 +153,17 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 		accounts = localStorage.AccountStore()
 	}
 
-	// Create gRPC server for public tunnel control plane
-	grpcServer := grpc.NewServer()
+	// Create gRPC server for public tunnel control plane with keepalive
+	grpcServer := grpc.NewServer(
+		grpc.KeepaliveParams(keepalive.ServerParameters{
+			Time:    10 * time.Second, // Ping clients every 10s
+			Timeout: 5 * time.Second,  // Wait 5s for pong
+		}),
+		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
+			MinTime:             5 * time.Second, // Allow client pings every 5s
+			PermitWithoutStream: true,            // Allow pings even with no active streams
+		}),
+	)
 	tunnelServer := NewTunnelServer(cfg, userTokens, accounts, storageImpl)
 	pb.RegisterTunnelServiceServer(grpcServer, tunnelServer)
 
@@ -572,6 +582,13 @@ func (p *ProxyServer) startHTTP2Server(ctx context.Context, handler http.Handler
 
 	common.LogInfo("starting HTTP/2 server", "addr", p.HTTP2Addr)
 
+	// Create listener explicitly with tcp4 to ensure IPv4 binding
+	ln, err := net.Listen("tcp4", p.HTTP2Addr)
+	if err != nil {
+		return fmt.Errorf("failed to listen on %s: %w", p.HTTP2Addr, err)
+	}
+	tlsLn := tls.NewListener(ln, p.tlsConfig)
+
 	// Start server in a goroutine
 	go func() {
 		<-ctx.Done()
@@ -581,7 +598,7 @@ func (p *ProxyServer) startHTTP2Server(ctx context.Context, handler http.Handler
 		srv.Shutdown(shutdownCtx)
 	}()
 
-	if err := srv.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
+	if err := srv.Serve(tlsLn); err != nil && err != http.ErrServerClosed {
 		return err
 	}
 
@@ -680,6 +697,7 @@ func (p *ProxyServer) createHandler() http.Handler {
 	mux.HandleFunc("/api/device/code", p.handleDeviceCode)
 	mux.HandleFunc("/api/device/token", p.handleDeviceToken)
 	mux.HandleFunc("/login", p.handleLoginPage)
+	mux.HandleFunc("/auth/device/authorize", p.handleDeviceAuthorize)
 
 	// Stripe webhook endpoint
 	mux.HandleFunc("/webhooks/stripe", p.handleStripeWebhook)

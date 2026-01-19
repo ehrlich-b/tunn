@@ -13,6 +13,7 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/keepalive"
 
 	"github.com/ehrlich-b/tunn/internal/common"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
@@ -80,7 +81,9 @@ func (s *ServeClient) Run(ctx context.Context) error {
 
 	for {
 		attempts++
+		start := time.Now()
 		err := s.runOnce(ctx)
+		duration := time.Since(start)
 
 		// Check if context was canceled (intentional shutdown)
 		if ctx.Err() != nil {
@@ -90,6 +93,12 @@ func (s *ServeClient) Run(ctx context.Context) error {
 		// If runOnce returned nil (clean shutdown), exit
 		if err == nil {
 			return nil
+		}
+
+		// Reset backoff if connection was stable for at least 30 seconds
+		if duration > 30*time.Second {
+			delay = s.InitialDelay
+			attempts = 1
 		}
 
 		// Log the error and prepare for reconnection
@@ -120,9 +129,16 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 	}
 	creds := credentials.NewTLS(tlsConfig)
 
-	// Connect to the gRPC server
+	// Connect to the gRPC server with keepalive
 	common.LogInfo("connecting to proxy", "server", s.ServerAddr)
-	conn, err := grpc.NewClient(s.ServerAddr, grpc.WithTransportCredentials(creds))
+	conn, err := grpc.NewClient(s.ServerAddr,
+		grpc.WithTransportCredentials(creds),
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time:                10 * time.Second, // Ping server every 10s
+			Timeout:             5 * time.Second,  // Wait 5s for pong
+			PermitWithoutStream: true,             // Ping even without active streams
+		}),
+	)
 	if err != nil {
 		return fmt.Errorf("failed to connect: %w", err)
 	}
@@ -359,28 +375,36 @@ func (s *ServeClient) sendErrorResponse(sender messageSender, connectionID strin
 
 // sendHealthChecks periodically sends health check pings
 func (s *ServeClient) sendHealthChecks(ctx context.Context, sender messageSender) {
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
+
+	// Send initial health check immediately
+	s.sendOneHealthCheck(sender)
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			msg := &pb.TunnelMessage{
-				Message: &pb.TunnelMessage_HealthCheck{
-					HealthCheck: &pb.HealthCheck{
-						Timestamp: time.Now().UnixMilli(),
-					},
-				},
-			}
-
-			if err := sender.Send(msg); err != nil {
-				common.LogError("failed to send health check", "error", err)
-				return
-			}
-
-			common.LogDebug("health check sent")
+			s.sendOneHealthCheck(sender)
 		}
 	}
+}
+
+// sendOneHealthCheck sends a single health check message
+func (s *ServeClient) sendOneHealthCheck(sender messageSender) {
+	msg := &pb.TunnelMessage{
+		Message: &pb.TunnelMessage_HealthCheck{
+			HealthCheck: &pb.HealthCheck{
+				Timestamp: time.Now().UnixMilli(),
+			},
+		},
+	}
+
+	if err := sender.Send(msg); err != nil {
+		common.LogError("failed to send health check", "error", err)
+		return
+	}
+
+	common.LogDebug("health check sent")
 }

@@ -51,7 +51,7 @@ Usage:
 
 Examples:
   tunn 8080                              # https://abc123.tunn.to -> localhost:8080
-  tunn 8080 --allow alice@gmail.com      # Share with specific people
+  tunn 8080 --allow=alice@gmail.com      # Share with specific people
   tunn localhost:3000                    # Tunnel localhost:3000
   tunn http://api.local:9000             # Tunnel any URL
 
@@ -115,7 +115,7 @@ Usage:
 
 Examples:
   tunn 8080                         # Tunnel localhost:8080
-  tunn 8080 --allow bob@co.com      # Share with specific people
+  tunn 8080 --allow=bob@co.com      # Share with specific people
   tunn serve --id=myapp 3000        # Custom tunnel ID
   tunn serve --subdomain=myapp 3000 # Reserved subdomain (Pro)
 

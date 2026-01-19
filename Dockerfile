@@ -1,6 +1,10 @@
 # -------- build stage --------
-FROM --platform=linux/amd64 golang:1.23-alpine AS builder
+FROM --platform=linux/amd64 golang:1.24-alpine AS builder
 WORKDIR /src
+# Cache dependencies
+COPY go.mod go.sum ./
+RUN go mod download
+# Build
 COPY . .
 RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /tunn .
 

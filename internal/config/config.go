@@ -120,8 +120,8 @@ func (c *Config) loadDevConfig() {
 	c.MockOIDCAddr = getEnvAllowEmpty("TUNN_MOCK_OIDC_ADDR", ":9000")
 	c.MockOIDCIssuer = getEnvOrDefault("TUNN_MOCK_OIDC_ISSUER", "http://localhost:9000")
 
-	// Server address for clients
-	c.ServerAddr = getEnvOrDefault("TUNN_SERVER_ADDR", "localhost:8443")
+	// Server address for clients (default to prod even in dev - override with TUNN_SERVER_ADDR for local testing)
+	c.ServerAddr = getEnvOrDefault("TUNN_SERVER_ADDR", "tunn.to:443")
 
 	// Tunnel creation key (free tier)
 	c.WellKnownKey = getEnvOrDefault("TUNN_WELL_KNOWN_KEY", "tunn-free-v1-2025")

@@ -128,8 +128,9 @@ certs-dir:
 # Fly.io deployment
 #
 # First-time:
-#   1. make fly-create   (create app, allocate IPs - app won't start)
-#   2. make fly-init     (set all secrets + certs, deploy - app goes live)
+#   1. make fly-create    (create app, allocate IPs, volume)
+#   2. make fly-secrets   (set all secrets + certs)
+#   3. make fly-deploy    (deploy)
 #
 # Subsequent deploys: make fly-deploy
 # Cert renewal (every 90 days): make fly-certs && make fly-deploy
@@ -137,24 +138,17 @@ certs-dir:
 fly-create:
 	@echo "Creating Fly.io application..."
 	fly apps create $(FLY_APP_NAME)
-	fly ips allocate-v4 --shared -a $(FLY_APP_NAME)
+	fly ips allocate-v4 -a $(FLY_APP_NAME) -y
 	fly ips allocate-v6 -a $(FLY_APP_NAME)
 	fly volumes create tunn_data --size 1 --region iad -a $(FLY_APP_NAME) -y
 	@echo ""
-	@echo "App created! IPs and volume allocated. App won't start until configured."
-	@echo ""
-	@echo "Before running fly-init, you need:"
-	@echo "  1. GitHub OAuth App (client ID + secret)"
-	@echo "  2. Resend API key"
-	@echo "  3. TLS certs: sudo certbot certonly --manual --preferred-challenges dns -d tunn.to -d '*.tunn.to'"
-	@echo ""
-	@echo "Then run: make fly-init"
+	@echo "App created! Now run: make fly-secrets"
 
-fly-init:
-	@echo "=== Fly.io Initial Setup ==="
+fly-secrets:
+	@echo "=== Setting Fly.io Secrets ==="
 	@echo ""
-	@# Check certs exist first
-	@if [ ! -f "/etc/letsencrypt/live/tunn.to/fullchain.pem" ]; then \
+	@# Check certs exist first (need sudo to access letsencrypt dir)
+	@if ! sudo test -f "/etc/letsencrypt/live/tunn.to/fullchain.pem"; then \
 		echo "ERROR: TLS certs not found. Run certbot first:"; \
 		echo "  sudo certbot certonly --manual --preferred-challenges dns -d tunn.to -d '*.tunn.to'"; \
 		exit 1; \
@@ -164,39 +158,36 @@ fly-init:
 	read -p "GitHub Client Secret: " gh_secret && \
 	read -p "Resend API Key: " resend_key && \
 	JWT_SECRET=$$(openssl rand -hex 32) && \
+	NODE_SECRET=$$(openssl rand -hex 32) && \
 	echo "" && \
 	echo "Generated JWT_SECRET: $$JWT_SECRET" && \
 	echo ">>> SAVE THIS TO YOUR PASSWORD MANAGER <<<" && \
 	echo "" && \
 	echo "Uploading secrets..." && \
-	sudo cat /etc/letsencrypt/live/tunn.to/fullchain.pem | base64 > /tmp/cert.b64 && \
-	sudo cat /etc/letsencrypt/live/tunn.to/privkey.pem | base64 > /tmp/key.b64 && \
+	sudo cat /etc/letsencrypt/live/tunn.to/fullchain.pem | base64 | tr -d '\n' > /tmp/cert.b64 && \
+	sudo cat /etc/letsencrypt/live/tunn.to/privkey.pem | base64 | tr -d '\n' > /tmp/key.b64 && \
 	fly secrets set \
 		TUNN_JWT_SECRET="$$JWT_SECRET" \
+		TUNN_NODE_SECRET="$$NODE_SECRET" \
 		TUNN_GITHUB_CLIENT_ID="$$gh_id" \
 		TUNN_GITHUB_CLIENT_SECRET="$$gh_secret" \
-		TUNN_SMTP_USER="$$resend_key" \
+		TUNN_SMTP_USER="resend" \
 		TUNN_SMTP_PASSWORD="$$resend_key" \
 		TUNN_CERT_DATA="$$(cat /tmp/cert.b64)" \
 		TUNN_KEY_DATA="$$(cat /tmp/key.b64)" \
 		-a $(FLY_APP_NAME) && \
 	rm -f /tmp/cert.b64 /tmp/key.b64
 	@echo ""
-	@echo "Secrets set! Deploying..."
-	fly deploy
-	@echo ""
-	@echo "=== Setup Complete ==="
-	@echo "Point your DNS to these IPs:"
-	@fly ips list -a $(FLY_APP_NAME)
+	@echo "Secrets set! Now run: make fly-deploy"
 
 fly-certs:
 	@echo "Updating TLS certs..."
-	@if [ ! -f "/etc/letsencrypt/live/tunn.to/fullchain.pem" ]; then \
+	@if ! sudo test -f "/etc/letsencrypt/live/tunn.to/fullchain.pem"; then \
 		echo "ERROR: Certs not found. Run: sudo certbot renew"; \
 		exit 1; \
 	fi
-	@sudo cat /etc/letsencrypt/live/tunn.to/fullchain.pem | base64 > /tmp/cert.b64
-	@sudo cat /etc/letsencrypt/live/tunn.to/privkey.pem | base64 > /tmp/key.b64
+	@sudo cat /etc/letsencrypt/live/tunn.to/fullchain.pem | base64 | tr -d '\n' > /tmp/cert.b64
+	@sudo cat /etc/letsencrypt/live/tunn.to/privkey.pem | base64 | tr -d '\n' > /tmp/key.b64
 	fly secrets set \
 		TUNN_CERT_DATA="$$(cat /tmp/cert.b64)" \
 		TUNN_KEY_DATA="$$(cat /tmp/key.b64)" \

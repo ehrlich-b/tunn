@@ -154,25 +154,95 @@ func (p *ProxyServer) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Service temporarily unavailable", http.StatusServiceUnavailable)
 			return
 		}
-		code, err := p.storage.GetDeviceCodeByUserCode(r.Context(), userCode)
+		deviceCode, err := p.storage.GetDeviceCodeByUserCode(r.Context(), userCode)
 		if err != nil {
 			common.LogError("failed to get device code", "error", err)
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
-		if code == nil {
+		if deviceCode == nil {
 			http.Error(w, "Invalid or expired code", http.StatusBadRequest)
+			return
+		}
+
+		// Store device code in session
+		p.sessionManager.Put(r.Context(), "device_user_code", userCode)
+
+		// If user is already logged in, show device authorization page
+		if p.sessionManager.GetBool(r.Context(), "authenticated") {
+			p.showDeviceAuthorizePage(w, r, userCode)
 			return
 		}
 	}
 
-	// Store device code in session for after OAuth/magic link
-	if userCode != "" {
-		p.sessionManager.Put(r.Context(), "device_user_code", userCode)
-	}
-
 	// Show the login page (with both GitHub and email options)
 	p.handleLogin(w, r)
+}
+
+// showDeviceAuthorizePage shows the "Authorize this device?" confirmation page
+func (p *ProxyServer) showDeviceAuthorizePage(w http.ResponseWriter, r *http.Request, userCode string) {
+	email := p.sessionManager.GetString(r.Context(), "user_email")
+
+	w.Header().Set("Content-Type", "text/html")
+	writePageStart(w, "tunn - Authorize Device")
+	fmt.Fprintf(w, `
+<h1 class="page-title">Authorize Device</h1>
+<p class="page-subtitle">A device is requesting access to your account.</p>
+<div class="device-info">
+<p><strong>Code:</strong> <code>%s</code></p>
+<p><strong>Account:</strong> %s</p>
+</div>
+<form method="POST" action="/auth/device/authorize">
+<input type="hidden" name="code" value="%s">
+<button type="submit" class="btn btn-github">Authorize</button>
+</form>
+<p style="margin-top: 1rem;"><a href="/">Cancel</a></p>
+`, userCode, email, userCode)
+	writePageEnd(w)
+}
+
+// handleDeviceAuthorize handles POST /auth/device/authorize - authorizes a device code
+func (p *ProxyServer) handleDeviceAuthorize(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Must be authenticated
+	if !p.sessionManager.GetBool(r.Context(), "authenticated") {
+		http.Redirect(w, r, "/login", http.StatusFound)
+		return
+	}
+
+	email := p.sessionManager.GetString(r.Context(), "user_email")
+	userCode := r.FormValue("code")
+
+	if userCode == "" {
+		http.Error(w, "Missing code", http.StatusBadRequest)
+		return
+	}
+
+	if !p.storage.Available() {
+		http.Error(w, "Service temporarily unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	deviceCode, err := p.storage.GetDeviceCodeByUserCode(r.Context(), userCode)
+	if err != nil || deviceCode == nil {
+		http.Error(w, "Invalid or expired code", http.StatusBadRequest)
+		return
+	}
+
+	if _, err := p.storage.AuthorizeDeviceCode(r.Context(), deviceCode.Code, email); err != nil {
+		common.LogError("failed to authorize device code", "error", err)
+		http.Error(w, "Failed to authorize device", http.StatusInternalServerError)
+		return
+	}
+
+	common.LogInfo("device code authorized", "user_code", userCode, "email", email)
+
+	w.Header().Set("Content-Type", "text/html")
+	writeSuccessPage(w, "Device Authorized", "Return to your terminal.")
 }
 
 // generateJWT creates a signed JWT for the user

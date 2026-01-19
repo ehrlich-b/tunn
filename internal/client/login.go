@@ -53,9 +53,11 @@ func (l *LoginClient) Run(ctx context.Context) error {
 	}
 
 	// Step 2: Display URL and attempt to open browser
-	fmt.Printf("\nOpening browser...\n")
+	fmt.Printf("\nYour code: %s\n", deviceResp.UserCode)
+	fmt.Printf("\nOpening browser to complete login...\n")
 	fmt.Printf("  %s\n", deviceResp.VerificationURIComplete)
-	fmt.Printf("\nWaiting for authentication...\n")
+	fmt.Printf("\nVerify the code matches, then click Authorize.\n")
+	fmt.Printf("Waiting for authorization...\n")
 
 	// Try to open browser
 	l.openBrowser(deviceResp.VerificationURIComplete)
@@ -121,17 +123,17 @@ func (l *LoginClient) pollForToken(ctx context.Context, deviceResp *DeviceCodeRe
 			return nil, fmt.Errorf("authentication timed out")
 		case <-ticker.C:
 			token, err := l.checkToken(deviceResp.DeviceCode)
-			if err == nil {
-				return token, nil
+			if err != nil {
+				return nil, err
 			}
 
-			// Check if error is authorization_pending (expected while waiting)
-			if token != nil && token.Error == "authorization_pending" {
+			// Check if still pending authorization
+			if token.Error == "authorization_pending" {
 				continue
 			}
 
-			// Any other error is fatal
-			return nil, err
+			// Got a valid token
+			return token, nil
 		}
 	}
 }

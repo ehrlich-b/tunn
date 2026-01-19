@@ -105,26 +105,6 @@ func (p *ProxyServer) handleMagicLinkVerify(w http.ResponseWriter, r *http.Reque
 
 	common.LogInfo("magic link verified", "email", email)
 
-	// Check if this is a device code flow (CLI login)
-	deviceUserCode := r.URL.Query().Get("device_code")
-	if deviceUserCode != "" && p.storage.Available() {
-		// Find the device code and authorize it
-		code, err := p.storage.GetDeviceCodeByUserCode(r.Context(), deviceUserCode)
-		if err == nil && code != nil {
-			p.storage.AuthorizeDeviceCode(r.Context(), code.Code, email)
-			common.LogInfo("device code authorized via magic link", "email", email, "user_code", deviceUserCode)
-
-			// Show success page
-			w.Header().Set("Content-Type", "text/html")
-			writePageStart(w, "tunn - Login Successful")
-			fmt.Fprint(w, `<div class="message success">You're logged in!</div>
-<h1 class="page-title">Login Successful</h1>
-<p class="page-subtitle">You can close this window and return to your terminal.</p>`)
-			writePageEnd(w)
-			return
-		}
-	}
-
 	// Create or update account in database (if storage available)
 	if p.storage.Available() {
 		_, err := p.storage.FindOrCreateByEmails(r.Context(), []string{email}, "magic_link")
@@ -137,6 +117,16 @@ func (p *ProxyServer) handleMagicLinkVerify(w http.ResponseWriter, r *http.Reque
 	// Create session for browser auth
 	p.sessionManager.Put(r.Context(), "user_email", email)
 	p.sessionManager.Put(r.Context(), "authenticated", true)
+
+	// Check if this is a device code flow (CLI login) - redirect to confirmation page
+	deviceUserCode := r.URL.Query().Get("device_code")
+	if deviceUserCode != "" && p.storage.Available() {
+		code, err := p.storage.GetDeviceCodeByUserCode(r.Context(), deviceUserCode)
+		if err == nil && code != nil {
+			http.Redirect(w, r, "/login?code="+deviceUserCode, http.StatusFound)
+			return
+		}
+	}
 
 	// Redirect to account page
 	http.Redirect(w, r, "/account", http.StatusFound)

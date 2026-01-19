@@ -805,14 +805,24 @@ func (p *ProxyServer) handleAccount(w http.ResponseWriter, r *http.Request) {
 	usageFormatted := formatBytes(usageBytes)
 	quotaFormatted := formatBytes(quotaBytes)
 
-	// Stripe checkout URLs - use Stripe Payment Links for simplicity
+	// Stripe checkout URLs - append prefilled_email to auto-fill customer email
 	stripeMonthly := p.config.StripeCheckoutURLMonthly
 	if stripeMonthly == "" {
 		stripeMonthly = "#"
+	} else if u, err := url.Parse(stripeMonthly); err == nil {
+		q := u.Query()
+		q.Set("prefilled_email", email)
+		u.RawQuery = q.Encode()
+		stripeMonthly = u.String()
 	}
 	stripeYearly := p.config.StripeCheckoutURLYearly
 	if stripeYearly == "" {
 		stripeYearly = "#"
+	} else if u, err := url.Parse(stripeYearly); err == nil {
+		q := u.Query()
+		q.Set("prefilled_email", email)
+		u.RawQuery = q.Encode()
+		stripeYearly = u.String()
 	}
 
 	data := AccountPageData{

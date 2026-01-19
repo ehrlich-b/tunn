@@ -157,7 +157,9 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		}
 
 		// Check if any email in user's bucket is on the tunnel's allow-list
-		allowed := isEmailBucketAllowed(userEmails, tunnel.AllowedEmails)
+		// Creator is implicitly always allowed
+		allowListWithCreator := append(tunnel.AllowedEmails, tunnel.CreatorEmail)
+		allowed := isEmailBucketAllowed(userEmails, allowListWithCreator)
 
 		if !allowed {
 			common.LogInfo("access denied - user not on allow-list",

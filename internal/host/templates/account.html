@@ -267,18 +267,18 @@ h1 {
     <div class="billing-toggle">
       <span class="toggle-label" id="label-monthly">Monthly</span>
       <label class="toggle-switch">
-        <input type="checkbox" id="billing-toggle">
+        <input type="checkbox" id="billing-toggle" checked>
         <span class="toggle-slider"></span>
       </label>
-      <span class="toggle-label" id="label-yearly">Yearly <span class="save-badge">Save 20%</span></span>
+      <span class="toggle-label active" id="label-yearly">Yearly <span class="save-badge">Save 20%</span></span>
     </div>
 
     <div class="price-display">
-      <span class="price" id="price-monthly">$5<span class="price-period">/mo</span></span>
-      <span class="price" id="price-yearly" style="display: none;">$4<span class="price-period">/mo</span> <span class="billed-yearly">billed yearly</span></span>
+      <span class="price" id="price-monthly" style="display: none;">$5<span class="price-period">/mo</span></span>
+      <span class="price" id="price-yearly">$4<span class="price-period">/mo</span> <span class="billed-yearly">billed yearly</span></span>
     </div>
 
-    <a href="{{.StripeCheckoutURLMonthly}}" class="upgrade-btn-white" id="checkout-link">Upgrade Now</a>
+    <a href="{{.StripeCheckoutURLYearly}}" class="upgrade-btn-white" id="checkout-link">Upgrade Now</a>
   </div>
   <script>
     const toggle = document.getElementById('billing-toggle');
@@ -305,7 +305,6 @@ h1 {
         labelYearly.classList.remove('active');
       }
     });
-    labelMonthly.classList.add('active');
   </script>
   {{end}}
 </div>

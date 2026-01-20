@@ -379,6 +379,25 @@ func (p *ProxyServer) proxyToNode(w http.ResponseWriter, r *http.Request, nodeAd
 	proxy.ServeHTTP(w, r)
 }
 
+// isLikelyBot checks if a User-Agent looks like a bot/crawler/scanner
+func isLikelyBot(ua string) bool {
+	ua = strings.ToLower(ua)
+	if ua == "" {
+		return true
+	}
+	botPatterns := []string{
+		"bot", "crawler", "spider", "scan", "python", "wget", "fetch",
+		"http", "axios", "node", "go-http", "java", "ruby", "perl",
+		"check", "monitor", "probe", "test", "uptime", "health",
+	}
+	for _, pattern := range botPatterns {
+		if strings.Contains(ua, pattern) {
+			return true
+		}
+	}
+	return false
+}
+
 // handleApexDomain handles requests to the apex domain (e.g., tunn.to)
 func (p *ProxyServer) handleApexDomain(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -388,8 +407,19 @@ func (p *ProxyServer) handleApexDomain(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, privacyHTML)
 	case "/terms":
 		fmt.Fprint(w, termsHTML)
+	case "/favicon.ico", "/robots.txt", "/sitemap.xml":
+		http.NotFound(w, r)
 	default:
-		common.LogInfo("homepage visit")
+		// Only log actual homepage visits, not random path probes
+		if r.URL.Path == "/" {
+			ua := r.Header.Get("User-Agent")
+			ip := extractClientIP(r)
+			if isLikelyBot(ua) {
+				common.LogInfo("homepage bot", "ip", ip, "ua", ua)
+			} else {
+				common.LogInfo("homepage human", "ip", ip, "ua", ua)
+			}
+		}
 		fmt.Fprint(w, homepageHTML)
 	}
 }

@@ -306,6 +306,12 @@ h1 {
       }
     });
   </script>
+  {{else}}
+  <div class="card">
+    <div class="card-title">Subscription</div>
+    <p>You're on the Pro plan. Manage your subscription, update payment methods, or cancel anytime.</p>
+    <a href="{{.StripeBillingPortalURL}}" class="upgrade-btn-white" style="margin-top: 1rem;">Manage Subscription</a>
+  </div>
   {{end}}
 </div>
 

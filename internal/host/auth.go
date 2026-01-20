@@ -761,6 +761,7 @@ type AccountPageData struct {
 	QuotaFormatted           string
 	StripeCheckoutURLMonthly string
 	StripeCheckoutURLYearly  string
+	StripeBillingPortalURL   string
 }
 
 // handleAccount shows the account dashboard page
@@ -821,6 +822,15 @@ func (p *ProxyServer) handleAccount(w http.ResponseWriter, r *http.Request) {
 		u.RawQuery = q.Encode()
 		stripeYearly = u.String()
 	}
+	stripePortal := p.config.StripePortalURL
+	if stripePortal == "" {
+		stripePortal = "#"
+	} else if u, err := url.Parse(stripePortal); err == nil {
+		q := u.Query()
+		q.Set("prefilled_email", email)
+		u.RawQuery = q.Encode()
+		stripePortal = u.String()
+	}
 
 	data := AccountPageData{
 		Email:                    email,
@@ -832,6 +842,7 @@ func (p *ProxyServer) handleAccount(w http.ResponseWriter, r *http.Request) {
 		QuotaFormatted:           quotaFormatted,
 		StripeCheckoutURLMonthly: stripeMonthly,
 		StripeCheckoutURLYearly:  stripeYearly,
+		StripeBillingPortalURL:   stripePortal,
 	}
 
 	// Render template

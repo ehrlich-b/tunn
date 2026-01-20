@@ -11,7 +11,7 @@ RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /tunn .
 # -------- runtime stage --------
 FROM --platform=linux/amd64 alpine:3.20
 WORKDIR /app
-RUN apk add --no-cache ca-certificates
+RUN apk add --no-cache ca-certificates sqlite
 COPY --from=builder /tunn .
 
 # Startup script decodes certs from Fly secrets

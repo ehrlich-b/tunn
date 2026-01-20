@@ -63,6 +63,7 @@ type Config struct {
 	StripeWebhookSecret      string
 	StripeCheckoutURLMonthly string // Payment link for monthly Pro ($5/mo)
 	StripeCheckoutURLYearly  string // Payment link for yearly Pro ($4/yr or $48/yr)
+	StripePortalURL          string // Customer portal for managing subscriptions
 
 	// Client configuration
 	ServerAddr string
@@ -152,6 +153,7 @@ func (c *Config) loadDevConfig() {
 	c.StripeWebhookSecret = getEnvOrDefault("TUNN_STRIPE_WEBHOOK_SECRET", "")
 	c.StripeCheckoutURLMonthly = getEnvOrDefault("TUNN_STRIPE_CHECKOUT_URL_MONTHLY", "")
 	c.StripeCheckoutURLYearly = getEnvOrDefault("TUNN_STRIPE_CHECKOUT_URL_YEARLY", "")
+	c.StripePortalURL = getEnvOrDefault("TUNN_STRIPE_PORTAL_URL", "")
 
 	// Skip TLS verification in dev
 	c.SkipVerify = true
@@ -214,6 +216,7 @@ func (c *Config) loadProdConfig() {
 	c.StripeWebhookSecret = getEnvOrDefault("TUNN_STRIPE_WEBHOOK_SECRET", "")
 	c.StripeCheckoutURLMonthly = getEnvOrDefault("TUNN_STRIPE_CHECKOUT_URL_MONTHLY", "")
 	c.StripeCheckoutURLYearly = getEnvOrDefault("TUNN_STRIPE_CHECKOUT_URL_YEARLY", "")
+	c.StripePortalURL = getEnvOrDefault("TUNN_STRIPE_PORTAL_URL", "")
 
 	// Verify TLS in production
 	c.SkipVerify = false

@@ -23,9 +23,9 @@ func TestCheckJWT(t *testing.T) {
 
 	// Create a test proxy server with mock OIDC
 	proxy := &ProxyServer{
-		Domain:         "tunn.local.127.0.0.1.nip.io",
-		config:         &config.Config{Environment: config.EnvDev},
-				mockOIDC:       mockOIDC,
+		Domain:   "tunn.local.127.0.0.1.nip.io",
+		config:   &config.Config{Environment: config.EnvDev},
+		mockOIDC: mockOIDC,
 	}
 
 	// Create a test handler that should be called on successful auth

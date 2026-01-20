@@ -99,11 +99,7 @@ type TunnelServer struct {
 	storage    storage.Storage     // Unified storage for tunnel registration/limits
 }
 
-// Bandwidth limits per plan (Mbps)
-const (
-	FreeBandwidthMbps = 100 // 100 Mbps = ~12.5 MB/s
-	ProBandwidthMbps  = 250 // 250 Mbps = ~31.25 MB/s
-)
+// Bandwidth limits are defined in limits.go
 
 // TunnelConnection represents an active tunnel connection
 type TunnelConnection struct {
@@ -157,8 +153,10 @@ func newRateLimiter(plan string) *rate.Limiter {
 	// Convert Mbps to bytes/sec: mbps * 1,000,000 / 8
 	bytesPerSec := mbps * 1_000_000 / 8
 
-	// Create limiter with 1 second burst allowance
-	return rate.NewLimiter(rate.Limit(bytesPerSec), bytesPerSec)
+	// Allow BurstSeconds of burst before rate limiting kicks in.
+	// This prevents normal web browsing from hitting limits - only sustained downloads.
+	burstBytes := bytesPerSec * BurstSeconds
+	return rate.NewLimiter(rate.Limit(bytesPerSec), burstBytes)
 }
 
 // NewTunnelServer creates a new gRPC tunnel server

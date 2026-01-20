@@ -126,7 +126,7 @@ If not in `PUBLIC_MODE`:
 - If session exists, verify user's email is in tunnel's allow-list
 
 ### 6. Rate Limit Check
-Check creator's quota hasn't been exceeded (100 MB/month free, 50 GB/month pro).
+Check creator's quota hasn't been exceeded (1 GB/month free, 50 GB/month pro).
 
 ### 7. Forward via gRPC
 Create `HttpRequest` message, generate unique `connection_id`, send to client.

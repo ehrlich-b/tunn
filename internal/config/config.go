@@ -59,10 +59,10 @@ type Config struct {
 	SMTPFrom     string
 
 	// Stripe configuration (for billing)
-	StripeSecretKey            string // Stripe secret key (sk_...) for API calls
-	StripeWebhookSecret        string
-	StripeCheckoutURLMonthly   string // Payment link for monthly Pro ($5/mo)
-	StripeCheckoutURLYearly    string // Payment link for yearly Pro ($4/yr or $48/yr)
+	StripeSecretKey          string // Stripe secret key (sk_...) for API calls
+	StripeWebhookSecret      string
+	StripeCheckoutURLMonthly string // Payment link for monthly Pro ($5/mo)
+	StripeCheckoutURLYearly  string // Payment link for yearly Pro ($4/yr or $48/yr)
 
 	// Client configuration
 	ServerAddr string

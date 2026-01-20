@@ -106,8 +106,8 @@ func (p *ProxyServer) clearAuthCookie(w http.ResponseWriter) {
 
 // OAuthState contains the data encoded in the OAuth state parameter
 type OAuthState struct {
-	State          string `json:"state"`           // Random CSRF token
-	ReturnTo       string `json:"return_to"`       // Where to redirect after login
+	State          string `json:"state"`            // Random CSRF token
+	ReturnTo       string `json:"return_to"`        // Where to redirect after login
 	DeviceUserCode string `json:"device_user_code"` // For device auth flow
 }
 
@@ -752,13 +752,13 @@ func (p *ProxyServer) handleLogout(w http.ResponseWriter, r *http.Request) {
 
 // AccountPageData holds data for the account page template
 type AccountPageData struct {
-	Email                   string
-	Plan                    string
-	UsageBytes              int64
-	QuotaBytes              int64
-	UsagePercent            int
-	UsageFormatted          string
-	QuotaFormatted          string
+	Email                    string
+	Plan                     string
+	UsageBytes               int64
+	QuotaBytes               int64
+	UsagePercent             int
+	UsageFormatted           string
+	QuotaFormatted           string
 	StripeCheckoutURLMonthly string
 	StripeCheckoutURLYearly  string
 }
@@ -776,15 +776,11 @@ func (p *ProxyServer) handleAccount(w http.ResponseWriter, r *http.Request) {
 	// Get account info
 	plan := "free"
 	var usageBytes int64 = 0
-	var quotaBytes int64 = 100 * 1000 * 1000 // 100 MB free tier
 
 	if p.storage.Available() {
 		// Try to get account info
 		if account, err := p.storage.GetAccountByEmail(r.Context(), email); err == nil && account != nil {
 			plan = account.Plan
-			if plan == "pro" {
-				quotaBytes = 50 * 1000 * 1000 * 1000 // 50 GB
-			}
 			// Get usage (by account ID, not email)
 			if usage, err := p.storage.GetMonthlyUsage(r.Context(), account.ID); err == nil {
 				usageBytes = usage
@@ -792,7 +788,8 @@ func (p *ProxyServer) handleAccount(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Calculate percentage
+	// Calculate percentage (quota defined in limits.go)
+	quotaBytes := GetQuotaBytes(plan)
 	usagePercent := 0
 	if quotaBytes > 0 {
 		usagePercent = int((usageBytes * 100) / quotaBytes)

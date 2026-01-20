@@ -55,8 +55,8 @@ type ProxyServer struct {
 	internalGRPCServer *grpc.Server
 	internalServer     *InternalServer
 	nodeClients        map[string]internalv1.InternalServiceClient
-	tunnelCache map[string]string // tunnelID -> nodeAddress
-	cacheMu     sync.RWMutex
+	tunnelCache        map[string]string // tunnelID -> nodeAddress
+	cacheMu            sync.RWMutex
 
 	// Configuration
 	config *config.Config
@@ -995,14 +995,8 @@ func (p *ProxyServer) flushUsageBuffer(ctx context.Context) {
 // Uses cached values with stale fallback when login node is unavailable.
 // Returns true if allowed (under quota or unknown), false if over quota.
 func (p *ProxyServer) CheckQuota(ctx context.Context, accountID string, plan string) bool {
-	// Get quota limit based on plan (SI decimal units: 1 GB = 1,000,000,000 bytes)
-	var quotaBytes int64
-	switch plan {
-	case "pro":
-		quotaBytes = 50 * 1000 * 1000 * 1000 // 50 GB
-	default:
-		quotaBytes = 100 * 1000 * 1000 // 100 MB
-	}
+	// Get quota limit based on plan (defined in limits.go)
+	quotaBytes := GetQuotaBytes(plan)
 
 	// Try to get fresh usage data
 	if p.storage.Available() {

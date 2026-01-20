@@ -156,9 +156,11 @@ Other nodes proxy DB operations to the login node via gRPC.
 
 |                     | Free    | Pro     |
 |---------------------|---------|---------|
-| Monthly bandwidth   | 100 MB  | 50 GB   |
+| Monthly bandwidth   | 1 GB    | 50 GB   |
 | Concurrent tunnels  | 3       | 10      |
-| Per-tunnel rate     | 100 Mbps| 250 Mbps|
+| Per-tunnel rate     | 200 Mbps| 500 Mbps|
+
+Note: Per-tunnel rates allow 10 seconds of burst before limiting kicks in.
 
 Rate limits apply to the **tunnel creator**, not visitors. If your public tunnel gets hammered, it counts against your quota.
 

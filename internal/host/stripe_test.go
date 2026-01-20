@@ -74,8 +74,8 @@ func TestVerifyStripeSignature(t *testing.T) {
 
 func TestHandleStripeWebhookNotConfigured(t *testing.T) {
 	proxy := &ProxyServer{
-		config:         &config.Config{StripeWebhookSecret: ""},
-			}
+		config: &config.Config{StripeWebhookSecret: ""},
+	}
 
 	req := httptest.NewRequest("POST", "/webhooks/stripe", strings.NewReader(`{}`))
 	rec := httptest.NewRecorder()
@@ -89,8 +89,8 @@ func TestHandleStripeWebhookNotConfigured(t *testing.T) {
 
 func TestHandleStripeWebhookWrongMethod(t *testing.T) {
 	proxy := &ProxyServer{
-		config:         &config.Config{StripeWebhookSecret: "test-secret"},
-			}
+		config: &config.Config{StripeWebhookSecret: "test-secret"},
+	}
 
 	req := httptest.NewRequest("GET", "/webhooks/stripe", nil)
 	rec := httptest.NewRecorder()
@@ -104,8 +104,8 @@ func TestHandleStripeWebhookWrongMethod(t *testing.T) {
 
 func TestHandleStripeWebhookMissingSignature(t *testing.T) {
 	proxy := &ProxyServer{
-		config:         &config.Config{StripeWebhookSecret: "test-secret"},
-			}
+		config: &config.Config{StripeWebhookSecret: "test-secret"},
+	}
 
 	req := httptest.NewRequest("POST", "/webhooks/stripe", strings.NewReader(`{}`))
 	rec := httptest.NewRecorder()
@@ -129,8 +129,8 @@ func TestHandleStripeWebhookValidEvent(t *testing.T) {
 	validSig := hex.EncodeToString(mac.Sum(nil))
 
 	proxy := &ProxyServer{
-		config:         &config.Config{StripeWebhookSecret: secret},
-			}
+		config: &config.Config{StripeWebhookSecret: secret},
+	}
 
 	req := httptest.NewRequest("POST", "/webhooks/stripe", strings.NewReader(payload))
 	req.Header.Set("Stripe-Signature", fmt.Sprintf("t=%s,v1=%s", timestamp, validSig))

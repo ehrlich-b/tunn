@@ -125,13 +125,13 @@ func TestSaveTokenCreatesDirectory(t *testing.T) {
 func TestLoginClientBasic(t *testing.T) {
 	client := &LoginClient{
 		ServerAddr: "localhost:8443",
-		SkipVerify: true,
+		Insecure:   true,
 	}
 
 	if client.ServerAddr != "localhost:8443" {
 		t.Errorf("Expected ServerAddr 'localhost:8443', got '%s'", client.ServerAddr)
 	}
-	if !client.SkipVerify {
-		t.Error("Expected SkipVerify to be true")
+	if !client.Insecure {
+		t.Error("Expected Insecure to be true")
 	}
 }

@@ -67,7 +67,7 @@ type Config struct {
 
 	// Client configuration
 	ServerAddr string
-	SkipVerify bool
+	Insecure bool
 
 	// Login node configuration
 	// Login node owns SQLite and handles all DB operations
@@ -156,7 +156,7 @@ func (c *Config) loadDevConfig() {
 	c.StripePortalURL = getEnvOrDefault("TUNN_STRIPE_PORTAL_URL", "")
 
 	// Skip TLS verification in dev
-	c.SkipVerify = true
+	c.Insecure = true
 
 	// Login node (defaults to true in dev for simplicity)
 	c.LoginNode = IsLoginNode() || getEnvOrDefault("TUNN_LOGIN_NODE", "true") == "true"
@@ -219,7 +219,7 @@ func (c *Config) loadProdConfig() {
 	c.StripePortalURL = getEnvOrDefault("TUNN_STRIPE_PORTAL_URL", "")
 
 	// Verify TLS in production
-	c.SkipVerify = false
+	c.Insecure = false
 
 	// Login node (must be explicitly configured in prod)
 	c.LoginNode = IsLoginNode()

@@ -23,7 +23,7 @@ import (
 // Global flags (parsed before subcommand)
 var (
 	verbosity  = flag.String("verbosity", "request", "log level: none, error, request, trace")
-	skipVerify = flag.Bool("skip-tls-verify", false, "skip TLS certificate verification (insecure)")
+	insecure = flag.Bool("insecure", false, "skip TLS verification for proxy gRPC connection (insecure)")
 
 	// Hidden flag for server operators
 	mode = flag.String("mode", "", "internal: host mode for server operators")
@@ -98,13 +98,14 @@ Options:
 }
 
 // Serve subcommand flags
-func parseServeFlags(args []string) (target string, tunnelID string, allowedEmails []string, tunnelKey string, clientSecret string) {
+func parseServeFlags(args []string) (target string, tunnelID string, allowedEmails []string, tunnelKey string, clientSecret string, skipLocalTLSVerify bool) {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	idFlag := fs.String("id", "", "tunnel ID (blank → random)")
 	subdomainFlag := fs.String("subdomain", "", "reserved subdomain (Pro feature, alias for -id)")
 	allowFlag := fs.String("allow", "", "comma-separated list of emails allowed to access tunnel")
 	keyFlag := fs.String("tunnel-key", "", "tunnel creation authorization key")
 	secretFlag := fs.String("secret", "", "client secret for auth (or set TUNN_SECRET env var)")
+	skipLocalTLSVerifyFlag := fs.Bool("skip-local-tls-verify", false, "skip TLS verification for local HTTPS target (e.g. self-signed certs)")
 
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, `tunn serve - expose localhost to the internet
@@ -165,6 +166,8 @@ Options:
 		}
 	}
 
+	skipLocalTLSVerify = *skipLocalTLSVerifyFlag
+
 	return
 }
 
@@ -177,7 +180,7 @@ func runLogin() {
 
 	loginClient := &client.LoginClient{
 		ServerAddr: cfg.ServerAddr,
-		SkipVerify: cfg.SkipVerify || *skipVerify,
+		Insecure: cfg.Insecure || *insecure,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -239,7 +242,7 @@ func runHost() {
 }
 
 func runServe(args []string) {
-	target, tunnelID, allowedEmails, tunnelKey, clientSecret := parseServeFlags(args)
+	target, tunnelID, allowedEmails, tunnelKey, clientSecret, skipLocalTLSVerify := parseServeFlags(args)
 
 	cfg, err := config.LoadConfig()
 	if err != nil {
@@ -288,8 +291,9 @@ func runServe(args []string) {
 		ServerAddr:    cfg.ServerAddr,
 		AuthToken:     token,
 		TunnelKey:     tunnelKey,
-		AllowedEmails: allowedEmails,
-		SkipVerify:    cfg.SkipVerify || *skipVerify,
+		AllowedEmails:      allowedEmails,
+		Insecure:           cfg.Insecure || *insecure,
+		SkipLocalTLSVerify: skipLocalTLSVerify,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

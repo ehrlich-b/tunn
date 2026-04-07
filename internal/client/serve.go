@@ -54,8 +54,9 @@ type ServeClient struct {
 	ServerAddr    string
 	AuthToken     string
 	TunnelKey     string
-	AllowedEmails []string
-	SkipVerify    bool
+	AllowedEmails      []string
+	Insecure           bool // Skip TLS verification for proxy gRPC connection
+	SkipLocalTLSVerify bool // Skip TLS verification for local HTTPS target
 
 	// Reconnection settings
 	MaxReconnectDelay time.Duration // Maximum delay between reconnects (default: 30s)
@@ -125,7 +126,7 @@ func (s *ServeClient) Run(ctx context.Context) error {
 func (s *ServeClient) runOnce(ctx context.Context) error {
 	// Create TLS credentials
 	tlsConfig := &tls.Config{
-		InsecureSkipVerify: s.SkipVerify,
+		InsecureSkipVerify: s.Insecure,
 	}
 	creds := credentials.NewTLS(tlsConfig)
 
@@ -304,6 +305,11 @@ func (s *ServeClient) handleHttpRequest(sender messageSender, httpReq *pb.HttpRe
 	}
 	client := &http.Client{
 		Timeout: timeout,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: s.SkipLocalTLSVerify,
+			},
+		},
 	}
 
 	resp, err := client.Do(req)

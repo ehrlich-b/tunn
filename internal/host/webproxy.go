@@ -372,7 +372,7 @@ func (p *ProxyServer) proxyToNode(w http.ResponseWriter, r *http.Request, nodeAd
 	// We need to create a custom transport to skip TLS verification if needed,
 	// since we are using self-signed certs in development.
 	proxy.Transport = &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: p.config.SkipVerify},
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: p.config.Insecure},
 	}
 
 	common.LogInfo("proxying to remote node", "target", target.String())

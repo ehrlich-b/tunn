@@ -20,7 +20,7 @@ import (
 // LoginClient handles the device code login flow
 type LoginClient struct {
 	ServerAddr string
-	SkipVerify bool
+	Insecure bool
 }
 
 // DeviceCodeResponse represents the response from the device authorization endpoint
@@ -217,7 +217,7 @@ func LoadToken() (string, error) {
 
 // httpClient returns an HTTP client, optionally skipping TLS verification
 func (l *LoginClient) httpClient() *http.Client {
-	if l.SkipVerify {
+	if l.Insecure {
 		return &http.Client{
 			Transport: &http.Transport{
 				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},

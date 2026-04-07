@@ -18,7 +18,7 @@ func TestServeClientBasic(t *testing.T) {
 		TargetURL:  "http://localhost:8000",
 		ServerAddr: "localhost:8443",
 		AuthToken:  "secret",
-		SkipVerify: true,
+		Insecure:   true,
 	}
 
 	if client.TunnelID != "test123" {
@@ -361,7 +361,7 @@ func TestReconnectionContextCancellation(t *testing.T) {
 		TunnelID:          "test123",
 		TargetURL:         "http://localhost:8000",
 		ServerAddr:        "localhost:59999", // Non-existent server
-		SkipVerify:        true,
+		Insecure:          true,
 		InitialDelay:      10 * time.Millisecond,
 		MaxReconnectDelay: 50 * time.Millisecond,
 	}

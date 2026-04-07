@@ -36,8 +36,8 @@ func TestLoadConfigDev(t *testing.T) {
 		t.Errorf("Expected mock OIDC addr :9000, got %s", cfg.MockOIDCAddr)
 	}
 
-	if !cfg.SkipVerify {
-		t.Error("Expected SkipVerify to be true in dev")
+	if !cfg.Insecure {
+		t.Error("Expected Insecure to be true in dev")
 	}
 }
 
@@ -72,8 +72,8 @@ func TestLoadConfigProd(t *testing.T) {
 		t.Errorf("Expected empty mock OIDC addr, got %s", cfg.MockOIDCAddr)
 	}
 
-	if cfg.SkipVerify {
-		t.Error("Expected SkipVerify to be false in prod")
+	if cfg.Insecure {
+		t.Error("Expected Insecure to be false in prod")
 	}
 }
 

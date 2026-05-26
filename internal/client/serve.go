@@ -309,6 +309,9 @@ func (s *ServeClient) handleHttpRequest(sender messageSender, httpReq *pb.HttpRe
 			TLSClientConfig: &tls.Config{
 				InsecureSkipVerify: s.SkipLocalTLSVerify,
 			},
+			// Custom TLSClientConfig disables HTTP/2 by default; re-enable it
+			// so we can talk to local HTTPS servers that require HTTP/2 via ALPN.
+			ForceAttemptHTTP2: true,
 		},
 	}
 

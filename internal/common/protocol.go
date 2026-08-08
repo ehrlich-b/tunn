@@ -1,0 +1,21 @@
+package common
+
+const (
+	// CapabilityHTTPStreamV1 enables the connection-oriented HTTP data path.
+	// Clients that omit it remain compatible with relays using buffered
+	// HttpRequest and HttpResponse messages.
+	CapabilityHTTPStreamV1       = "http-stream-v1"
+	CapabilityConnectionStreamV1 = "connection-stream-v1"
+
+	TCPConnectPath   = "/_tunn/connect"
+	TCPConnectHeader = "Tunn-Protocol"
+	TCPConnectValue  = "tcp/1"
+
+	// StreamChunkSize keeps individual protobuf messages comfortably below
+	// gRPC's default message limit while providing useful flow-control points.
+	StreamChunkSize = 32 * 1024
+
+	// MaxConcurrentConnections bounds logical streaming connections per
+	// endpoint on both sides of the tunnel.
+	MaxConcurrentConnections = 100
+)

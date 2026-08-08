@@ -2,6 +2,7 @@ package host
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
 	"fmt"
 	"io"
@@ -103,24 +104,47 @@ type TunnelServer struct {
 
 // TunnelConnection represents an active tunnel connection
 type TunnelConnection struct {
-	TunnelID      string
-	TargetURL     string
-	Stream        pb.TunnelService_EstablishTunnelServer
-	Connected     time.Time
-	CreatorEmail  string
-	AccountID     string   // Account ID for usage tracking (from storage)
-	AllowedEmails []string // Includes creator_email + any additional allowed emails
-	Plan          string   // "free" or "pro" - cached for quota checks
+	TunnelID          string
+	TargetURL         string
+	Stream            pb.TunnelService_EstablishTunnelServer
+	Connected         time.Time
+	CreatorEmail      string
+	AccountID         string   // Account ID for usage tracking (from storage)
+	AllowedEmails     []string // Includes creator_email + any additional allowed emails
+	AccessTokenSHA256 []byte   // Endpoint-scoped bearer digest; plaintext never reaches the relay
+	Capabilities      map[string]bool
+	EndpointProtocol  string
+	Plan              string // "free" or "pro" - cached for quota checks
 
 	// Bandwidth rate limiter (token bucket)
 	rateLimiter *rate.Limiter
 
 	// Stream send mutex - gRPC streams are NOT thread-safe for concurrent Send()
 	streamMu sync.Mutex
+	authMu   sync.RWMutex
 
 	// HTTP request tracking
 	pendingMu       sync.RWMutex
 	pendingRequests map[string]chan *pb.HttpResponse
+	pendingStreams  map[string]*pendingConnection
+}
+
+// Supports reports whether the connected client advertised a data-plane
+// capability during registration.
+func (t *TunnelConnection) Supports(capability string) bool {
+	return t.Capabilities[capability]
+}
+
+func (t *TunnelConnection) accessTokenDigest() []byte {
+	t.authMu.RLock()
+	defer t.authMu.RUnlock()
+	return append([]byte(nil), t.AccessTokenSHA256...)
+}
+
+func (t *TunnelConnection) updateAccessTokenDigest(digest []byte) {
+	t.authMu.Lock()
+	t.AccessTokenSHA256 = append(t.AccessTokenSHA256[:0], digest...)
+	t.authMu.Unlock()
 }
 
 // SendMessage sends a message on the stream in a thread-safe manner.
@@ -219,6 +243,46 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		}
 		stream.Send(respMsg)
 		return fmt.Errorf("reserved subdomain: %s", tunnelID)
+	}
+
+	if size := len(regClient.AccessTokenSha256); size != 0 && size != sha256.Size {
+		common.LogError("rejected invalid endpoint token digest", "tunnel_id", tunnelID, "size", size)
+		respMsg := &pb.TunnelMessage{
+			Message: &pb.TunnelMessage_RegisterResponse{
+				RegisterResponse: &pb.RegisterResponse{
+					Success:      false,
+					ErrorMessage: "Invalid endpoint access token digest.",
+				},
+			},
+		}
+		_ = stream.Send(respMsg)
+		return fmt.Errorf("invalid endpoint token digest for tunnel %s", tunnelID)
+	}
+	endpointProtocol := regClient.EndpointProtocol
+	if endpointProtocol == "" {
+		endpointProtocol = "http"
+	}
+	if endpointProtocol != "http" && endpointProtocol != "tcp" {
+		_ = stream.Send(&pb.TunnelMessage{
+			Message: &pb.TunnelMessage_RegisterResponse{
+				RegisterResponse: &pb.RegisterResponse{
+					Success:      false,
+					ErrorMessage: "Unsupported endpoint protocol.",
+				},
+			},
+		})
+		return fmt.Errorf("unsupported endpoint protocol %q", endpointProtocol)
+	}
+	if endpointProtocol == "tcp" && !stringSliceContains(regClient.Capabilities, common.CapabilityConnectionStreamV1) {
+		_ = stream.Send(&pb.TunnelMessage{
+			Message: &pb.TunnelMessage_RegisterResponse{
+				RegisterResponse: &pb.RegisterResponse{
+					Success:      false,
+					ErrorMessage: "TCP endpoints require connection-stream-v1 support.",
+				},
+			},
+		})
+		return fmt.Errorf("TCP client does not support connection streams")
 	}
 
 	common.LogInfo("client registering", "tunnel_id", tunnelID, "target", targetURL)
@@ -349,17 +413,25 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 	}
 
 	// Create tunnel connection
+	capabilities := make(map[string]bool, len(regClient.Capabilities))
+	for _, capability := range regClient.Capabilities {
+		capabilities[capability] = true
+	}
 	conn := &TunnelConnection{
-		TunnelID:        tunnelID,
-		TargetURL:       targetURL,
-		Stream:          stream,
-		Connected:       time.Now(),
-		CreatorEmail:    creatorEmail,
-		AccountID:       accountID,
-		AllowedEmails:   allowedEmails,
-		Plan:            plan,
-		rateLimiter:     newRateLimiter(plan),
-		pendingRequests: make(map[string]chan *pb.HttpResponse),
+		TunnelID:          tunnelID,
+		TargetURL:         targetURL,
+		Stream:            stream,
+		Connected:         time.Now(),
+		CreatorEmail:      creatorEmail,
+		AccountID:         accountID,
+		AllowedEmails:     allowedEmails,
+		AccessTokenSHA256: append([]byte(nil), regClient.AccessTokenSha256...),
+		Capabilities:      capabilities,
+		EndpointProtocol:  endpointProtocol,
+		Plan:              plan,
+		rateLimiter:       newRateLimiter(plan),
+		pendingRequests:   make(map[string]chan *pb.HttpResponse),
+		pendingStreams:    make(map[string]*pendingConnection),
 	}
 
 	// Check if tunnel exists locally first
@@ -454,6 +526,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 
 	// Cleanup on disconnect
 	defer func() {
+		conn.closePendingConnections()
 		s.mu.Lock()
 		delete(s.tunnels, tunnelID)
 		s.mu.Unlock()
@@ -473,8 +546,9 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 	respMsg := &pb.TunnelMessage{
 		Message: &pb.TunnelMessage_RegisterResponse{
 			RegisterResponse: &pb.RegisterResponse{
-				Success:   true,
-				PublicUrl: publicURL,
+				Success:      true,
+				PublicUrl:    publicURL,
+				Capabilities: []string{common.CapabilityHTTPStreamV1, common.CapabilityConnectionStreamV1},
 			},
 		},
 	}
@@ -526,10 +600,32 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 					"connection_id", m.HttpResponse.ConnectionId)
 			}
 
+		case *pb.TunnelMessage_ConnectionAccept,
+			*pb.TunnelMessage_ConnectionData,
+			*pb.TunnelMessage_ConnectionHalfClose,
+			*pb.TunnelMessage_ConnectionClose:
+			conn.routeConnectionMessage(msg)
+
+		case *pb.TunnelMessage_UpdateAccessToken:
+			if len(m.UpdateAccessToken.AccessTokenSha256) != sha256.Size {
+				return fmt.Errorf("invalid rotated endpoint token digest")
+			}
+			conn.updateAccessTokenDigest(m.UpdateAccessToken.AccessTokenSha256)
+			common.LogInfo("endpoint access token rotated", "tunnel_id", tunnelID)
+
 		default:
 			common.LogInfo("unexpected message type", "type", fmt.Sprintf("%T", m))
 		}
 	}
+}
+
+func stringSliceContains(values []string, wanted string) bool {
+	for _, value := range values {
+		if value == wanted {
+			return true
+		}
+	}
+	return false
 }
 
 // handleHealthCheck responds to health check pings

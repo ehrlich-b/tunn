@@ -54,7 +54,7 @@ message HttpRequest {
   bytes body = 5;
 }
 
-// Client -> Server: Here's the HTTP response
+// Client -> Server: Here's the HTTP response (legacy buffered fallback)
 message HttpResponse {
   string connection_id = 1;
   int32 status_code = 2;
@@ -62,6 +62,20 @@ message HttpResponse {
   bytes body = 4;
 }
 ```
+
+Upgraded peers negotiate a connection-oriented path on the same gRPC stream:
+
+```text
+ConnectionOpen(protocol, metadata)
+ConnectionData*                 # ordered 32 KiB chunks, either direction
+ConnectionHalfClose            # close one direction
+ConnectionClose                # terminate both directions
+```
+
+This path streams HTTP/SSE bodies and also carries raw TCP. `tunn tcp` publishes
+a private `host:port`; `tunn connect` exposes it as a local loopback listener
+over authenticated HTTP/2 CONNECT. Local target addresses are redacted during
+registration and never sent to the proxy.
 
 ## Authentication
 
@@ -184,6 +198,8 @@ Single-node deployments need:
 internal/
   client/
     serve.go      # ServeClient - establishes tunnel, forwards HTTP
+    http_stream.go # Streaming HTTP and TCP target adapters
+    connect.go    # Remote CONNECT endpoint -> local TCP listener
     login.go      # LoginClient - device code OAuth flow
   host/
     proxy.go      # ProxyServer - HTTP/2+3 listeners, TLS, routing

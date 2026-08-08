@@ -2,6 +2,8 @@ package host
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -171,6 +173,53 @@ func (p *ProxyServer) isAuthenticated(r *http.Request) bool {
 func (p *ProxyServer) getAuthEmail(r *http.Request) string {
 	email, _ := p.getAuthFromCookie(r)
 	return email
+}
+
+// getAuthFromTunnelBearer validates machine-to-machine identity for a tunnel
+// request. Tunn-Authorization is preferred so Authorization can remain owned
+// by the upstream application. Authorization is accepted for MCP clients that
+// only support the standard bearer header.
+//
+// The returned header name must be stripped before proxying: it contains a
+// tunn account credential, not an upstream credential.
+func (p *ProxyServer) getAuthFromTunnelBearer(r *http.Request, tunnel *TunnelConnection) (email, headerName string, capability, ok bool) {
+	for _, name := range []string{"Tunn-Authorization", "Authorization"} {
+		authHeader := strings.TrimSpace(r.Header.Get(name))
+		parts := strings.Fields(authHeader)
+		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+			continue
+		}
+
+		accessTokenDigest := tunnel.accessTokenDigest()
+		if len(accessTokenDigest) == sha256.Size {
+			digest := sha256.Sum256([]byte(parts[1]))
+			if subtle.ConstantTimeCompare(digest[:], accessTokenDigest) == 1 {
+				return tunnel.CreatorEmail, name, true, true
+			}
+		}
+
+		token, err := jwt.Parse(parts[1], func(token *jwt.Token) (interface{}, error) {
+			if _, validMethod := token.Method.(*jwt.SigningMethodHMAC); !validMethod {
+				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+			}
+			return p.getJWTSigningKey(), nil
+		})
+		if err != nil || !token.Valid {
+			continue
+		}
+
+		claims, validClaims := token.Claims.(jwt.MapClaims)
+		if !validClaims {
+			continue
+		}
+		email, validEmail := claims["email"].(string)
+		if !validEmail || email == "" {
+			continue
+		}
+		return common.NormalizeEmail(email), name, false, true
+	}
+
+	return "", "", false, false
 }
 
 // sanitizeReturnTo validates and sanitizes a return_to URL parameter.

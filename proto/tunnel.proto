@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package tunn.v1;
 
-option go_package = "github.com/behrlich/tunn/pkg/proto/tunnelv1";
+option go_package = "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1";
 
 // TunnelService manages the control plane for reverse tunnels between
 // the tunn proxy server and tunn serve clients.
@@ -27,6 +27,12 @@ message TunnelMessage {
     HttpRequest http_request = 7;
     HttpResponse http_response = 8;
     StreamClosed stream_closed = 9;
+    ConnectionOpen connection_open = 10;
+    ConnectionAccept connection_accept = 11;
+    ConnectionData connection_data = 12;
+    ConnectionHalfClose connection_half_close = 13;
+    ConnectionClose connection_close = 14;
+    UpdateAccessToken update_access_token = 15;
   }
 }
 
@@ -35,7 +41,9 @@ message TunnelMessage {
 message RegisterClient {
   // tunnel_id is a unique identifier for this tunnel (can be generated client-side)
   string tunnel_id = 1;
-  // target_url is the local service to forward requests to (e.g., "http://localhost:8000")
+  // target_url is retained for wire compatibility. Current clients send only
+  // a redacted adapter kind (for example "http", "mcp", "tcp", or "unix"),
+  // never a local address.
   string target_url = 2;
   // auth_token is the JWT from `tunn login` (contains creator's email)
   string auth_token = 3;
@@ -48,6 +56,18 @@ message RegisterClient {
   // V1: WELL_KNOWN_KEY (free for everyone)
   // V2: Remove this, check subscription via tunn-auth instead
   string tunnel_key = 6;
+  // Field numbers 7 and 8 were used by an unreleased UDP experiment.
+  reserved 7, 8;
+  // access_token_sha256 is the SHA-256 digest of an endpoint-scoped bearer
+  // token. The plaintext token never leaves the publishing machine except
+  // when the owner explicitly configures it in a remote client.
+  bytes access_token_sha256 = 9;
+  // capabilities contains backwards-compatible data-plane features supported
+  // by this client. Relays use the legacy buffered HTTP messages when absent.
+  repeated string capabilities = 10;
+  // endpoint_protocol is "http" by default. "tcp" endpoints accept only the
+  // authenticated tunn CONNECT transport.
+  string endpoint_protocol = 11;
 }
 
 // RegisterResponse is sent by the server to acknowledge tunnel registration.
@@ -58,6 +78,8 @@ message RegisterResponse {
   string error_message = 2;
   // public_url is the publicly accessible URL for this tunnel (e.g., "https://abc123.tunn.to")
   string public_url = 3;
+  // capabilities contains data-plane features supported by this relay.
+  repeated string capabilities = 4;
 }
 
 // ProxyRequest is sent by the server to instruct the client to open a new
@@ -127,4 +149,62 @@ message StreamClosed {
   string connection_id = 1;
   // reason describes why the connection closed (for logging)
   string reason = 2;
+}
+
+// ConnectionOpen starts one logical connection on the multiplexed tunnel.
+// protocol identifies the adapter; v1 currently defines "http" and "tcp".
+message ConnectionOpen {
+  string connection_id = 1;
+  string protocol = 2;
+  string source_address = 3;
+  HttpRequestHead http_request = 4;
+}
+
+// HttpRequestHead carries HTTP metadata without buffering the body.
+message HttpRequestHead {
+  string method = 1;
+  string path = 2;
+  map<string, string> headers = 3;
+  int64 content_length = 4;
+}
+
+// ConnectionAccept acknowledges an open connection. Adapter response metadata
+// is sent here before any ConnectionData messages.
+message ConnectionAccept {
+  string connection_id = 1;
+  bool success = 2;
+  string error_message = 3;
+  HttpResponseHead http_response = 4;
+}
+
+// HttpResponseHead carries HTTP status and headers without buffering the body.
+message HttpResponseHead {
+  int32 status_code = 1;
+  map<string, string> headers = 2;
+}
+
+// ConnectionData carries an ordered chunk. Direction is implicit from which
+// side of the bidirectional gRPC stream sent the message.
+message ConnectionData {
+  string connection_id = 1;
+  bytes data = 2;
+}
+
+// ConnectionHalfClose declares that the sender has no more bytes while still
+// allowing bytes in the opposite direction.
+message ConnectionHalfClose {
+  string connection_id = 1;
+}
+
+// ConnectionClose terminates both directions. error_message is empty for a
+// normal close and populated when the connection failed.
+message ConnectionClose {
+  string connection_id = 1;
+  string error_message = 2;
+}
+
+// UpdateAccessToken rotates the endpoint-scoped capability while a tunnel is
+// running. As at registration, only the SHA-256 digest crosses the tunnel.
+message UpdateAccessToken {
+  bytes access_token_sha256 = 1;
 }

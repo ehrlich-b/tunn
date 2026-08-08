@@ -36,7 +36,12 @@ type TunnelMessage struct {
 	//	*TunnelMessage_HttpRequest
 	//	*TunnelMessage_HttpResponse
 	//	*TunnelMessage_StreamClosed
-	//	*TunnelMessage_UdpPacket
+	//	*TunnelMessage_ConnectionOpen
+	//	*TunnelMessage_ConnectionAccept
+	//	*TunnelMessage_ConnectionData
+	//	*TunnelMessage_ConnectionHalfClose
+	//	*TunnelMessage_ConnectionClose
+	//	*TunnelMessage_UpdateAccessToken
 	Message       isTunnelMessage_Message `protobuf_oneof:"message"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -160,10 +165,55 @@ func (x *TunnelMessage) GetStreamClosed() *StreamClosed {
 	return nil
 }
 
-func (x *TunnelMessage) GetUdpPacket() *UdpPacket {
+func (x *TunnelMessage) GetConnectionOpen() *ConnectionOpen {
 	if x != nil {
-		if x, ok := x.Message.(*TunnelMessage_UdpPacket); ok {
-			return x.UdpPacket
+		if x, ok := x.Message.(*TunnelMessage_ConnectionOpen); ok {
+			return x.ConnectionOpen
+		}
+	}
+	return nil
+}
+
+func (x *TunnelMessage) GetConnectionAccept() *ConnectionAccept {
+	if x != nil {
+		if x, ok := x.Message.(*TunnelMessage_ConnectionAccept); ok {
+			return x.ConnectionAccept
+		}
+	}
+	return nil
+}
+
+func (x *TunnelMessage) GetConnectionData() *ConnectionData {
+	if x != nil {
+		if x, ok := x.Message.(*TunnelMessage_ConnectionData); ok {
+			return x.ConnectionData
+		}
+	}
+	return nil
+}
+
+func (x *TunnelMessage) GetConnectionHalfClose() *ConnectionHalfClose {
+	if x != nil {
+		if x, ok := x.Message.(*TunnelMessage_ConnectionHalfClose); ok {
+			return x.ConnectionHalfClose
+		}
+	}
+	return nil
+}
+
+func (x *TunnelMessage) GetConnectionClose() *ConnectionClose {
+	if x != nil {
+		if x, ok := x.Message.(*TunnelMessage_ConnectionClose); ok {
+			return x.ConnectionClose
+		}
+	}
+	return nil
+}
+
+func (x *TunnelMessage) GetUpdateAccessToken() *UpdateAccessToken {
+	if x != nil {
+		if x, ok := x.Message.(*TunnelMessage_UpdateAccessToken); ok {
+			return x.UpdateAccessToken
 		}
 	}
 	return nil
@@ -209,8 +259,28 @@ type TunnelMessage_StreamClosed struct {
 	StreamClosed *StreamClosed `protobuf:"bytes,9,opt,name=stream_closed,json=streamClosed,proto3,oneof"`
 }
 
-type TunnelMessage_UdpPacket struct {
-	UdpPacket *UdpPacket `protobuf:"bytes,10,opt,name=udp_packet,json=udpPacket,proto3,oneof"`
+type TunnelMessage_ConnectionOpen struct {
+	ConnectionOpen *ConnectionOpen `protobuf:"bytes,10,opt,name=connection_open,json=connectionOpen,proto3,oneof"`
+}
+
+type TunnelMessage_ConnectionAccept struct {
+	ConnectionAccept *ConnectionAccept `protobuf:"bytes,11,opt,name=connection_accept,json=connectionAccept,proto3,oneof"`
+}
+
+type TunnelMessage_ConnectionData struct {
+	ConnectionData *ConnectionData `protobuf:"bytes,12,opt,name=connection_data,json=connectionData,proto3,oneof"`
+}
+
+type TunnelMessage_ConnectionHalfClose struct {
+	ConnectionHalfClose *ConnectionHalfClose `protobuf:"bytes,13,opt,name=connection_half_close,json=connectionHalfClose,proto3,oneof"`
+}
+
+type TunnelMessage_ConnectionClose struct {
+	ConnectionClose *ConnectionClose `protobuf:"bytes,14,opt,name=connection_close,json=connectionClose,proto3,oneof"`
+}
+
+type TunnelMessage_UpdateAccessToken struct {
+	UpdateAccessToken *UpdateAccessToken `protobuf:"bytes,15,opt,name=update_access_token,json=updateAccessToken,proto3,oneof"`
 }
 
 func (*TunnelMessage_RegisterClient) isTunnelMessage_Message() {}
@@ -231,7 +301,17 @@ func (*TunnelMessage_HttpResponse) isTunnelMessage_Message() {}
 
 func (*TunnelMessage_StreamClosed) isTunnelMessage_Message() {}
 
-func (*TunnelMessage_UdpPacket) isTunnelMessage_Message() {}
+func (*TunnelMessage_ConnectionOpen) isTunnelMessage_Message() {}
+
+func (*TunnelMessage_ConnectionAccept) isTunnelMessage_Message() {}
+
+func (*TunnelMessage_ConnectionData) isTunnelMessage_Message() {}
+
+func (*TunnelMessage_ConnectionHalfClose) isTunnelMessage_Message() {}
+
+func (*TunnelMessage_ConnectionClose) isTunnelMessage_Message() {}
+
+func (*TunnelMessage_UpdateAccessToken) isTunnelMessage_Message() {}
 
 // RegisterClient is sent by the client (tunn serve) when it first connects
 // to register a new tunnel with the proxy server.
@@ -239,7 +319,9 @@ type RegisterClient struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// tunnel_id is a unique identifier for this tunnel (can be generated client-side)
 	TunnelId string `protobuf:"bytes,1,opt,name=tunnel_id,json=tunnelId,proto3" json:"tunnel_id,omitempty"`
-	// target_url is the local service to forward requests to (e.g., "http://localhost:8000")
+	// target_url is retained for wire compatibility. Current clients send only
+	// a redacted adapter kind (for example "http", "mcp", "tcp", or "unix"),
+	// never a local address.
 	TargetUrl string `protobuf:"bytes,2,opt,name=target_url,json=targetUrl,proto3" json:"target_url,omitempty"`
 	// auth_token is the JWT from `tunn login` (contains creator's email)
 	AuthToken string `protobuf:"bytes,3,opt,name=auth_token,json=authToken,proto3" json:"auth_token,omitempty"`
@@ -252,12 +334,16 @@ type RegisterClient struct {
 	// V1: WELL_KNOWN_KEY (free for everyone)
 	// V2: Remove this, check subscription via tunn-auth instead
 	TunnelKey string `protobuf:"bytes,6,opt,name=tunnel_key,json=tunnelKey,proto3" json:"tunnel_key,omitempty"`
-	// protocol specifies what protocol this tunnel supports: "http", "udp", or "both"
-	// Default: "http" for backwards compatibility
-	Protocol string `protobuf:"bytes,7,opt,name=protocol,proto3" json:"protocol,omitempty"`
-	// udp_target_address is the local UDP service to forward packets to (e.g., "localhost:25565")
-	// Only used when protocol is "udp" or "both"
-	UdpTargetAddress string `protobuf:"bytes,8,opt,name=udp_target_address,json=udpTargetAddress,proto3" json:"udp_target_address,omitempty"`
+	// access_token_sha256 is the SHA-256 digest of an endpoint-scoped bearer
+	// token. The plaintext token never leaves the publishing machine except
+	// when the owner explicitly configures it in a remote client.
+	AccessTokenSha256 []byte `protobuf:"bytes,9,opt,name=access_token_sha256,json=accessTokenSha256,proto3" json:"access_token_sha256,omitempty"`
+	// capabilities contains backwards-compatible data-plane features supported
+	// by this client. Relays use the legacy buffered HTTP messages when absent.
+	Capabilities []string `protobuf:"bytes,10,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
+	// endpoint_protocol is "http" by default. "tcp" endpoints accept only the
+	// authenticated tunn CONNECT transport.
+	EndpointProtocol string `protobuf:"bytes,11,opt,name=endpoint_protocol,json=endpointProtocol,proto3" json:"endpoint_protocol,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -334,16 +420,23 @@ func (x *RegisterClient) GetTunnelKey() string {
 	return ""
 }
 
-func (x *RegisterClient) GetProtocol() string {
+func (x *RegisterClient) GetAccessTokenSha256() []byte {
 	if x != nil {
-		return x.Protocol
+		return x.AccessTokenSha256
 	}
-	return ""
+	return nil
 }
 
-func (x *RegisterClient) GetUdpTargetAddress() string {
+func (x *RegisterClient) GetCapabilities() []string {
 	if x != nil {
-		return x.UdpTargetAddress
+		return x.Capabilities
+	}
+	return nil
+}
+
+func (x *RegisterClient) GetEndpointProtocol() string {
+	if x != nil {
+		return x.EndpointProtocol
 	}
 	return ""
 }
@@ -356,7 +449,9 @@ type RegisterResponse struct {
 	// error_message contains details if success is false
 	ErrorMessage string `protobuf:"bytes,2,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
 	// public_url is the publicly accessible URL for this tunnel (e.g., "https://abc123.tunn.to")
-	PublicUrl     string `protobuf:"bytes,3,opt,name=public_url,json=publicUrl,proto3" json:"public_url,omitempty"`
+	PublicUrl string `protobuf:"bytes,3,opt,name=public_url,json=publicUrl,proto3" json:"public_url,omitempty"`
+	// capabilities contains data-plane features supported by this relay.
+	Capabilities  []string `protobuf:"bytes,4,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -410,6 +505,13 @@ func (x *RegisterResponse) GetPublicUrl() string {
 		return x.PublicUrl
 	}
 	return ""
+}
+
+func (x *RegisterResponse) GetCapabilities() []string {
+	if x != nil {
+		return x.Capabilities
+	}
+	return nil
 }
 
 // ProxyRequest is sent by the server to instruct the client to open a new
@@ -845,43 +947,32 @@ func (x *StreamClosed) GetReason() string {
 	return ""
 }
 
-// UdpPacket is sent bidirectionally to tunnel UDP packets through the gRPC stream.
-// The proxy sends packets received from public internet to the serve client.
-// The serve client sends response packets from the local UDP target back to the proxy.
-type UdpPacket struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// tunnel_id identifies which tunnel this packet belongs to
-	TunnelId string `protobuf:"bytes,1,opt,name=tunnel_id,json=tunnelId,proto3" json:"tunnel_id,omitempty"`
-	// source_address is the IP:port of the original UDP sender (for routing responses)
-	// Format: "192.168.1.100:12345"
-	SourceAddress string `protobuf:"bytes,2,opt,name=source_address,json=sourceAddress,proto3" json:"source_address,omitempty"`
-	// destination_address is the IP:port of the destination (for routing on client side)
-	// Format: "localhost:25565"
-	DestinationAddress string `protobuf:"bytes,3,opt,name=destination_address,json=destinationAddress,proto3" json:"destination_address,omitempty"`
-	// data is the raw UDP packet payload
-	Data []byte `protobuf:"bytes,4,opt,name=data,proto3" json:"data,omitempty"`
-	// from_client indicates direction: true = from serve client to proxy, false = from proxy to serve client
-	FromClient bool `protobuf:"varint,5,opt,name=from_client,json=fromClient,proto3" json:"from_client,omitempty"`
-	// timestamp_ms is when the packet was received (Unix milliseconds)
-	TimestampMs   int64 `protobuf:"varint,6,opt,name=timestamp_ms,json=timestampMs,proto3" json:"timestamp_ms,omitempty"`
+// ConnectionOpen starts one logical connection on the multiplexed tunnel.
+// protocol identifies the adapter; v1 currently defines "http" and "tcp".
+type ConnectionOpen struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ConnectionId  string                 `protobuf:"bytes,1,opt,name=connection_id,json=connectionId,proto3" json:"connection_id,omitempty"`
+	Protocol      string                 `protobuf:"bytes,2,opt,name=protocol,proto3" json:"protocol,omitempty"`
+	SourceAddress string                 `protobuf:"bytes,3,opt,name=source_address,json=sourceAddress,proto3" json:"source_address,omitempty"`
+	HttpRequest   *HttpRequestHead       `protobuf:"bytes,4,opt,name=http_request,json=httpRequest,proto3" json:"http_request,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *UdpPacket) Reset() {
-	*x = UdpPacket{}
+func (x *ConnectionOpen) Reset() {
+	*x = ConnectionOpen{}
 	mi := &file_proto_tunnel_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *UdpPacket) String() string {
+func (x *ConnectionOpen) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*UdpPacket) ProtoMessage() {}
+func (*ConnectionOpen) ProtoMessage() {}
 
-func (x *UdpPacket) ProtoReflect() protoreflect.Message {
+func (x *ConnectionOpen) ProtoReflect() protoreflect.Message {
 	mi := &file_proto_tunnel_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -893,58 +984,436 @@ func (x *UdpPacket) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use UdpPacket.ProtoReflect.Descriptor instead.
-func (*UdpPacket) Descriptor() ([]byte, []int) {
+// Deprecated: Use ConnectionOpen.ProtoReflect.Descriptor instead.
+func (*ConnectionOpen) Descriptor() ([]byte, []int) {
 	return file_proto_tunnel_proto_rawDescGZIP(), []int{10}
 }
 
-func (x *UdpPacket) GetTunnelId() string {
+func (x *ConnectionOpen) GetConnectionId() string {
 	if x != nil {
-		return x.TunnelId
+		return x.ConnectionId
 	}
 	return ""
 }
 
-func (x *UdpPacket) GetSourceAddress() string {
+func (x *ConnectionOpen) GetProtocol() string {
+	if x != nil {
+		return x.Protocol
+	}
+	return ""
+}
+
+func (x *ConnectionOpen) GetSourceAddress() string {
 	if x != nil {
 		return x.SourceAddress
 	}
 	return ""
 }
 
-func (x *UdpPacket) GetDestinationAddress() string {
+func (x *ConnectionOpen) GetHttpRequest() *HttpRequestHead {
 	if x != nil {
-		return x.DestinationAddress
+		return x.HttpRequest
+	}
+	return nil
+}
+
+// HttpRequestHead carries HTTP metadata without buffering the body.
+type HttpRequestHead struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Method        string                 `protobuf:"bytes,1,opt,name=method,proto3" json:"method,omitempty"`
+	Path          string                 `protobuf:"bytes,2,opt,name=path,proto3" json:"path,omitempty"`
+	Headers       map[string]string      `protobuf:"bytes,3,rep,name=headers,proto3" json:"headers,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	ContentLength int64                  `protobuf:"varint,4,opt,name=content_length,json=contentLength,proto3" json:"content_length,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HttpRequestHead) Reset() {
+	*x = HttpRequestHead{}
+	mi := &file_proto_tunnel_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HttpRequestHead) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HttpRequestHead) ProtoMessage() {}
+
+func (x *HttpRequestHead) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_tunnel_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HttpRequestHead.ProtoReflect.Descriptor instead.
+func (*HttpRequestHead) Descriptor() ([]byte, []int) {
+	return file_proto_tunnel_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *HttpRequestHead) GetMethod() string {
+	if x != nil {
+		return x.Method
 	}
 	return ""
 }
 
-func (x *UdpPacket) GetData() []byte {
+func (x *HttpRequestHead) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *HttpRequestHead) GetHeaders() map[string]string {
+	if x != nil {
+		return x.Headers
+	}
+	return nil
+}
+
+func (x *HttpRequestHead) GetContentLength() int64 {
+	if x != nil {
+		return x.ContentLength
+	}
+	return 0
+}
+
+// ConnectionAccept acknowledges an open connection. Adapter response metadata
+// is sent here before any ConnectionData messages.
+type ConnectionAccept struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ConnectionId  string                 `protobuf:"bytes,1,opt,name=connection_id,json=connectionId,proto3" json:"connection_id,omitempty"`
+	Success       bool                   `protobuf:"varint,2,opt,name=success,proto3" json:"success,omitempty"`
+	ErrorMessage  string                 `protobuf:"bytes,3,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	HttpResponse  *HttpResponseHead      `protobuf:"bytes,4,opt,name=http_response,json=httpResponse,proto3" json:"http_response,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ConnectionAccept) Reset() {
+	*x = ConnectionAccept{}
+	mi := &file_proto_tunnel_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ConnectionAccept) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConnectionAccept) ProtoMessage() {}
+
+func (x *ConnectionAccept) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_tunnel_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConnectionAccept.ProtoReflect.Descriptor instead.
+func (*ConnectionAccept) Descriptor() ([]byte, []int) {
+	return file_proto_tunnel_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *ConnectionAccept) GetConnectionId() string {
+	if x != nil {
+		return x.ConnectionId
+	}
+	return ""
+}
+
+func (x *ConnectionAccept) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *ConnectionAccept) GetErrorMessage() string {
+	if x != nil {
+		return x.ErrorMessage
+	}
+	return ""
+}
+
+func (x *ConnectionAccept) GetHttpResponse() *HttpResponseHead {
+	if x != nil {
+		return x.HttpResponse
+	}
+	return nil
+}
+
+// HttpResponseHead carries HTTP status and headers without buffering the body.
+type HttpResponseHead struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	StatusCode    int32                  `protobuf:"varint,1,opt,name=status_code,json=statusCode,proto3" json:"status_code,omitempty"`
+	Headers       map[string]string      `protobuf:"bytes,2,rep,name=headers,proto3" json:"headers,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HttpResponseHead) Reset() {
+	*x = HttpResponseHead{}
+	mi := &file_proto_tunnel_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HttpResponseHead) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HttpResponseHead) ProtoMessage() {}
+
+func (x *HttpResponseHead) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_tunnel_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HttpResponseHead.ProtoReflect.Descriptor instead.
+func (*HttpResponseHead) Descriptor() ([]byte, []int) {
+	return file_proto_tunnel_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *HttpResponseHead) GetStatusCode() int32 {
+	if x != nil {
+		return x.StatusCode
+	}
+	return 0
+}
+
+func (x *HttpResponseHead) GetHeaders() map[string]string {
+	if x != nil {
+		return x.Headers
+	}
+	return nil
+}
+
+// ConnectionData carries an ordered chunk. Direction is implicit from which
+// side of the bidirectional gRPC stream sent the message.
+type ConnectionData struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ConnectionId  string                 `protobuf:"bytes,1,opt,name=connection_id,json=connectionId,proto3" json:"connection_id,omitempty"`
+	Data          []byte                 `protobuf:"bytes,2,opt,name=data,proto3" json:"data,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ConnectionData) Reset() {
+	*x = ConnectionData{}
+	mi := &file_proto_tunnel_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ConnectionData) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConnectionData) ProtoMessage() {}
+
+func (x *ConnectionData) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_tunnel_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConnectionData.ProtoReflect.Descriptor instead.
+func (*ConnectionData) Descriptor() ([]byte, []int) {
+	return file_proto_tunnel_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *ConnectionData) GetConnectionId() string {
+	if x != nil {
+		return x.ConnectionId
+	}
+	return ""
+}
+
+func (x *ConnectionData) GetData() []byte {
 	if x != nil {
 		return x.Data
 	}
 	return nil
 }
 
-func (x *UdpPacket) GetFromClient() bool {
-	if x != nil {
-		return x.FromClient
-	}
-	return false
+// ConnectionHalfClose declares that the sender has no more bytes while still
+// allowing bytes in the opposite direction.
+type ConnectionHalfClose struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ConnectionId  string                 `protobuf:"bytes,1,opt,name=connection_id,json=connectionId,proto3" json:"connection_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
-func (x *UdpPacket) GetTimestampMs() int64 {
+func (x *ConnectionHalfClose) Reset() {
+	*x = ConnectionHalfClose{}
+	mi := &file_proto_tunnel_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ConnectionHalfClose) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConnectionHalfClose) ProtoMessage() {}
+
+func (x *ConnectionHalfClose) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_tunnel_proto_msgTypes[15]
 	if x != nil {
-		return x.TimestampMs
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
 	}
-	return 0
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConnectionHalfClose.ProtoReflect.Descriptor instead.
+func (*ConnectionHalfClose) Descriptor() ([]byte, []int) {
+	return file_proto_tunnel_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *ConnectionHalfClose) GetConnectionId() string {
+	if x != nil {
+		return x.ConnectionId
+	}
+	return ""
+}
+
+// ConnectionClose terminates both directions. error_message is empty for a
+// normal close and populated when the connection failed.
+type ConnectionClose struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ConnectionId  string                 `protobuf:"bytes,1,opt,name=connection_id,json=connectionId,proto3" json:"connection_id,omitempty"`
+	ErrorMessage  string                 `protobuf:"bytes,2,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ConnectionClose) Reset() {
+	*x = ConnectionClose{}
+	mi := &file_proto_tunnel_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ConnectionClose) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConnectionClose) ProtoMessage() {}
+
+func (x *ConnectionClose) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_tunnel_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConnectionClose.ProtoReflect.Descriptor instead.
+func (*ConnectionClose) Descriptor() ([]byte, []int) {
+	return file_proto_tunnel_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *ConnectionClose) GetConnectionId() string {
+	if x != nil {
+		return x.ConnectionId
+	}
+	return ""
+}
+
+func (x *ConnectionClose) GetErrorMessage() string {
+	if x != nil {
+		return x.ErrorMessage
+	}
+	return ""
+}
+
+// UpdateAccessToken rotates the endpoint-scoped capability while a tunnel is
+// running. As at registration, only the SHA-256 digest crosses the tunnel.
+type UpdateAccessToken struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	AccessTokenSha256 []byte                 `protobuf:"bytes,1,opt,name=access_token_sha256,json=accessTokenSha256,proto3" json:"access_token_sha256,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *UpdateAccessToken) Reset() {
+	*x = UpdateAccessToken{}
+	mi := &file_proto_tunnel_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateAccessToken) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateAccessToken) ProtoMessage() {}
+
+func (x *UpdateAccessToken) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_tunnel_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateAccessToken.ProtoReflect.Descriptor instead.
+func (*UpdateAccessToken) Descriptor() ([]byte, []int) {
+	return file_proto_tunnel_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *UpdateAccessToken) GetAccessTokenSha256() []byte {
+	if x != nil {
+		return x.AccessTokenSha256
+	}
+	return nil
 }
 
 var File_proto_tunnel_proto protoreflect.FileDescriptor
 
 const file_proto_tunnel_proto_rawDesc = "" +
 	"\n" +
-	"\x12proto/tunnel.proto\x12\atunn.v1\"\xa2\x05\n" +
+	"\x12proto/tunnel.proto\x12\atunn.v1\"\xa8\b\n" +
 	"\rTunnelMessage\x12B\n" +
 	"\x0fregister_client\x18\x01 \x01(\v2\x17.tunn.v1.RegisterClientH\x00R\x0eregisterClient\x12H\n" +
 	"\x11register_response\x18\x02 \x01(\v2\x19.tunn.v1.RegisterResponseH\x00R\x10registerResponse\x12<\n" +
@@ -954,11 +1423,15 @@ const file_proto_tunnel_proto_rawDesc = "" +
 	"\x15health_check_response\x18\x06 \x01(\v2\x1c.tunn.v1.HealthCheckResponseH\x00R\x13healthCheckResponse\x129\n" +
 	"\fhttp_request\x18\a \x01(\v2\x14.tunn.v1.HttpRequestH\x00R\vhttpRequest\x12<\n" +
 	"\rhttp_response\x18\b \x01(\v2\x15.tunn.v1.HttpResponseH\x00R\fhttpResponse\x12<\n" +
-	"\rstream_closed\x18\t \x01(\v2\x15.tunn.v1.StreamClosedH\x00R\fstreamClosed\x123\n" +
-	"\n" +
-	"udp_packet\x18\n" +
-	" \x01(\v2\x12.tunn.v1.UdpPacketH\x00R\tudpPacketB\t\n" +
-	"\amessage\"\xa0\x02\n" +
+	"\rstream_closed\x18\t \x01(\v2\x15.tunn.v1.StreamClosedH\x00R\fstreamClosed\x12B\n" +
+	"\x0fconnection_open\x18\n" +
+	" \x01(\v2\x17.tunn.v1.ConnectionOpenH\x00R\x0econnectionOpen\x12H\n" +
+	"\x11connection_accept\x18\v \x01(\v2\x19.tunn.v1.ConnectionAcceptH\x00R\x10connectionAccept\x12B\n" +
+	"\x0fconnection_data\x18\f \x01(\v2\x17.tunn.v1.ConnectionDataH\x00R\x0econnectionData\x12R\n" +
+	"\x15connection_half_close\x18\r \x01(\v2\x1c.tunn.v1.ConnectionHalfCloseH\x00R\x13connectionHalfClose\x12E\n" +
+	"\x10connection_close\x18\x0e \x01(\v2\x18.tunn.v1.ConnectionCloseH\x00R\x0fconnectionClose\x12L\n" +
+	"\x13update_access_token\x18\x0f \x01(\v2\x1a.tunn.v1.UpdateAccessTokenH\x00R\x11updateAccessTokenB\t\n" +
+	"\amessage\"\xe3\x02\n" +
 	"\x0eRegisterClient\x12\x1b\n" +
 	"\ttunnel_id\x18\x01 \x01(\tR\btunnelId\x12\x1d\n" +
 	"\n" +
@@ -968,14 +1441,17 @@ const file_proto_tunnel_proto_rawDesc = "" +
 	"\rcreator_email\x18\x04 \x01(\tR\fcreatorEmail\x12%\n" +
 	"\x0eallowed_emails\x18\x05 \x03(\tR\rallowedEmails\x12\x1d\n" +
 	"\n" +
-	"tunnel_key\x18\x06 \x01(\tR\ttunnelKey\x12\x1a\n" +
-	"\bprotocol\x18\a \x01(\tR\bprotocol\x12,\n" +
-	"\x12udp_target_address\x18\b \x01(\tR\x10udpTargetAddress\"p\n" +
+	"tunnel_key\x18\x06 \x01(\tR\ttunnelKey\x12.\n" +
+	"\x13access_token_sha256\x18\t \x01(\fR\x11accessTokenSha256\x12\"\n" +
+	"\fcapabilities\x18\n" +
+	" \x03(\tR\fcapabilities\x12+\n" +
+	"\x11endpoint_protocol\x18\v \x01(\tR\x10endpointProtocolJ\x04\b\a\x10\bJ\x04\b\b\x10\t\"\x94\x01\n" +
 	"\x10RegisterResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12#\n" +
 	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\x12\x1d\n" +
 	"\n" +
-	"public_url\x18\x03 \x01(\tR\tpublicUrl\"Z\n" +
+	"public_url\x18\x03 \x01(\tR\tpublicUrl\x12\"\n" +
+	"\fcapabilities\x18\x04 \x03(\tR\fcapabilities\"Z\n" +
 	"\fProxyRequest\x12#\n" +
 	"\rconnection_id\x18\x01 \x01(\tR\fconnectionId\x12%\n" +
 	"\x0esource_address\x18\x02 \x01(\tR\rsourceAddress\"s\n" +
@@ -1008,17 +1484,44 @@ const file_proto_tunnel_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"K\n" +
 	"\fStreamClosed\x12#\n" +
 	"\rconnection_id\x18\x01 \x01(\tR\fconnectionId\x12\x16\n" +
-	"\x06reason\x18\x02 \x01(\tR\x06reason\"\xd8\x01\n" +
-	"\tUdpPacket\x12\x1b\n" +
-	"\ttunnel_id\x18\x01 \x01(\tR\btunnelId\x12%\n" +
-	"\x0esource_address\x18\x02 \x01(\tR\rsourceAddress\x12/\n" +
-	"\x13destination_address\x18\x03 \x01(\tR\x12destinationAddress\x12\x12\n" +
-	"\x04data\x18\x04 \x01(\fR\x04data\x12\x1f\n" +
-	"\vfrom_client\x18\x05 \x01(\bR\n" +
-	"fromClient\x12!\n" +
-	"\ftimestamp_ms\x18\x06 \x01(\x03R\vtimestampMs2V\n" +
+	"\x06reason\x18\x02 \x01(\tR\x06reason\"\xb5\x01\n" +
+	"\x0eConnectionOpen\x12#\n" +
+	"\rconnection_id\x18\x01 \x01(\tR\fconnectionId\x12\x1a\n" +
+	"\bprotocol\x18\x02 \x01(\tR\bprotocol\x12%\n" +
+	"\x0esource_address\x18\x03 \x01(\tR\rsourceAddress\x12;\n" +
+	"\fhttp_request\x18\x04 \x01(\v2\x18.tunn.v1.HttpRequestHeadR\vhttpRequest\"\xe1\x01\n" +
+	"\x0fHttpRequestHead\x12\x16\n" +
+	"\x06method\x18\x01 \x01(\tR\x06method\x12\x12\n" +
+	"\x04path\x18\x02 \x01(\tR\x04path\x12?\n" +
+	"\aheaders\x18\x03 \x03(\v2%.tunn.v1.HttpRequestHead.HeadersEntryR\aheaders\x12%\n" +
+	"\x0econtent_length\x18\x04 \x01(\x03R\rcontentLength\x1a:\n" +
+	"\fHeadersEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xb6\x01\n" +
+	"\x10ConnectionAccept\x12#\n" +
+	"\rconnection_id\x18\x01 \x01(\tR\fconnectionId\x12\x18\n" +
+	"\asuccess\x18\x02 \x01(\bR\asuccess\x12#\n" +
+	"\rerror_message\x18\x03 \x01(\tR\ferrorMessage\x12>\n" +
+	"\rhttp_response\x18\x04 \x01(\v2\x19.tunn.v1.HttpResponseHeadR\fhttpResponse\"\xb1\x01\n" +
+	"\x10HttpResponseHead\x12\x1f\n" +
+	"\vstatus_code\x18\x01 \x01(\x05R\n" +
+	"statusCode\x12@\n" +
+	"\aheaders\x18\x02 \x03(\v2&.tunn.v1.HttpResponseHead.HeadersEntryR\aheaders\x1a:\n" +
+	"\fHeadersEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"I\n" +
+	"\x0eConnectionData\x12#\n" +
+	"\rconnection_id\x18\x01 \x01(\tR\fconnectionId\x12\x12\n" +
+	"\x04data\x18\x02 \x01(\fR\x04data\":\n" +
+	"\x13ConnectionHalfClose\x12#\n" +
+	"\rconnection_id\x18\x01 \x01(\tR\fconnectionId\"[\n" +
+	"\x0fConnectionClose\x12#\n" +
+	"\rconnection_id\x18\x01 \x01(\tR\fconnectionId\x12#\n" +
+	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\"C\n" +
+	"\x11UpdateAccessToken\x12.\n" +
+	"\x13access_token_sha256\x18\x01 \x01(\fR\x11accessTokenSha2562V\n" +
 	"\rTunnelService\x12E\n" +
-	"\x0fEstablishTunnel\x12\x16.tunn.v1.TunnelMessage\x1a\x16.tunn.v1.TunnelMessage(\x010\x01B-Z+github.com/behrlich/tunn/pkg/proto/tunnelv1b\x06proto3"
+	"\x0fEstablishTunnel\x12\x16.tunn.v1.TunnelMessage\x1a\x16.tunn.v1.TunnelMessage(\x010\x01B.Z,github.com/ehrlich-b/tunn/pkg/proto/tunnelv1b\x06proto3"
 
 var (
 	file_proto_tunnel_proto_rawDescOnce sync.Once
@@ -1032,7 +1535,7 @@ func file_proto_tunnel_proto_rawDescGZIP() []byte {
 	return file_proto_tunnel_proto_rawDescData
 }
 
-var file_proto_tunnel_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_proto_tunnel_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
 var file_proto_tunnel_proto_goTypes = []any{
 	(*TunnelMessage)(nil),       // 0: tunn.v1.TunnelMessage
 	(*RegisterClient)(nil),      // 1: tunn.v1.RegisterClient
@@ -1044,9 +1547,18 @@ var file_proto_tunnel_proto_goTypes = []any{
 	(*HttpRequest)(nil),         // 7: tunn.v1.HttpRequest
 	(*HttpResponse)(nil),        // 8: tunn.v1.HttpResponse
 	(*StreamClosed)(nil),        // 9: tunn.v1.StreamClosed
-	(*UdpPacket)(nil),           // 10: tunn.v1.UdpPacket
-	nil,                         // 11: tunn.v1.HttpRequest.HeadersEntry
-	nil,                         // 12: tunn.v1.HttpResponse.HeadersEntry
+	(*ConnectionOpen)(nil),      // 10: tunn.v1.ConnectionOpen
+	(*HttpRequestHead)(nil),     // 11: tunn.v1.HttpRequestHead
+	(*ConnectionAccept)(nil),    // 12: tunn.v1.ConnectionAccept
+	(*HttpResponseHead)(nil),    // 13: tunn.v1.HttpResponseHead
+	(*ConnectionData)(nil),      // 14: tunn.v1.ConnectionData
+	(*ConnectionHalfClose)(nil), // 15: tunn.v1.ConnectionHalfClose
+	(*ConnectionClose)(nil),     // 16: tunn.v1.ConnectionClose
+	(*UpdateAccessToken)(nil),   // 17: tunn.v1.UpdateAccessToken
+	nil,                         // 18: tunn.v1.HttpRequest.HeadersEntry
+	nil,                         // 19: tunn.v1.HttpResponse.HeadersEntry
+	nil,                         // 20: tunn.v1.HttpRequestHead.HeadersEntry
+	nil,                         // 21: tunn.v1.HttpResponseHead.HeadersEntry
 }
 var file_proto_tunnel_proto_depIdxs = []int32{
 	1,  // 0: tunn.v1.TunnelMessage.register_client:type_name -> tunn.v1.RegisterClient
@@ -1058,16 +1570,25 @@ var file_proto_tunnel_proto_depIdxs = []int32{
 	7,  // 6: tunn.v1.TunnelMessage.http_request:type_name -> tunn.v1.HttpRequest
 	8,  // 7: tunn.v1.TunnelMessage.http_response:type_name -> tunn.v1.HttpResponse
 	9,  // 8: tunn.v1.TunnelMessage.stream_closed:type_name -> tunn.v1.StreamClosed
-	10, // 9: tunn.v1.TunnelMessage.udp_packet:type_name -> tunn.v1.UdpPacket
-	11, // 10: tunn.v1.HttpRequest.headers:type_name -> tunn.v1.HttpRequest.HeadersEntry
-	12, // 11: tunn.v1.HttpResponse.headers:type_name -> tunn.v1.HttpResponse.HeadersEntry
-	0,  // 12: tunn.v1.TunnelService.EstablishTunnel:input_type -> tunn.v1.TunnelMessage
-	0,  // 13: tunn.v1.TunnelService.EstablishTunnel:output_type -> tunn.v1.TunnelMessage
-	13, // [13:14] is the sub-list for method output_type
-	12, // [12:13] is the sub-list for method input_type
-	12, // [12:12] is the sub-list for extension type_name
-	12, // [12:12] is the sub-list for extension extendee
-	0,  // [0:12] is the sub-list for field type_name
+	10, // 9: tunn.v1.TunnelMessage.connection_open:type_name -> tunn.v1.ConnectionOpen
+	12, // 10: tunn.v1.TunnelMessage.connection_accept:type_name -> tunn.v1.ConnectionAccept
+	14, // 11: tunn.v1.TunnelMessage.connection_data:type_name -> tunn.v1.ConnectionData
+	15, // 12: tunn.v1.TunnelMessage.connection_half_close:type_name -> tunn.v1.ConnectionHalfClose
+	16, // 13: tunn.v1.TunnelMessage.connection_close:type_name -> tunn.v1.ConnectionClose
+	17, // 14: tunn.v1.TunnelMessage.update_access_token:type_name -> tunn.v1.UpdateAccessToken
+	18, // 15: tunn.v1.HttpRequest.headers:type_name -> tunn.v1.HttpRequest.HeadersEntry
+	19, // 16: tunn.v1.HttpResponse.headers:type_name -> tunn.v1.HttpResponse.HeadersEntry
+	11, // 17: tunn.v1.ConnectionOpen.http_request:type_name -> tunn.v1.HttpRequestHead
+	20, // 18: tunn.v1.HttpRequestHead.headers:type_name -> tunn.v1.HttpRequestHead.HeadersEntry
+	13, // 19: tunn.v1.ConnectionAccept.http_response:type_name -> tunn.v1.HttpResponseHead
+	21, // 20: tunn.v1.HttpResponseHead.headers:type_name -> tunn.v1.HttpResponseHead.HeadersEntry
+	0,  // 21: tunn.v1.TunnelService.EstablishTunnel:input_type -> tunn.v1.TunnelMessage
+	0,  // 22: tunn.v1.TunnelService.EstablishTunnel:output_type -> tunn.v1.TunnelMessage
+	22, // [22:23] is the sub-list for method output_type
+	21, // [21:22] is the sub-list for method input_type
+	21, // [21:21] is the sub-list for extension type_name
+	21, // [21:21] is the sub-list for extension extendee
+	0,  // [0:21] is the sub-list for field type_name
 }
 
 func init() { file_proto_tunnel_proto_init() }
@@ -1085,7 +1606,12 @@ func file_proto_tunnel_proto_init() {
 		(*TunnelMessage_HttpRequest)(nil),
 		(*TunnelMessage_HttpResponse)(nil),
 		(*TunnelMessage_StreamClosed)(nil),
-		(*TunnelMessage_UdpPacket)(nil),
+		(*TunnelMessage_ConnectionOpen)(nil),
+		(*TunnelMessage_ConnectionAccept)(nil),
+		(*TunnelMessage_ConnectionData)(nil),
+		(*TunnelMessage_ConnectionHalfClose)(nil),
+		(*TunnelMessage_ConnectionClose)(nil),
+		(*TunnelMessage_UpdateAccessToken)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -1093,7 +1619,7 @@ func file_proto_tunnel_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_tunnel_proto_rawDesc), len(file_proto_tunnel_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   13,
+			NumMessages:   22,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

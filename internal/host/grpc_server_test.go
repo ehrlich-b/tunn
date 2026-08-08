@@ -48,6 +48,33 @@ func TestNewTunnelServer(t *testing.T) {
 	}
 }
 
+func TestTunnelServerRejectsTCPWithoutConnectionCapability(t *testing.T) {
+	server := NewTunnelServer(testConfig(), nil, nil, nil)
+	stream := &mockTunnelStream{
+		recvQueue: make(chan *pb.TunnelMessage, 1),
+	}
+	stream.recvQueue <- &pb.TunnelMessage{
+		Message: &pb.TunnelMessage_RegisterClient{
+			RegisterClient: &pb.RegisterClient{
+				TunnelId:         "database",
+				EndpointProtocol: "tcp",
+			},
+		},
+	}
+	close(stream.recvQueue)
+
+	if err := server.EstablishTunnel(stream); err == nil {
+		t.Fatal("TCP registration without connection capability succeeded")
+	}
+	if len(stream.sentMsgs) != 1 {
+		t.Fatalf("registration responses = %d", len(stream.sentMsgs))
+	}
+	response := stream.sentMsgs[0].GetRegisterResponse()
+	if response == nil || response.Success {
+		t.Fatalf("registration response = %#v", response)
+	}
+}
+
 func TestTunnelServerRegistration(t *testing.T) {
 	srv := NewTunnelServer(testConfig(), nil, nil, nil)
 
@@ -400,6 +427,35 @@ func TestTunnelServerReservedSubdomain(t *testing.T) {
 
 	if regResp.ErrorMessage == "" {
 		t.Error("Expected error message")
+	}
+}
+
+func TestTunnelServerRejectsInvalidAccessTokenDigest(t *testing.T) {
+	srv := NewTunnelServer(testConfig(), nil, nil, nil)
+	stream := &mockTunnelStream{
+		recvQueue: make(chan *pb.TunnelMessage, 1),
+		sentMsgs:  make([]*pb.TunnelMessage, 0),
+	}
+	stream.recvQueue <- &pb.TunnelMessage{
+		Message: &pb.TunnelMessage_RegisterClient{
+			RegisterClient: &pb.RegisterClient{
+				TunnelId:          "badtoken",
+				TargetUrl:         "http://localhost:8000",
+				AccessTokenSha256: []byte("not-a-sha256-digest"),
+			},
+		},
+	}
+	close(stream.recvQueue)
+
+	if err := srv.EstablishTunnel(stream); err == nil {
+		t.Fatal("expected invalid access-token digest to reject registration")
+	}
+	if len(stream.sentMsgs) != 1 {
+		t.Fatalf("sent %d responses, want 1", len(stream.sentMsgs))
+	}
+	response := stream.sentMsgs[0].GetRegisterResponse()
+	if response == nil || response.Success {
+		t.Fatalf("registration response = %#v, want failure", response)
 	}
 }
 

@@ -29,25 +29,60 @@ cannot reach:
 
 The market is converging on two adjacent layers:
 
+- OpenAI now offers Secure MCP Tunnel: an outbound-only, OpenAI-hosted path
+  from private stdio or HTTP MCP servers into ChatGPT, Codex, the Responses
+  API, and AgentKit. Its client includes profiles, health/readiness endpoints,
+  metrics, and daemon deployment guidance. This validates the problem while
+  making an OpenAI-only MCP tunnel an unattractive place to compete directly.
 - Generic tunnel vendors are becoming policy gateways. ngrok now documents an
-  MCP gateway made from HTTP endpoints, bearer authentication, rate limits,
-  and traffic policy, and separately offers an egress-oriented AI model
-  gateway.
+  MCP gateway made from an already-networked MCP endpoint, bearer
+  authentication, rate limits, and traffic policy, and separately offers an
+  egress-oriented AI model gateway.
 - MCP aggregators govern servers that are already reachable. Cloudflare MCP
   portals explicitly cannot ingest stdio-only servers; Docker MCP Gateway runs
   and governs local/containerized servers and commonly exposes them to clients
   over stdio.
 
-That leaves a sharp wedge: **turn a private or process-local capability into a
-secure remote endpoint without first deploying it.**
+That leaves a narrower but more durable wedge: **turn any private or
+process-local capability into a vendor-neutral, policy-scoped remote endpoint
+without first deploying it.** OpenAI can provide the best private path into
+OpenAI. tunn should provide one path into any hosted agent and carry the
+non-MCP capabilities those agents increasingly need.
 
 References:
 
 - [ngrok MCP gateway](https://ngrok.com/docs/using-ngrok-with/using-mcp)
+- [OpenAI Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels)
+- [OpenAI tunnel client](https://github.com/openai/tunnel-client)
 - [Cloudflare MCP portal limitations](https://developers.cloudflare.com/cloudflare-one/access-controls/ai-controls/mcp-portals/#known-limitations)
 - [Docker MCP Gateway](https://docs.docker.com/ai/mcp-catalog-and-toolkit/mcp-gateway/)
 - [MCP 2026-07-28 transport specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/docs/specification/2026-07-28/basic/transports/streamable-http.mdx)
 - [Official MCP Go SDK protocol support](https://github.com/modelcontextprotocol/go-sdk/blob/main/docs/protocol.md)
+
+## Revised product wedge
+
+Do not sell “an MCP tunnel for ChatGPT.” Sell **private capability access for
+remote agents**:
+
+- vendor-neutral: OpenAI, Anthropic, IDE agents, CI agents, and custom runtimes
+  can use the same endpoint or grant;
+- process-aware: tunn can spawn stdio servers instead of requiring users to
+  convert them into network daemons first;
+- protocol-complete: MCP is the safe discovery/control surface, while HTTP,
+  TCP, and Unix sockets cover real work that does not fit MCP;
+- grant-oriented: users share a capability, not a network. A grant has an
+  identity, expiry, protocol, tool/action scope, limits, and immediate revoke;
+- self-hostable: the relay and policy plane can live in the user's environment
+  when a hosted control plane is unacceptable.
+
+The concise pitch is:
+
+> **tunn connects cloud agents to private capabilities. Tunnel anything; grant
+> only what the agent needs.**
+
+“AI gateway” is now widely understood as model-provider routing and should not
+be the primary category label. “Agent ingress” or “capability gateway” more
+accurately describes tunn.
 
 ## Product model
 
@@ -216,6 +251,73 @@ HTTP/2 or QUIC can carry these streams. The choice should follow benchmarks
 and operational simplicity, not be exposed in the user model.
 
 ## Roadmap
+
+### Immediate: turn the prototype into an alpha
+
+1. Keep the real-process E2E deployment as a required CI check on Linux
+   (implemented). It covers the TLS relay, private stdio MCP
+   initialization/discovery/call, local tool filtering and rejection, live
+   token rotation, private raw TCP publish/connect, concurrent connections,
+   relay restart/reconnect, half-close, and clean shutdown.
+2. Implement MCP authorization interoperability: OAuth 2.1, Protected Resource
+   Metadata, authorization-server discovery, PKCE, audience-bound tokens, and
+   refresh behavior. Endpoint tokens remain useful for scripts but are not the
+   mainstream remote-client integration.
+3. Finish Streamable HTTP rather than growing adapter count: multiple sessions,
+   standalone event streams, resumability, server-to-client requests, and one
+   child or isolated backend session per remote principal.
+4. Add an operator surface: `tunn doctor`, endpoint readiness, structured
+   metadata-only audit events, Prometheus metrics, live connection inspection,
+   and a clear reason for every rejected request.
+5. Dogfood three sources (a direct stdio server, Docker MCP Gateway, and a
+   private TCP service) from at least three consumers (one OpenAI surface, one
+   non-OpenAI client, and one ordinary TCP application).
+
+### Productize: grants and capability bundles
+
+The next product object after an endpoint should be a short-lived grant:
+
+```bash
+tunn grant create work-tools \
+  --for agent@example.com \
+  --tools read_file,list_directory \
+  --expires 1h
+tunn grant revoke <grant-id>
+```
+
+A small manifest can publish several related capabilities without turning tunn
+into a service-mesh configuration language:
+
+```yaml
+endpoints:
+  tools:
+    adapter: mcp-stdio
+    command: [docker, mcp, gateway, run, --profile, work]
+    tools: [search_code, read_file]
+  preview:
+    adapter: http
+    target: http://127.0.0.1:3000
+  database:
+    adapter: tcp
+    target: 127.0.0.1:5432
+```
+
+The receiver gets one bootstrap instruction or standards-compatible OAuth
+flow, not three permanent credentials. Policy remains attached to each
+capability.
+
+### Validate before widening
+
+Recruit ten users who already run hosted agents against private resources. The
+alpha is working only if a new user can reach a useful local tool in under two
+minutes, without an inbound firewall rule, and can prove revocation. Track
+setup completion, successful tool calls, reconnect recovery, added latency,
+grant revocations, and weekly repeated use.
+
+Defer UDP, public raw ports, a rich dashboard, model routing, a marketplace,
+and a general policy language until repeated usage identifies a need. The
+generic stream kernel should stay broad; the launch workflow should stay
+narrow.
 
 ### Phase 0: prove remote stdio MCP — implemented
 

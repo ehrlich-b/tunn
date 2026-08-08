@@ -8,7 +8,7 @@ GO_FILES := $(wildcard *.go)
 DOCKER_IMAGE := $(APP_NAME):latest
 FLY_APP_NAME := $(APP_NAME)
 
-.PHONY: all build clean proto fmt tidy verify check test test-verbose test-mcp test-coverage test-race integration-test integration-test-smoke docker docker-build docker-run cert-setup cert-renew cert-install-schedule fly-create fly-init fly-secrets fly-certs fly-deploy fly-logs fly-status analytics-hour analytics-day analytics-live help
+.PHONY: all build clean proto fmt tidy verify check test test-verbose test-mcp test-coverage test-race integration-test integration-test-smoke integration-test-ai docker docker-build docker-run cert-setup cert-renew cert-install-schedule fly-create fly-init fly-secrets fly-certs fly-deploy fly-logs fly-status analytics-hour analytics-day analytics-live help
 
 # Default target
 all: build
@@ -103,6 +103,11 @@ integration-test-smoke: build
 	@echo "Running smoke test..."
 	@if [ ! -f "./certs/cert.pem" ]; then ./scripts/gen-test-certs.sh; fi
 	./scripts/integration-tests/smoke-test.sh
+
+integration-test-ai: build
+	@echo "Running AI ingress end-to-end test..."
+	@if [ ! -f "./certs/cert.pem" ]; then ./scripts/gen-test-certs.sh; fi
+	./scripts/integration-tests/ai-ingress-test.sh
 
 # Docker targets
 docker: docker-build

@@ -294,7 +294,11 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 	if s.cfg.PublicMode {
 		common.LogInfo("public mode - skipping auth", "tunnel_id", tunnelID)
 		creatorEmail = "public@tunn.local"
-		allowedEmails = []string{"public@tunn.local"}
+		// PublicMode controls publisher authentication for local/self-hosted
+		// development. It must not silently turn every published endpoint into
+		// an allow-listed endpoint: an empty client allow-list means visitors can
+		// reach it anonymously, while an explicit allow-list is still preserved.
+		allowedEmails = regClient.AllowedEmails
 	} else if s.cfg.ClientSecret != "" && regClient.AuthToken == s.cfg.ClientSecret {
 		// Client secret auth (self-hosters - master key)
 		common.LogInfo("client secret auth - bypassing OAuth", "tunnel_id", tunnelID)

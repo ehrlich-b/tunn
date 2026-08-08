@@ -79,6 +79,10 @@ The token file is replaced atomically; the publisher sends the relay only the
 new digest, normally within one second. The old token is revoked when that
 update arrives.
 
+Endpoint tokens default to `~/.tunn/endpoints`. Containers, CI jobs, and other
+isolated runtimes can set `TUNN_CONFIG_DIR` to an absolute directory; tokens
+will be created in its mode-0700 `endpoints` child and remain mode 0600.
+
 The stdio adapter currently supports one session, Streamable HTTP POST, legacy
 MCP initialization through 2025-11-25, finite SSE responses, and a 25-second
 call window. Standalone event streams and server-to-client requests are not yet
@@ -152,6 +156,7 @@ Your laptop connects to tunn.to over a persistent tunnel. When someone visits yo
 make build    # Build the binary
 make test     # Run tests
 make test-mcp # Run the focused stdio/Streamable HTTP bridge tests
+make integration-test-ai # TLS relay; private MCP/TCP, rotation, concurrency, reconnect
 make check    # Full pre-commit check (format, tidy, test with race detection)
 ```
 

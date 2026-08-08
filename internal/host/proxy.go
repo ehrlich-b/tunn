@@ -687,7 +687,16 @@ func (p *ProxyServer) createHandler() http.Handler {
 	// Main handler - check if this is apex domain or a tunnel subdomain
 	mux.HandleFunc("/", p.handleWebProxy)
 
-	return mux
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// HTTP/2 CONNECT is authority-form and arrives without a URL path. An
+		// empty path does not match ServeMux's "/" pattern, so raw tunnel
+		// connections must enter the subdomain router before mux dispatch.
+		if r.Method == http.MethodConnect {
+			p.handleWebProxy(w, r)
+			return
+		}
+		mux.ServeHTTP(w, r)
+	})
 }
 
 // handleInstallScript serves the install script for curl | sh installation

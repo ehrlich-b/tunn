@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -144,6 +145,30 @@ func TestProxyServerHealthCheck(t *testing.T) {
 
 	if string(rec.body) != "ok" {
 		t.Errorf("Expected body 'ok', got %s", string(rec.body))
+	}
+}
+
+func TestProxyServerRoutesAuthorityFormConnect(t *testing.T) {
+	cfg := &config.Config{
+		Environment: config.EnvProd,
+		Domain:      "tunn.to",
+	}
+	proxy := &ProxyServer{
+		Domain:       cfg.Domain,
+		config:       cfg,
+		tunnelServer: NewTunnelServer(cfg, nil, nil, nil),
+	}
+
+	request := httptest.NewRequest(http.MethodConnect, "https://offline.tunn.to/_tunn/connect", nil)
+	request.Host = "offline.tunn.to"
+	request.URL.Path = ""
+	request.RequestURI = "offline.tunn.to:443"
+	request.Header.Set("Tunn-Protocol", "tcp/1")
+	recorder := httptest.NewRecorder()
+
+	proxy.createHandler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("authority-form CONNECT status = %d, want tunnel router status 503", recorder.Code)
 	}
 }
 

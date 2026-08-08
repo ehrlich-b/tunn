@@ -20,7 +20,7 @@ import (
 // LoginClient handles the device code login flow
 type LoginClient struct {
 	ServerAddr string
-	Insecure bool
+	Insecure   bool
 }
 
 // DeviceCodeResponse represents the response from the device authorization endpoint

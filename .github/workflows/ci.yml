@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - 'feature/**'
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Format, tidy, and test with race detection
+        run: make check
+
+      - name: Check for generated or formatting drift
+        run: git diff --exit-code
+
+      - name: Pin local E2E hostnames
+        run: |
+          printf '%s\n' '127.0.0.1 ai-e2e.tunn.local.127.0.0.1.nip.io tcp-e2e.tunn.local.127.0.0.1.nip.io' \
+            | sudo tee -a /etc/hosts >/dev/null
+
+      - name: Deploy and test local AI ingress
+        run: make integration-test-ai

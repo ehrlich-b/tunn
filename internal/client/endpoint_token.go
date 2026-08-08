@@ -12,6 +12,8 @@ import (
 
 const endpointTokenPrefix = "tunn_ep_"
 
+const configDirectoryEnvironment = "TUNN_CONFIG_DIR"
+
 // GenerateEndpointToken creates a high-entropy endpoint-scoped bearer token
 // and returns both its plaintext representation and SHA-256 digest. Only the
 // digest is sent to the tunn relay.
@@ -37,11 +39,10 @@ func SaveEndpointToken(tunnelID, token string) (string, error) {
 		return "", fmt.Errorf("invalid endpoint token format")
 	}
 
-	home, err := os.UserHomeDir()
+	dir, err := endpointTokenDirectory()
 	if err != nil {
-		return "", fmt.Errorf("get home directory: %w", err)
+		return "", err
 	}
-	dir := filepath.Join(home, ".tunn", "endpoints")
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return "", fmt.Errorf("create endpoint token directory: %w", err)
 	}
@@ -98,12 +99,28 @@ func LoadEndpointToken(tunnelID string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	dir, err := endpointTokenDirectory()
+	if err != nil {
+		return "", err
+	}
+	path := filepath.Join(dir, name+".token")
+	return loadEndpointTokenFile(path)
+}
+
+func endpointTokenDirectory() (string, error) {
+	base := strings.TrimSpace(os.Getenv(configDirectoryEnvironment))
+	if base != "" {
+		if !filepath.IsAbs(base) {
+			return "", fmt.Errorf("%s must be an absolute path", configDirectoryEnvironment)
+		}
+		return filepath.Join(filepath.Clean(base), "endpoints"), nil
+	}
+
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("get home directory: %w", err)
 	}
-	path := filepath.Join(home, ".tunn", "endpoints", name+".token")
-	return loadEndpointTokenFile(path)
+	return filepath.Join(home, ".tunn", "endpoints"), nil
 }
 
 func loadEndpointTokenFile(path string) (string, error) {

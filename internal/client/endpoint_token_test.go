@@ -35,8 +35,8 @@ func TestGenerateEndpointToken(t *testing.T) {
 }
 
 func TestSaveAndLoadEndpointToken(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	configDirectory := t.TempDir()
+	t.Setenv(configDirectoryEnvironment, configDirectory)
 	token, _, err := GenerateEndpointToken()
 	if err != nil {
 		t.Fatal(err)
@@ -46,7 +46,7 @@ func TestSaveAndLoadEndpointToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantPath := filepath.Join(home, ".tunn", "endpoints", "work-tools.token")
+	wantPath := filepath.Join(configDirectory, "endpoints", "work-tools.token")
 	if path != wantPath {
 		t.Fatalf("path = %q, want %q", path, wantPath)
 	}
@@ -68,7 +68,7 @@ func TestSaveAndLoadEndpointToken(t *testing.T) {
 }
 
 func TestSaveEndpointTokenRejectsUnsafeName(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	t.Setenv(configDirectoryEnvironment, t.TempDir())
 	token, _, err := GenerateEndpointToken()
 	if err != nil {
 		t.Fatal(err)
@@ -81,7 +81,7 @@ func TestSaveEndpointTokenRejectsUnsafeName(t *testing.T) {
 }
 
 func TestRotateEndpointTokenReplacesFile(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	t.Setenv(configDirectoryEnvironment, t.TempDir())
 	first, _, err := GenerateEndpointToken()
 	if err != nil {
 		t.Fatal(err)
@@ -107,7 +107,7 @@ func TestRotateEndpointTokenReplacesFile(t *testing.T) {
 }
 
 func TestWatchEndpointTokenSendsDigestOnly(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	t.Setenv(configDirectoryEnvironment, t.TempDir())
 	first, firstDigest, err := GenerateEndpointToken()
 	if err != nil {
 		t.Fatal(err)
@@ -150,4 +150,11 @@ func TestWatchEndpointTokenSendsDigestOnly(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 	t.Fatal("token watcher did not send rotation")
+}
+
+func TestEndpointTokenDirectoryRejectsRelativeOverride(t *testing.T) {
+	t.Setenv(configDirectoryEnvironment, "relative/config")
+	if _, err := LoadEndpointToken("tools"); err == nil || !strings.Contains(err.Error(), "must be an absolute path") {
+		t.Fatalf("relative config override error = %v", err)
+	}
 }

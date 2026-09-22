@@ -83,12 +83,16 @@ Endpoint tokens default to `~/.tunn/endpoints`. Containers, CI jobs, and other
 isolated runtimes can set `TUNN_CONFIG_DIR` to an absolute directory; tokens
 will be created in its mode-0700 `endpoints` child and remain mode 0600.
 
-The stdio adapter currently supports one session, Streamable HTTP POST, legacy
-MCP initialization through 2025-11-25, finite SSE responses, and a 25-second
-call window. Standalone event streams and server-to-client requests are not yet
-supported by the stdio adapter. Already-networked HTTP MCP servers use the new
-chunked data path, so their response bodies and SSE streams are not buffered or
-capped at 30 seconds.
+The stdio adapter accepts MCP 2026-07-28 sessionless Streamable HTTP clients:
+`server/discover`, tool listing and calls, per-request metadata, and the
+standard method/name headers. It initializes an older stdio child once and
+also retains legacy HTTP session compatibility through MCP 2025-11-25. It
+supports finite SSE responses and a 25-second call window. Modern
+`subscriptions/listen`, multi round-trip requests, concurrent child calls,
+and server-to-client requests are not yet supported by this adapter.
+Already-networked HTTP MCP servers are forwarded without MCP translation and
+use the chunked data path, so their response bodies and SSE streams are not
+buffered or capped at 30 seconds.
 
 ### Raw TCP preview
 
@@ -128,9 +132,9 @@ private HTTPS endpoint directly. Public mode is intentionally disabled here:
 tunn unix --as http --name docker-api /var/run/docker.sock
 ```
 
-See [the 2.0 design](docs/DESIGN-2.0.md) for the product direction, security
-requirements, implemented connection kernel, and remaining “tunnel anything”
-roadmap.
+See [the 2.0 design](docs/DESIGN-2.0.md) for the architecture and roadmap,
+and [the commercial thesis](docs/COMMERCIAL-THESIS.md) for the buyer, competitive
+pressure, and payment test.
 
 ## Self-Host
 
@@ -147,7 +151,7 @@ See `tunn -mode=host -help` for configuration options.
 Your laptop connects to tunn.to over a persistent tunnel. When someone visits your tunnel URL, the request is forwarded to your localhost.
 
 - TLS terminated at tunn.to (or your server)
-- HTTP/2 and HTTP/3 support
+- HTTP/2 and HTTP/3 listeners; the Fly configuration exposes TCP and UDP 443
 - Email-based access control
 
 ## Development

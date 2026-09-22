@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -646,8 +647,27 @@ func (p *ProxyServer) createHTTP2Router(httpHandler http.Handler) http.Handler {
 		}
 
 		// Otherwise, route to HTTP handler
+		p.advertiseHTTP3(w, r)
 		httpHandler.ServeHTTP(w, r)
 	})
+}
+
+// advertiseHTTP3 makes the QUIC listener discoverable to clients that first
+// reach the service over HTTPS/TCP. The configured UDP port must also be
+// exposed by the deployment platform.
+func (p *ProxyServer) advertiseHTTP3(w http.ResponseWriter, r *http.Request) {
+	if r.TLS == nil || r.Method == http.MethodConnect {
+		return
+	}
+	_, portText, err := net.SplitHostPort(p.HTTP3Addr)
+	if err != nil {
+		return
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil || port < 1 || port > 65535 {
+		return
+	}
+	w.Header().Set("Alt-Svc", fmt.Sprintf(`h3=":%d"; ma=3600`, port))
 }
 
 // createHandler creates the HTTP handler for both servers

@@ -107,6 +107,9 @@ func TestBridgeOfficialGoSDKClient(t *testing.T) {
 		t.Fatalf("official MCP client Connect: %v", err)
 	}
 	defer session.Close()
+	if got := session.InitializeResult().ProtocolVersion; got != modernProtocolVersion {
+		t.Fatalf("official MCP client negotiated %q, want %s", got, modernProtocolVersion)
+	}
 
 	tools, err := session.ListTools(ctx, nil)
 	if err != nil {
@@ -126,6 +129,88 @@ func TestBridgeOfficialGoSDKClient(t *testing.T) {
 	if result.IsError {
 		t.Fatalf("official MCP tool returned error: %#v", result)
 	}
+}
+
+func TestBridgeModernHeadersAndSessionlessCalls(t *testing.T) {
+	bridge := startTestBridge(t)
+	meta := `"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"test","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}}`
+	post := func(method, name, body string) *http.Response {
+		t.Helper()
+		request, err := http.NewRequest(http.MethodPost, bridge.URL()+"/mcp", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Accept", "application/json, text/event-stream")
+		request.Header.Set("Mcp-Protocol-Version", modernProtocolVersion)
+		request.Header.Set("Mcp-Method", method)
+		if name != "" {
+			request.Header.Set("Mcp-Name", name)
+		}
+		response, err := http.DefaultClient.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return response
+	}
+	discover := post("server/discover", "", `{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{`+meta+`}}`)
+	if discover.StatusCode != http.StatusOK || discover.Header.Get("Mcp-Session-Id") != "" {
+		t.Fatalf("discover status = %d, session = %q", discover.StatusCode, discover.Header.Get("Mcp-Session-Id"))
+	}
+	if body := readBody(t, discover.Body); !strings.Contains(body, modernProtocolVersion) {
+		t.Fatalf("discover did not advertise current protocol: %s", body)
+	}
+	discover.Body.Close()
+
+	listBody := `{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{` + meta + `}}`
+	list := post("tools/list", "", listBody)
+	if list.StatusCode != http.StatusOK || !strings.Contains(readBody(t, list.Body), `"echo"`) {
+		t.Fatal("modern tools/list failed")
+	}
+	list.Body.Close()
+
+	callBody := `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"echo","arguments":{"text":"hello"},` + meta + `}}`
+	badName := post("tools/call", "wrong", callBody)
+	if badName.StatusCode != http.StatusBadRequest || !strings.Contains(readBody(t, badName.Body), `"code":-32020`) {
+		t.Fatal("mismatched Mcp-Name was not rejected")
+	}
+	badName.Body.Close()
+	call := post("tools/call", "echo", callBody)
+	if call.StatusCode != http.StatusOK || !strings.Contains(readBody(t, call.Body), `"hello"`) {
+		t.Fatal("modern tools/call failed")
+	}
+	call.Body.Close()
+
+	request, err := http.NewRequest(http.MethodPost, bridge.URL()+"/mcp", strings.NewReader(listBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Mcp-Protocol-Version", modernProtocolVersion)
+	request.Header.Set("Mcp-Method", "tools/call")
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.StatusCode != http.StatusBadRequest || !strings.Contains(readBody(t, response.Body), `"code":-32020`) {
+		t.Fatal("mismatched Mcp-Method was not rejected")
+	}
+	response.Body.Close()
+
+	request, err = http.NewRequest(http.MethodPost, bridge.URL()+"/mcp", strings.NewReader(listBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Origin", "https://attacker.example")
+	response, err = http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.StatusCode != http.StatusForbidden {
+		t.Fatalf("browser Origin status = %d, want 403", response.StatusCode)
+	}
+	response.Body.Close()
 }
 
 func TestBridgeCarriesFiniteSSENotifications(t *testing.T) {

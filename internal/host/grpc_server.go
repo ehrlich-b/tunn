@@ -525,6 +525,10 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		stream.Send(respMsg)
 		return fmt.Errorf("tunnel ID %s already registered (race)", tunnelID)
 	}
+	// The tunnel becomes visible before the registration reply reaches the
+	// publisher. Hold its send lock so an incoming request cannot overtake
+	// RegisterResponse on the same gRPC stream.
+	conn.streamMu.Lock()
 	s.tunnels[tunnelID] = conn
 	s.mu.Unlock()
 
@@ -557,7 +561,9 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		},
 	}
 
-	if err := stream.Send(respMsg); err != nil {
+	err = stream.Send(respMsg)
+	conn.streamMu.Unlock()
+	if err != nil {
 		return fmt.Errorf("failed to send registration response: %w", err)
 	}
 

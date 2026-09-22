@@ -41,10 +41,12 @@ type Bridge struct {
 	processMu  sync.Mutex
 	processErr error
 
-	writeMu   sync.Mutex
-	requestMu sync.Mutex
-	sessionMu sync.Mutex
-	sessionID string
+	writeMu               sync.Mutex
+	requestMu             sync.Mutex
+	sessionMu             sync.Mutex
+	sessionID             string
+	childInitialized      bool            // guarded by requestMu
+	childInitializeResult json.RawMessage // guarded by requestMu
 
 	requestTimeout time.Duration
 	allowedTools   map[string]bool
@@ -209,6 +211,13 @@ func (b *Bridge) readChild(stdout io.Reader) {
 // HTTP transport is request/response based.
 func (b *Bridge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache, no-transform")
+	// A browser Origin has no reason to reach this loopback bridge. Reject it
+	// even when the request arrived through the public relay, so DNS rebinding
+	// cannot turn a local MCP process into a browser-accessible capability.
+	if r.Header.Get("Origin") != "" {
+		http.Error(w, "browser origins are not allowed", http.StatusForbidden)
+		return
+	}
 
 	switch r.Method {
 	case http.MethodPost:
@@ -229,10 +238,6 @@ func (b *Bridge) handlePOST(w http.ResponseWriter, r *http.Request) {
 	mediaType := r.Header.Get("Content-Type")
 	if !strings.HasPrefix(strings.ToLower(mediaType), "application/json") {
 		http.Error(w, "Content-Type must be application/json", http.StatusUnsupportedMediaType)
-		return
-	}
-	if !b.validSession(r.Header.Get("Mcp-Session-Id")) {
-		http.Error(w, "unknown MCP session", http.StatusNotFound)
 		return
 	}
 
@@ -262,6 +267,14 @@ func (b *Bridge) handlePOST(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "expected a JSON-RPC 2.0 message", http.StatusBadRequest)
 		return
 	}
+	modern, ok := validateProtocolRequest(w, r, body, incoming)
+	if !ok {
+		return
+	}
+	if !modern && !b.validSession(r.Header.Get("Mcp-Session-Id")) {
+		http.Error(w, "unknown MCP session", http.StatusNotFound)
+		return
+	}
 	if incoming.Method == "tools/call" && !b.toolCallAllowed(body) {
 		writeToolDenied(w, incoming.ID)
 		return
@@ -269,6 +282,13 @@ func (b *Bridge) handlePOST(w http.ResponseWriter, r *http.Request) {
 
 	// Notifications and responses do not receive an HTTP response body.
 	if !hasID(incoming.ID) || incoming.Method == "" {
+		if modern {
+			// The modern core has no client-to-server notifications. A
+			// notification POST can still be acknowledged without handing
+			// untrusted data to the local process.
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
 		if err := b.writeChild(body); err != nil {
 			writeBridgeError(w, http.StatusBadGateway, "local MCP process is unavailable")
 			return
@@ -279,6 +299,22 @@ func (b *Bridge) handlePOST(w http.ResponseWriter, r *http.Request) {
 
 	b.requestMu.Lock()
 	defer b.requestMu.Unlock()
+	if modern {
+		if err := b.initializeChild(r.Context()); err != nil {
+			writeBridgeError(w, http.StatusBadGateway, "local MCP process could not initialize")
+			return
+		}
+		if incoming.Method == "server/discover" {
+			b.writeDiscover(w, incoming.ID)
+			return
+		}
+	} else if incoming.Method == "initialize" && b.childInitialized {
+		b.writeCachedInitialize(w, incoming.ID)
+		return
+	}
+	if modern {
+		body = legacyChildRequest(body)
+	}
 
 	if err := b.writeChild(body); err != nil {
 		writeBridgeError(w, http.StatusBadGateway, "local MCP process is unavailable")
@@ -306,11 +342,20 @@ func (b *Bridge) handlePOST(w http.ResponseWriter, r *http.Request) {
 
 			if outgoing.Method == "" && sameID(outgoing.ID, incoming.ID) {
 				response := output.message
+				if incoming.Method == "initialize" {
+					b.cacheInitialize(response)
+				}
 				if incoming.Method == "tools/list" {
 					response = b.filterToolsList(response)
 				}
-				if incoming.Method == "initialize" {
+				if incoming.Method == "initialize" && b.childInitialized {
 					w.Header().Set("Mcp-Session-Id", b.ensureSessionID())
+				}
+				if modern && methodNotFound(response) {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusNotFound)
+					_, _ = w.Write(response)
+					return
 				}
 				b.writeMCPResponse(w, r, events, response)
 				return

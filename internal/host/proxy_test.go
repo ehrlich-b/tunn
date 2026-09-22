@@ -148,6 +148,23 @@ func TestProxyServerHealthCheck(t *testing.T) {
 	}
 }
 
+func TestHTTP3Advertisement(t *testing.T) {
+	proxy := &ProxyServer{HTTP3Addr: "fly-global-services:443"}
+	request := httptest.NewRequest(http.MethodGet, "https://example.com/health", nil)
+	request.TLS = &tls.ConnectionState{}
+	recorder := httptest.NewRecorder()
+	proxy.advertiseHTTP3(recorder, request)
+	if got := recorder.Header().Get("Alt-Svc"); got != `h3=":443"; ma=3600` {
+		t.Fatalf("Alt-Svc = %q", got)
+	}
+	request.TLS = nil
+	recorder = httptest.NewRecorder()
+	proxy.advertiseHTTP3(recorder, request)
+	if got := recorder.Header().Get("Alt-Svc"); got != "" {
+		t.Fatalf("insecure request advertised HTTP/3: %q", got)
+	}
+}
+
 func TestProxyServerRoutesAuthorityFormConnect(t *testing.T) {
 	cfg := &config.Config{
 		Environment: config.EnvProd,

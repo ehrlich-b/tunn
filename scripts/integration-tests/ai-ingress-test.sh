@@ -156,6 +156,12 @@ cd "$PROJECT_DIR"
 
 log "starting local TLS relay"
 start_proxy
+curl -sk --fail --max-time 5 -D "$WORK_DIR/health.headers" \
+    "https://localhost:$HTTP_PORT/health" >/dev/null
+if ! grep -qi 'alt-svc: h3=":18444"' "$WORK_DIR/health.headers"; then
+    printf 'HTTPS relay did not advertise its HTTP/3 listener\n' >&2
+    exit 1
+fi
 
 log "publishing stdio MCP server with an echo-only tool policy"
 TUNN_ENV=dev \
@@ -228,6 +234,35 @@ curl -sk --fail --max-time 5 \
     "$MCP_URL"
 python3 -c 'import json,sys; value=json.load(open(sys.argv[1])); assert value["error"]["code"] == -32001' "$WORK_DIR/denied-call.json"
 log "private MCP auth, filtered discovery, allowed call, and local rejection passed"
+
+MODERN_META='"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"tunn-e2e","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}}'
+curl -sk --fail --max-time 5 \
+    -D "$WORK_DIR/modern.headers" \
+    -o "$WORK_DIR/modern-discover.json" \
+    -H 'Content-Type: application/json' \
+    -H 'Accept: application/json, text/event-stream' \
+    -H 'Mcp-Protocol-Version: 2026-07-28' \
+    -H 'Mcp-Method: server/discover' \
+    -H "Tunn-Authorization: Bearer $MCP_TOKEN" \
+    --data "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"server/discover\",\"params\":{$MODERN_META}}" \
+    "$MCP_URL"
+python3 -c 'import json,sys; value=json.load(open(sys.argv[1])); assert "2026-07-28" in value["result"]["supportedVersions"]' "$WORK_DIR/modern-discover.json"
+if grep -qi '^mcp-session-id:' "$WORK_DIR/modern.headers"; then
+    printf 'modern MCP discovery unexpectedly returned a transport session\n' >&2
+    exit 1
+fi
+curl -sk --fail --max-time 5 \
+    -o "$WORK_DIR/modern-call.json" \
+    -H 'Content-Type: application/json' \
+    -H 'Accept: application/json, text/event-stream' \
+    -H 'Mcp-Protocol-Version: 2026-07-28' \
+    -H 'Mcp-Method: tools/call' \
+    -H 'Mcp-Name: echo' \
+    -H "Tunn-Authorization: Bearer $MCP_TOKEN" \
+    --data "{\"jsonrpc\":\"2.0\",\"id\":8,\"method\":\"tools/call\",\"params\":{\"name\":\"echo\",\"arguments\":{\"text\":\"modern\"},$MODERN_META}}" \
+    "$MCP_URL"
+python3 -c 'import json,sys; value=json.load(open(sys.argv[1])); assert value["result"]["content"][0]["text"] == "tunn-e2e:modern"' "$WORK_DIR/modern-call.json"
+log "modern MCP discovery and tool call crossed the private TLS relay"
 
 log "rotating the live MCP endpoint token"
 OLD_MCP_TOKEN="$MCP_TOKEN"

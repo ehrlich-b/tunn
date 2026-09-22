@@ -1,7 +1,7 @@
 # tunn 2.0: AI ingress for anything
 
 Status: active prototype
-Date: 2026-08-08
+Date: 2026-09-22
 
 ## The decision
 
@@ -148,14 +148,16 @@ local MCP process
 This is deliberately additive. It proves the user workflow and preserves the
 existing production tunnel while the generic data plane is designed.
 
-Initial compatibility target:
+Current stdio compatibility boundary:
 
-- one remote MCP session per `tunn mcp` process;
+- MCP 2026-07-28 sessionless HTTP clients for discovery, tool listing and
+  calls, translated to one legacy stdio child session;
+- older HTTP initialization/session behavior through MCP 2025-11-25;
 - JSON-RPC requests, responses, and notifications over Streamable HTTP POST;
-- legacy `initialize` negotiation through MCP 2025-11-25, with graceful
-  `server/discover` fallback from newer clients;
 - finite SSE responses when a server emits notifications before its result;
-- no standalone GET event stream, resumability, or server-to-client requests;
+- no modern `subscriptions/listen`, multi round-trip requests, concurrent child
+  calls, or server-to-client requests. The 2026-07-28 revision removed the
+  standalone GET event stream and protocol-level sessions;
 - 25-second request window inside the stdio adapter. Already-networked HTTP
   MCP servers use the chunked data path and may stream beyond that window.
 
@@ -260,16 +262,21 @@ and operational simplicity, not be exposed in the user model.
    token rotation, private raw TCP publish/connect, concurrent connections,
    relay restart/reconnect, half-close, and clean shutdown.
 2. Implement MCP authorization interoperability: OAuth 2.1, Protected Resource
-   Metadata, authorization-server discovery, PKCE, audience-bound tokens, and
-   refresh behavior. Endpoint tokens remain useful for scripts but are not the
-   mainstream remote-client integration.
-3. Finish Streamable HTTP rather than growing adapter count: multiple sessions,
-   standalone event streams, resumability, server-to-client requests, and one
-   child or isolated backend session per remote principal.
+   Metadata, authorization-server discovery, PKCE, audience-bound tokens,
+   Client ID Metadata Documents, issuer validation, and refresh behavior.
+   Endpoint tokens remain useful for scripts but are not the mainstream
+   remote-client integration.
+3. Finish the modern stdio adapter: per-principal child isolation, concurrent
+   calls, `subscriptions/listen`, cancellation, and multi round-trip requests.
+   Keep older sessions only for interoperability.
 4. Add an operator surface: `tunn doctor`, endpoint readiness, structured
    metadata-only audit events, Prometheus metrics, live connection inspection,
    and a clear reason for every rejected request.
-5. Dogfood three sources (a direct stdio server, Docker MCP Gateway, and a
+5. Fix HTTP proxy parity: preserve repeated headers such as `Set-Cookie`,
+   support WebSocket upgrades, forward trailers, and prove HTTP/3 reachability
+   through a live UDP deployment. The Fly configuration now exposes UDP 443,
+   but production reachability has not yet been verified.
+6. Dogfood three sources (a direct stdio server, Docker MCP Gateway, and a
    private TCP service) from at least three consumers (one OpenAI surface, one
    non-OpenAI client, and one ordinary TCP application).
 
@@ -334,8 +341,8 @@ narrow.
 - endpoint-token rotation without restarting the endpoint (implemented via
   atomic local replacement and digest-only relay updates);
 - OAuth discovery/authorization for mainstream remote MCP clients;
-- streaming responses and standalone subscriptions;
-- multiple independent client sessions, each with an isolated child process;
+- streaming responses and modern `subscriptions/listen`;
+- multiple independent remote principals, each with an isolated child process;
 - exact local stdio tool allow-lists (implemented); richer filters, call
   tracing, approval policy, and redaction;
 

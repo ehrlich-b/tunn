@@ -254,6 +254,10 @@ and operational simplicity, not be exposed in the user model.
 
 ## Roadmap
 
+The [product roadmap](PRODUCT-ROADMAP.md) now sets the build order across
+ordinary HTTP endpoints, webhooks, metering, and private agent access. The
+technical work below remains the MCP and transport backlog.
+
 ### Immediate: turn the prototype into an alpha
 
 1. Keep the real-process E2E deployment as a required CI check on Linux

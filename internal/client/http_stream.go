@@ -242,6 +242,15 @@ func (m *inboundConnectionManager) closeAll(err error) {
 
 func (s *ServeClient) handleStreamingHTTPRequest(ctx context.Context, sender messageSender, open *pb.ConnectionOpen, body io.Reader) {
 	head := open.HttpRequest
+	var capture *inspectionCapture
+	if s.Inspector != nil {
+		capture = s.Inspector.begin(head.Method, head.Path, head.Headers)
+		body = &inspectionReader{reader: body, capture: capture}
+	}
+	status, responseBytes, failure := http.StatusBadGateway, int64(0), "failed to forward"
+	if capture != nil {
+		defer func() { capture.finish(status, responseBytes, failure) }()
+	}
 	request, err := http.NewRequestWithContext(ctx, head.Method, s.targetURL(head.Path), body)
 	if err != nil {
 		sendConnectionRejection(sender, open.ConnectionId, "failed to create local HTTP request")
@@ -277,6 +286,8 @@ func (s *ServeClient) handleStreamingHTTPRequest(ctx context.Context, sender mes
 		return
 	}
 	defer response.Body.Close()
+	status = response.StatusCode
+	failure = ""
 
 	headers := make(map[string]string, len(response.Header))
 	for key, values := range response.Header {
@@ -301,6 +312,7 @@ func (s *ServeClient) handleStreamingHTTPRequest(ctx context.Context, sender mes
 	for {
 		n, readErr := response.Body.Read(buffer)
 		if n > 0 {
+			responseBytes += int64(n)
 			chunk := append([]byte(nil), buffer[:n]...)
 			if err := sender.Send(&pb.TunnelMessage{
 				Message: &pb.TunnelMessage_ConnectionData{

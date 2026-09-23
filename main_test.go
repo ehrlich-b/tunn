@@ -5,6 +5,13 @@ import (
 	"testing"
 )
 
+func TestParseServeFlagsInspectShorthand(t *testing.T) {
+	target, _, _, _, _, _, inspect := parseServeFlags([]string{"8080", "--inspect"})
+	if target != "8080" || !inspect {
+		t.Fatalf("serve flags: target = %q, inspect = %v", target, inspect)
+	}
+}
+
 func TestParseMCPFlags(t *testing.T) {
 	opts, err := parseMCPFlags([]string{
 		"--name", "work-tools",

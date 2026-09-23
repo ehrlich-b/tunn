@@ -35,6 +35,23 @@ tunn 3000 --allow=@company.com  # Allow entire domain
 tunn 8080 -id=myapp           # Custom URL (myapp.tunn.to)
 ```
 
+### Local request inspector
+
+Add `--inspect` when debugging an HTTP endpoint or webhook handler:
+
+```bash
+tunn 8080 --inspect
+```
+
+The CLI prints a loopback viewer URL. It shows the last 50 forwarded requests,
+their status, timing, and byte counts. Select a request to inspect its headers
+and body, then replay it directly to the configured target after changing
+your handler. Only complete bodies up to 64 KiB can be replayed. Captures stay
+in the local process and disappear when tunn stops; they may contain webhook
+secrets or personal data. Replay creates a new delivery, so use a test endpoint
+or an idempotent handler when the action has side effects. Provider signatures
+with timestamps may expire before replay.
+
 ### Remote MCP preview
 
 Expose a local stdio MCP server as a remote Streamable HTTP endpoint:
@@ -132,9 +149,10 @@ private HTTPS endpoint directly. Public mode is intentionally disabled here:
 tunn unix --as http --name docker-api /var/run/docker.sock
 ```
 
-See [the 2.0 design](docs/DESIGN-2.0.md) for the architecture and roadmap,
-and [the commercial thesis](docs/COMMERCIAL-THESIS.md) for the buyer, competitive
-pressure, and payment test.
+See [the product roadmap](docs/PRODUCT-ROADMAP.md) for the HTTP, webhook, MCP,
+and metering sequence; [the 2.0 design](docs/DESIGN-2.0.md) for architecture;
+and [the commercial thesis](docs/COMMERCIAL-THESIS.md) for the buyer and payment
+test.
 
 ## Self-Host
 

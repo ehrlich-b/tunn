@@ -83,6 +83,7 @@ type ServeClient struct {
 
 	// HTTP client settings
 	HTTPTimeout time.Duration // Timeout for HTTP requests to local target (default: 30s)
+	Inspector   *Inspector    // Optional local, short-lived HTTP request inspector
 }
 
 // Run establishes a gRPC tunnel with automatic reconnection on failure.
@@ -408,6 +409,16 @@ func (s *ServeClient) processMessages(ctx context.Context, stream pb.TunnelServi
 
 // handleHttpRequest handles an HTTP request from the proxy, makes a request to the local target, and sends back the response
 func (s *ServeClient) handleHttpRequest(sender messageSender, httpReq *pb.HttpRequest) {
+	var capture *inspectionCapture
+	if s.Inspector != nil {
+		capture = s.Inspector.begin(httpReq.Method, httpReq.Path, httpReq.Headers)
+		_, _ = capture.Write(httpReq.Body)
+		capture.complete()
+	}
+	status, responseBytes, failure := http.StatusBadGateway, int64(0), "failed to forward"
+	if capture != nil {
+		defer func() { capture.finish(status, responseBytes, failure) }()
+	}
 	common.LogDebug("http request received",
 		"connection_id", httpReq.ConnectionId,
 		"method", httpReq.Method,
@@ -462,6 +473,8 @@ func (s *ServeClient) handleHttpRequest(sender messageSender, httpReq *pb.HttpRe
 		return
 	}
 	defer resp.Body.Close()
+	status = resp.StatusCode
+	failure = ""
 
 	// Read response body with size limit to prevent memory exhaustion
 	// Read one extra byte to detect if body exceeds limit
@@ -477,6 +490,7 @@ func (s *ServeClient) handleHttpRequest(sender messageSender, httpReq *pb.HttpRe
 		return
 	}
 	body := limitedBody
+	responseBytes = int64(len(body))
 
 	// Convert headers to map (join multi-value headers per HTTP spec)
 	headers := make(map[string]string)

@@ -830,7 +830,7 @@ func appendUniqueEmail(emails []string, email string) []string {
 }
 
 // Serve subcommand flags
-func parseServeFlags(args []string) (target string, tunnelID string, allowedEmails []string, tunnelKey string, clientSecret string, skipLocalTLSVerify bool) {
+func parseServeFlags(args []string) (target string, tunnelID string, allowedEmails []string, tunnelKey string, clientSecret string, skipLocalTLSVerify bool, inspect bool) {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	idFlag := fs.String("id", "", "tunnel ID (blank → random)")
 	subdomainFlag := fs.String("subdomain", "", "reserved subdomain (Pro feature, alias for -id)")
@@ -838,6 +838,7 @@ func parseServeFlags(args []string) (target string, tunnelID string, allowedEmai
 	keyFlag := fs.String("tunnel-key", "", "tunnel creation authorization key")
 	secretFlag := fs.String("secret", "", "client secret for auth (or set TUNN_SECRET env var)")
 	skipLocalTLSVerifyFlag := fs.Bool("skip-local-tls-verify", false, "skip TLS verification for local HTTPS target (e.g. self-signed certs)")
+	inspectFlag := fs.Bool("inspect", false, "open a local request inspector with bounded body capture and replay")
 
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, `tunn serve - expose localhost to the internet
@@ -899,6 +900,7 @@ Options:
 	}
 
 	skipLocalTLSVerify = *skipLocalTLSVerifyFlag
+	inspect = *inspectFlag
 
 	return
 }
@@ -974,7 +976,7 @@ func runHost() {
 }
 
 func runServe(args []string) {
-	target, tunnelID, allowedEmails, tunnelKey, clientSecret, skipLocalTLSVerify := parseServeFlags(args)
+	target, tunnelID, allowedEmails, tunnelKey, clientSecret, skipLocalTLSVerify, inspect := parseServeFlags(args)
 
 	cfg, err := config.LoadConfig()
 	if err != nil {
@@ -1030,6 +1032,16 @@ func runServe(args []string) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	if inspect {
+		inspector := client.NewInspector(serveClient)
+		viewerURL, err := inspector.StartInspector(ctx)
+		if err != nil {
+			common.LogError("failed to start local inspector", "error", err)
+			os.Exit(1)
+		}
+		serveClient.Inspector = inspector
+		fmt.Fprintf(os.Stderr, "Local inspector: %s\n", viewerURL)
+	}
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)

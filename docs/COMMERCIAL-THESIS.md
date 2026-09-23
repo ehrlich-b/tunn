@@ -38,19 +38,23 @@ can operate. This is a hypothesis, not evidence of demand.
 
 ## What to build before charging
 
-1. Standards-compatible MCP authorization, including protected resource
+The [product roadmap](PRODUCT-ROADMAP.md) puts a daily-use local webhook
+inspector, privacy-safe audit contract, and per-caller endpoint metering ahead
+of the team control plane. Webhook replay is a debugging feature in that first
+slice; reliable webhook delivery would require its own queue and retry design.
+
+1. Make the local HTTP and webhook workflow useful: inspection, bounded replay,
+   HTTP parity, and a privacy-safe ingress audit contract. Add per-caller
+   request and byte counters before calling usage billable.
+2. Give each consumer an expiring, revocable endpoint grant with an enforceable
+   budget. Verify usage reconciliation across disconnects and multiple nodes.
+3. Add standards-compatible MCP authorization, including protected resource
    metadata, OAuth discovery, audience-bound tokens, PKCE, Client ID Metadata
    Documents, and issuer checks. Copying an endpoint token into every client
    is a prototype workflow.
-2. Per-principal child isolation, short-lived grants, tool-level policy,
-   immediate revocation, and metadata-only audit records. Shared stdio state
-   cannot safely serve independent team members.
-3. Reliability and HTTP parity: reconnect correctness, observability,
-   WebSockets, repeated headers such as `Set-Cookie`, trailers, and a live
-   HTTP/3 reachability check. A broken ordinary tunnel destroys trust in the
-   agent gateway too.
-4. A two-minute setup path and a clear client-specific connection recipe for
-   at least two independent agent ecosystems.
+4. Add per-principal child isolation, tool-level policy, and a two-minute
+   setup path for at least two independent agent ecosystems. Shared stdio
+   state cannot safely serve independent team members.
 
 ## Pricing experiment
 
@@ -58,15 +62,18 @@ Keep individual development use free. Offer a paid team pilot for centrally
 managed grants, policy, and audit at **$100–$500 per team per month**, quoted
 as a willingness-to-pay experiment rather than a published price. Ask for a
 payment commitment before building a large admin console. Charge for the
-operational value of controlling agent access; meter bandwidth only to protect
-costs and abuse.
+operational value of controlling agent access and accounting for each consumer.
+Account bandwidth limits still protect tunn's own costs and abuse exposure.
 
 ## Falsifiers
 
-Interview ten teams with a current private-agent-access problem. Put the
-prototype in front of them. Continue only if at least five reach a useful tool
-in under two minutes, at least three use it again weekly for a month, and at
-least three agree to a paid team pilot. These are decision gates, not forecasts.
+Use the webhook, ordinary HTTP, and private context/tool workflows ourselves
+first. Then interview ten teams with a current private-agent-access or metered
+endpoint problem. Put the prototype in front of them. A paid team product is
+plausible only if repeated use and payment commitments emerge; the proposed
+five successful setups, three weekly users, and three paid pilot commitments
+are decision signals, not a prerequisite to building something we want to use
+or a forecast.
 
 The billion-dollar ambition would require a broadly adopted team platform.
 For scale: 10,000 teams paying $1,000/month would be $120 million in annual

@@ -29,8 +29,9 @@ const MaxBodySize = 100 * 1024 * 1024
 // platformCookies lists cookies that should NOT be forwarded to tunnel targets.
 // These are tunn platform cookies that tunnel owners should never see.
 var platformCookies = map[string]bool{
-	"tunn_session": true,
-	authCookieName: true,
+	"tunn_session":     true,
+	authCookieName:     true,
+	mcpOAuthCSRFCookie: true,
 }
 
 // stripPlatformCookies removes platform cookies from a Cookie header value.
@@ -125,6 +126,10 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		http.Error(w, "Tunnel not found or offline", http.StatusServiceUnavailable)
 		return
 	}
+	if p.mcpOAuth != nil && (r.URL.Path == "/.well-known/oauth-protected-resource" || r.URL.Path == "/.well-known/oauth-protected-resource/mcp") {
+		p.handleMCPResourceMetadata(w, r)
+		return
+	}
 
 	// Only the node hosting the endpoint records decisions. Routing nodes do not
 	// create another event or trust caller-provided identity/request-ID headers.
@@ -204,7 +209,7 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 			// MCP clients cannot consume the browser login redirect. Return an
 			// explicit bearer challenge for protocol endpoints and bearer attempts.
 			if r.URL.Path == "/mcp" || tunnel.EndpointProtocol == "tcp" || r.Header.Get("Authorization") != "" || r.Header.Get("Tunn-Authorization") != "" {
-				w.Header().Set("WWW-Authenticate", `Bearer realm="tunn"`)
+				p.mcpOAuthChallenge(w, tunnelID)
 				http.Error(w, "Authentication required", http.StatusUnauthorized)
 				return
 			}

@@ -26,6 +26,10 @@ service LoginNodeDB {
   rpc RevokeGrant(RevokeGrantRequest) returns (RevokeGrantResponse);
   rpc AdmitGrant(AdmitGrantRequest) returns (AdmitGrantResponse);
 
+  // Owner-approved, single-use authorization codes bound to S256 PKCE.
+  rpc CreateOAuthCode(CreateOAuthCodeRequest) returns (CreateOAuthCodeResponse);
+  rpc ExchangeOAuthCode(ExchangeOAuthCodeRequest) returns (CreateGrantResponse);
+
   // Device codes for CLI login
   rpc CreateDeviceCode(CreateDeviceCodeRequest) returns (DeviceCodeResponse);
   rpc GetDeviceCode(GetDeviceCodeRequest) returns (DeviceCodeResponse);
@@ -288,4 +292,28 @@ message AdmitGrantResponse {
  string grant_id = 2;
  string reason = 3;
  int32 status = 4;
+}
+
+message CreateOAuthCodeRequest {
+ string code = 1;
+ string consent_id = 2;
+ string account_id = 3;
+ string endpoint_id = 4;
+ string client_id = 5;
+ string redirect_uri = 6;
+ string resource = 7;
+ string scope = 8;
+ string code_challenge = 9;
+ int64 expires_at_unix_ms = 10;
+ int64 grant_expires_at_unix_ms = 11;
+ int64 request_limit = 12;
+ string label = 13;
+}
+message CreateOAuthCodeResponse {}
+message ExchangeOAuthCodeRequest {
+ string code = 1;
+ string client_id = 2;
+ string redirect_uri = 3;
+ string resource = 4;
+ string code_challenge = 5;
 }

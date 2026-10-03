@@ -43,9 +43,11 @@ type Config struct {
 	PublicMode bool
 
 	// GitHub OAuth configuration
-	GitHubClientID     string
-	GitHubClientSecret string
-	JWTSecret          string // Secret for signing our own JWTs
+	GitHubClientID      string
+	GitHubClientSecret  string
+	JWTSecret           string // Secret for signing our own JWTs
+	MCPOAuthClientsFile string // Explicit static MCP OAuth clients; blank disables the flow
+	MCPOAuthIssuer      string // Canonical HTTPS apex issuer; defaults to https://Domain
 
 	// Client authentication (self-hosters)
 	ClientSecret string // Master key for all clients (bypasses OAuth)
@@ -92,6 +94,8 @@ func LoadConfig() (*Config, error) {
 	default:
 		return nil, fmt.Errorf("unknown environment: %s", env)
 	}
+	cfg.MCPOAuthClientsFile = getEnvOrDefault("TUNN_MCP_OAUTH_CLIENTS_FILE", "")
+	cfg.MCPOAuthIssuer = getEnvOrDefault("TUNN_MCP_OAUTH_ISSUER", "")
 
 	return cfg, nil
 }

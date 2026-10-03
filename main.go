@@ -56,6 +56,7 @@ Usage:
   tunn login                     Authenticate with GitHub
   tunn serve [options] <target>  Explicit serve mode (same as default)
   tunn mcp [options] -- <command> Expose a stdio MCP server at /mcp
+  tunn mcp check [options] <url>  Diagnose hosted MCP OAuth discovery
   tunn tcp [options] <host:port>  Publish a private raw TCP endpoint
   tunn unix [options] <path>      Publish a private Unix socket
   tunn connect [options] <name>   Open a remote TCP endpoint locally
@@ -104,7 +105,11 @@ Options:
 	case "serve":
 		runServe(args[1:])
 	case "mcp":
-		runMCP(args[1:])
+		if len(args) > 1 && args[1] == "check" {
+			runMCPCheck(args[2:])
+		} else {
+			runMCP(args[1:])
+		}
 	case "tcp":
 		runTCP(args[1:])
 	case "unix":

@@ -167,6 +167,8 @@ const (
 	LoginNodeDB_ListGrants_FullMethodName              = "/internal.LoginNodeDB/ListGrants"
 	LoginNodeDB_RevokeGrant_FullMethodName             = "/internal.LoginNodeDB/RevokeGrant"
 	LoginNodeDB_AdmitGrant_FullMethodName              = "/internal.LoginNodeDB/AdmitGrant"
+	LoginNodeDB_CreateOAuthCode_FullMethodName         = "/internal.LoginNodeDB/CreateOAuthCode"
+	LoginNodeDB_ExchangeOAuthCode_FullMethodName       = "/internal.LoginNodeDB/ExchangeOAuthCode"
 	LoginNodeDB_CreateDeviceCode_FullMethodName        = "/internal.LoginNodeDB/CreateDeviceCode"
 	LoginNodeDB_GetDeviceCode_FullMethodName           = "/internal.LoginNodeDB/GetDeviceCode"
 	LoginNodeDB_AuthorizeDeviceCode_FullMethodName     = "/internal.LoginNodeDB/AuthorizeDeviceCode"
@@ -200,6 +202,9 @@ type LoginNodeDBClient interface {
 	ListGrants(ctx context.Context, in *ListGrantsRequest, opts ...grpc.CallOption) (*ListGrantsResponse, error)
 	RevokeGrant(ctx context.Context, in *RevokeGrantRequest, opts ...grpc.CallOption) (*RevokeGrantResponse, error)
 	AdmitGrant(ctx context.Context, in *AdmitGrantRequest, opts ...grpc.CallOption) (*AdmitGrantResponse, error)
+	// Owner-approved, single-use authorization codes bound to S256 PKCE.
+	CreateOAuthCode(ctx context.Context, in *CreateOAuthCodeRequest, opts ...grpc.CallOption) (*CreateOAuthCodeResponse, error)
+	ExchangeOAuthCode(ctx context.Context, in *ExchangeOAuthCodeRequest, opts ...grpc.CallOption) (*CreateGrantResponse, error)
 	// Device codes for CLI login
 	CreateDeviceCode(ctx context.Context, in *CreateDeviceCodeRequest, opts ...grpc.CallOption) (*DeviceCodeResponse, error)
 	GetDeviceCode(ctx context.Context, in *GetDeviceCodeRequest, opts ...grpc.CallOption) (*DeviceCodeResponse, error)
@@ -302,6 +307,26 @@ func (c *loginNodeDBClient) AdmitGrant(ctx context.Context, in *AdmitGrantReques
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(AdmitGrantResponse)
 	err := c.cc.Invoke(ctx, LoginNodeDB_AdmitGrant_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *loginNodeDBClient) CreateOAuthCode(ctx context.Context, in *CreateOAuthCodeRequest, opts ...grpc.CallOption) (*CreateOAuthCodeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateOAuthCodeResponse)
+	err := c.cc.Invoke(ctx, LoginNodeDB_CreateOAuthCode_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *loginNodeDBClient) ExchangeOAuthCode(ctx context.Context, in *ExchangeOAuthCodeRequest, opts ...grpc.CallOption) (*CreateGrantResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateGrantResponse)
+	err := c.cc.Invoke(ctx, LoginNodeDB_ExchangeOAuthCode_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -456,6 +481,9 @@ type LoginNodeDBServer interface {
 	ListGrants(context.Context, *ListGrantsRequest) (*ListGrantsResponse, error)
 	RevokeGrant(context.Context, *RevokeGrantRequest) (*RevokeGrantResponse, error)
 	AdmitGrant(context.Context, *AdmitGrantRequest) (*AdmitGrantResponse, error)
+	// Owner-approved, single-use authorization codes bound to S256 PKCE.
+	CreateOAuthCode(context.Context, *CreateOAuthCodeRequest) (*CreateOAuthCodeResponse, error)
+	ExchangeOAuthCode(context.Context, *ExchangeOAuthCodeRequest) (*CreateGrantResponse, error)
 	// Device codes for CLI login
 	CreateDeviceCode(context.Context, *CreateDeviceCodeRequest) (*DeviceCodeResponse, error)
 	GetDeviceCode(context.Context, *GetDeviceCodeRequest) (*DeviceCodeResponse, error)
@@ -507,6 +535,12 @@ func (UnimplementedLoginNodeDBServer) RevokeGrant(context.Context, *RevokeGrantR
 }
 func (UnimplementedLoginNodeDBServer) AdmitGrant(context.Context, *AdmitGrantRequest) (*AdmitGrantResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method AdmitGrant not implemented")
+}
+func (UnimplementedLoginNodeDBServer) CreateOAuthCode(context.Context, *CreateOAuthCodeRequest) (*CreateOAuthCodeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateOAuthCode not implemented")
+}
+func (UnimplementedLoginNodeDBServer) ExchangeOAuthCode(context.Context, *ExchangeOAuthCodeRequest) (*CreateGrantResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ExchangeOAuthCode not implemented")
 }
 func (UnimplementedLoginNodeDBServer) CreateDeviceCode(context.Context, *CreateDeviceCodeRequest) (*DeviceCodeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateDeviceCode not implemented")
@@ -708,6 +742,42 @@ func _LoginNodeDB_AdmitGrant_Handler(srv interface{}, ctx context.Context, dec f
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(LoginNodeDBServer).AdmitGrant(ctx, req.(*AdmitGrantRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LoginNodeDB_CreateOAuthCode_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateOAuthCodeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LoginNodeDBServer).CreateOAuthCode(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LoginNodeDB_CreateOAuthCode_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LoginNodeDBServer).CreateOAuthCode(ctx, req.(*CreateOAuthCodeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LoginNodeDB_ExchangeOAuthCode_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ExchangeOAuthCodeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LoginNodeDBServer).ExchangeOAuthCode(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LoginNodeDB_ExchangeOAuthCode_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LoginNodeDBServer).ExchangeOAuthCode(ctx, req.(*ExchangeOAuthCodeRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -984,6 +1054,14 @@ var LoginNodeDB_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "AdmitGrant",
 			Handler:    _LoginNodeDB_AdmitGrant_Handler,
+		},
+		{
+			MethodName: "CreateOAuthCode",
+			Handler:    _LoginNodeDB_CreateOAuthCode_Handler,
+		},
+		{
+			MethodName: "ExchangeOAuthCode",
+			Handler:    _LoginNodeDB_ExchangeOAuthCode_Handler,
 		},
 		{
 			MethodName: "CreateDeviceCode",

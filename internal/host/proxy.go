@@ -94,10 +94,15 @@ type ProxyServer struct {
 	// Device code rate limiting (per-IP)
 	deviceCodeRateMu   sync.Mutex
 	deviceCodeRateByIP map[string][]time.Time
+	mcpOAuth           *mcpOAuthConfig
 }
 
 // NewProxyServer creates a new dual-listener proxy server
 func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
+	oauthConfig, err := loadMCPOAuthConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
 	// SECURITY: Require NodeSecret when multi-node mode is enabled
 	// Multi-node can be configured via NODE_ADDRESSES (static) or FLY_APP_NAME (DNS discovery)
 	isMultiNode := cfg.NodeAddresses != "" || cfg.FlyAppName != ""
@@ -195,6 +200,7 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 	}
 
 	proxy := &ProxyServer{
+		mcpOAuth:           oauthConfig,
 		Domain:             cfg.Domain,
 		CertFile:           cfg.CertFile,
 		KeyFile:            cfg.KeyFile,
@@ -394,6 +400,11 @@ const blacklistDuration = 10 * time.Second
 // nodeSecretInterceptor creates a gRPC interceptor that verifies the x-node-secret header
 func nodeSecretInterceptor(secret string) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+		// A single-node host uses direct storage; its unset cluster secret
+		// must never make the internal database service anonymously accessible.
+		if secret == "" {
+			return nil, status.Error(codes.Unauthenticated, "node authentication is disabled")
+		}
 		// Get peer IP from context
 		peerIP := getPeerIP(ctx)
 
@@ -412,7 +423,7 @@ func nodeSecretInterceptor(secret string) grpc.UnaryServerInterceptor {
 		}
 
 		secrets := md.Get("x-node-secret")
-		if len(secrets) == 0 || subtle.ConstantTimeCompare([]byte(secrets[0]), []byte(secret)) != 1 {
+		if len(secrets) != 1 || subtle.ConstantTimeCompare([]byte(secrets[0]), []byte(secret)) != 1 {
 			blacklistIP(peerIP)
 			common.LogError("invalid node secret attempt", "ip", peerIP)
 			return nil, status.Error(codes.Unauthenticated, "invalid node secret")
@@ -700,6 +711,8 @@ func (p *ProxyServer) advertiseHTTP3(w http.ResponseWriter, r *http.Request) {
 
 // createHandler creates the HTTP handler for both servers
 func (p *ProxyServer) createHandler() http.Handler {
+	// Synthetic tests may install configuration directly; runtime startup loads
+	// and validates its explicit clients file before opening listeners.
 	mux := http.NewServeMux()
 
 	// Health check endpoint (no auth required)
@@ -719,6 +732,13 @@ func (p *ProxyServer) createHandler() http.Handler {
 	mux.HandleFunc("/auth/magic", p.handleMagicLinkRequest)
 	mux.HandleFunc("/auth/verify", p.handleMagicLinkVerify)
 	mux.HandleFunc("/auth/logout", p.handleLogout)
+	if p.mcpOAuth != nil {
+		mux.HandleFunc("/.well-known/oauth-authorization-server", p.handleMCPOAuthMetadata)
+		mux.HandleFunc("/.well-known/oauth-protected-resource", p.handleMCPResourceMetadata)
+		mux.HandleFunc("/.well-known/oauth-protected-resource/mcp", p.handleMCPResourceMetadata)
+		mux.HandleFunc("/oauth/authorize", p.handleMCPOAuthAuthorize)
+		mux.HandleFunc("/oauth/token", p.handleMCPOAuthToken)
+	}
 
 	// Account page (requires auth)
 	mux.HandleFunc("/account", p.handleAccount)
@@ -740,6 +760,10 @@ func (p *ProxyServer) createHandler() http.Handler {
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Platform API paths on endpoint hosts belong to the published app.
+		if p.mcpOAuth != nil && extractTunnelID(r.Host, p.Domain) != "" && (strings.HasPrefix(r.URL.Path, "/.well-known/") || strings.HasPrefix(r.URL.Path, "/oauth/")) {
+			p.handleWebProxy(w, r)
+			return
+		}
 		if extractTunnelID(r.Host, p.Domain) != "" && (r.URL.Path == "/api/usage" || r.URL.Path == "/api/grants" || strings.HasPrefix(r.URL.Path, "/api/grants/")) {
 			p.handleWebProxy(w, r)
 			return

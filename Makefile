@@ -9,6 +9,7 @@ DOCKER_IMAGE := $(APP_NAME):latest
 FLY_APP_NAME := $(APP_NAME)
 
 .PHONY: all build clean proto fmt tidy verify check test test-verbose test-mcp test-coverage test-race integration-test integration-test-smoke integration-test-ai docker docker-build docker-run cert-setup cert-renew cert-install-schedule fly-create fly-init fly-secrets fly-certs fly-deploy fly-logs fly-status analytics-hour analytics-day analytics-live help
+.PHONY: test-grants test-build-workflow test-mcp-oauth test-mcp-oauth-workflow
 
 # Default target
 all: build
@@ -99,6 +100,12 @@ test-grants:
 
 test-build-workflow:
 	TUNN_PYTHON="$(CURDIR)/scripts/integration-tests/build-investigation/.venv/bin/python" go test -race -count=1 -timeout=60s -v -run '^TestGrantTwoSDKBuildWorkflowAcrossRealRelay$$' ./internal/host
+
+test-mcp-oauth:
+	go test -race -count=1 -timeout=60s -run 'OAuth|MCPCheck' ./...
+
+test-mcp-oauth-workflow:
+	TUNN_PYTHON="$(CURDIR)/scripts/integration-tests/build-investigation/.venv/bin/python" go test -race -count=1 -timeout=60s -v -run '^TestMCPOAuthTwoSDKBuildWorkflowAcrossRealRelay$$' ./internal/host
 
 # Integration tests (require build + certs)
 integration-test: build

@@ -60,7 +60,8 @@ state. `/api/usage` exposes completion events and per-grant caller counters as
   across reconnects and database reopen; admitted failures are not refunded.
 - Explicit malformed, expired, exhausted or revoked grants cannot fall back to
   a cookie, shared endpoint token or account bearer. Invalid credentials receive
-  401; expiry/revocation receive 403; exhausted allowance receives 429. Storage
+  401; expiry/revocation receive 403 when MCP OAuth is disabled, and 401 with
+  resource discovery when it is enabled; exhausted allowance receives 429. Storage
   admission failure receives 503 and forwards nothing.
 - Once revocation acknowledges, later admissions are denied. Already-admitted
   work may finish, including an admitted long response. Expiry follows the same
@@ -93,9 +94,10 @@ Race-instrumented relay connection-to-answer timings were approximately 73 ms
 for Go and 122 ms for Python in one run; installation, compilation and hosted
 agent setup are excluded.
 
-The investigator logic is deterministic. Hosted ChatGPT/Claude onboarding,
-OAuth client registration, production reachability and model-driven reasoning
-remain unverified. The HTTP fixture is stateless; grants do not isolate arbitrary
+The investigator logic is deterministic. [MCP OAuth](MCP-OAUTH.md) now provides
+local discovery, owner consent and static public-client authorization. Hosted
+ChatGPT/Claude onboarding, actual application registrations, public reachability
+and model-driven reasoning remain unverified. The HTTP fixture is stateless; grants do not isolate arbitrary
 upstream MCP sessions, enforce tool names/arguments or make a mutable server
 read-only. The older shared stdio adapter still has session and cancellation
 limitations and is not the basis for this milestone. Grant/admission rows have

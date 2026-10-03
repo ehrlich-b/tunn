@@ -77,9 +77,12 @@ func (p *ProxyServer) admitIngressGrant(w http.ResponseWriter, r *http.Request, 
 	}
 	event.Reason = admission.Reason
 	if !admission.Allowed {
+		if p.mcpOAuth != nil && (admission.Reason == "grant_invalid" || admission.Reason == "grant_expired" || admission.Reason == "grant_revoked") {
+			admission.Status = http.StatusUnauthorized
+		}
 		w.Header().Set("X-Tunn-Grant-Reason", admission.Reason)
 		if admission.Status == http.StatusUnauthorized {
-			w.Header().Set("WWW-Authenticate", `Bearer realm="tunn"`)
+			p.mcpOAuthChallenge(w, tunnel.TunnelID)
 		}
 		http.Error(w, "Grant denied: "+admission.Reason, admission.Status)
 		return false

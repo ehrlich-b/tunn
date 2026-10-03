@@ -161,6 +161,20 @@ func initSchema(db *sql.DB) error {
  );
  CREATE INDEX IF NOT EXISTS idx_grant_admissions_grant ON grant_admissions(grant_id);
 
+ -- Short-lived single-use OAuth authorization codes. Only digests of codes
+ -- and browser consent nonces persist. Consumed rows prevent replay after an
+ -- ambiguous token response and retain the owner-visible grant association.
+ CREATE TABLE IF NOT EXISTS oauth_codes (
+  code_digest TEXT PRIMARY KEY, consent_digest TEXT UNIQUE NOT NULL,
+  account_id TEXT NOT NULL, endpoint_id TEXT NOT NULL, client_id TEXT NOT NULL,
+  redirect_uri TEXT NOT NULL, resource TEXT NOT NULL, scope TEXT NOT NULL,
+  code_challenge TEXT NOT NULL, expires_at INTEGER NOT NULL,
+  grant_expires_at INTEGER NOT NULL, request_limit INTEGER NOT NULL,
+  label TEXT NOT NULL, consumed_at INTEGER NOT NULL DEFAULT 0,
+  grant_id TEXT NOT NULL DEFAULT ''
+ );
+ CREATE INDEX IF NOT EXISTS idx_oauth_codes_expiry ON oauth_codes(expires_at);
+
  -- Reserved subdomains (Pro feature: up to 4 per account)
 	CREATE TABLE IF NOT EXISTS reserved_subdomains (
 		subdomain TEXT PRIMARY KEY,

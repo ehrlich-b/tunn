@@ -2686,6 +2686,258 @@ func (x *AdmitGrantResponse) GetStatus() int32 {
 	return 0
 }
 
+type CreateOAuthCodeRequest struct {
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	Code                 string                 `protobuf:"bytes,1,opt,name=code,proto3" json:"code,omitempty"`
+	ConsentId            string                 `protobuf:"bytes,2,opt,name=consent_id,json=consentId,proto3" json:"consent_id,omitempty"`
+	AccountId            string                 `protobuf:"bytes,3,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	EndpointId           string                 `protobuf:"bytes,4,opt,name=endpoint_id,json=endpointId,proto3" json:"endpoint_id,omitempty"`
+	ClientId             string                 `protobuf:"bytes,5,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"`
+	RedirectUri          string                 `protobuf:"bytes,6,opt,name=redirect_uri,json=redirectUri,proto3" json:"redirect_uri,omitempty"`
+	Resource             string                 `protobuf:"bytes,7,opt,name=resource,proto3" json:"resource,omitempty"`
+	Scope                string                 `protobuf:"bytes,8,opt,name=scope,proto3" json:"scope,omitempty"`
+	CodeChallenge        string                 `protobuf:"bytes,9,opt,name=code_challenge,json=codeChallenge,proto3" json:"code_challenge,omitempty"`
+	ExpiresAtUnixMs      int64                  `protobuf:"varint,10,opt,name=expires_at_unix_ms,json=expiresAtUnixMs,proto3" json:"expires_at_unix_ms,omitempty"`
+	GrantExpiresAtUnixMs int64                  `protobuf:"varint,11,opt,name=grant_expires_at_unix_ms,json=grantExpiresAtUnixMs,proto3" json:"grant_expires_at_unix_ms,omitempty"`
+	RequestLimit         int64                  `protobuf:"varint,12,opt,name=request_limit,json=requestLimit,proto3" json:"request_limit,omitempty"`
+	Label                string                 `protobuf:"bytes,13,opt,name=label,proto3" json:"label,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
+}
+
+func (x *CreateOAuthCodeRequest) Reset() {
+	*x = CreateOAuthCodeRequest{}
+	mi := &file_proto_internal_proto_msgTypes[47]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateOAuthCodeRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateOAuthCodeRequest) ProtoMessage() {}
+
+func (x *CreateOAuthCodeRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[47]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateOAuthCodeRequest.ProtoReflect.Descriptor instead.
+func (*CreateOAuthCodeRequest) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{47}
+}
+
+func (x *CreateOAuthCodeRequest) GetCode() string {
+	if x != nil {
+		return x.Code
+	}
+	return ""
+}
+
+func (x *CreateOAuthCodeRequest) GetConsentId() string {
+	if x != nil {
+		return x.ConsentId
+	}
+	return ""
+}
+
+func (x *CreateOAuthCodeRequest) GetAccountId() string {
+	if x != nil {
+		return x.AccountId
+	}
+	return ""
+}
+
+func (x *CreateOAuthCodeRequest) GetEndpointId() string {
+	if x != nil {
+		return x.EndpointId
+	}
+	return ""
+}
+
+func (x *CreateOAuthCodeRequest) GetClientId() string {
+	if x != nil {
+		return x.ClientId
+	}
+	return ""
+}
+
+func (x *CreateOAuthCodeRequest) GetRedirectUri() string {
+	if x != nil {
+		return x.RedirectUri
+	}
+	return ""
+}
+
+func (x *CreateOAuthCodeRequest) GetResource() string {
+	if x != nil {
+		return x.Resource
+	}
+	return ""
+}
+
+func (x *CreateOAuthCodeRequest) GetScope() string {
+	if x != nil {
+		return x.Scope
+	}
+	return ""
+}
+
+func (x *CreateOAuthCodeRequest) GetCodeChallenge() string {
+	if x != nil {
+		return x.CodeChallenge
+	}
+	return ""
+}
+
+func (x *CreateOAuthCodeRequest) GetExpiresAtUnixMs() int64 {
+	if x != nil {
+		return x.ExpiresAtUnixMs
+	}
+	return 0
+}
+
+func (x *CreateOAuthCodeRequest) GetGrantExpiresAtUnixMs() int64 {
+	if x != nil {
+		return x.GrantExpiresAtUnixMs
+	}
+	return 0
+}
+
+func (x *CreateOAuthCodeRequest) GetRequestLimit() int64 {
+	if x != nil {
+		return x.RequestLimit
+	}
+	return 0
+}
+
+func (x *CreateOAuthCodeRequest) GetLabel() string {
+	if x != nil {
+		return x.Label
+	}
+	return ""
+}
+
+type CreateOAuthCodeResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateOAuthCodeResponse) Reset() {
+	*x = CreateOAuthCodeResponse{}
+	mi := &file_proto_internal_proto_msgTypes[48]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateOAuthCodeResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateOAuthCodeResponse) ProtoMessage() {}
+
+func (x *CreateOAuthCodeResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[48]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateOAuthCodeResponse.ProtoReflect.Descriptor instead.
+func (*CreateOAuthCodeResponse) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{48}
+}
+
+type ExchangeOAuthCodeRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Code          string                 `protobuf:"bytes,1,opt,name=code,proto3" json:"code,omitempty"`
+	ClientId      string                 `protobuf:"bytes,2,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"`
+	RedirectUri   string                 `protobuf:"bytes,3,opt,name=redirect_uri,json=redirectUri,proto3" json:"redirect_uri,omitempty"`
+	Resource      string                 `protobuf:"bytes,4,opt,name=resource,proto3" json:"resource,omitempty"`
+	CodeChallenge string                 `protobuf:"bytes,5,opt,name=code_challenge,json=codeChallenge,proto3" json:"code_challenge,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ExchangeOAuthCodeRequest) Reset() {
+	*x = ExchangeOAuthCodeRequest{}
+	mi := &file_proto_internal_proto_msgTypes[49]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExchangeOAuthCodeRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExchangeOAuthCodeRequest) ProtoMessage() {}
+
+func (x *ExchangeOAuthCodeRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[49]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExchangeOAuthCodeRequest.ProtoReflect.Descriptor instead.
+func (*ExchangeOAuthCodeRequest) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{49}
+}
+
+func (x *ExchangeOAuthCodeRequest) GetCode() string {
+	if x != nil {
+		return x.Code
+	}
+	return ""
+}
+
+func (x *ExchangeOAuthCodeRequest) GetClientId() string {
+	if x != nil {
+		return x.ClientId
+	}
+	return ""
+}
+
+func (x *ExchangeOAuthCodeRequest) GetRedirectUri() string {
+	if x != nil {
+		return x.RedirectUri
+	}
+	return ""
+}
+
+func (x *ExchangeOAuthCodeRequest) GetResource() string {
+	if x != nil {
+		return x.Resource
+	}
+	return ""
+}
+
+func (x *ExchangeOAuthCodeRequest) GetCodeChallenge() string {
+	if x != nil {
+		return x.CodeChallenge
+	}
+	return ""
+}
+
 var File_proto_internal_proto protoreflect.FileDescriptor
 
 const file_proto_internal_proto_rawDesc = "" +
@@ -2893,11 +3145,36 @@ const file_proto_internal_proto_rawDesc = "" +
 	"\aallowed\x18\x01 \x01(\bR\aallowed\x12\x19\n" +
 	"\bgrant_id\x18\x02 \x01(\tR\agrantId\x12\x16\n" +
 	"\x06reason\x18\x03 \x01(\tR\x06reason\x12\x16\n" +
-	"\x06status\x18\x04 \x01(\x05R\x06status2\xa0\x01\n" +
+	"\x06status\x18\x04 \x01(\x05R\x06status\"\xc4\x03\n" +
+	"\x16CreateOAuthCodeRequest\x12\x12\n" +
+	"\x04code\x18\x01 \x01(\tR\x04code\x12\x1d\n" +
+	"\n" +
+	"consent_id\x18\x02 \x01(\tR\tconsentId\x12\x1d\n" +
+	"\n" +
+	"account_id\x18\x03 \x01(\tR\taccountId\x12\x1f\n" +
+	"\vendpoint_id\x18\x04 \x01(\tR\n" +
+	"endpointId\x12\x1b\n" +
+	"\tclient_id\x18\x05 \x01(\tR\bclientId\x12!\n" +
+	"\fredirect_uri\x18\x06 \x01(\tR\vredirectUri\x12\x1a\n" +
+	"\bresource\x18\a \x01(\tR\bresource\x12\x14\n" +
+	"\x05scope\x18\b \x01(\tR\x05scope\x12%\n" +
+	"\x0ecode_challenge\x18\t \x01(\tR\rcodeChallenge\x12+\n" +
+	"\x12expires_at_unix_ms\x18\n" +
+	" \x01(\x03R\x0fexpiresAtUnixMs\x126\n" +
+	"\x18grant_expires_at_unix_ms\x18\v \x01(\x03R\x14grantExpiresAtUnixMs\x12#\n" +
+	"\rrequest_limit\x18\f \x01(\x03R\frequestLimit\x12\x14\n" +
+	"\x05label\x18\r \x01(\tR\x05label\"\x19\n" +
+	"\x17CreateOAuthCodeResponse\"\xb1\x01\n" +
+	"\x18ExchangeOAuthCodeRequest\x12\x12\n" +
+	"\x04code\x18\x01 \x01(\tR\x04code\x12\x1b\n" +
+	"\tclient_id\x18\x02 \x01(\tR\bclientId\x12!\n" +
+	"\fredirect_uri\x18\x03 \x01(\tR\vredirectUri\x12\x1a\n" +
+	"\bresource\x18\x04 \x01(\tR\bresource\x12%\n" +
+	"\x0ecode_challenge\x18\x05 \x01(\tR\rcodeChallenge2\xa0\x01\n" +
 	"\x0fInternalService\x12G\n" +
 	"\n" +
 	"FindTunnel\x12\x1b.internal.FindTunnelRequest\x1a\x1c.internal.FindTunnelResponse\x12D\n" +
-	"\vGetNodeInfo\x12\x19.internal.NodeInfoRequest\x1a\x1a.internal.NodeInfoResponse2\xef\r\n" +
+	"\vGetNodeInfo\x12\x19.internal.NodeInfoRequest\x1a\x1a.internal.NodeInfoResponse2\x9f\x0f\n" +
 	"\vLoginNodeDB\x12J\n" +
 	"\vRecordUsage\x12\x1c.internal.RecordUsageRequest\x1a\x1d.internal.RecordUsageResponse\x12V\n" +
 	"\x0fGetMonthlyUsage\x12 .internal.GetMonthlyUsageRequest\x1a!.internal.GetMonthlyUsageResponse\x12P\n" +
@@ -2908,7 +3185,9 @@ const file_proto_internal_proto_rawDesc = "" +
 	"ListGrants\x12\x1b.internal.ListGrantsRequest\x1a\x1c.internal.ListGrantsResponse\x12J\n" +
 	"\vRevokeGrant\x12\x1c.internal.RevokeGrantRequest\x1a\x1d.internal.RevokeGrantResponse\x12G\n" +
 	"\n" +
-	"AdmitGrant\x12\x1b.internal.AdmitGrantRequest\x1a\x1c.internal.AdmitGrantResponse\x12S\n" +
+	"AdmitGrant\x12\x1b.internal.AdmitGrantRequest\x1a\x1c.internal.AdmitGrantResponse\x12V\n" +
+	"\x0fCreateOAuthCode\x12 .internal.CreateOAuthCodeRequest\x1a!.internal.CreateOAuthCodeResponse\x12V\n" +
+	"\x11ExchangeOAuthCode\x12\".internal.ExchangeOAuthCodeRequest\x1a\x1d.internal.CreateGrantResponse\x12S\n" +
 	"\x10CreateDeviceCode\x12!.internal.CreateDeviceCodeRequest\x1a\x1c.internal.DeviceCodeResponse\x12M\n" +
 	"\rGetDeviceCode\x12\x1e.internal.GetDeviceCodeRequest\x1a\x1c.internal.DeviceCodeResponse\x12b\n" +
 	"\x13AuthorizeDeviceCode\x12$.internal.AuthorizeDeviceCodeRequest\x1a%.internal.AuthorizeDeviceCodeResponse\x12D\n" +
@@ -2937,7 +3216,7 @@ func file_proto_internal_proto_rawDescGZIP() []byte {
 	return file_proto_internal_proto_rawDescData
 }
 
-var file_proto_internal_proto_msgTypes = make([]protoimpl.MessageInfo, 47)
+var file_proto_internal_proto_msgTypes = make([]protoimpl.MessageInfo, 50)
 var file_proto_internal_proto_goTypes = []any{
 	(*NodeInfoRequest)(nil),                 // 0: internal.NodeInfoRequest
 	(*NodeInfoResponse)(nil),                // 1: internal.NodeInfoResponse
@@ -2986,6 +3265,9 @@ var file_proto_internal_proto_goTypes = []any{
 	(*RevokeGrantResponse)(nil),             // 44: internal.RevokeGrantResponse
 	(*AdmitGrantRequest)(nil),               // 45: internal.AdmitGrantRequest
 	(*AdmitGrantResponse)(nil),              // 46: internal.AdmitGrantResponse
+	(*CreateOAuthCodeRequest)(nil),          // 47: internal.CreateOAuthCodeRequest
+	(*CreateOAuthCodeResponse)(nil),         // 48: internal.CreateOAuthCodeResponse
+	(*ExchangeOAuthCodeRequest)(nil),        // 49: internal.ExchangeOAuthCodeRequest
 }
 var file_proto_internal_proto_depIdxs = []int32{
 	14, // 0: internal.AccountResponse.emails:type_name -> internal.AccountEmail
@@ -3004,44 +3286,48 @@ var file_proto_internal_proto_depIdxs = []int32{
 	41, // 13: internal.LoginNodeDB.ListGrants:input_type -> internal.ListGrantsRequest
 	43, // 14: internal.LoginNodeDB.RevokeGrant:input_type -> internal.RevokeGrantRequest
 	45, // 15: internal.LoginNodeDB.AdmitGrant:input_type -> internal.AdmitGrantRequest
-	8,  // 16: internal.LoginNodeDB.CreateDeviceCode:input_type -> internal.CreateDeviceCodeRequest
-	10, // 17: internal.LoginNodeDB.GetDeviceCode:input_type -> internal.GetDeviceCodeRequest
-	11, // 18: internal.LoginNodeDB.AuthorizeDeviceCode:input_type -> internal.AuthorizeDeviceCodeRequest
-	15, // 19: internal.LoginNodeDB.GetAccount:input_type -> internal.GetAccountRequest
-	16, // 20: internal.LoginNodeDB.GetAccountByEmail:input_type -> internal.GetAccountByEmailRequest
-	17, // 21: internal.LoginNodeDB.FindOrCreateByEmails:input_type -> internal.FindOrCreateByEmailsRequest
-	18, // 22: internal.LoginNodeDB.GetEmailBucket:input_type -> internal.GetEmailBucketRequest
-	20, // 23: internal.LoginNodeDB.UpdatePlan:input_type -> internal.UpdatePlanRequest
-	22, // 24: internal.LoginNodeDB.RegisterTunnel:input_type -> internal.RegisterTunnelRequest
-	24, // 25: internal.LoginNodeDB.UnregisterTunnel:input_type -> internal.UnregisterTunnelRequest
-	26, // 26: internal.LoginNodeDB.GetTunnelCount:input_type -> internal.GetTunnelCountRequest
-	28, // 27: internal.LoginNodeDB.MarkMagicTokenUsed:input_type -> internal.MarkMagicTokenUsedRequest
-	30, // 28: internal.LoginNodeDB.CheckMagicLinkRateLimit:input_type -> internal.CheckMagicLinkRateLimitRequest
-	3,  // 29: internal.InternalService.FindTunnel:output_type -> internal.FindTunnelResponse
-	1,  // 30: internal.InternalService.GetNodeInfo:output_type -> internal.NodeInfoResponse
-	5,  // 31: internal.LoginNodeDB.RecordUsage:output_type -> internal.RecordUsageResponse
-	7,  // 32: internal.LoginNodeDB.GetMonthlyUsage:output_type -> internal.GetMonthlyUsageResponse
-	35, // 33: internal.LoginNodeDB.RecordIngress:output_type -> internal.RecordIngressResponse
-	37, // 34: internal.LoginNodeDB.ExportIngress:output_type -> internal.ExportIngressResponse
-	40, // 35: internal.LoginNodeDB.CreateGrant:output_type -> internal.CreateGrantResponse
-	42, // 36: internal.LoginNodeDB.ListGrants:output_type -> internal.ListGrantsResponse
-	44, // 37: internal.LoginNodeDB.RevokeGrant:output_type -> internal.RevokeGrantResponse
-	46, // 38: internal.LoginNodeDB.AdmitGrant:output_type -> internal.AdmitGrantResponse
-	9,  // 39: internal.LoginNodeDB.CreateDeviceCode:output_type -> internal.DeviceCodeResponse
-	9,  // 40: internal.LoginNodeDB.GetDeviceCode:output_type -> internal.DeviceCodeResponse
-	12, // 41: internal.LoginNodeDB.AuthorizeDeviceCode:output_type -> internal.AuthorizeDeviceCodeResponse
-	13, // 42: internal.LoginNodeDB.GetAccount:output_type -> internal.AccountResponse
-	13, // 43: internal.LoginNodeDB.GetAccountByEmail:output_type -> internal.AccountResponse
-	13, // 44: internal.LoginNodeDB.FindOrCreateByEmails:output_type -> internal.AccountResponse
-	19, // 45: internal.LoginNodeDB.GetEmailBucket:output_type -> internal.GetEmailBucketResponse
-	21, // 46: internal.LoginNodeDB.UpdatePlan:output_type -> internal.UpdatePlanResponse
-	23, // 47: internal.LoginNodeDB.RegisterTunnel:output_type -> internal.RegisterTunnelResponse
-	25, // 48: internal.LoginNodeDB.UnregisterTunnel:output_type -> internal.UnregisterTunnelResponse
-	27, // 49: internal.LoginNodeDB.GetTunnelCount:output_type -> internal.GetTunnelCountResponse
-	29, // 50: internal.LoginNodeDB.MarkMagicTokenUsed:output_type -> internal.MarkMagicTokenUsedResponse
-	31, // 51: internal.LoginNodeDB.CheckMagicLinkRateLimit:output_type -> internal.CheckMagicLinkRateLimitResponse
-	29, // [29:52] is the sub-list for method output_type
-	6,  // [6:29] is the sub-list for method input_type
+	47, // 16: internal.LoginNodeDB.CreateOAuthCode:input_type -> internal.CreateOAuthCodeRequest
+	49, // 17: internal.LoginNodeDB.ExchangeOAuthCode:input_type -> internal.ExchangeOAuthCodeRequest
+	8,  // 18: internal.LoginNodeDB.CreateDeviceCode:input_type -> internal.CreateDeviceCodeRequest
+	10, // 19: internal.LoginNodeDB.GetDeviceCode:input_type -> internal.GetDeviceCodeRequest
+	11, // 20: internal.LoginNodeDB.AuthorizeDeviceCode:input_type -> internal.AuthorizeDeviceCodeRequest
+	15, // 21: internal.LoginNodeDB.GetAccount:input_type -> internal.GetAccountRequest
+	16, // 22: internal.LoginNodeDB.GetAccountByEmail:input_type -> internal.GetAccountByEmailRequest
+	17, // 23: internal.LoginNodeDB.FindOrCreateByEmails:input_type -> internal.FindOrCreateByEmailsRequest
+	18, // 24: internal.LoginNodeDB.GetEmailBucket:input_type -> internal.GetEmailBucketRequest
+	20, // 25: internal.LoginNodeDB.UpdatePlan:input_type -> internal.UpdatePlanRequest
+	22, // 26: internal.LoginNodeDB.RegisterTunnel:input_type -> internal.RegisterTunnelRequest
+	24, // 27: internal.LoginNodeDB.UnregisterTunnel:input_type -> internal.UnregisterTunnelRequest
+	26, // 28: internal.LoginNodeDB.GetTunnelCount:input_type -> internal.GetTunnelCountRequest
+	28, // 29: internal.LoginNodeDB.MarkMagicTokenUsed:input_type -> internal.MarkMagicTokenUsedRequest
+	30, // 30: internal.LoginNodeDB.CheckMagicLinkRateLimit:input_type -> internal.CheckMagicLinkRateLimitRequest
+	3,  // 31: internal.InternalService.FindTunnel:output_type -> internal.FindTunnelResponse
+	1,  // 32: internal.InternalService.GetNodeInfo:output_type -> internal.NodeInfoResponse
+	5,  // 33: internal.LoginNodeDB.RecordUsage:output_type -> internal.RecordUsageResponse
+	7,  // 34: internal.LoginNodeDB.GetMonthlyUsage:output_type -> internal.GetMonthlyUsageResponse
+	35, // 35: internal.LoginNodeDB.RecordIngress:output_type -> internal.RecordIngressResponse
+	37, // 36: internal.LoginNodeDB.ExportIngress:output_type -> internal.ExportIngressResponse
+	40, // 37: internal.LoginNodeDB.CreateGrant:output_type -> internal.CreateGrantResponse
+	42, // 38: internal.LoginNodeDB.ListGrants:output_type -> internal.ListGrantsResponse
+	44, // 39: internal.LoginNodeDB.RevokeGrant:output_type -> internal.RevokeGrantResponse
+	46, // 40: internal.LoginNodeDB.AdmitGrant:output_type -> internal.AdmitGrantResponse
+	48, // 41: internal.LoginNodeDB.CreateOAuthCode:output_type -> internal.CreateOAuthCodeResponse
+	40, // 42: internal.LoginNodeDB.ExchangeOAuthCode:output_type -> internal.CreateGrantResponse
+	9,  // 43: internal.LoginNodeDB.CreateDeviceCode:output_type -> internal.DeviceCodeResponse
+	9,  // 44: internal.LoginNodeDB.GetDeviceCode:output_type -> internal.DeviceCodeResponse
+	12, // 45: internal.LoginNodeDB.AuthorizeDeviceCode:output_type -> internal.AuthorizeDeviceCodeResponse
+	13, // 46: internal.LoginNodeDB.GetAccount:output_type -> internal.AccountResponse
+	13, // 47: internal.LoginNodeDB.GetAccountByEmail:output_type -> internal.AccountResponse
+	13, // 48: internal.LoginNodeDB.FindOrCreateByEmails:output_type -> internal.AccountResponse
+	19, // 49: internal.LoginNodeDB.GetEmailBucket:output_type -> internal.GetEmailBucketResponse
+	21, // 50: internal.LoginNodeDB.UpdatePlan:output_type -> internal.UpdatePlanResponse
+	23, // 51: internal.LoginNodeDB.RegisterTunnel:output_type -> internal.RegisterTunnelResponse
+	25, // 52: internal.LoginNodeDB.UnregisterTunnel:output_type -> internal.UnregisterTunnelResponse
+	27, // 53: internal.LoginNodeDB.GetTunnelCount:output_type -> internal.GetTunnelCountResponse
+	29, // 54: internal.LoginNodeDB.MarkMagicTokenUsed:output_type -> internal.MarkMagicTokenUsedResponse
+	31, // 55: internal.LoginNodeDB.CheckMagicLinkRateLimit:output_type -> internal.CheckMagicLinkRateLimitResponse
+	31, // [31:56] is the sub-list for method output_type
+	6,  // [6:31] is the sub-list for method input_type
 	6,  // [6:6] is the sub-list for extension type_name
 	6,  // [6:6] is the sub-list for extension extendee
 	0,  // [0:6] is the sub-list for field type_name
@@ -3058,7 +3344,7 @@ func file_proto_internal_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_internal_proto_rawDesc), len(file_proto_internal_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   47,
+			NumMessages:   50,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

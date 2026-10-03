@@ -16,6 +16,7 @@ type LocalStorage struct {
 	accounts    *store.AccountStore
 	ingress     *store.IngressStore
 	grants      *store.GrantStore
+	oauthCodes  *store.OAuthCodeStore
 
 	// Active tunnels tracked in memory
 	// Maps tunnel_id -> account_id
@@ -41,6 +42,7 @@ func NewLocalStorage(db *sql.DB) *LocalStorage {
 		accounts:          store.NewAccountStore(db),
 		ingress:           store.NewIngressStore(db),
 		grants:            store.NewGrantStore(db),
+		oauthCodes:        store.NewOAuthCodeStore(db),
 		activeTunnels:     make(map[string]string),
 		activeProtocols:   make(map[string]string),
 		usedJTIs:          make(map[string]time.Time),

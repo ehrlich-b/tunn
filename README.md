@@ -86,6 +86,19 @@ Tunn-Authorization: Bearer <endpoint-token> # preserves upstream Authorization
 Authorization: Bearer <endpoint-token>      # for clients with fixed auth fields
 ```
 
+For hosted clients that require OAuth, a self-hosted relay can enable bounded
+owner consent with static public clients. [MCP OAuth setup](docs/MCP-OAUTH.md)
+describes the configuration; [hosted acceptance](docs/HOSTED-MCP-ACCEPTANCE.md)
+records the remaining application checks. Inspect an explicitly named endpoint
+without loading saved credentials:
+
+```bash
+tunn mcp check --issuer https://relay.example.test https://work-tools.relay.example.test/mcp
+```
+
+This local implementation has not been deployed to `tunn.to`. Passing discovery
+does not prove that a hosted application can complete its own sign-in flow.
+
 Rotate a running endpoint without restarting it:
 
 ```bash

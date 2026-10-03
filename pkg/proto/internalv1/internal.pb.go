@@ -1623,6 +1623,494 @@ func (x *CheckMagicLinkRateLimitResponse) GetResetAtUnix() int64 {
 	return 0
 }
 
+type IngressEvent struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Sequence        int64                  `protobuf:"varint,1,opt,name=sequence,proto3" json:"sequence,omitempty"`
+	RequestId       string                 `protobuf:"bytes,2,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	AccountId       string                 `protobuf:"bytes,3,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	EndpointId      string                 `protobuf:"bytes,4,opt,name=endpoint_id,json=endpointId,proto3" json:"endpoint_id,omitempty"`
+	CallerId        string                 `protobuf:"bytes,5,opt,name=caller_id,json=callerId,proto3" json:"caller_id,omitempty"`
+	AuthMethod      string                 `protobuf:"bytes,6,opt,name=auth_method,json=authMethod,proto3" json:"auth_method,omitempty"`
+	Reason          string                 `protobuf:"bytes,7,opt,name=reason,proto3" json:"reason,omitempty"`
+	Outcome         string                 `protobuf:"bytes,8,opt,name=outcome,proto3" json:"outcome,omitempty"`
+	Status          int32                  `protobuf:"varint,9,opt,name=status,proto3" json:"status,omitempty"`
+	StartedAtUnixMs int64                  `protobuf:"varint,10,opt,name=started_at_unix_ms,json=startedAtUnixMs,proto3" json:"started_at_unix_ms,omitempty"`
+	DurationMs      int64                  `protobuf:"varint,11,opt,name=duration_ms,json=durationMs,proto3" json:"duration_ms,omitempty"`
+	Forwarded       bool                   `protobuf:"varint,12,opt,name=forwarded,proto3" json:"forwarded,omitempty"`
+	RequestBytes    int64                  `protobuf:"varint,13,opt,name=request_bytes,json=requestBytes,proto3" json:"request_bytes,omitempty"`
+	ResponseBytes   int64                  `protobuf:"varint,14,opt,name=response_bytes,json=responseBytes,proto3" json:"response_bytes,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *IngressEvent) Reset() {
+	*x = IngressEvent{}
+	mi := &file_proto_internal_proto_msgTypes[32]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *IngressEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*IngressEvent) ProtoMessage() {}
+
+func (x *IngressEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[32]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use IngressEvent.ProtoReflect.Descriptor instead.
+func (*IngressEvent) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{32}
+}
+
+func (x *IngressEvent) GetSequence() int64 {
+	if x != nil {
+		return x.Sequence
+	}
+	return 0
+}
+
+func (x *IngressEvent) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *IngressEvent) GetAccountId() string {
+	if x != nil {
+		return x.AccountId
+	}
+	return ""
+}
+
+func (x *IngressEvent) GetEndpointId() string {
+	if x != nil {
+		return x.EndpointId
+	}
+	return ""
+}
+
+func (x *IngressEvent) GetCallerId() string {
+	if x != nil {
+		return x.CallerId
+	}
+	return ""
+}
+
+func (x *IngressEvent) GetAuthMethod() string {
+	if x != nil {
+		return x.AuthMethod
+	}
+	return ""
+}
+
+func (x *IngressEvent) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+func (x *IngressEvent) GetOutcome() string {
+	if x != nil {
+		return x.Outcome
+	}
+	return ""
+}
+
+func (x *IngressEvent) GetStatus() int32 {
+	if x != nil {
+		return x.Status
+	}
+	return 0
+}
+
+func (x *IngressEvent) GetStartedAtUnixMs() int64 {
+	if x != nil {
+		return x.StartedAtUnixMs
+	}
+	return 0
+}
+
+func (x *IngressEvent) GetDurationMs() int64 {
+	if x != nil {
+		return x.DurationMs
+	}
+	return 0
+}
+
+func (x *IngressEvent) GetForwarded() bool {
+	if x != nil {
+		return x.Forwarded
+	}
+	return false
+}
+
+func (x *IngressEvent) GetRequestBytes() int64 {
+	if x != nil {
+		return x.RequestBytes
+	}
+	return 0
+}
+
+func (x *IngressEvent) GetResponseBytes() int64 {
+	if x != nil {
+		return x.ResponseBytes
+	}
+	return 0
+}
+
+type IngressCounter struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Sequence      int64                  `protobuf:"varint,1,opt,name=sequence,proto3" json:"sequence,omitempty"`
+	EndpointId    string                 `protobuf:"bytes,2,opt,name=endpoint_id,json=endpointId,proto3" json:"endpoint_id,omitempty"`
+	CallerId      string                 `protobuf:"bytes,3,opt,name=caller_id,json=callerId,proto3" json:"caller_id,omitempty"`
+	AuthMethod    string                 `protobuf:"bytes,4,opt,name=auth_method,json=authMethod,proto3" json:"auth_method,omitempty"`
+	Requests      int64                  `protobuf:"varint,5,opt,name=requests,proto3" json:"requests,omitempty"`
+	Forwarded     int64                  `protobuf:"varint,6,opt,name=forwarded,proto3" json:"forwarded,omitempty"`
+	Denied        int64                  `protobuf:"varint,7,opt,name=denied,proto3" json:"denied,omitempty"`
+	Errors        int64                  `protobuf:"varint,8,opt,name=errors,proto3" json:"errors,omitempty"`
+	RequestBytes  int64                  `protobuf:"varint,9,opt,name=request_bytes,json=requestBytes,proto3" json:"request_bytes,omitempty"`
+	ResponseBytes int64                  `protobuf:"varint,10,opt,name=response_bytes,json=responseBytes,proto3" json:"response_bytes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *IngressCounter) Reset() {
+	*x = IngressCounter{}
+	mi := &file_proto_internal_proto_msgTypes[33]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *IngressCounter) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*IngressCounter) ProtoMessage() {}
+
+func (x *IngressCounter) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[33]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use IngressCounter.ProtoReflect.Descriptor instead.
+func (*IngressCounter) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{33}
+}
+
+func (x *IngressCounter) GetSequence() int64 {
+	if x != nil {
+		return x.Sequence
+	}
+	return 0
+}
+
+func (x *IngressCounter) GetEndpointId() string {
+	if x != nil {
+		return x.EndpointId
+	}
+	return ""
+}
+
+func (x *IngressCounter) GetCallerId() string {
+	if x != nil {
+		return x.CallerId
+	}
+	return ""
+}
+
+func (x *IngressCounter) GetAuthMethod() string {
+	if x != nil {
+		return x.AuthMethod
+	}
+	return ""
+}
+
+func (x *IngressCounter) GetRequests() int64 {
+	if x != nil {
+		return x.Requests
+	}
+	return 0
+}
+
+func (x *IngressCounter) GetForwarded() int64 {
+	if x != nil {
+		return x.Forwarded
+	}
+	return 0
+}
+
+func (x *IngressCounter) GetDenied() int64 {
+	if x != nil {
+		return x.Denied
+	}
+	return 0
+}
+
+func (x *IngressCounter) GetErrors() int64 {
+	if x != nil {
+		return x.Errors
+	}
+	return 0
+}
+
+func (x *IngressCounter) GetRequestBytes() int64 {
+	if x != nil {
+		return x.RequestBytes
+	}
+	return 0
+}
+
+func (x *IngressCounter) GetResponseBytes() int64 {
+	if x != nil {
+		return x.ResponseBytes
+	}
+	return 0
+}
+
+type RecordIngressRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Event         *IngressEvent          `protobuf:"bytes,1,opt,name=event,proto3" json:"event,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RecordIngressRequest) Reset() {
+	*x = RecordIngressRequest{}
+	mi := &file_proto_internal_proto_msgTypes[34]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RecordIngressRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RecordIngressRequest) ProtoMessage() {}
+
+func (x *RecordIngressRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[34]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RecordIngressRequest.ProtoReflect.Descriptor instead.
+func (*RecordIngressRequest) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{34}
+}
+
+func (x *RecordIngressRequest) GetEvent() *IngressEvent {
+	if x != nil {
+		return x.Event
+	}
+	return nil
+}
+
+type RecordIngressResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RecordIngressResponse) Reset() {
+	*x = RecordIngressResponse{}
+	mi := &file_proto_internal_proto_msgTypes[35]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RecordIngressResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RecordIngressResponse) ProtoMessage() {}
+
+func (x *RecordIngressResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[35]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RecordIngressResponse.ProtoReflect.Descriptor instead.
+func (*RecordIngressResponse) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{35}
+}
+
+type ExportIngressRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	AccountId     string                 `protobuf:"bytes,1,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	Month         string                 `protobuf:"bytes,2,opt,name=month,proto3" json:"month,omitempty"`
+	EndpointId    string                 `protobuf:"bytes,3,opt,name=endpoint_id,json=endpointId,proto3" json:"endpoint_id,omitempty"`
+	After         int64                  `protobuf:"varint,4,opt,name=after,proto3" json:"after,omitempty"`
+	Limit         int32                  `protobuf:"varint,5,opt,name=limit,proto3" json:"limit,omitempty"`
+	Counters      bool                   `protobuf:"varint,6,opt,name=counters,proto3" json:"counters,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ExportIngressRequest) Reset() {
+	*x = ExportIngressRequest{}
+	mi := &file_proto_internal_proto_msgTypes[36]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExportIngressRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExportIngressRequest) ProtoMessage() {}
+
+func (x *ExportIngressRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[36]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExportIngressRequest.ProtoReflect.Descriptor instead.
+func (*ExportIngressRequest) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{36}
+}
+
+func (x *ExportIngressRequest) GetAccountId() string {
+	if x != nil {
+		return x.AccountId
+	}
+	return ""
+}
+
+func (x *ExportIngressRequest) GetMonth() string {
+	if x != nil {
+		return x.Month
+	}
+	return ""
+}
+
+func (x *ExportIngressRequest) GetEndpointId() string {
+	if x != nil {
+		return x.EndpointId
+	}
+	return ""
+}
+
+func (x *ExportIngressRequest) GetAfter() int64 {
+	if x != nil {
+		return x.After
+	}
+	return 0
+}
+
+func (x *ExportIngressRequest) GetLimit() int32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+func (x *ExportIngressRequest) GetCounters() bool {
+	if x != nil {
+		return x.Counters
+	}
+	return false
+}
+
+type ExportIngressResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Events        []*IngressEvent        `protobuf:"bytes,1,rep,name=events,proto3" json:"events,omitempty"`
+	Counters      []*IngressCounter      `protobuf:"bytes,2,rep,name=counters,proto3" json:"counters,omitempty"`
+	NextCursor    int64                  `protobuf:"varint,3,opt,name=next_cursor,json=nextCursor,proto3" json:"next_cursor,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ExportIngressResponse) Reset() {
+	*x = ExportIngressResponse{}
+	mi := &file_proto_internal_proto_msgTypes[37]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExportIngressResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExportIngressResponse) ProtoMessage() {}
+
+func (x *ExportIngressResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[37]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExportIngressResponse.ProtoReflect.Descriptor instead.
+func (*ExportIngressResponse) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{37}
+}
+
+func (x *ExportIngressResponse) GetEvents() []*IngressEvent {
+	if x != nil {
+		return x.Events
+	}
+	return nil
+}
+
+func (x *ExportIngressResponse) GetCounters() []*IngressCounter {
+	if x != nil {
+		return x.Counters
+	}
+	return nil
+}
+
+func (x *ExportIngressResponse) GetNextCursor() int64 {
+	if x != nil {
+		return x.NextCursor
+	}
+	return 0
+}
+
 var File_proto_internal_proto protoreflect.FileDescriptor
 
 const file_proto_internal_proto_rawDesc = "" +
@@ -1728,15 +2216,68 @@ const file_proto_internal_proto_rawDesc = "" +
 	"\x1fCheckMagicLinkRateLimitResponse\x12\x18\n" +
 	"\aallowed\x18\x01 \x01(\bR\aallowed\x12\x1c\n" +
 	"\tremaining\x18\x02 \x01(\x05R\tremaining\x12\"\n" +
-	"\rreset_at_unix\x18\x03 \x01(\x03R\vresetAtUnix2\xa0\x01\n" +
+	"\rreset_at_unix\x18\x03 \x01(\x03R\vresetAtUnix\"\xc9\x03\n" +
+	"\fIngressEvent\x12\x1a\n" +
+	"\bsequence\x18\x01 \x01(\x03R\bsequence\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x02 \x01(\tR\trequestId\x12\x1d\n" +
+	"\n" +
+	"account_id\x18\x03 \x01(\tR\taccountId\x12\x1f\n" +
+	"\vendpoint_id\x18\x04 \x01(\tR\n" +
+	"endpointId\x12\x1b\n" +
+	"\tcaller_id\x18\x05 \x01(\tR\bcallerId\x12\x1f\n" +
+	"\vauth_method\x18\x06 \x01(\tR\n" +
+	"authMethod\x12\x16\n" +
+	"\x06reason\x18\a \x01(\tR\x06reason\x12\x18\n" +
+	"\aoutcome\x18\b \x01(\tR\aoutcome\x12\x16\n" +
+	"\x06status\x18\t \x01(\x05R\x06status\x12+\n" +
+	"\x12started_at_unix_ms\x18\n" +
+	" \x01(\x03R\x0fstartedAtUnixMs\x12\x1f\n" +
+	"\vduration_ms\x18\v \x01(\x03R\n" +
+	"durationMs\x12\x1c\n" +
+	"\tforwarded\x18\f \x01(\bR\tforwarded\x12#\n" +
+	"\rrequest_bytes\x18\r \x01(\x03R\frequestBytes\x12%\n" +
+	"\x0eresponse_bytes\x18\x0e \x01(\x03R\rresponseBytes\"\xc1\x02\n" +
+	"\x0eIngressCounter\x12\x1a\n" +
+	"\bsequence\x18\x01 \x01(\x03R\bsequence\x12\x1f\n" +
+	"\vendpoint_id\x18\x02 \x01(\tR\n" +
+	"endpointId\x12\x1b\n" +
+	"\tcaller_id\x18\x03 \x01(\tR\bcallerId\x12\x1f\n" +
+	"\vauth_method\x18\x04 \x01(\tR\n" +
+	"authMethod\x12\x1a\n" +
+	"\brequests\x18\x05 \x01(\x03R\brequests\x12\x1c\n" +
+	"\tforwarded\x18\x06 \x01(\x03R\tforwarded\x12\x16\n" +
+	"\x06denied\x18\a \x01(\x03R\x06denied\x12\x16\n" +
+	"\x06errors\x18\b \x01(\x03R\x06errors\x12#\n" +
+	"\rrequest_bytes\x18\t \x01(\x03R\frequestBytes\x12%\n" +
+	"\x0eresponse_bytes\x18\n" +
+	" \x01(\x03R\rresponseBytes\"D\n" +
+	"\x14RecordIngressRequest\x12,\n" +
+	"\x05event\x18\x01 \x01(\v2\x16.internal.IngressEventR\x05event\"\x17\n" +
+	"\x15RecordIngressResponse\"\xb4\x01\n" +
+	"\x14ExportIngressRequest\x12\x1d\n" +
+	"\n" +
+	"account_id\x18\x01 \x01(\tR\taccountId\x12\x14\n" +
+	"\x05month\x18\x02 \x01(\tR\x05month\x12\x1f\n" +
+	"\vendpoint_id\x18\x03 \x01(\tR\n" +
+	"endpointId\x12\x14\n" +
+	"\x05after\x18\x04 \x01(\x03R\x05after\x12\x14\n" +
+	"\x05limit\x18\x05 \x01(\x05R\x05limit\x12\x1a\n" +
+	"\bcounters\x18\x06 \x01(\bR\bcounters\"\x9e\x01\n" +
+	"\x15ExportIngressResponse\x12.\n" +
+	"\x06events\x18\x01 \x03(\v2\x16.internal.IngressEventR\x06events\x124\n" +
+	"\bcounters\x18\x02 \x03(\v2\x18.internal.IngressCounterR\bcounters\x12\x1f\n" +
+	"\vnext_cursor\x18\x03 \x01(\x03R\n" +
+	"nextCursor2\xa0\x01\n" +
 	"\x0fInternalService\x12G\n" +
 	"\n" +
 	"FindTunnel\x12\x1b.internal.FindTunnelRequest\x1a\x1c.internal.FindTunnelResponse\x12D\n" +
-	"\vGetNodeInfo\x12\x19.internal.NodeInfoRequest\x1a\x1a.internal.NodeInfoResponse2\xa1\n" +
-	"\n" +
+	"\vGetNodeInfo\x12\x19.internal.NodeInfoRequest\x1a\x1a.internal.NodeInfoResponse2\xc5\v\n" +
 	"\vLoginNodeDB\x12J\n" +
 	"\vRecordUsage\x12\x1c.internal.RecordUsageRequest\x1a\x1d.internal.RecordUsageResponse\x12V\n" +
-	"\x0fGetMonthlyUsage\x12 .internal.GetMonthlyUsageRequest\x1a!.internal.GetMonthlyUsageResponse\x12S\n" +
+	"\x0fGetMonthlyUsage\x12 .internal.GetMonthlyUsageRequest\x1a!.internal.GetMonthlyUsageResponse\x12P\n" +
+	"\rRecordIngress\x12\x1e.internal.RecordIngressRequest\x1a\x1f.internal.RecordIngressResponse\x12P\n" +
+	"\rExportIngress\x12\x1e.internal.ExportIngressRequest\x1a\x1f.internal.ExportIngressResponse\x12S\n" +
 	"\x10CreateDeviceCode\x12!.internal.CreateDeviceCodeRequest\x1a\x1c.internal.DeviceCodeResponse\x12M\n" +
 	"\rGetDeviceCode\x12\x1e.internal.GetDeviceCodeRequest\x1a\x1c.internal.DeviceCodeResponse\x12b\n" +
 	"\x13AuthorizeDeviceCode\x12$.internal.AuthorizeDeviceCodeRequest\x1a%.internal.AuthorizeDeviceCodeResponse\x12D\n" +
@@ -1765,7 +2306,7 @@ func file_proto_internal_proto_rawDescGZIP() []byte {
 	return file_proto_internal_proto_rawDescData
 }
 
-var file_proto_internal_proto_msgTypes = make([]protoimpl.MessageInfo, 32)
+var file_proto_internal_proto_msgTypes = make([]protoimpl.MessageInfo, 38)
 var file_proto_internal_proto_goTypes = []any{
 	(*NodeInfoRequest)(nil),                 // 0: internal.NodeInfoRequest
 	(*NodeInfoResponse)(nil),                // 1: internal.NodeInfoResponse
@@ -1799,48 +2340,61 @@ var file_proto_internal_proto_goTypes = []any{
 	(*MarkMagicTokenUsedResponse)(nil),      // 29: internal.MarkMagicTokenUsedResponse
 	(*CheckMagicLinkRateLimitRequest)(nil),  // 30: internal.CheckMagicLinkRateLimitRequest
 	(*CheckMagicLinkRateLimitResponse)(nil), // 31: internal.CheckMagicLinkRateLimitResponse
+	(*IngressEvent)(nil),                    // 32: internal.IngressEvent
+	(*IngressCounter)(nil),                  // 33: internal.IngressCounter
+	(*RecordIngressRequest)(nil),            // 34: internal.RecordIngressRequest
+	(*RecordIngressResponse)(nil),           // 35: internal.RecordIngressResponse
+	(*ExportIngressRequest)(nil),            // 36: internal.ExportIngressRequest
+	(*ExportIngressResponse)(nil),           // 37: internal.ExportIngressResponse
 }
 var file_proto_internal_proto_depIdxs = []int32{
 	14, // 0: internal.AccountResponse.emails:type_name -> internal.AccountEmail
-	2,  // 1: internal.InternalService.FindTunnel:input_type -> internal.FindTunnelRequest
-	0,  // 2: internal.InternalService.GetNodeInfo:input_type -> internal.NodeInfoRequest
-	4,  // 3: internal.LoginNodeDB.RecordUsage:input_type -> internal.RecordUsageRequest
-	6,  // 4: internal.LoginNodeDB.GetMonthlyUsage:input_type -> internal.GetMonthlyUsageRequest
-	8,  // 5: internal.LoginNodeDB.CreateDeviceCode:input_type -> internal.CreateDeviceCodeRequest
-	10, // 6: internal.LoginNodeDB.GetDeviceCode:input_type -> internal.GetDeviceCodeRequest
-	11, // 7: internal.LoginNodeDB.AuthorizeDeviceCode:input_type -> internal.AuthorizeDeviceCodeRequest
-	15, // 8: internal.LoginNodeDB.GetAccount:input_type -> internal.GetAccountRequest
-	16, // 9: internal.LoginNodeDB.GetAccountByEmail:input_type -> internal.GetAccountByEmailRequest
-	17, // 10: internal.LoginNodeDB.FindOrCreateByEmails:input_type -> internal.FindOrCreateByEmailsRequest
-	18, // 11: internal.LoginNodeDB.GetEmailBucket:input_type -> internal.GetEmailBucketRequest
-	20, // 12: internal.LoginNodeDB.UpdatePlan:input_type -> internal.UpdatePlanRequest
-	22, // 13: internal.LoginNodeDB.RegisterTunnel:input_type -> internal.RegisterTunnelRequest
-	24, // 14: internal.LoginNodeDB.UnregisterTunnel:input_type -> internal.UnregisterTunnelRequest
-	26, // 15: internal.LoginNodeDB.GetTunnelCount:input_type -> internal.GetTunnelCountRequest
-	28, // 16: internal.LoginNodeDB.MarkMagicTokenUsed:input_type -> internal.MarkMagicTokenUsedRequest
-	30, // 17: internal.LoginNodeDB.CheckMagicLinkRateLimit:input_type -> internal.CheckMagicLinkRateLimitRequest
-	3,  // 18: internal.InternalService.FindTunnel:output_type -> internal.FindTunnelResponse
-	1,  // 19: internal.InternalService.GetNodeInfo:output_type -> internal.NodeInfoResponse
-	5,  // 20: internal.LoginNodeDB.RecordUsage:output_type -> internal.RecordUsageResponse
-	7,  // 21: internal.LoginNodeDB.GetMonthlyUsage:output_type -> internal.GetMonthlyUsageResponse
-	9,  // 22: internal.LoginNodeDB.CreateDeviceCode:output_type -> internal.DeviceCodeResponse
-	9,  // 23: internal.LoginNodeDB.GetDeviceCode:output_type -> internal.DeviceCodeResponse
-	12, // 24: internal.LoginNodeDB.AuthorizeDeviceCode:output_type -> internal.AuthorizeDeviceCodeResponse
-	13, // 25: internal.LoginNodeDB.GetAccount:output_type -> internal.AccountResponse
-	13, // 26: internal.LoginNodeDB.GetAccountByEmail:output_type -> internal.AccountResponse
-	13, // 27: internal.LoginNodeDB.FindOrCreateByEmails:output_type -> internal.AccountResponse
-	19, // 28: internal.LoginNodeDB.GetEmailBucket:output_type -> internal.GetEmailBucketResponse
-	21, // 29: internal.LoginNodeDB.UpdatePlan:output_type -> internal.UpdatePlanResponse
-	23, // 30: internal.LoginNodeDB.RegisterTunnel:output_type -> internal.RegisterTunnelResponse
-	25, // 31: internal.LoginNodeDB.UnregisterTunnel:output_type -> internal.UnregisterTunnelResponse
-	27, // 32: internal.LoginNodeDB.GetTunnelCount:output_type -> internal.GetTunnelCountResponse
-	29, // 33: internal.LoginNodeDB.MarkMagicTokenUsed:output_type -> internal.MarkMagicTokenUsedResponse
-	31, // 34: internal.LoginNodeDB.CheckMagicLinkRateLimit:output_type -> internal.CheckMagicLinkRateLimitResponse
-	18, // [18:35] is the sub-list for method output_type
-	1,  // [1:18] is the sub-list for method input_type
-	1,  // [1:1] is the sub-list for extension type_name
-	1,  // [1:1] is the sub-list for extension extendee
-	0,  // [0:1] is the sub-list for field type_name
+	32, // 1: internal.RecordIngressRequest.event:type_name -> internal.IngressEvent
+	32, // 2: internal.ExportIngressResponse.events:type_name -> internal.IngressEvent
+	33, // 3: internal.ExportIngressResponse.counters:type_name -> internal.IngressCounter
+	2,  // 4: internal.InternalService.FindTunnel:input_type -> internal.FindTunnelRequest
+	0,  // 5: internal.InternalService.GetNodeInfo:input_type -> internal.NodeInfoRequest
+	4,  // 6: internal.LoginNodeDB.RecordUsage:input_type -> internal.RecordUsageRequest
+	6,  // 7: internal.LoginNodeDB.GetMonthlyUsage:input_type -> internal.GetMonthlyUsageRequest
+	34, // 8: internal.LoginNodeDB.RecordIngress:input_type -> internal.RecordIngressRequest
+	36, // 9: internal.LoginNodeDB.ExportIngress:input_type -> internal.ExportIngressRequest
+	8,  // 10: internal.LoginNodeDB.CreateDeviceCode:input_type -> internal.CreateDeviceCodeRequest
+	10, // 11: internal.LoginNodeDB.GetDeviceCode:input_type -> internal.GetDeviceCodeRequest
+	11, // 12: internal.LoginNodeDB.AuthorizeDeviceCode:input_type -> internal.AuthorizeDeviceCodeRequest
+	15, // 13: internal.LoginNodeDB.GetAccount:input_type -> internal.GetAccountRequest
+	16, // 14: internal.LoginNodeDB.GetAccountByEmail:input_type -> internal.GetAccountByEmailRequest
+	17, // 15: internal.LoginNodeDB.FindOrCreateByEmails:input_type -> internal.FindOrCreateByEmailsRequest
+	18, // 16: internal.LoginNodeDB.GetEmailBucket:input_type -> internal.GetEmailBucketRequest
+	20, // 17: internal.LoginNodeDB.UpdatePlan:input_type -> internal.UpdatePlanRequest
+	22, // 18: internal.LoginNodeDB.RegisterTunnel:input_type -> internal.RegisterTunnelRequest
+	24, // 19: internal.LoginNodeDB.UnregisterTunnel:input_type -> internal.UnregisterTunnelRequest
+	26, // 20: internal.LoginNodeDB.GetTunnelCount:input_type -> internal.GetTunnelCountRequest
+	28, // 21: internal.LoginNodeDB.MarkMagicTokenUsed:input_type -> internal.MarkMagicTokenUsedRequest
+	30, // 22: internal.LoginNodeDB.CheckMagicLinkRateLimit:input_type -> internal.CheckMagicLinkRateLimitRequest
+	3,  // 23: internal.InternalService.FindTunnel:output_type -> internal.FindTunnelResponse
+	1,  // 24: internal.InternalService.GetNodeInfo:output_type -> internal.NodeInfoResponse
+	5,  // 25: internal.LoginNodeDB.RecordUsage:output_type -> internal.RecordUsageResponse
+	7,  // 26: internal.LoginNodeDB.GetMonthlyUsage:output_type -> internal.GetMonthlyUsageResponse
+	35, // 27: internal.LoginNodeDB.RecordIngress:output_type -> internal.RecordIngressResponse
+	37, // 28: internal.LoginNodeDB.ExportIngress:output_type -> internal.ExportIngressResponse
+	9,  // 29: internal.LoginNodeDB.CreateDeviceCode:output_type -> internal.DeviceCodeResponse
+	9,  // 30: internal.LoginNodeDB.GetDeviceCode:output_type -> internal.DeviceCodeResponse
+	12, // 31: internal.LoginNodeDB.AuthorizeDeviceCode:output_type -> internal.AuthorizeDeviceCodeResponse
+	13, // 32: internal.LoginNodeDB.GetAccount:output_type -> internal.AccountResponse
+	13, // 33: internal.LoginNodeDB.GetAccountByEmail:output_type -> internal.AccountResponse
+	13, // 34: internal.LoginNodeDB.FindOrCreateByEmails:output_type -> internal.AccountResponse
+	19, // 35: internal.LoginNodeDB.GetEmailBucket:output_type -> internal.GetEmailBucketResponse
+	21, // 36: internal.LoginNodeDB.UpdatePlan:output_type -> internal.UpdatePlanResponse
+	23, // 37: internal.LoginNodeDB.RegisterTunnel:output_type -> internal.RegisterTunnelResponse
+	25, // 38: internal.LoginNodeDB.UnregisterTunnel:output_type -> internal.UnregisterTunnelResponse
+	27, // 39: internal.LoginNodeDB.GetTunnelCount:output_type -> internal.GetTunnelCountResponse
+	29, // 40: internal.LoginNodeDB.MarkMagicTokenUsed:output_type -> internal.MarkMagicTokenUsedResponse
+	31, // 41: internal.LoginNodeDB.CheckMagicLinkRateLimit:output_type -> internal.CheckMagicLinkRateLimitResponse
+	23, // [23:42] is the sub-list for method output_type
+	4,  // [4:23] is the sub-list for method input_type
+	4,  // [4:4] is the sub-list for extension type_name
+	4,  // [4:4] is the sub-list for extension extendee
+	0,  // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_proto_internal_proto_init() }
@@ -1854,7 +2408,7 @@ func file_proto_internal_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_internal_proto_rawDesc), len(file_proto_internal_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   32,
+			NumMessages:   38,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

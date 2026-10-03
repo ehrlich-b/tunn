@@ -120,7 +120,32 @@ func initSchema(db *sql.DB) error {
 		FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
 	);
 
-	-- Reserved subdomains (Pro feature: up to 4 per account)
+	-- Stable aliases preserve attribution from active tunnels after account merges.
+ CREATE TABLE IF NOT EXISTS account_aliases (
+  alias_id TEXT PRIMARY KEY, account_id TEXT NOT NULL
+ );
+
+ -- Ingress metadata and monthly per-endpoint/caller counters.
+ CREATE TABLE IF NOT EXISTS ingress_events (
+  sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+  request_id TEXT UNIQUE NOT NULL, account_id TEXT NOT NULL, month TEXT NOT NULL,
+  endpoint_id TEXT NOT NULL, caller_id TEXT NOT NULL, auth_method TEXT NOT NULL,
+  reason TEXT NOT NULL, outcome TEXT NOT NULL, status INTEGER NOT NULL,
+  started_at INTEGER NOT NULL, duration_ms INTEGER NOT NULL, forwarded INTEGER NOT NULL,
+  request_bytes INTEGER NOT NULL, response_bytes INTEGER NOT NULL
+ );
+ CREATE INDEX IF NOT EXISTS idx_ingress_export ON ingress_events(account_id,month,sequence);
+ CREATE TABLE IF NOT EXISTS ingress_counters (
+  sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+  account_id TEXT NOT NULL, month TEXT NOT NULL, endpoint_id TEXT NOT NULL,
+  caller_id TEXT NOT NULL, auth_method TEXT NOT NULL,
+  requests INTEGER NOT NULL, forwarded INTEGER NOT NULL, denied INTEGER NOT NULL,
+  errors INTEGER NOT NULL, request_bytes INTEGER NOT NULL, response_bytes INTEGER NOT NULL,
+  UNIQUE(account_id,month,endpoint_id,caller_id,auth_method)
+ );
+ CREATE INDEX IF NOT EXISTS idx_ingress_counters_export ON ingress_counters(account_id,month,sequence);
+
+ -- Reserved subdomains (Pro feature: up to 4 per account)
 	CREATE TABLE IF NOT EXISTS reserved_subdomains (
 		subdomain TEXT PRIMARY KEY,
 		account_id TEXT NOT NULL,

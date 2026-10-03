@@ -86,6 +86,11 @@ type ProxyServer struct {
 	usageBuffer *UsageBuffer
 	quotaCache  *QuotaCache
 
+	// Bounded retry queue for ingress metadata.
+	ingressMu      sync.Mutex
+	ingressActive  sync.WaitGroup
+	pendingIngress map[string]store.IngressEvent
+
 	// Device code rate limiting (per-IP)
 	deviceCodeRateMu   sync.Mutex
 	deviceCodeRateByIP map[string][]time.Time
@@ -465,6 +470,16 @@ func getPeerIP(ctx context.Context) string {
 
 // Run starts both HTTP/2 and HTTP/3 listeners
 func (p *ProxyServer) Run(ctx context.Context) error {
+	ctx, stop := context.WithCancel(ctx)
+	ingressDone := make(chan struct{})
+	go func() { defer close(ingressDone); p.ingressFlushLoop(ctx) }()
+	defer func() {
+		stop()
+		<-ingressDone
+		final, cancel := context.WithTimeout(context.Background(), ingressStorageTimeout)
+		defer cancel()
+		p.flushIngress(final)
+	}()
 	var wg sync.WaitGroup
 	errChan := make(chan error, 4)
 
@@ -523,26 +538,23 @@ func (p *ProxyServer) Run(ctx context.Context) error {
 		"domain", p.Domain,
 		"env", p.config.Environment)
 
-	// Wait for either an error or context cancellation
+	// Stop accepting traffic, drain handlers, then flush metadata before returning.
+	var runErr error
 	select {
-	case err := <-errChan:
-		return err
+	case runErr = <-errChan:
 	case <-ctx.Done():
-		common.LogInfo("shutting down proxy server")
-
-		// Shutdown mock OIDC server if running
-		if p.mockOIDC != nil {
-			common.LogInfo("shutting down mock OIDC server")
-			p.mockOIDC.Shutdown()
-		}
-
-		// Shutdown internal gRPC server
-		common.LogInfo("shutting down internal gRPC server")
-		p.internalGRPCServer.Stop() // Use Stop() instead of GracefulStop() to avoid hanging
-
-		wg.Wait()
-		return ctx.Err()
+		runErr = ctx.Err()
 	}
+	stop()
+	common.LogInfo("shutting down proxy server")
+	if p.mockOIDC != nil {
+		p.mockOIDC.Shutdown()
+	}
+	p.internalGRPCServer.Stop()
+	wg.Wait()
+	p.ingressActive.Wait()
+	return runErr
+
 }
 
 // startHTTP2Server starts the HTTP/2 (TCP) listener with gRPC/HTTPS routing
@@ -572,16 +584,26 @@ func (p *ProxyServer) startHTTP2Server(ctx context.Context, handler http.Handler
 	}
 	tlsLn := tls.NewListener(ln, p.tlsConfig)
 
-	// Start server in a goroutine
+	serveDone := make(chan struct{})
+	shutdownDone := make(chan struct{})
 	go func() {
-		<-ctx.Done()
-		common.LogInfo("shutting down HTTP/2 server")
+		defer close(shutdownDone)
+		select {
+		case <-ctx.Done():
+		case <-serveDone:
+			return
+		}
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
-		srv.Shutdown(shutdownCtx)
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			_ = srv.Close()
+		}
 	}()
-
-	if err := srv.Serve(tlsLn); err != nil && err != http.ErrServerClosed {
+	err = srv.Serve(tlsLn)
+	close(serveDone)
+	<-shutdownDone
+	_ = srv.Close()
+	if err != nil && err != http.ErrServerClosed {
 		return err
 	}
 
@@ -598,14 +620,20 @@ func (p *ProxyServer) startHTTP3Server(ctx context.Context, handler http.Handler
 
 	common.LogInfo("starting HTTP/3 server", "addr", p.HTTP3Addr)
 
-	// Start server in a goroutine
+	serveDone := make(chan struct{})
+	shutdownDone := make(chan struct{})
 	go func() {
-		<-ctx.Done()
-		common.LogInfo("shutting down HTTP/3 server")
-		srv.Close()
+		defer close(shutdownDone)
+		select {
+		case <-ctx.Done():
+		case <-serveDone:
+		}
+		_ = srv.Close() // quic-go joins connection and request handlers here.
 	}()
-
-	if err := srv.ListenAndServeTLS(p.CertFile, p.KeyFile); err != nil && err != http.ErrServerClosed {
+	err := srv.ListenAndServeTLS(p.CertFile, p.KeyFile)
+	close(serveDone)
+	<-shutdownDone
+	if err != nil && err != http.ErrServerClosed {
 		return err
 	}
 
@@ -694,6 +722,7 @@ func (p *ProxyServer) createHandler() http.Handler {
 
 	// Account page (requires auth)
 	mux.HandleFunc("/account", p.handleAccount)
+	mux.HandleFunc("/api/usage", p.handleIngressExport)
 
 	// Device code flow for CLI login
 	mux.HandleFunc("/api/device/code", p.handleDeviceCode)
@@ -708,6 +737,11 @@ func (p *ProxyServer) createHandler() http.Handler {
 	mux.HandleFunc("/", p.handleWebProxy)
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Platform API paths on endpoint hosts belong to the published app.
+		if extractTunnelID(r.Host, p.Domain) != "" && r.URL.Path == "/api/usage" {
+			p.handleWebProxy(w, r)
+			return
+		}
 		// HTTP/2 CONNECT is authority-form and arrives without a URL path. An
 		// empty path does not match ServeMux's "/" pattern, so raw tunnel
 		// connections must enter the subdomain router before mux dispatch.

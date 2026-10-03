@@ -16,6 +16,10 @@ service LoginNodeDB {
   rpc RecordUsage(RecordUsageRequest) returns (RecordUsageResponse);
   rpc GetMonthlyUsage(GetMonthlyUsageRequest) returns (GetMonthlyUsageResponse);
 
+  // Privacy-safe ingress accounting (same authenticated internal boundary).
+  rpc RecordIngress(RecordIngressRequest) returns (RecordIngressResponse);
+  rpc ExportIngress(ExportIngressRequest) returns (ExportIngressResponse);
+
   // Device codes for CLI login
   rpc CreateDeviceCode(CreateDeviceCodeRequest) returns (DeviceCodeResponse);
   rpc GetDeviceCode(GetDeviceCodeRequest) returns (DeviceCodeResponse);
@@ -194,4 +198,48 @@ message CheckMagicLinkRateLimitResponse {
   bool allowed = 1;           // true if request is allowed
   int32 remaining = 2;        // requests remaining in window
   int64 reset_at_unix = 3;    // when the rate limit resets
+}
+
+message IngressEvent {
+ int64 sequence = 1;
+ string request_id = 2;
+ string account_id = 3;
+ string endpoint_id = 4;
+ string caller_id = 5;
+ string auth_method = 6;
+ string reason = 7;
+ string outcome = 8;
+ int32 status = 9;
+ int64 started_at_unix_ms = 10;
+ int64 duration_ms = 11;
+ bool forwarded = 12;
+ int64 request_bytes = 13;
+ int64 response_bytes = 14;
+}
+message IngressCounter {
+ int64 sequence = 1;
+ string endpoint_id = 2;
+ string caller_id = 3;
+ string auth_method = 4;
+ int64 requests = 5;
+ int64 forwarded = 6;
+ int64 denied = 7;
+ int64 errors = 8;
+ int64 request_bytes = 9;
+ int64 response_bytes = 10;
+}
+message RecordIngressRequest { IngressEvent event = 1; }
+message RecordIngressResponse {}
+message ExportIngressRequest {
+ string account_id = 1;
+ string month = 2;
+ string endpoint_id = 3;
+ int64 after = 4;
+ int32 limit = 5;
+ bool counters = 6;
+}
+message ExportIngressResponse {
+ repeated IngressEvent events = 1;
+ repeated IngressCounter counters = 2;
+ int64 next_cursor = 3;
 }

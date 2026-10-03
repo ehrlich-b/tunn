@@ -161,6 +161,8 @@ var InternalService_ServiceDesc = grpc.ServiceDesc{
 const (
 	LoginNodeDB_RecordUsage_FullMethodName             = "/internal.LoginNodeDB/RecordUsage"
 	LoginNodeDB_GetMonthlyUsage_FullMethodName         = "/internal.LoginNodeDB/GetMonthlyUsage"
+	LoginNodeDB_RecordIngress_FullMethodName           = "/internal.LoginNodeDB/RecordIngress"
+	LoginNodeDB_ExportIngress_FullMethodName           = "/internal.LoginNodeDB/ExportIngress"
 	LoginNodeDB_CreateDeviceCode_FullMethodName        = "/internal.LoginNodeDB/CreateDeviceCode"
 	LoginNodeDB_GetDeviceCode_FullMethodName           = "/internal.LoginNodeDB/GetDeviceCode"
 	LoginNodeDB_AuthorizeDeviceCode_FullMethodName     = "/internal.LoginNodeDB/AuthorizeDeviceCode"
@@ -186,6 +188,9 @@ type LoginNodeDBClient interface {
 	// Usage tracking
 	RecordUsage(ctx context.Context, in *RecordUsageRequest, opts ...grpc.CallOption) (*RecordUsageResponse, error)
 	GetMonthlyUsage(ctx context.Context, in *GetMonthlyUsageRequest, opts ...grpc.CallOption) (*GetMonthlyUsageResponse, error)
+	// Privacy-safe ingress accounting (same authenticated internal boundary).
+	RecordIngress(ctx context.Context, in *RecordIngressRequest, opts ...grpc.CallOption) (*RecordIngressResponse, error)
+	ExportIngress(ctx context.Context, in *ExportIngressRequest, opts ...grpc.CallOption) (*ExportIngressResponse, error)
 	// Device codes for CLI login
 	CreateDeviceCode(ctx context.Context, in *CreateDeviceCodeRequest, opts ...grpc.CallOption) (*DeviceCodeResponse, error)
 	GetDeviceCode(ctx context.Context, in *GetDeviceCodeRequest, opts ...grpc.CallOption) (*DeviceCodeResponse, error)
@@ -228,6 +233,26 @@ func (c *loginNodeDBClient) GetMonthlyUsage(ctx context.Context, in *GetMonthlyU
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetMonthlyUsageResponse)
 	err := c.cc.Invoke(ctx, LoginNodeDB_GetMonthlyUsage_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *loginNodeDBClient) RecordIngress(ctx context.Context, in *RecordIngressRequest, opts ...grpc.CallOption) (*RecordIngressResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RecordIngressResponse)
+	err := c.cc.Invoke(ctx, LoginNodeDB_RecordIngress_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *loginNodeDBClient) ExportIngress(ctx context.Context, in *ExportIngressRequest, opts ...grpc.CallOption) (*ExportIngressResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ExportIngressResponse)
+	err := c.cc.Invoke(ctx, LoginNodeDB_ExportIngress_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -374,6 +399,9 @@ type LoginNodeDBServer interface {
 	// Usage tracking
 	RecordUsage(context.Context, *RecordUsageRequest) (*RecordUsageResponse, error)
 	GetMonthlyUsage(context.Context, *GetMonthlyUsageRequest) (*GetMonthlyUsageResponse, error)
+	// Privacy-safe ingress accounting (same authenticated internal boundary).
+	RecordIngress(context.Context, *RecordIngressRequest) (*RecordIngressResponse, error)
+	ExportIngress(context.Context, *ExportIngressRequest) (*ExportIngressResponse, error)
 	// Device codes for CLI login
 	CreateDeviceCode(context.Context, *CreateDeviceCodeRequest) (*DeviceCodeResponse, error)
 	GetDeviceCode(context.Context, *GetDeviceCodeRequest) (*DeviceCodeResponse, error)
@@ -407,6 +435,12 @@ func (UnimplementedLoginNodeDBServer) RecordUsage(context.Context, *RecordUsageR
 }
 func (UnimplementedLoginNodeDBServer) GetMonthlyUsage(context.Context, *GetMonthlyUsageRequest) (*GetMonthlyUsageResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetMonthlyUsage not implemented")
+}
+func (UnimplementedLoginNodeDBServer) RecordIngress(context.Context, *RecordIngressRequest) (*RecordIngressResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RecordIngress not implemented")
+}
+func (UnimplementedLoginNodeDBServer) ExportIngress(context.Context, *ExportIngressRequest) (*ExportIngressResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ExportIngress not implemented")
 }
 func (UnimplementedLoginNodeDBServer) CreateDeviceCode(context.Context, *CreateDeviceCodeRequest) (*DeviceCodeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateDeviceCode not implemented")
@@ -500,6 +534,42 @@ func _LoginNodeDB_GetMonthlyUsage_Handler(srv interface{}, ctx context.Context, 
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(LoginNodeDBServer).GetMonthlyUsage(ctx, req.(*GetMonthlyUsageRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LoginNodeDB_RecordIngress_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RecordIngressRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LoginNodeDBServer).RecordIngress(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LoginNodeDB_RecordIngress_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LoginNodeDBServer).RecordIngress(ctx, req.(*RecordIngressRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LoginNodeDB_ExportIngress_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ExportIngressRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LoginNodeDBServer).ExportIngress(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LoginNodeDB_ExportIngress_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LoginNodeDBServer).ExportIngress(ctx, req.(*ExportIngressRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -752,6 +822,14 @@ var LoginNodeDB_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetMonthlyUsage",
 			Handler:    _LoginNodeDB_GetMonthlyUsage_Handler,
+		},
+		{
+			MethodName: "RecordIngress",
+			Handler:    _LoginNodeDB_RecordIngress_Handler,
+		},
+		{
+			MethodName: "ExportIngress",
+			Handler:    _LoginNodeDB_ExportIngress_Handler,
 		},
 		{
 			MethodName: "CreateDeviceCode",

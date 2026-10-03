@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"github.com/ehrlich-b/tunn/internal/common"
+	"github.com/ehrlich-b/tunn/internal/storage"
+	"github.com/ehrlich-b/tunn/internal/store"
 	internalv1 "github.com/ehrlich-b/tunn/pkg/proto/internalv1"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
 )
@@ -117,7 +119,41 @@ func (p *ProxyServer) handleWebProxy(w http.ResponseWriter, r *http.Request) {
 
 // proxyToLocal handles proxying for a tunnel hosted on the current node
 func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunnelID string) {
-	tunnel, _ := p.tunnelServer.GetTunnel(tunnelID)
+	tunnel, exists := p.tunnelServer.GetTunnel(tunnelID)
+	if !exists {
+		http.Error(w, "Tunnel not found or offline", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Only the node hosting the endpoint records decisions. Routing nodes do not
+	// create another event or trust caller-provided identity/request-ID headers.
+	var event *store.IngressEvent
+	if tunnel.EndpointProtocol != "tcp" && tunnel.AccountID != "" {
+		p.ingressActive.Add(1)
+		defer p.ingressActive.Done()
+		requestID, err := generateConnectionID()
+		if err != nil {
+			http.Error(w, "Failed to create request ID", http.StatusInternalServerError)
+			return
+		}
+		event = &store.IngressEvent{RequestID: requestID, AccountID: tunnel.AccountID, EndpointID: tunnelID, CallerID: "anonymous", AuthMethod: "none", Reason: "open", Outcome: "completed", StartedAt: time.Now().UTC()}
+		meter := &ingressMeter{}
+		_, meter.ledger = p.storage.(storage.IngressStorage)
+		r = r.WithContext(context.WithValue(r.Context(), ingressMeterKey{}, meter))
+		measuredWriter := &statusWriter{ResponseWriter: w}
+		w = measuredWriter
+		defer func() {
+			event.Status = measuredWriter.status
+			if event.Status == 0 {
+				event.Status = http.StatusOK
+			}
+			event.DurationMS = time.Since(event.StartedAt).Milliseconds()
+			event.Forwarded = meter.forwarded.Load()
+			event.RequestBytes = meter.requestBytes.Load()
+			event.ResponseBytes = meter.responseBytes.Load()
+			p.recordIngress(*event)
+		}()
+	}
 
 	common.LogDebug("proxying web request locally",
 		"tunnel_id", tunnelID,
@@ -131,12 +167,31 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		// Browsers authenticate with the platform cookie. Agents and other
 		// machine clients may use a signed tunn token in a bearer header.
 		userEmail, authenticated := p.getAuthFromCookie(r)
+		if event != nil && authenticated {
+			event.CallerID = "email:" + common.NormalizeEmail(userEmail)
+			event.AuthMethod = "cookie"
+			event.Reason = "allow_list"
+		}
 		platformAuthHeader := ""
 		capabilityAuthenticated := false
 		if !authenticated {
 			userEmail, platformAuthHeader, capabilityAuthenticated, authenticated = p.getAuthFromTunnelBearer(r, tunnel)
+			if event != nil && authenticated {
+				event.CallerID = "email:" + common.NormalizeEmail(userEmail)
+				event.AuthMethod = "bearer"
+				event.Reason = "allow_list"
+				if capabilityAuthenticated {
+					event.CallerID = "endpoint-token"
+					event.AuthMethod = "endpoint_token"
+					event.Reason = "endpoint_token"
+				}
+			}
 		}
 		if !authenticated {
+			if event != nil {
+				event.Reason = "authentication_required"
+				event.Outcome = "denied"
+			}
 			// MCP clients cannot consume the browser login redirect. Return an
 			// explicit bearer challenge for protocol endpoints and bearer attempts.
 			if r.URL.Path == "/mcp" || tunnel.EndpointProtocol == "tcp" || r.Header.Get("Authorization") != "" || r.Header.Get("Tunn-Authorization") != "" {
@@ -167,7 +222,7 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		allowed := capabilityAuthenticated
 		if !capabilityAuthenticated {
 			// Get user's email bucket (all emails associated with their account)
-			if p.storage.Available() {
+			if p.storage != nil && p.storage.Available() {
 				if bucket, err := p.storage.GetEmailBucket(r.Context(), userEmail); err == nil {
 					userEmails = bucket
 				}
@@ -175,11 +230,15 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 
 			// Check if any email in user's bucket is on the tunnel's allow-list.
 			// Creator is implicitly always allowed.
-			allowListWithCreator := append(tunnel.AllowedEmails, tunnel.CreatorEmail)
+			allowListWithCreator := append(append([]string(nil), tunnel.AllowedEmails...), tunnel.CreatorEmail)
 			allowed = isEmailBucketAllowed(userEmails, allowListWithCreator)
 		}
 
 		if !allowed {
+			if event != nil {
+				event.Reason = "access_denied"
+				event.Outcome = "denied"
+			}
 			common.LogInfo("access denied - user not on allow-list",
 				"email", userEmail,
 				"bucket", userEmails,
@@ -224,9 +283,20 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		}
 	}
 
+	// The dedicated platform header is reserved even when a cookie won auth.
+	if r.Header.Get("Tunn-Authorization") != "" {
+		r = r.Clone(r.Context())
+		r.Header = r.Header.Clone()
+		r.Header.Del("Tunn-Authorization")
+	}
+
 	// Check quota before proxying
-	if tunnel.CreatorEmail != "" {
-		if !p.CheckQuota(r.Context(), tunnel.CreatorEmail, tunnel.Plan) {
+	if tunnel.AccountID != "" {
+		if !p.CheckQuota(r.Context(), tunnel.AccountID, tunnel.Plan) {
+			if event != nil {
+				event.Reason = "owner_quota_exceeded"
+				event.Outcome = "denied"
+			}
 			common.LogInfo("quota exceeded, rejecting request",
 				"tunnel_id", tunnelID,
 				"creator", tunnel.CreatorEmail,
@@ -250,6 +320,12 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 	}
 
 	if proxyErr != nil {
+		if event != nil {
+			event.Outcome = "proxy_error"
+			if r.Context().Err() != nil {
+				event.Outcome = "canceled"
+			}
+		}
 		common.LogError("failed to proxy request", "error", proxyErr, "tunnel_id", tunnelID)
 		if !responseHasStarted(proxyErr) {
 			http.Error(w, "Failed to proxy request", http.StatusBadGateway)
@@ -272,6 +348,17 @@ func responseHasStarted(err error) bool {
 
 // proxyHTTPOverGRPC forwards an HTTP request over the gRPC tunnel and writes the response
 func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, tunnel *TunnelConnection) error {
+	if meterFor(r) == nil {
+		r = r.WithContext(context.WithValue(r.Context(), ingressMeterKey{}, &ingressMeter{}))
+	}
+	defer func() {
+		if tunnel.AccountID != "" && !meterFor(r).ledger {
+			meter := meterFor(r)
+			ctx, cancel := context.WithTimeout(context.Background(), ingressStorageTimeout)
+			defer cancel()
+			p.RecordUsage(ctx, tunnel.AccountID, meter.requestBytes.Load()+meter.responseBytes.Load())
+		}
+	}()
 	if tunnel.Supports(common.CapabilityHTTPStreamV1) {
 		return p.proxyStreamingHTTPOverGRPC(w, r, tunnel)
 	}
@@ -334,6 +421,9 @@ func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, 
 		return fmt.Errorf("failed to send http request: %w", err)
 	}
 
+	markForwarded(r)
+	meterRequest(r, len(body))
+
 	common.LogDebug("sent http request to client",
 		"connection_id", connectionID,
 		"method", r.Method,
@@ -351,7 +441,11 @@ func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, 
 				"tunnel_id", tunnel.TunnelID,
 				"bytes", totalSize)
 			http.Error(w, "Bandwidth rate limit exceeded", http.StatusTooManyRequests)
-			return nil // Return nil - we handled the error by sending 429
+			return &responseStartedError{err: fmt.Errorf("bandwidth rate limit exceeded")}
+		}
+
+		if httpResp.StatusCode < 200 || httpResp.StatusCode > 599 {
+			return fmt.Errorf("local target returned invalid HTTP status")
 		}
 
 		// Write response headers
@@ -363,8 +457,10 @@ func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, 
 		w.WriteHeader(int(httpResp.StatusCode))
 
 		// Write body
-		if _, err := w.Write(httpResp.Body); err != nil {
-			return fmt.Errorf("failed to write response body: %w", err)
+		n, err := w.Write(httpResp.Body)
+		meterResponse(r, n)
+		if err != nil {
+			return &responseStartedError{err: fmt.Errorf("failed to write response body: %w", err)}
 		}
 
 		common.LogDebug("proxied http response",
@@ -372,13 +468,12 @@ func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, 
 			"status", httpResp.StatusCode,
 			"body_size", len(httpResp.Body))
 
-		// Record usage (request body + response body) using account ID
-		if tunnel.AccountID != "" {
-			p.RecordUsage(r.Context(), tunnel.AccountID, int64(totalSize))
-		}
-
 		return nil
 
+	case <-r.Context().Done():
+		return r.Context().Err()
+	case <-tunnel.Stream.Context().Done():
+		return fmt.Errorf("tunnel disconnected before HTTP response")
 	case <-time.After(timeout):
 		return fmt.Errorf("timeout waiting for response after %v", timeout)
 	}

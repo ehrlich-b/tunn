@@ -14,6 +14,7 @@ import (
 type LocalStorage struct {
 	deviceCodes *store.DeviceCodeStore
 	accounts    *store.AccountStore
+	ingress     *store.IngressStore
 
 	// Active tunnels tracked in memory
 	// Maps tunnel_id -> account_id
@@ -36,6 +37,7 @@ func NewLocalStorage(db *sql.DB) *LocalStorage {
 	s := &LocalStorage{
 		deviceCodes:       store.NewDeviceCodeStore(db),
 		accounts:          store.NewAccountStore(db),
+		ingress:           store.NewIngressStore(db),
 		activeTunnels:     make(map[string]string),
 		usedJTIs:          make(map[string]time.Time),
 		magicLinkRequests: make(map[string][]time.Time),

@@ -73,7 +73,7 @@ clean:
 # Testing targets
 test:
 	@echo "Running tests..."
-	go test ./...
+	go test $(TEST_ARGS) ./...
 
 test-verbose:
 	@echo "Running tests with verbose output..."
@@ -91,7 +91,7 @@ test-coverage:
 
 test-race:
 	@echo "Running tests with race detection..."
-	go test -race ./...
+	go test -race $(TEST_ARGS) ./...
 
 # Integration tests (require build + certs)
 integration-test: build
@@ -319,3 +319,11 @@ help:
 	@echo "  make dev           - Run in development mode"
 	@echo "  make install       - Install binary to /usr/local/bin"
 	@echo "  make help          - Show this help message"
+
+# Bounded synthetic ingress accounting verification (no live services).
+.PHONY: test-ingress benchmark-ingress
+test-ingress:
+	go test -race -count=1 -timeout=60s -run 'Ingress' ./internal/host ./internal/store ./internal/storage
+
+benchmark-ingress:
+	go test -run '^$$' -bench 'BenchmarkIngress' -benchmem -benchtime=1s -count=3 ./internal/store ./internal/host

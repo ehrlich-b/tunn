@@ -2,6 +2,8 @@ package host
 
 import (
 	"context"
+	"errors"
+	"github.com/ehrlich-b/tunn/internal/store"
 	"time"
 
 	"github.com/ehrlich-b/tunn/internal/storage"
@@ -220,4 +222,35 @@ func accountToProto(acc *storage.Account) *internalv1.AccountResponse {
 		CreatedAt:    acc.CreatedAt.Unix(),
 		Emails:       emails,
 	}
+}
+
+// RecordIngress is covered by the existing node-secret interceptor.
+func (s *LoginNodeDBServer) RecordIngress(ctx context.Context, req *internalv1.RecordIngressRequest) (*internalv1.RecordIngressResponse, error) {
+	if req.Event == nil {
+		return nil, status.Error(codes.InvalidArgument, "missing ingress event")
+	}
+	if err := s.storage.RecordIngress(ctx, storage.IngressEventFromProto(req.Event)); err != nil {
+		if errors.Is(err, store.ErrInvalidIngress) {
+			return nil, status.Error(codes.InvalidArgument, "invalid ingress event")
+		}
+		return nil, status.Error(codes.Internal, "failed to record ingress event")
+	}
+	return &internalv1.RecordIngressResponse{}, nil
+}
+func (s *LoginNodeDBServer) ExportIngress(ctx context.Context, req *internalv1.ExportIngressRequest) (*internalv1.ExportIngressResponse, error) {
+	out, err := s.storage.ExportIngress(ctx, store.IngressQuery{AccountID: req.AccountId, Month: req.Month, EndpointID: req.EndpointId, After: req.After, Limit: int(req.Limit), Counters: req.Counters})
+	if err != nil {
+		if errors.Is(err, store.ErrInvalidIngress) {
+			return nil, status.Error(codes.InvalidArgument, "invalid ingress query")
+		}
+		return nil, status.Error(codes.Internal, "failed to export ingress events")
+	}
+	resp := &internalv1.ExportIngressResponse{NextCursor: out.NextCursor}
+	for _, e := range out.Events {
+		resp.Events = append(resp.Events, storage.IngressEventToProto(e))
+	}
+	for _, c := range out.Counters {
+		resp.Counters = append(resp.Counters, &internalv1.IngressCounter{Sequence: c.Sequence, EndpointId: c.EndpointID, CallerId: c.CallerID, AuthMethod: c.AuthMethod, Requests: c.Requests, Forwarded: c.Forwarded, Denied: c.Denied, Errors: c.Errors, RequestBytes: c.RequestBytes, ResponseBytes: c.ResponseBytes})
+	}
+	return resp, nil
 }

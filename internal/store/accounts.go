@@ -192,24 +192,44 @@ func (s *AccountStore) mergeAccounts(accounts []*Account) (*Account, error) {
 		}
 	}
 
-	// Move all emails from other accounts to the primary account
+	// Transfer ownership atomically. Aliases keep active tunnels and buffered
+	// events with cached IDs attributable after email-bucket merges.
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
 	for _, acc := range accounts {
-		if acc.ID != primary.ID {
-			// Update emails to point to primary account
-			_, err := s.db.Exec(
-				"UPDATE account_emails SET account_id = ? WHERE account_id = ?",
-				primary.ID, acc.ID,
-			)
-			if err != nil {
-				return nil, err
-			}
-
-			// Delete the merged account
-			_, err = s.db.Exec("DELETE FROM accounts WHERE id = ?", acc.ID)
-			if err != nil {
+		if acc.ID == primary.ID {
+			continue
+		}
+		statements := []struct {
+			sql  string
+			args []any
+		}{
+			{`UPDATE account_emails SET account_id=? WHERE account_id=?`, []any{primary.ID, acc.ID}},
+			{`UPDATE account_aliases SET account_id=? WHERE account_id=?`, []any{primary.ID, acc.ID}},
+			{`INSERT INTO account_aliases(alias_id,account_id) VALUES(?,?) ON CONFLICT(alias_id) DO UPDATE SET account_id=excluded.account_id`, []any{acc.ID, primary.ID}},
+			{`UPDATE ingress_events SET account_id=? WHERE account_id=?`, []any{primary.ID, acc.ID}},
+			{`INSERT INTO ingress_counters(account_id,month,endpoint_id,caller_id,auth_method,requests,forwarded,denied,errors,request_bytes,response_bytes)
+     SELECT ?,month,endpoint_id,caller_id,auth_method,requests,forwarded,denied,errors,request_bytes,response_bytes FROM ingress_counters WHERE account_id=?
+     ON CONFLICT(account_id,month,endpoint_id,caller_id,auth_method) DO UPDATE SET
+     requests=requests+excluded.requests,forwarded=forwarded+excluded.forwarded,denied=denied+excluded.denied,errors=errors+excluded.errors,
+     request_bytes=request_bytes+excluded.request_bytes,response_bytes=response_bytes+excluded.response_bytes`, []any{primary.ID, acc.ID}},
+			{`DELETE FROM ingress_counters WHERE account_id=?`, []any{acc.ID}},
+			{`INSERT INTO account_usage(account_id,month,bytes_used) SELECT ?,month,bytes_used FROM account_usage WHERE account_id=?
+     ON CONFLICT(account_id,month) DO UPDATE SET bytes_used=bytes_used+excluded.bytes_used`, []any{primary.ID, acc.ID}},
+			{`DELETE FROM account_usage WHERE account_id=?`, []any{acc.ID}},
+			{`DELETE FROM accounts WHERE id=?`, []any{acc.ID}},
+		}
+		for _, statement := range statements {
+			if _, err := tx.Exec(statement.sql, statement.args...); err != nil {
 				return nil, err
 			}
 		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
 	}
 
 	return primary, nil
@@ -358,24 +378,24 @@ func (s *AccountStore) ReleaseSubdomain(accountID, subdomain string) error {
 
 // RecordUsage adds bytes to an account's monthly usage
 func (s *AccountStore) RecordUsage(accountID string, bytes int64) error {
-	month := time.Now().Format("2006-01")
+	month := time.Now().UTC().Format("2006-01")
 
 	_, err := s.db.Exec(`
 		INSERT INTO account_usage (account_id, month, bytes_used)
-		VALUES (?, ?, ?)
+		VALUES (COALESCE((SELECT account_id FROM account_aliases WHERE alias_id=?),?), ?, ?)
 		ON CONFLICT(account_id, month) DO UPDATE SET bytes_used = bytes_used + ?
-	`, accountID, month, bytes, bytes)
+	`, accountID, accountID, month, bytes, bytes)
 	return err
 }
 
 // GetMonthlyUsage returns the bytes used by an account in the current month
 func (s *AccountStore) GetMonthlyUsage(accountID string) (int64, error) {
-	month := time.Now().Format("2006-01")
+	month := time.Now().UTC().Format("2006-01")
 
 	var bytesUsed int64
 	err := s.db.QueryRow(
-		"SELECT bytes_used FROM account_usage WHERE account_id = ? AND month = ?",
-		accountID, month,
+		"SELECT bytes_used FROM account_usage WHERE account_id = COALESCE((SELECT account_id FROM account_aliases WHERE alias_id=?),?) AND month = ?",
+		accountID, accountID, month,
 	).Scan(&bytesUsed)
 	if err == sql.ErrNoRows {
 		return 0, nil

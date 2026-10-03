@@ -134,6 +134,40 @@ func TestMCPCheckMissingContract(t *testing.T) {
 	}
 }
 
+func TestMCPCheckFailuresPrioritizeRecoveryBeforeConnectionSetup(t *testing.T) {
+	cases := []struct {
+		name   string
+		modify func(*mcpCheckFixture)
+		check  string
+		action string
+		gets   int
+	}{
+		{"grant-only relay", func(f *mcpCheckFixture) { f.challenge = `Bearer realm="tunn"` }, "challenge", "TUNN_MCP_OAUTH_CLIENTS_FILE", 1},
+		{"public endpoint", func(f *mcpCheckFixture) { f.status = 200 }, "challenge", "private /mcp route", 1},
+		{"broken PKCE metadata", func(f *mcpCheckFixture) { delete(f.authorize, "code_challenge_methods_supported") }, "pkce", "relay owner", 3},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newMCPCheckFixture(t)
+			tc.modify(f)
+			report := checkFailure(t, f.options(), tc.check)
+			if len(report.NextSteps) == 0 || !strings.Contains(report.NextSteps[0], tc.action) {
+				t.Fatalf("missing immediate recovery action: %+v", report.NextSteps)
+			}
+			for _, action := range report.NextSteps {
+				if strings.Contains(action, "Choose OAuth") || strings.Contains(action, "In Claude choose") {
+					t.Fatal("failed discovery prematurely instructed application registration")
+				}
+			}
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			if len(f.requests) != tc.gets || f.credentials {
+				t.Fatalf("recovery changed bounded requests or authentication: %v, credentials %v", f.requests, f.credentials)
+			}
+		})
+	}
+}
+
 func TestMCPCheckSeparateIssuerNeedsExplicitOrigin(t *testing.T) {
 	var issuerRequests atomic.Int64
 	var issuer *httptest.Server
@@ -152,6 +186,9 @@ func TestMCPCheckSeparateIssuerNeedsExplicitOrigin(t *testing.T) {
 	report := checkFailure(t, options, "issuer")
 	if issuerRequests.Load() != 0 || report.Issuer != issuer.URL {
 		t.Fatalf("unapproved issuer fetched: %d, report %+v", issuerRequests.Load(), report)
+	}
+	if len(report.NextSteps) == 0 || !strings.Contains(report.NextSteps[0], "--issuer") || strings.Contains(report.NextSteps[0], "Choose OAuth") {
+		t.Fatalf("issuer approval was buried behind application setup: %v", report.NextSteps)
 	}
 	options.ExpectedIssuer = f.server.URL
 	checkFailure(t, options, "issuer")

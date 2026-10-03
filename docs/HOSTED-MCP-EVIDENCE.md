@@ -98,3 +98,33 @@ or connection is absent from Bryan's accounts. The prepared
 [hosted acceptance scope](HOSTED-MCP-ACCEPTANCE.md) identifies the exact remaining
 host/exposure/account inputs and temporary access approval needed before that
 external run. Current instructions forbid creating that exposure or access.
+
+## Onboarding recovery follow-up
+
+Failed preflight reports now lead with their corrective action instead of
+application-registration instructions. Grant-only relays point to the owner
+OAuth configuration; a separate issuer points to explicit origin approval;
+invalid URLs and TLS/reachability failures have their corresponding recovery.
+Application setup notes appear only after passing discovery. The fetch budget,
+redirect/TLS behavior and credential handling are unchanged.
+
+Focused race tests and a separate reviewer's repeat passed:
+`/tmp/tunn-onboarding-recovery-focused.log` and
+`/tmp/tunn-onboarding-recovery-independent.log`. The full aggregate/build also
+passed with `GOCACHE=/tmp/tunn-go-cache make check build
+TEST_ARGS='-timeout=120s -count=1'`:
+`/tmp/tunn-onboarding-recovery-final-check.log`.
+
+The compiled CLI rejected `http://example.invalid/mcp` without fetching it,
+returned `ready:false` and exit one, and listed only the immediate URL recovery
+step. Local HTTPS regressions check that recovery guidance does not add requests
+or credentials and that application setup is not suggested before discovery
+passes. This is CLI diagnostic evidence, not a browser usability measurement.
+
+The independently reviewed approval packet now names the provisional HTTPS
+hosts and their ownership evidence limits, the parent-domain cookie/TLS
+isolation requirements, exact synthetic data/provider destinations, owner
+credential lifetimes distinct from client grants, cleanup order, and four
+unresolved input groups. This is a prepared scope, not execution approval.
+No external route, application connection, credentials or access settings were
+created or changed during the follow-up.

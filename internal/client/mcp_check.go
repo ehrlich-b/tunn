@@ -43,14 +43,13 @@ type MCPCheckReport struct {
 // saved credentials, or use cookies. Ready means this bounded discovery check
 // passed; it does not claim either hosted application has accepted a connection.
 func CheckMCPDiscovery(ctx context.Context, options MCPCheckOptions) (*MCPCheckReport, error) {
-	report := &MCPCheckReport{Checks: []MCPDiscoveryCheck{}, NextSteps: []string{
-		"Choose OAuth with a pre-registered public client ID. A tunn grant token is an access token, not an OAuth client ID or client secret; it cannot replace ChatGPT OAuth onboarding.",
-		"Copy the exact ChatGPT redirect URI from its MCP connection management page into the server's configured client allowlist.",
-		"In Claude choose your own OAuth client, enter the configured client ID, and leave the secret blank. Register https://claude.ai/api/mcp/auth_callback exactly.",
-		"This checks discovery only. Confirm application sign-in, tool selection, cited answers, and independent grant revocation separately.",
-	}}
-	fail := func(name, message string) (*MCPCheckReport, error) {
+	report := &MCPCheckReport{Checks: []MCPDiscoveryCheck{}, NextSteps: []string{}}
+	fail := func(name, message string, recovery ...string) (*MCPCheckReport, error) {
 		report.Checks = append(report.Checks, MCPDiscoveryCheck{Name: name, Message: message})
+		if len(recovery) == 0 {
+			recovery = []string{"Ask the relay owner to correct the reported discovery contract. Rerun this check before creating a hosted application connection."}
+		}
+		report.NextSteps = recovery
 		return report, fmt.Errorf("%s: %s", name, message)
 	}
 	pass := func(name, message string) {
@@ -58,14 +57,14 @@ func CheckMCPDiscovery(ctx context.Context, options MCPCheckOptions) (*MCPCheckR
 	}
 	endpoint, err := mcpHTTPSURL(options.Endpoint, false)
 	if err != nil || endpoint.Path != "/mcp" || endpoint.RawPath != "" {
-		return fail("endpoint", "Provide the literal HTTPS /mcp URL without user info, query, fragment, or an encoded path.")
+		return fail("endpoint", "Provide the literal HTTPS /mcp URL without user info, query, fragment, or an encoded path.", "Correct the entered endpoint URL and rerun. This check needs no access token or login URL.")
 	}
 	report.Endpoint = options.Endpoint
 	pass("endpoint", "Explicit HTTPS /mcp endpoint is safe for unauthenticated discovery.")
 	expectedIssuer := ""
 	if options.ExpectedIssuer != "" {
 		if _, err := mcpHTTPSURL(options.ExpectedIssuer, true); err != nil {
-			return fail("expected_issuer", "The expected issuer must be an HTTPS origin without a path, user info, query, or fragment.")
+			return fail("expected_issuer", "The expected issuer must be an HTTPS origin without a path, user info, query, or fragment.", "Set --issuer to the explicitly approved HTTPS apex origin, without /oauth or /mcp, and rerun.")
 		}
 		expectedIssuer = options.ExpectedIssuer
 	}
@@ -80,15 +79,15 @@ func CheckMCPDiscovery(ctx context.Context, options MCPCheckOptions) (*MCPCheckR
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	response, err := mcpDiscoveryGET(ctx, httpClient, options.Endpoint)
 	if err != nil {
-		return fail("challenge", "Cannot reach the HTTPS endpoint with certificate verification: "+err.Error())
+		return fail("challenge", "Cannot reach the HTTPS endpoint with certificate verification: "+err.Error(), "Check reachability and the certificate for the entered hostname. For a local fixture, supply its trusted CA with --ca-cert; keep certificate verification enabled.")
 	}
 	_ = response.Body.Close()
 	if response.StatusCode != http.StatusUnauthorized {
-		return fail("challenge", fmt.Sprintf("Expected unauthenticated HTTP 401, got %d. Enable OAuth discovery on this private /mcp route; redirects and login pages do not establish MCP authentication.", response.StatusCode))
+		return fail("challenge", fmt.Sprintf("Expected unauthenticated HTTP 401, got %d. Enable OAuth discovery on this private /mcp route; redirects and login pages do not establish MCP authentication.", response.StatusCode), "Ask the relay owner to inspect the reported HTTP status and serve OAuth discovery on the private /mcp route. Switching the endpoint to public does not fix this authenticated flow.")
 	}
 	challenge, err := mcpChallengeParameters(response.Header.Values("WWW-Authenticate"))
 	if err != nil {
-		return fail("challenge", "Return a Bearer challenge with one resource_metadata URL on HTTP 401. Grant-only bearer authentication does not provide application OAuth discovery.")
+		return fail("challenge", "Return a Bearer challenge with one resource_metadata URL on HTTP 401. Grant-only bearer authentication does not provide application OAuth discovery.", "Ask the relay owner to enable the optional MCP OAuth client configuration (TUNN_MCP_OAUTH_CLIENTS_FILE) and its discovery challenge. A grant token alone cannot complete hosted OAuth setup.")
 	}
 	if scope, present := challenge["scope"]; present && scope != "mcp:access" {
 		return fail("challenge_scope", "The Bearer scope challenge must request only mcp:access for this bounded route flow.")
@@ -122,11 +121,10 @@ func CheckMCPDiscovery(ctx context.Context, options MCPCheckOptions) (*MCPCheckR
 	}
 	report.Issuer = issuerText
 	if expectedIssuer != "" && issuerText != expectedIssuer {
-		return fail("issuer", "Metadata issuer does not exactly match --issuer; no authorization server was fetched.")
+		return fail("issuer", "Metadata issuer does not exactly match --issuer; no authorization server was fetched.", "Compare the returned issuer with the approved relay origin. Correct the relay metadata or entered --issuer value before rerunning; the discovered replacement was not fetched.")
 	}
 	if expectedIssuer == "" && !mcpSameOrigin(endpoint, issuer) {
-		report.NextSteps = append(report.NextSteps, "Review the discovered issuer, then rerun with --issuer "+issuerText+" to authorize that exact separate origin.")
-		return fail("issuer", "A separate authorization server origin requires explicit --issuer approval before discovery.")
+		return fail("issuer", "A separate authorization server origin requires explicit --issuer approval before discovery.", "Review the issuer returned in this report, then rerun with --issuer set to exactly that approved HTTPS origin. No separate issuer was fetched.")
 	}
 	if !mcpHasValue(resource.ScopesSupported, "mcp:access") {
 		return fail("scope", "Protected-resource metadata must advertise mcp:access for the bounded /mcp grant flow.")
@@ -175,6 +173,12 @@ func CheckMCPDiscovery(ctx context.Context, options MCPCheckOptions) (*MCPCheckR
 	}
 	pass("issuer_response", "Issuer identification is advertised; its actual callback response still needs an application test.")
 	report.Ready = true
+	report.NextSteps = []string{
+		"Choose OAuth with a pre-registered public client ID. A tunn grant token is an access token, not an OAuth client ID or client secret; it cannot replace ChatGPT OAuth onboarding.",
+		"Copy the exact ChatGPT redirect URI from its MCP connection management page into the server's configured client allowlist.",
+		"In Claude choose your own OAuth client, enter the configured client ID, and leave the secret blank. Register https://claude.ai/api/mcp/auth_callback exactly.",
+		"This checks discovery only. Confirm application sign-in, tool selection, cited answers, and independent grant revocation separately.",
+	}
 	return report, nil
 }
 

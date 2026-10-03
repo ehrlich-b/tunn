@@ -41,6 +41,12 @@ The actual account UI's acceptance of an empty secret remains to be observed.
 See [hosted application acceptance](HOSTED-MCP-ACCEPTANCE.md) for primary sources
 and the exact local-versus-hosted evidence boundary.
 
+Before creating a hosted connection, run `tunn mcp check --issuer <approved-apex>
+<HTTPS-endpoint>/mcp` with options before the URL. Failed JSON reports lead with
+the recovery action for the failed check; `ready:true` exposes the application
+setup notes. A separate issuer must be explicitly named before it is fetched.
+Passing discovery does not establish owner login or either registered client.
+
 Client files allow at most 16 clients, four exact HTTPS callbacks per client,
 256-byte IDs and 113-byte names. Unknown fields, duplicate IDs, callback
 fragments/userinfo and reserved callback parameters are rejected. There are no

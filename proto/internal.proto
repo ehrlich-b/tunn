@@ -20,6 +20,12 @@ service LoginNodeDB {
   rpc RecordIngress(RecordIngressRequest) returns (RecordIngressResponse);
   rpc ExportIngress(ExportIngressRequest) returns (ExportIngressResponse);
 
+  // Temporary endpoint credentials and durable request admission.
+  rpc CreateGrant(CreateGrantRequest) returns (CreateGrantResponse);
+  rpc ListGrants(ListGrantsRequest) returns (ListGrantsResponse);
+  rpc RevokeGrant(RevokeGrantRequest) returns (RevokeGrantResponse);
+  rpc AdmitGrant(AdmitGrantRequest) returns (AdmitGrantResponse);
+
   // Device codes for CLI login
   rpc CreateDeviceCode(CreateDeviceCodeRequest) returns (DeviceCodeResponse);
   rpc GetDeviceCode(GetDeviceCodeRequest) returns (DeviceCodeResponse);
@@ -156,6 +162,8 @@ message RegisterTunnelRequest {
   string tunnel_id = 1;
   string account_id = 2;
   string node_address = 3;
+  // Missing on legacy nodes. Unknown protocols cannot mint HTTP MCP grants.
+  string endpoint_protocol = 4;
 }
 
 message RegisterTunnelResponse {
@@ -242,4 +250,42 @@ message ExportIngressResponse {
  repeated IngressEvent events = 1;
  repeated IngressCounter counters = 2;
  int64 next_cursor = 3;
+}
+
+message Grant {
+ string id = 1;
+ string account_id = 2;
+ string endpoint_id = 3;
+ string label = 4;
+ int64 created_at_unix_ms = 5;
+ int64 expires_at_unix_ms = 6;
+ int64 request_limit = 7;
+ int64 used = 8;
+ bool revoked = 9;
+}
+message CreateGrantRequest {
+ string account_id = 1;
+ string endpoint_id = 2;
+ string label = 3;
+ int64 expires_at_unix_ms = 4;
+ int64 request_limit = 5;
+}
+// The raw token exists only in this creation response, never Grant metadata.
+message CreateGrantResponse { Grant grant = 1; string token = 2; }
+message ListGrantsRequest { string account_id = 1; string endpoint_id = 2; }
+message ListGrantsResponse { repeated Grant grants = 1; }
+message RevokeGrantRequest { string account_id = 1; string grant_id = 2; }
+message RevokeGrantResponse { bool found = 1; }
+message AdmitGrantRequest {
+ string account_id = 1;
+ string endpoint_id = 2;
+ string token = 3;
+ // A relay-generated request ID, never accepted from the public caller.
+ string request_id = 4;
+}
+message AdmitGrantResponse {
+ bool allowed = 1;
+ string grant_id = 2;
+ string reason = 3;
+ int32 status = 4;
 }

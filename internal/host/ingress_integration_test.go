@@ -45,6 +45,9 @@ func TestIngressAcrossRealGRPCTunnel(t *testing.T) {
 				if r.Header.Get("Authorization") != "Bearer upstream-only" {
 					t.Error("upstream authorization not preserved")
 				}
+				if r.Header.Get("Cookie") != "app_session=application-cookie" {
+					t.Error("application cookie not preserved")
+				}
 				if r.URL.RequestURI() != "/api/usage?secret=local-only" {
 					t.Errorf("URI=%s", r.URL.RequestURI())
 				}
@@ -108,6 +111,9 @@ func TestIngressAcrossRealGRPCTunnel(t *testing.T) {
 			req.Host = "integration.tunn.test"
 			req.Header.Set("Tunn-Authorization", "Bearer "+token)
 			req.Header.Set("Authorization", "Bearer upstream-only")
+			req.Header.Add("Cookie", "app_session=application-cookie")
+			req.Header.Add("Cookie", authCookieName+"=synthetic-invalid-platform-cookie")
+			req.Header.Add("Cookie", "tunn_session=synthetic-legacy-cookie")
 			req.Header.Set("X-Tunn-Caller", "forged")
 			response, err := ingress.Client().Do(req)
 			if err != nil {

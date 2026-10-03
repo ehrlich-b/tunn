@@ -145,6 +145,22 @@ func initSchema(db *sql.DB) error {
  );
  CREATE INDEX IF NOT EXISTS idx_ingress_counters_export ON ingress_counters(account_id,month,sequence);
 
+ -- Independent temporary endpoint credentials. Tokens are never persisted.
+ -- Account aliases retain ownership after a merge; do not cascade these rows.
+ CREATE TABLE IF NOT EXISTS endpoint_grants (
+  id TEXT PRIMARY KEY, account_id TEXT NOT NULL, endpoint_id TEXT NOT NULL,
+  label TEXT NOT NULL, token_digest TEXT UNIQUE NOT NULL,
+  created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL,
+  request_limit INTEGER NOT NULL CHECK(request_limit > 0),
+  used INTEGER NOT NULL DEFAULT 0 CHECK(used >= 0 AND used <= request_limit),
+  revoked INTEGER NOT NULL DEFAULT 0 CHECK(revoked IN (0,1))
+ );
+ CREATE INDEX IF NOT EXISTS idx_endpoint_grants_owner ON endpoint_grants(account_id,endpoint_id,created_at);
+ CREATE TABLE IF NOT EXISTS grant_admissions (
+  request_id TEXT PRIMARY KEY, grant_id TEXT NOT NULL, admitted_at INTEGER NOT NULL
+ );
+ CREATE INDEX IF NOT EXISTS idx_grant_admissions_grant ON grant_admissions(grant_id);
+
  -- Reserved subdomains (Pro feature: up to 4 per account)
 	CREATE TABLE IF NOT EXISTS reserved_subdomains (
 		subdomain TEXT PRIMARY KEY,

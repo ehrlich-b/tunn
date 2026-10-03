@@ -100,6 +100,26 @@ Endpoint tokens default to `~/.tunn/endpoints`. Containers, CI jobs, and other
 isolated runtimes can set `TUNN_CONFIG_DIR` to an absolute directory; tokens
 will be created in its mode-0700 `endpoints` child and remain mode 0600.
 
+For independently revocable clients, an endpoint owner can create temporary
+grants after publishing an account-backed HTTP MCP endpoint:
+
+```bash
+tunn grant create --for go-client --expires 30m --requests 20 --out ./go-client.token work-tools
+tunn grant create --for python-client --expires 30m --requests 20 --out ./python-client.token work-tools
+tunn grant list work-tools
+tunn grant revoke <grant-id>
+```
+
+Give each client its own token file and configure a bearer header as above.
+Creation saves the credential once to a new mode-0600 file; listing shows labels,
+expiry, admitted HTTP request counts and revocation state. Grants permit the
+literal `/mcp` route. Initialization and protocol requests consume allowance too;
+seven tool calls used eight Go SDK requests and ten Python SDK requests in the
+local fixture. Revocation blocks subsequent admissions while already-admitted
+work may finish. These controls require an updated relay and do not restrict
+tool names or provide separate upstream sessions. See [grant semantics and
+local verification](docs/PRIVATE-TOOL-GRANTS.md).
+
 The stdio adapter accepts MCP 2026-07-28 sessionless Streamable HTTP clients:
 `server/discover`, tool listing and calls, per-request metadata, and the
 standard method/name headers. It initializes an older stdio child once and

@@ -1126,12 +1126,14 @@ func (*UpdatePlanResponse) Descriptor() ([]byte, []int) {
 
 // Tunnel tracking messages
 type RegisterTunnelRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	TunnelId      string                 `protobuf:"bytes,1,opt,name=tunnel_id,json=tunnelId,proto3" json:"tunnel_id,omitempty"`
-	AccountId     string                 `protobuf:"bytes,2,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
-	NodeAddress   string                 `protobuf:"bytes,3,opt,name=node_address,json=nodeAddress,proto3" json:"node_address,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	TunnelId    string                 `protobuf:"bytes,1,opt,name=tunnel_id,json=tunnelId,proto3" json:"tunnel_id,omitempty"`
+	AccountId   string                 `protobuf:"bytes,2,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	NodeAddress string                 `protobuf:"bytes,3,opt,name=node_address,json=nodeAddress,proto3" json:"node_address,omitempty"`
+	// Missing on legacy nodes. Unknown protocols cannot mint HTTP MCP grants.
+	EndpointProtocol string `protobuf:"bytes,4,opt,name=endpoint_protocol,json=endpointProtocol,proto3" json:"endpoint_protocol,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *RegisterTunnelRequest) Reset() {
@@ -1181,6 +1183,13 @@ func (x *RegisterTunnelRequest) GetAccountId() string {
 func (x *RegisterTunnelRequest) GetNodeAddress() string {
 	if x != nil {
 		return x.NodeAddress
+	}
+	return ""
+}
+
+func (x *RegisterTunnelRequest) GetEndpointProtocol() string {
+	if x != nil {
+		return x.EndpointProtocol
 	}
 	return ""
 }
@@ -2111,6 +2120,572 @@ func (x *ExportIngressResponse) GetNextCursor() int64 {
 	return 0
 }
 
+type Grant struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Id              string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	AccountId       string                 `protobuf:"bytes,2,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	EndpointId      string                 `protobuf:"bytes,3,opt,name=endpoint_id,json=endpointId,proto3" json:"endpoint_id,omitempty"`
+	Label           string                 `protobuf:"bytes,4,opt,name=label,proto3" json:"label,omitempty"`
+	CreatedAtUnixMs int64                  `protobuf:"varint,5,opt,name=created_at_unix_ms,json=createdAtUnixMs,proto3" json:"created_at_unix_ms,omitempty"`
+	ExpiresAtUnixMs int64                  `protobuf:"varint,6,opt,name=expires_at_unix_ms,json=expiresAtUnixMs,proto3" json:"expires_at_unix_ms,omitempty"`
+	RequestLimit    int64                  `protobuf:"varint,7,opt,name=request_limit,json=requestLimit,proto3" json:"request_limit,omitempty"`
+	Used            int64                  `protobuf:"varint,8,opt,name=used,proto3" json:"used,omitempty"`
+	Revoked         bool                   `protobuf:"varint,9,opt,name=revoked,proto3" json:"revoked,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *Grant) Reset() {
+	*x = Grant{}
+	mi := &file_proto_internal_proto_msgTypes[38]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Grant) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Grant) ProtoMessage() {}
+
+func (x *Grant) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[38]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Grant.ProtoReflect.Descriptor instead.
+func (*Grant) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{38}
+}
+
+func (x *Grant) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *Grant) GetAccountId() string {
+	if x != nil {
+		return x.AccountId
+	}
+	return ""
+}
+
+func (x *Grant) GetEndpointId() string {
+	if x != nil {
+		return x.EndpointId
+	}
+	return ""
+}
+
+func (x *Grant) GetLabel() string {
+	if x != nil {
+		return x.Label
+	}
+	return ""
+}
+
+func (x *Grant) GetCreatedAtUnixMs() int64 {
+	if x != nil {
+		return x.CreatedAtUnixMs
+	}
+	return 0
+}
+
+func (x *Grant) GetExpiresAtUnixMs() int64 {
+	if x != nil {
+		return x.ExpiresAtUnixMs
+	}
+	return 0
+}
+
+func (x *Grant) GetRequestLimit() int64 {
+	if x != nil {
+		return x.RequestLimit
+	}
+	return 0
+}
+
+func (x *Grant) GetUsed() int64 {
+	if x != nil {
+		return x.Used
+	}
+	return 0
+}
+
+func (x *Grant) GetRevoked() bool {
+	if x != nil {
+		return x.Revoked
+	}
+	return false
+}
+
+type CreateGrantRequest struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	AccountId       string                 `protobuf:"bytes,1,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	EndpointId      string                 `protobuf:"bytes,2,opt,name=endpoint_id,json=endpointId,proto3" json:"endpoint_id,omitempty"`
+	Label           string                 `protobuf:"bytes,3,opt,name=label,proto3" json:"label,omitempty"`
+	ExpiresAtUnixMs int64                  `protobuf:"varint,4,opt,name=expires_at_unix_ms,json=expiresAtUnixMs,proto3" json:"expires_at_unix_ms,omitempty"`
+	RequestLimit    int64                  `protobuf:"varint,5,opt,name=request_limit,json=requestLimit,proto3" json:"request_limit,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *CreateGrantRequest) Reset() {
+	*x = CreateGrantRequest{}
+	mi := &file_proto_internal_proto_msgTypes[39]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateGrantRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateGrantRequest) ProtoMessage() {}
+
+func (x *CreateGrantRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[39]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateGrantRequest.ProtoReflect.Descriptor instead.
+func (*CreateGrantRequest) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{39}
+}
+
+func (x *CreateGrantRequest) GetAccountId() string {
+	if x != nil {
+		return x.AccountId
+	}
+	return ""
+}
+
+func (x *CreateGrantRequest) GetEndpointId() string {
+	if x != nil {
+		return x.EndpointId
+	}
+	return ""
+}
+
+func (x *CreateGrantRequest) GetLabel() string {
+	if x != nil {
+		return x.Label
+	}
+	return ""
+}
+
+func (x *CreateGrantRequest) GetExpiresAtUnixMs() int64 {
+	if x != nil {
+		return x.ExpiresAtUnixMs
+	}
+	return 0
+}
+
+func (x *CreateGrantRequest) GetRequestLimit() int64 {
+	if x != nil {
+		return x.RequestLimit
+	}
+	return 0
+}
+
+// The raw token exists only in this creation response, never Grant metadata.
+type CreateGrantResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Grant         *Grant                 `protobuf:"bytes,1,opt,name=grant,proto3" json:"grant,omitempty"`
+	Token         string                 `protobuf:"bytes,2,opt,name=token,proto3" json:"token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateGrantResponse) Reset() {
+	*x = CreateGrantResponse{}
+	mi := &file_proto_internal_proto_msgTypes[40]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateGrantResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateGrantResponse) ProtoMessage() {}
+
+func (x *CreateGrantResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[40]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateGrantResponse.ProtoReflect.Descriptor instead.
+func (*CreateGrantResponse) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{40}
+}
+
+func (x *CreateGrantResponse) GetGrant() *Grant {
+	if x != nil {
+		return x.Grant
+	}
+	return nil
+}
+
+func (x *CreateGrantResponse) GetToken() string {
+	if x != nil {
+		return x.Token
+	}
+	return ""
+}
+
+type ListGrantsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	AccountId     string                 `protobuf:"bytes,1,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	EndpointId    string                 `protobuf:"bytes,2,opt,name=endpoint_id,json=endpointId,proto3" json:"endpoint_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListGrantsRequest) Reset() {
+	*x = ListGrantsRequest{}
+	mi := &file_proto_internal_proto_msgTypes[41]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListGrantsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListGrantsRequest) ProtoMessage() {}
+
+func (x *ListGrantsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[41]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListGrantsRequest.ProtoReflect.Descriptor instead.
+func (*ListGrantsRequest) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{41}
+}
+
+func (x *ListGrantsRequest) GetAccountId() string {
+	if x != nil {
+		return x.AccountId
+	}
+	return ""
+}
+
+func (x *ListGrantsRequest) GetEndpointId() string {
+	if x != nil {
+		return x.EndpointId
+	}
+	return ""
+}
+
+type ListGrantsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Grants        []*Grant               `protobuf:"bytes,1,rep,name=grants,proto3" json:"grants,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListGrantsResponse) Reset() {
+	*x = ListGrantsResponse{}
+	mi := &file_proto_internal_proto_msgTypes[42]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListGrantsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListGrantsResponse) ProtoMessage() {}
+
+func (x *ListGrantsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[42]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListGrantsResponse.ProtoReflect.Descriptor instead.
+func (*ListGrantsResponse) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{42}
+}
+
+func (x *ListGrantsResponse) GetGrants() []*Grant {
+	if x != nil {
+		return x.Grants
+	}
+	return nil
+}
+
+type RevokeGrantRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	AccountId     string                 `protobuf:"bytes,1,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	GrantId       string                 `protobuf:"bytes,2,opt,name=grant_id,json=grantId,proto3" json:"grant_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RevokeGrantRequest) Reset() {
+	*x = RevokeGrantRequest{}
+	mi := &file_proto_internal_proto_msgTypes[43]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RevokeGrantRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RevokeGrantRequest) ProtoMessage() {}
+
+func (x *RevokeGrantRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[43]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RevokeGrantRequest.ProtoReflect.Descriptor instead.
+func (*RevokeGrantRequest) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{43}
+}
+
+func (x *RevokeGrantRequest) GetAccountId() string {
+	if x != nil {
+		return x.AccountId
+	}
+	return ""
+}
+
+func (x *RevokeGrantRequest) GetGrantId() string {
+	if x != nil {
+		return x.GrantId
+	}
+	return ""
+}
+
+type RevokeGrantResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Found         bool                   `protobuf:"varint,1,opt,name=found,proto3" json:"found,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RevokeGrantResponse) Reset() {
+	*x = RevokeGrantResponse{}
+	mi := &file_proto_internal_proto_msgTypes[44]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RevokeGrantResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RevokeGrantResponse) ProtoMessage() {}
+
+func (x *RevokeGrantResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[44]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RevokeGrantResponse.ProtoReflect.Descriptor instead.
+func (*RevokeGrantResponse) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{44}
+}
+
+func (x *RevokeGrantResponse) GetFound() bool {
+	if x != nil {
+		return x.Found
+	}
+	return false
+}
+
+type AdmitGrantRequest struct {
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	AccountId  string                 `protobuf:"bytes,1,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	EndpointId string                 `protobuf:"bytes,2,opt,name=endpoint_id,json=endpointId,proto3" json:"endpoint_id,omitempty"`
+	Token      string                 `protobuf:"bytes,3,opt,name=token,proto3" json:"token,omitempty"`
+	// A relay-generated request ID, never accepted from the public caller.
+	RequestId     string `protobuf:"bytes,4,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AdmitGrantRequest) Reset() {
+	*x = AdmitGrantRequest{}
+	mi := &file_proto_internal_proto_msgTypes[45]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AdmitGrantRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AdmitGrantRequest) ProtoMessage() {}
+
+func (x *AdmitGrantRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[45]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AdmitGrantRequest.ProtoReflect.Descriptor instead.
+func (*AdmitGrantRequest) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{45}
+}
+
+func (x *AdmitGrantRequest) GetAccountId() string {
+	if x != nil {
+		return x.AccountId
+	}
+	return ""
+}
+
+func (x *AdmitGrantRequest) GetEndpointId() string {
+	if x != nil {
+		return x.EndpointId
+	}
+	return ""
+}
+
+func (x *AdmitGrantRequest) GetToken() string {
+	if x != nil {
+		return x.Token
+	}
+	return ""
+}
+
+func (x *AdmitGrantRequest) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+type AdmitGrantResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Allowed       bool                   `protobuf:"varint,1,opt,name=allowed,proto3" json:"allowed,omitempty"`
+	GrantId       string                 `protobuf:"bytes,2,opt,name=grant_id,json=grantId,proto3" json:"grant_id,omitempty"`
+	Reason        string                 `protobuf:"bytes,3,opt,name=reason,proto3" json:"reason,omitempty"`
+	Status        int32                  `protobuf:"varint,4,opt,name=status,proto3" json:"status,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AdmitGrantResponse) Reset() {
+	*x = AdmitGrantResponse{}
+	mi := &file_proto_internal_proto_msgTypes[46]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AdmitGrantResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AdmitGrantResponse) ProtoMessage() {}
+
+func (x *AdmitGrantResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[46]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AdmitGrantResponse.ProtoReflect.Descriptor instead.
+func (*AdmitGrantResponse) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{46}
+}
+
+func (x *AdmitGrantResponse) GetAllowed() bool {
+	if x != nil {
+		return x.Allowed
+	}
+	return false
+}
+
+func (x *AdmitGrantResponse) GetGrantId() string {
+	if x != nil {
+		return x.GrantId
+	}
+	return ""
+}
+
+func (x *AdmitGrantResponse) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+func (x *AdmitGrantResponse) GetStatus() int32 {
+	if x != nil {
+		return x.Status
+	}
+	return 0
+}
+
 var File_proto_internal_proto protoreflect.FileDescriptor
 
 const file_proto_internal_proto_rawDesc = "" +
@@ -2184,12 +2759,13 @@ const file_proto_internal_proto_rawDesc = "" +
 	"\n" +
 	"account_id\x18\x01 \x01(\tR\taccountId\x12\x12\n" +
 	"\x04plan\x18\x02 \x01(\tR\x04plan\"\x14\n" +
-	"\x12UpdatePlanResponse\"v\n" +
+	"\x12UpdatePlanResponse\"\xa3\x01\n" +
 	"\x15RegisterTunnelRequest\x12\x1b\n" +
 	"\ttunnel_id\x18\x01 \x01(\tR\btunnelId\x12\x1d\n" +
 	"\n" +
 	"account_id\x18\x02 \x01(\tR\taccountId\x12!\n" +
-	"\fnode_address\x18\x03 \x01(\tR\vnodeAddress\"\x90\x01\n" +
+	"\fnode_address\x18\x03 \x01(\tR\vnodeAddress\x12+\n" +
+	"\x11endpoint_protocol\x18\x04 \x01(\tR\x10endpointProtocol\"\x90\x01\n" +
 	"\x16RegisterTunnelResponse\x12\x18\n" +
 	"\aallowed\x18\x01 \x01(\bR\aallowed\x12\x16\n" +
 	"\x06reason\x18\x02 \x01(\tR\x06reason\x12#\n" +
@@ -2268,16 +2844,71 @@ const file_proto_internal_proto_rawDesc = "" +
 	"\x06events\x18\x01 \x03(\v2\x16.internal.IngressEventR\x06events\x124\n" +
 	"\bcounters\x18\x02 \x03(\v2\x18.internal.IngressCounterR\bcounters\x12\x1f\n" +
 	"\vnext_cursor\x18\x03 \x01(\x03R\n" +
-	"nextCursor2\xa0\x01\n" +
+	"nextCursor\"\x9a\x02\n" +
+	"\x05Grant\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
+	"\n" +
+	"account_id\x18\x02 \x01(\tR\taccountId\x12\x1f\n" +
+	"\vendpoint_id\x18\x03 \x01(\tR\n" +
+	"endpointId\x12\x14\n" +
+	"\x05label\x18\x04 \x01(\tR\x05label\x12+\n" +
+	"\x12created_at_unix_ms\x18\x05 \x01(\x03R\x0fcreatedAtUnixMs\x12+\n" +
+	"\x12expires_at_unix_ms\x18\x06 \x01(\x03R\x0fexpiresAtUnixMs\x12#\n" +
+	"\rrequest_limit\x18\a \x01(\x03R\frequestLimit\x12\x12\n" +
+	"\x04used\x18\b \x01(\x03R\x04used\x12\x18\n" +
+	"\arevoked\x18\t \x01(\bR\arevoked\"\xbc\x01\n" +
+	"\x12CreateGrantRequest\x12\x1d\n" +
+	"\n" +
+	"account_id\x18\x01 \x01(\tR\taccountId\x12\x1f\n" +
+	"\vendpoint_id\x18\x02 \x01(\tR\n" +
+	"endpointId\x12\x14\n" +
+	"\x05label\x18\x03 \x01(\tR\x05label\x12+\n" +
+	"\x12expires_at_unix_ms\x18\x04 \x01(\x03R\x0fexpiresAtUnixMs\x12#\n" +
+	"\rrequest_limit\x18\x05 \x01(\x03R\frequestLimit\"R\n" +
+	"\x13CreateGrantResponse\x12%\n" +
+	"\x05grant\x18\x01 \x01(\v2\x0f.internal.GrantR\x05grant\x12\x14\n" +
+	"\x05token\x18\x02 \x01(\tR\x05token\"S\n" +
+	"\x11ListGrantsRequest\x12\x1d\n" +
+	"\n" +
+	"account_id\x18\x01 \x01(\tR\taccountId\x12\x1f\n" +
+	"\vendpoint_id\x18\x02 \x01(\tR\n" +
+	"endpointId\"=\n" +
+	"\x12ListGrantsResponse\x12'\n" +
+	"\x06grants\x18\x01 \x03(\v2\x0f.internal.GrantR\x06grants\"N\n" +
+	"\x12RevokeGrantRequest\x12\x1d\n" +
+	"\n" +
+	"account_id\x18\x01 \x01(\tR\taccountId\x12\x19\n" +
+	"\bgrant_id\x18\x02 \x01(\tR\agrantId\"+\n" +
+	"\x13RevokeGrantResponse\x12\x14\n" +
+	"\x05found\x18\x01 \x01(\bR\x05found\"\x88\x01\n" +
+	"\x11AdmitGrantRequest\x12\x1d\n" +
+	"\n" +
+	"account_id\x18\x01 \x01(\tR\taccountId\x12\x1f\n" +
+	"\vendpoint_id\x18\x02 \x01(\tR\n" +
+	"endpointId\x12\x14\n" +
+	"\x05token\x18\x03 \x01(\tR\x05token\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x04 \x01(\tR\trequestId\"y\n" +
+	"\x12AdmitGrantResponse\x12\x18\n" +
+	"\aallowed\x18\x01 \x01(\bR\aallowed\x12\x19\n" +
+	"\bgrant_id\x18\x02 \x01(\tR\agrantId\x12\x16\n" +
+	"\x06reason\x18\x03 \x01(\tR\x06reason\x12\x16\n" +
+	"\x06status\x18\x04 \x01(\x05R\x06status2\xa0\x01\n" +
 	"\x0fInternalService\x12G\n" +
 	"\n" +
 	"FindTunnel\x12\x1b.internal.FindTunnelRequest\x1a\x1c.internal.FindTunnelResponse\x12D\n" +
-	"\vGetNodeInfo\x12\x19.internal.NodeInfoRequest\x1a\x1a.internal.NodeInfoResponse2\xc5\v\n" +
+	"\vGetNodeInfo\x12\x19.internal.NodeInfoRequest\x1a\x1a.internal.NodeInfoResponse2\xef\r\n" +
 	"\vLoginNodeDB\x12J\n" +
 	"\vRecordUsage\x12\x1c.internal.RecordUsageRequest\x1a\x1d.internal.RecordUsageResponse\x12V\n" +
 	"\x0fGetMonthlyUsage\x12 .internal.GetMonthlyUsageRequest\x1a!.internal.GetMonthlyUsageResponse\x12P\n" +
 	"\rRecordIngress\x12\x1e.internal.RecordIngressRequest\x1a\x1f.internal.RecordIngressResponse\x12P\n" +
-	"\rExportIngress\x12\x1e.internal.ExportIngressRequest\x1a\x1f.internal.ExportIngressResponse\x12S\n" +
+	"\rExportIngress\x12\x1e.internal.ExportIngressRequest\x1a\x1f.internal.ExportIngressResponse\x12J\n" +
+	"\vCreateGrant\x12\x1c.internal.CreateGrantRequest\x1a\x1d.internal.CreateGrantResponse\x12G\n" +
+	"\n" +
+	"ListGrants\x12\x1b.internal.ListGrantsRequest\x1a\x1c.internal.ListGrantsResponse\x12J\n" +
+	"\vRevokeGrant\x12\x1c.internal.RevokeGrantRequest\x1a\x1d.internal.RevokeGrantResponse\x12G\n" +
+	"\n" +
+	"AdmitGrant\x12\x1b.internal.AdmitGrantRequest\x1a\x1c.internal.AdmitGrantResponse\x12S\n" +
 	"\x10CreateDeviceCode\x12!.internal.CreateDeviceCodeRequest\x1a\x1c.internal.DeviceCodeResponse\x12M\n" +
 	"\rGetDeviceCode\x12\x1e.internal.GetDeviceCodeRequest\x1a\x1c.internal.DeviceCodeResponse\x12b\n" +
 	"\x13AuthorizeDeviceCode\x12$.internal.AuthorizeDeviceCodeRequest\x1a%.internal.AuthorizeDeviceCodeResponse\x12D\n" +
@@ -2306,7 +2937,7 @@ func file_proto_internal_proto_rawDescGZIP() []byte {
 	return file_proto_internal_proto_rawDescData
 }
 
-var file_proto_internal_proto_msgTypes = make([]protoimpl.MessageInfo, 38)
+var file_proto_internal_proto_msgTypes = make([]protoimpl.MessageInfo, 47)
 var file_proto_internal_proto_goTypes = []any{
 	(*NodeInfoRequest)(nil),                 // 0: internal.NodeInfoRequest
 	(*NodeInfoResponse)(nil),                // 1: internal.NodeInfoResponse
@@ -2346,55 +2977,74 @@ var file_proto_internal_proto_goTypes = []any{
 	(*RecordIngressResponse)(nil),           // 35: internal.RecordIngressResponse
 	(*ExportIngressRequest)(nil),            // 36: internal.ExportIngressRequest
 	(*ExportIngressResponse)(nil),           // 37: internal.ExportIngressResponse
+	(*Grant)(nil),                           // 38: internal.Grant
+	(*CreateGrantRequest)(nil),              // 39: internal.CreateGrantRequest
+	(*CreateGrantResponse)(nil),             // 40: internal.CreateGrantResponse
+	(*ListGrantsRequest)(nil),               // 41: internal.ListGrantsRequest
+	(*ListGrantsResponse)(nil),              // 42: internal.ListGrantsResponse
+	(*RevokeGrantRequest)(nil),              // 43: internal.RevokeGrantRequest
+	(*RevokeGrantResponse)(nil),             // 44: internal.RevokeGrantResponse
+	(*AdmitGrantRequest)(nil),               // 45: internal.AdmitGrantRequest
+	(*AdmitGrantResponse)(nil),              // 46: internal.AdmitGrantResponse
 }
 var file_proto_internal_proto_depIdxs = []int32{
 	14, // 0: internal.AccountResponse.emails:type_name -> internal.AccountEmail
 	32, // 1: internal.RecordIngressRequest.event:type_name -> internal.IngressEvent
 	32, // 2: internal.ExportIngressResponse.events:type_name -> internal.IngressEvent
 	33, // 3: internal.ExportIngressResponse.counters:type_name -> internal.IngressCounter
-	2,  // 4: internal.InternalService.FindTunnel:input_type -> internal.FindTunnelRequest
-	0,  // 5: internal.InternalService.GetNodeInfo:input_type -> internal.NodeInfoRequest
-	4,  // 6: internal.LoginNodeDB.RecordUsage:input_type -> internal.RecordUsageRequest
-	6,  // 7: internal.LoginNodeDB.GetMonthlyUsage:input_type -> internal.GetMonthlyUsageRequest
-	34, // 8: internal.LoginNodeDB.RecordIngress:input_type -> internal.RecordIngressRequest
-	36, // 9: internal.LoginNodeDB.ExportIngress:input_type -> internal.ExportIngressRequest
-	8,  // 10: internal.LoginNodeDB.CreateDeviceCode:input_type -> internal.CreateDeviceCodeRequest
-	10, // 11: internal.LoginNodeDB.GetDeviceCode:input_type -> internal.GetDeviceCodeRequest
-	11, // 12: internal.LoginNodeDB.AuthorizeDeviceCode:input_type -> internal.AuthorizeDeviceCodeRequest
-	15, // 13: internal.LoginNodeDB.GetAccount:input_type -> internal.GetAccountRequest
-	16, // 14: internal.LoginNodeDB.GetAccountByEmail:input_type -> internal.GetAccountByEmailRequest
-	17, // 15: internal.LoginNodeDB.FindOrCreateByEmails:input_type -> internal.FindOrCreateByEmailsRequest
-	18, // 16: internal.LoginNodeDB.GetEmailBucket:input_type -> internal.GetEmailBucketRequest
-	20, // 17: internal.LoginNodeDB.UpdatePlan:input_type -> internal.UpdatePlanRequest
-	22, // 18: internal.LoginNodeDB.RegisterTunnel:input_type -> internal.RegisterTunnelRequest
-	24, // 19: internal.LoginNodeDB.UnregisterTunnel:input_type -> internal.UnregisterTunnelRequest
-	26, // 20: internal.LoginNodeDB.GetTunnelCount:input_type -> internal.GetTunnelCountRequest
-	28, // 21: internal.LoginNodeDB.MarkMagicTokenUsed:input_type -> internal.MarkMagicTokenUsedRequest
-	30, // 22: internal.LoginNodeDB.CheckMagicLinkRateLimit:input_type -> internal.CheckMagicLinkRateLimitRequest
-	3,  // 23: internal.InternalService.FindTunnel:output_type -> internal.FindTunnelResponse
-	1,  // 24: internal.InternalService.GetNodeInfo:output_type -> internal.NodeInfoResponse
-	5,  // 25: internal.LoginNodeDB.RecordUsage:output_type -> internal.RecordUsageResponse
-	7,  // 26: internal.LoginNodeDB.GetMonthlyUsage:output_type -> internal.GetMonthlyUsageResponse
-	35, // 27: internal.LoginNodeDB.RecordIngress:output_type -> internal.RecordIngressResponse
-	37, // 28: internal.LoginNodeDB.ExportIngress:output_type -> internal.ExportIngressResponse
-	9,  // 29: internal.LoginNodeDB.CreateDeviceCode:output_type -> internal.DeviceCodeResponse
-	9,  // 30: internal.LoginNodeDB.GetDeviceCode:output_type -> internal.DeviceCodeResponse
-	12, // 31: internal.LoginNodeDB.AuthorizeDeviceCode:output_type -> internal.AuthorizeDeviceCodeResponse
-	13, // 32: internal.LoginNodeDB.GetAccount:output_type -> internal.AccountResponse
-	13, // 33: internal.LoginNodeDB.GetAccountByEmail:output_type -> internal.AccountResponse
-	13, // 34: internal.LoginNodeDB.FindOrCreateByEmails:output_type -> internal.AccountResponse
-	19, // 35: internal.LoginNodeDB.GetEmailBucket:output_type -> internal.GetEmailBucketResponse
-	21, // 36: internal.LoginNodeDB.UpdatePlan:output_type -> internal.UpdatePlanResponse
-	23, // 37: internal.LoginNodeDB.RegisterTunnel:output_type -> internal.RegisterTunnelResponse
-	25, // 38: internal.LoginNodeDB.UnregisterTunnel:output_type -> internal.UnregisterTunnelResponse
-	27, // 39: internal.LoginNodeDB.GetTunnelCount:output_type -> internal.GetTunnelCountResponse
-	29, // 40: internal.LoginNodeDB.MarkMagicTokenUsed:output_type -> internal.MarkMagicTokenUsedResponse
-	31, // 41: internal.LoginNodeDB.CheckMagicLinkRateLimit:output_type -> internal.CheckMagicLinkRateLimitResponse
-	23, // [23:42] is the sub-list for method output_type
-	4,  // [4:23] is the sub-list for method input_type
-	4,  // [4:4] is the sub-list for extension type_name
-	4,  // [4:4] is the sub-list for extension extendee
-	0,  // [0:4] is the sub-list for field type_name
+	38, // 4: internal.CreateGrantResponse.grant:type_name -> internal.Grant
+	38, // 5: internal.ListGrantsResponse.grants:type_name -> internal.Grant
+	2,  // 6: internal.InternalService.FindTunnel:input_type -> internal.FindTunnelRequest
+	0,  // 7: internal.InternalService.GetNodeInfo:input_type -> internal.NodeInfoRequest
+	4,  // 8: internal.LoginNodeDB.RecordUsage:input_type -> internal.RecordUsageRequest
+	6,  // 9: internal.LoginNodeDB.GetMonthlyUsage:input_type -> internal.GetMonthlyUsageRequest
+	34, // 10: internal.LoginNodeDB.RecordIngress:input_type -> internal.RecordIngressRequest
+	36, // 11: internal.LoginNodeDB.ExportIngress:input_type -> internal.ExportIngressRequest
+	39, // 12: internal.LoginNodeDB.CreateGrant:input_type -> internal.CreateGrantRequest
+	41, // 13: internal.LoginNodeDB.ListGrants:input_type -> internal.ListGrantsRequest
+	43, // 14: internal.LoginNodeDB.RevokeGrant:input_type -> internal.RevokeGrantRequest
+	45, // 15: internal.LoginNodeDB.AdmitGrant:input_type -> internal.AdmitGrantRequest
+	8,  // 16: internal.LoginNodeDB.CreateDeviceCode:input_type -> internal.CreateDeviceCodeRequest
+	10, // 17: internal.LoginNodeDB.GetDeviceCode:input_type -> internal.GetDeviceCodeRequest
+	11, // 18: internal.LoginNodeDB.AuthorizeDeviceCode:input_type -> internal.AuthorizeDeviceCodeRequest
+	15, // 19: internal.LoginNodeDB.GetAccount:input_type -> internal.GetAccountRequest
+	16, // 20: internal.LoginNodeDB.GetAccountByEmail:input_type -> internal.GetAccountByEmailRequest
+	17, // 21: internal.LoginNodeDB.FindOrCreateByEmails:input_type -> internal.FindOrCreateByEmailsRequest
+	18, // 22: internal.LoginNodeDB.GetEmailBucket:input_type -> internal.GetEmailBucketRequest
+	20, // 23: internal.LoginNodeDB.UpdatePlan:input_type -> internal.UpdatePlanRequest
+	22, // 24: internal.LoginNodeDB.RegisterTunnel:input_type -> internal.RegisterTunnelRequest
+	24, // 25: internal.LoginNodeDB.UnregisterTunnel:input_type -> internal.UnregisterTunnelRequest
+	26, // 26: internal.LoginNodeDB.GetTunnelCount:input_type -> internal.GetTunnelCountRequest
+	28, // 27: internal.LoginNodeDB.MarkMagicTokenUsed:input_type -> internal.MarkMagicTokenUsedRequest
+	30, // 28: internal.LoginNodeDB.CheckMagicLinkRateLimit:input_type -> internal.CheckMagicLinkRateLimitRequest
+	3,  // 29: internal.InternalService.FindTunnel:output_type -> internal.FindTunnelResponse
+	1,  // 30: internal.InternalService.GetNodeInfo:output_type -> internal.NodeInfoResponse
+	5,  // 31: internal.LoginNodeDB.RecordUsage:output_type -> internal.RecordUsageResponse
+	7,  // 32: internal.LoginNodeDB.GetMonthlyUsage:output_type -> internal.GetMonthlyUsageResponse
+	35, // 33: internal.LoginNodeDB.RecordIngress:output_type -> internal.RecordIngressResponse
+	37, // 34: internal.LoginNodeDB.ExportIngress:output_type -> internal.ExportIngressResponse
+	40, // 35: internal.LoginNodeDB.CreateGrant:output_type -> internal.CreateGrantResponse
+	42, // 36: internal.LoginNodeDB.ListGrants:output_type -> internal.ListGrantsResponse
+	44, // 37: internal.LoginNodeDB.RevokeGrant:output_type -> internal.RevokeGrantResponse
+	46, // 38: internal.LoginNodeDB.AdmitGrant:output_type -> internal.AdmitGrantResponse
+	9,  // 39: internal.LoginNodeDB.CreateDeviceCode:output_type -> internal.DeviceCodeResponse
+	9,  // 40: internal.LoginNodeDB.GetDeviceCode:output_type -> internal.DeviceCodeResponse
+	12, // 41: internal.LoginNodeDB.AuthorizeDeviceCode:output_type -> internal.AuthorizeDeviceCodeResponse
+	13, // 42: internal.LoginNodeDB.GetAccount:output_type -> internal.AccountResponse
+	13, // 43: internal.LoginNodeDB.GetAccountByEmail:output_type -> internal.AccountResponse
+	13, // 44: internal.LoginNodeDB.FindOrCreateByEmails:output_type -> internal.AccountResponse
+	19, // 45: internal.LoginNodeDB.GetEmailBucket:output_type -> internal.GetEmailBucketResponse
+	21, // 46: internal.LoginNodeDB.UpdatePlan:output_type -> internal.UpdatePlanResponse
+	23, // 47: internal.LoginNodeDB.RegisterTunnel:output_type -> internal.RegisterTunnelResponse
+	25, // 48: internal.LoginNodeDB.UnregisterTunnel:output_type -> internal.UnregisterTunnelResponse
+	27, // 49: internal.LoginNodeDB.GetTunnelCount:output_type -> internal.GetTunnelCountResponse
+	29, // 50: internal.LoginNodeDB.MarkMagicTokenUsed:output_type -> internal.MarkMagicTokenUsedResponse
+	31, // 51: internal.LoginNodeDB.CheckMagicLinkRateLimit:output_type -> internal.CheckMagicLinkRateLimitResponse
+	29, // [29:52] is the sub-list for method output_type
+	6,  // [6:29] is the sub-list for method input_type
+	6,  // [6:6] is the sub-list for extension type_name
+	6,  // [6:6] is the sub-list for extension extendee
+	0,  // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_proto_internal_proto_init() }
@@ -2408,7 +3058,7 @@ func file_proto_internal_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_internal_proto_rawDesc), len(file_proto_internal_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   38,
+			NumMessages:   47,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

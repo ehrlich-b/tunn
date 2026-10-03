@@ -76,12 +76,12 @@ func (e IngressEvent) Validate() error {
 		return ErrInvalidIngress
 	}
 	switch e.AuthMethod {
-	case "none", "cookie", "bearer", "endpoint_token":
+	case "none", "cookie", "bearer", "endpoint_token", "grant":
 	default:
 		return ErrInvalidIngress
 	}
 	switch e.Reason {
-	case "open", "allow_list", "endpoint_token", "authentication_required", "access_denied", "owner_quota_exceeded":
+	case "open", "allow_list", "endpoint_token", "authentication_required", "access_denied", "owner_quota_exceeded", "grant", "grant_invalid", "grant_expired", "grant_revoked", "grant_exhausted", "grant_scope_denied", "grant_unavailable":
 	default:
 		return ErrInvalidIngress
 	}

@@ -30,6 +30,7 @@ const MaxBodySize = 100 * 1024 * 1024
 // These are tunn platform cookies that tunnel owners should never see.
 var platformCookies = map[string]bool{
 	"tunn_session": true,
+	authCookieName: true,
 }
 
 // stripPlatformCookies removes platform cookies from a Cookie header value.
@@ -163,7 +164,15 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 
 	// Auth is only required if the tunnel has an allow-list (--allow was specified)
 	// If no allow-list, the tunnel is open to the internet (URLs are random, act like strong passwords)
-	if len(tunnel.AllowedEmails) > 0 {
+	grantToken, grantHeader := explicitGrantBearer(r)
+	if grantToken != "" && (event == nil || r.URL.EscapedPath() != "/mcp" || r.Method == http.MethodConnect) {
+		if event != nil {
+			event.AuthMethod, event.Reason, event.Outcome = "grant", "grant_scope_denied", "denied"
+		}
+		http.Error(w, "Grant permits the /mcp HTTP route only", http.StatusForbidden)
+		return
+	}
+	if grantToken == "" && len(tunnel.AllowedEmails) > 0 {
 		// Browsers authenticate with the platform cookie. Agents and other
 		// machine clients may use a signed tunn token in a bearer header.
 		userEmail, authenticated := p.getAuthFromCookie(r)
@@ -305,6 +314,23 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 			return
 		}
 	}
+
+	// Explicit grants are decisive, even alongside a valid platform cookie or
+	// another credential. Admission happens after owner quota checks and before
+	// any upstream work. The server-generated ID makes one ambiguous RPC retry
+	// safe without admitting the same HTTP request twice.
+	if grantToken != "" {
+		if !p.admitIngressGrant(w, r, tunnel, event, grantToken) {
+			return
+		}
+		r = r.Clone(r.Context())
+		r.Header = r.Header.Clone()
+		r.Header.Del(grantHeader)
+	}
+	// A cookie or dedicated grant may win authentication while the other header
+	// still carries a platform credential. Strip independently recognized Tunn
+	// credentials; unrelated application bearer values stay with the app.
+	r = p.stripPlatformAuthorization(r, tunnel)
 
 	var proxyErr error
 	if tunnel.EndpointProtocol == "tcp" {
@@ -484,7 +510,7 @@ func forwardedRequestHeaders(source http.Header) map[string]string {
 	for key, values := range source {
 		value := strings.Join(values, ", ")
 		if strings.EqualFold(key, "Cookie") {
-			value = stripPlatformCookies(value)
+			value = stripPlatformCookies(strings.Join(values, "; "))
 			if value == "" {
 				continue
 			}

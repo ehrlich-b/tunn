@@ -150,7 +150,7 @@ func (s *LoginNodeDBServer) UpdatePlan(ctx context.Context, req *internalv1.Upda
 
 // RegisterTunnel registers an active tunnel and checks limits
 func (s *LoginNodeDBServer) RegisterTunnel(ctx context.Context, req *internalv1.RegisterTunnelRequest) (*internalv1.RegisterTunnelResponse, error) {
-	reg, err := s.storage.RegisterTunnel(ctx, req.TunnelId, req.AccountId, req.NodeAddress)
+	reg, err := s.storage.RegisterEndpoint(ctx, req.TunnelId, req.AccountId, req.NodeAddress, req.EndpointProtocol)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to register tunnel: %v", err)
 	}

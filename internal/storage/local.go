@@ -15,10 +15,12 @@ type LocalStorage struct {
 	deviceCodes *store.DeviceCodeStore
 	accounts    *store.AccountStore
 	ingress     *store.IngressStore
+	grants      *store.GrantStore
 
 	// Active tunnels tracked in memory
 	// Maps tunnel_id -> account_id
 	activeTunnels   map[string]string
+	activeProtocols map[string]string
 	activeTunnelsMu sync.RWMutex
 
 	// Magic link JTI tracking (replay protection)
@@ -38,7 +40,9 @@ func NewLocalStorage(db *sql.DB) *LocalStorage {
 		deviceCodes:       store.NewDeviceCodeStore(db),
 		accounts:          store.NewAccountStore(db),
 		ingress:           store.NewIngressStore(db),
+		grants:            store.NewGrantStore(db),
 		activeTunnels:     make(map[string]string),
+		activeProtocols:   make(map[string]string),
 		usedJTIs:          make(map[string]time.Time),
 		magicLinkRequests: make(map[string][]time.Time),
 	}
@@ -176,6 +180,12 @@ func (s *LocalStorage) GetMonthlyUsage(ctx context.Context, accountID string) (i
 
 // RegisterTunnel registers an active tunnel and checks limits.
 func (s *LocalStorage) RegisterTunnel(ctx context.Context, tunnelID, accountID, nodeAddress string) (*TunnelRegistration, error) {
+	return s.RegisterEndpoint(ctx, tunnelID, accountID, nodeAddress, "")
+}
+
+// RegisterEndpoint atomically records the publisher protocol with ownership.
+// Empty protocol is retained for old cluster peers; grant creation rejects it.
+func (s *LocalStorage) RegisterEndpoint(ctx context.Context, tunnelID, accountID, nodeAddress, protocol string) (*TunnelRegistration, error) {
 	s.activeTunnelsMu.Lock()
 	defer s.activeTunnelsMu.Unlock()
 
@@ -214,6 +224,7 @@ func (s *LocalStorage) RegisterTunnel(ctx context.Context, tunnelID, accountID, 
 
 	// Register the tunnel
 	s.activeTunnels[tunnelID] = accountID
+	s.activeProtocols[tunnelID] = protocol
 
 	return &TunnelRegistration{
 		Allowed:      true,
@@ -227,6 +238,7 @@ func (s *LocalStorage) UnregisterTunnel(ctx context.Context, tunnelID string) er
 	s.activeTunnelsMu.Lock()
 	defer s.activeTunnelsMu.Unlock()
 	delete(s.activeTunnels, tunnelID)
+	delete(s.activeProtocols, tunnelID)
 	return nil
 }
 

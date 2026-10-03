@@ -163,6 +163,10 @@ const (
 	LoginNodeDB_GetMonthlyUsage_FullMethodName         = "/internal.LoginNodeDB/GetMonthlyUsage"
 	LoginNodeDB_RecordIngress_FullMethodName           = "/internal.LoginNodeDB/RecordIngress"
 	LoginNodeDB_ExportIngress_FullMethodName           = "/internal.LoginNodeDB/ExportIngress"
+	LoginNodeDB_CreateGrant_FullMethodName             = "/internal.LoginNodeDB/CreateGrant"
+	LoginNodeDB_ListGrants_FullMethodName              = "/internal.LoginNodeDB/ListGrants"
+	LoginNodeDB_RevokeGrant_FullMethodName             = "/internal.LoginNodeDB/RevokeGrant"
+	LoginNodeDB_AdmitGrant_FullMethodName              = "/internal.LoginNodeDB/AdmitGrant"
 	LoginNodeDB_CreateDeviceCode_FullMethodName        = "/internal.LoginNodeDB/CreateDeviceCode"
 	LoginNodeDB_GetDeviceCode_FullMethodName           = "/internal.LoginNodeDB/GetDeviceCode"
 	LoginNodeDB_AuthorizeDeviceCode_FullMethodName     = "/internal.LoginNodeDB/AuthorizeDeviceCode"
@@ -191,6 +195,11 @@ type LoginNodeDBClient interface {
 	// Privacy-safe ingress accounting (same authenticated internal boundary).
 	RecordIngress(ctx context.Context, in *RecordIngressRequest, opts ...grpc.CallOption) (*RecordIngressResponse, error)
 	ExportIngress(ctx context.Context, in *ExportIngressRequest, opts ...grpc.CallOption) (*ExportIngressResponse, error)
+	// Temporary endpoint credentials and durable request admission.
+	CreateGrant(ctx context.Context, in *CreateGrantRequest, opts ...grpc.CallOption) (*CreateGrantResponse, error)
+	ListGrants(ctx context.Context, in *ListGrantsRequest, opts ...grpc.CallOption) (*ListGrantsResponse, error)
+	RevokeGrant(ctx context.Context, in *RevokeGrantRequest, opts ...grpc.CallOption) (*RevokeGrantResponse, error)
+	AdmitGrant(ctx context.Context, in *AdmitGrantRequest, opts ...grpc.CallOption) (*AdmitGrantResponse, error)
 	// Device codes for CLI login
 	CreateDeviceCode(ctx context.Context, in *CreateDeviceCodeRequest, opts ...grpc.CallOption) (*DeviceCodeResponse, error)
 	GetDeviceCode(ctx context.Context, in *GetDeviceCodeRequest, opts ...grpc.CallOption) (*DeviceCodeResponse, error)
@@ -253,6 +262,46 @@ func (c *loginNodeDBClient) ExportIngress(ctx context.Context, in *ExportIngress
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ExportIngressResponse)
 	err := c.cc.Invoke(ctx, LoginNodeDB_ExportIngress_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *loginNodeDBClient) CreateGrant(ctx context.Context, in *CreateGrantRequest, opts ...grpc.CallOption) (*CreateGrantResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateGrantResponse)
+	err := c.cc.Invoke(ctx, LoginNodeDB_CreateGrant_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *loginNodeDBClient) ListGrants(ctx context.Context, in *ListGrantsRequest, opts ...grpc.CallOption) (*ListGrantsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListGrantsResponse)
+	err := c.cc.Invoke(ctx, LoginNodeDB_ListGrants_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *loginNodeDBClient) RevokeGrant(ctx context.Context, in *RevokeGrantRequest, opts ...grpc.CallOption) (*RevokeGrantResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RevokeGrantResponse)
+	err := c.cc.Invoke(ctx, LoginNodeDB_RevokeGrant_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *loginNodeDBClient) AdmitGrant(ctx context.Context, in *AdmitGrantRequest, opts ...grpc.CallOption) (*AdmitGrantResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AdmitGrantResponse)
+	err := c.cc.Invoke(ctx, LoginNodeDB_AdmitGrant_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -402,6 +451,11 @@ type LoginNodeDBServer interface {
 	// Privacy-safe ingress accounting (same authenticated internal boundary).
 	RecordIngress(context.Context, *RecordIngressRequest) (*RecordIngressResponse, error)
 	ExportIngress(context.Context, *ExportIngressRequest) (*ExportIngressResponse, error)
+	// Temporary endpoint credentials and durable request admission.
+	CreateGrant(context.Context, *CreateGrantRequest) (*CreateGrantResponse, error)
+	ListGrants(context.Context, *ListGrantsRequest) (*ListGrantsResponse, error)
+	RevokeGrant(context.Context, *RevokeGrantRequest) (*RevokeGrantResponse, error)
+	AdmitGrant(context.Context, *AdmitGrantRequest) (*AdmitGrantResponse, error)
 	// Device codes for CLI login
 	CreateDeviceCode(context.Context, *CreateDeviceCodeRequest) (*DeviceCodeResponse, error)
 	GetDeviceCode(context.Context, *GetDeviceCodeRequest) (*DeviceCodeResponse, error)
@@ -441,6 +495,18 @@ func (UnimplementedLoginNodeDBServer) RecordIngress(context.Context, *RecordIngr
 }
 func (UnimplementedLoginNodeDBServer) ExportIngress(context.Context, *ExportIngressRequest) (*ExportIngressResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ExportIngress not implemented")
+}
+func (UnimplementedLoginNodeDBServer) CreateGrant(context.Context, *CreateGrantRequest) (*CreateGrantResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateGrant not implemented")
+}
+func (UnimplementedLoginNodeDBServer) ListGrants(context.Context, *ListGrantsRequest) (*ListGrantsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListGrants not implemented")
+}
+func (UnimplementedLoginNodeDBServer) RevokeGrant(context.Context, *RevokeGrantRequest) (*RevokeGrantResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RevokeGrant not implemented")
+}
+func (UnimplementedLoginNodeDBServer) AdmitGrant(context.Context, *AdmitGrantRequest) (*AdmitGrantResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method AdmitGrant not implemented")
 }
 func (UnimplementedLoginNodeDBServer) CreateDeviceCode(context.Context, *CreateDeviceCodeRequest) (*DeviceCodeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateDeviceCode not implemented")
@@ -570,6 +636,78 @@ func _LoginNodeDB_ExportIngress_Handler(srv interface{}, ctx context.Context, de
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(LoginNodeDBServer).ExportIngress(ctx, req.(*ExportIngressRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LoginNodeDB_CreateGrant_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateGrantRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LoginNodeDBServer).CreateGrant(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LoginNodeDB_CreateGrant_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LoginNodeDBServer).CreateGrant(ctx, req.(*CreateGrantRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LoginNodeDB_ListGrants_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListGrantsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LoginNodeDBServer).ListGrants(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LoginNodeDB_ListGrants_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LoginNodeDBServer).ListGrants(ctx, req.(*ListGrantsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LoginNodeDB_RevokeGrant_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RevokeGrantRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LoginNodeDBServer).RevokeGrant(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LoginNodeDB_RevokeGrant_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LoginNodeDBServer).RevokeGrant(ctx, req.(*RevokeGrantRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LoginNodeDB_AdmitGrant_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AdmitGrantRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LoginNodeDBServer).AdmitGrant(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LoginNodeDB_AdmitGrant_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LoginNodeDBServer).AdmitGrant(ctx, req.(*AdmitGrantRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -830,6 +968,22 @@ var LoginNodeDB_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ExportIngress",
 			Handler:    _LoginNodeDB_ExportIngress_Handler,
+		},
+		{
+			MethodName: "CreateGrant",
+			Handler:    _LoginNodeDB_CreateGrant_Handler,
+		},
+		{
+			MethodName: "ListGrants",
+			Handler:    _LoginNodeDB_ListGrants_Handler,
+		},
+		{
+			MethodName: "RevokeGrant",
+			Handler:    _LoginNodeDB_RevokeGrant_Handler,
+		},
+		{
+			MethodName: "AdmitGrant",
+			Handler:    _LoginNodeDB_AdmitGrant_Handler,
 		},
 		{
 			MethodName: "CreateDeviceCode",

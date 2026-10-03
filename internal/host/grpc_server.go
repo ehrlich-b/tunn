@@ -459,7 +459,13 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 	var registeredWithStorage bool
 	if s.storage != nil && s.storage.Available() && accountID != "" {
 		// Cross-node: register with login node (includes duplicate and limit checks)
-		reg, err := s.storage.RegisterTunnel(stream.Context(), tunnelID, accountID, s.cfg.Domain)
+		var reg *storage.TunnelRegistration
+		var err error
+		if registry, ok := s.storage.(storage.EndpointRegistry); ok {
+			reg, err = registry.RegisterEndpoint(stream.Context(), tunnelID, accountID, s.cfg.Domain, endpointProtocol)
+		} else {
+			reg, err = s.storage.RegisterTunnel(stream.Context(), tunnelID, accountID, s.cfg.Domain)
+		}
 		if err != nil {
 			common.LogError("failed to register tunnel with login node", "tunnel_id", tunnelID, "error", err)
 			// Fall back to local check
@@ -735,7 +741,7 @@ func (s *TunnelServer) validateJWTAndExtractEmail(tokenString string) (string, e
 
 	// Extract claims
 	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok {
+	if !ok || !accessTokenClaims(claims) {
 		return "", fmt.Errorf("invalid JWT claims format")
 	}
 

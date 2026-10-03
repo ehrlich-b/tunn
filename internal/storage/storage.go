@@ -11,6 +11,12 @@ import (
 // ErrNotAvailable is returned when storage is not available (login node down).
 var ErrNotAvailable = errors.New("storage not available")
 
+// EndpointRegistry adds protocol metadata without breaking legacy Storage
+// implementations. Legacy registrations remain usable but cannot mint grants.
+type EndpointRegistry interface {
+	RegisterEndpoint(ctx context.Context, tunnelID, accountID, nodeAddress, protocol string) (*TunnelRegistration, error)
+}
+
 // Tunnel limits by plan
 const (
 	FreeTunnelLimit = 3

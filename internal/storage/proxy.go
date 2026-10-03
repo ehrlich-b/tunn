@@ -240,14 +240,19 @@ func (s *ProxyStorage) GetMonthlyUsage(ctx context.Context, accountID string) (i
 
 // RegisterTunnel registers an active tunnel and checks limits.
 func (s *ProxyStorage) RegisterTunnel(ctx context.Context, tunnelID, accountID, nodeAddress string) (*TunnelRegistration, error) {
+	return s.RegisterEndpoint(ctx, tunnelID, accountID, nodeAddress, "")
+}
+
+func (s *ProxyStorage) RegisterEndpoint(ctx context.Context, tunnelID, accountID, nodeAddress, protocol string) (*TunnelRegistration, error) {
 	client := s.getClient()
 	if client == nil {
 		return nil, ErrNotAvailable
 	}
 	resp, err := client.RegisterTunnel(ctx, &internalv1.RegisterTunnelRequest{
-		TunnelId:    tunnelID,
-		AccountId:   accountID,
-		NodeAddress: nodeAddress,
+		TunnelId:         tunnelID,
+		AccountId:        accountID,
+		NodeAddress:      nodeAddress,
+		EndpointProtocol: protocol,
 	})
 	if err != nil {
 		return nil, err

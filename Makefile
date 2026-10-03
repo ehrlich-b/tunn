@@ -93,6 +93,13 @@ test-race:
 	@echo "Running tests with race detection..."
 	go test -race $(TEST_ARGS) ./...
 
+# Synthetic native HTTP MCP clients through local TLS relays and temporary grants.
+test-grants:
+	go test -race -count=1 -timeout=60s -run 'Grant|AccountAccessToken' ./internal/host ./internal/store ./internal/storage ./internal/client .
+
+test-build-workflow:
+	TUNN_PYTHON="$(CURDIR)/scripts/integration-tests/build-investigation/.venv/bin/python" go test -race -count=1 -timeout=60s -v -run '^TestGrantTwoSDKBuildWorkflowAcrossRealRelay$$' ./internal/host
+
 # Integration tests (require build + certs)
 integration-test: build
 	@echo "Running all integration tests..."

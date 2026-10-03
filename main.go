@@ -60,6 +60,7 @@ Usage:
   tunn unix [options] <path>      Publish a private Unix socket
   tunn connect [options] <name>   Open a remote TCP endpoint locally
   tunn token [--rotate] <name>   Print or rotate an endpoint access token
+  tunn grant create|list|revoke  Manage temporary /mcp client grants
 
 Examples:
   tunn 8080                              # https://abc123.tunn.to -> localhost:8080
@@ -112,6 +113,8 @@ Options:
 		runConnect(args[1:])
 	case "token":
 		runEndpointToken(args[1:])
+	case "grant":
+		runGrant(args[1:])
 	case "magic-link":
 		runMagicLink(args[1:])
 	case "help", "-h", "--help":

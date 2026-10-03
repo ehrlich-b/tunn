@@ -80,7 +80,7 @@ func (p *ProxyServer) getAuthFromCookie(r *http.Request) (string, bool) {
 	}
 
 	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok {
+	if !ok || !accessTokenClaims(claims) {
 		return "", false
 	}
 
@@ -209,7 +209,7 @@ func (p *ProxyServer) getAuthFromTunnelBearer(r *http.Request, tunnel *TunnelCon
 		}
 
 		claims, validClaims := token.Claims.(jwt.MapClaims)
-		if !validClaims {
+		if !validClaims || !accessTokenClaims(claims) {
 			continue
 		}
 		email, validEmail := claims["email"].(string)
@@ -220,6 +220,26 @@ func (p *ProxyServer) getAuthFromTunnelBearer(r *http.Request, tunnel *TunnelCon
 	}
 
 	return "", "", false, false
+}
+
+// Existing account access tokens have no type claim. Login links and OAuth
+// state use this signing key too, but must never authorize tool or owner APIs.
+func accessTokenClaims(claims jwt.MapClaims) bool {
+	tokenType, present := claims["type"]
+	return !present || tokenType == "access"
+}
+
+// Redaction recognizes signed platform material even when expired or issued
+// for login rather than access. This deliberately does not authorize a request.
+func (p *ProxyServer) isPlatformSignedJWT(value string) bool {
+	parser := &jwt.Parser{SkipClaimsValidation: true}
+	token, err := parser.Parse(value, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method")
+		}
+		return p.getJWTSigningKey(), nil
+	})
+	return err == nil && token.Valid
 }
 
 // sanitizeReturnTo validates and sanitizes a return_to URL parameter.
@@ -718,7 +738,7 @@ func (p *ProxyServer) CheckJWT(next http.Handler) http.Handler {
 		// Check for Bearer token
 		const bearerPrefix = "Bearer "
 		if !strings.HasPrefix(authHeader, bearerPrefix) {
-			common.LogError("invalid authorization header format", "header", authHeader)
+			common.LogError("invalid authorization header format")
 			http.Error(w, "Invalid Authorization header format", http.StatusUnauthorized)
 			return
 		}
@@ -750,7 +770,7 @@ func (p *ProxyServer) CheckJWT(next http.Handler) http.Handler {
 
 		// Extract claims
 		claims, ok := token.Claims.(jwt.MapClaims)
-		if !ok {
+		if !ok || !accessTokenClaims(claims) {
 			common.LogError("failed to extract JWT claims")
 			http.Error(w, "Invalid token claims", http.StatusUnauthorized)
 			return

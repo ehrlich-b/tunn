@@ -723,6 +723,8 @@ func (p *ProxyServer) createHandler() http.Handler {
 	// Account page (requires auth)
 	mux.HandleFunc("/account", p.handleAccount)
 	mux.HandleFunc("/api/usage", p.handleIngressExport)
+	mux.HandleFunc("/api/grants", p.handleGrants)
+	mux.HandleFunc("/api/grants/", p.handleGrants)
 
 	// Device code flow for CLI login
 	mux.HandleFunc("/api/device/code", p.handleDeviceCode)
@@ -738,7 +740,7 @@ func (p *ProxyServer) createHandler() http.Handler {
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Platform API paths on endpoint hosts belong to the published app.
-		if extractTunnelID(r.Host, p.Domain) != "" && r.URL.Path == "/api/usage" {
+		if extractTunnelID(r.Host, p.Domain) != "" && (r.URL.Path == "/api/usage" || r.URL.Path == "/api/grants" || strings.HasPrefix(r.URL.Path, "/api/grants/")) {
 			p.handleWebProxy(w, r)
 			return
 		}

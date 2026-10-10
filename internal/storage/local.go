@@ -154,6 +154,20 @@ func (s *LocalStorage) GetMonthlyUsage(ctx context.Context, accountID string) (i
 func (s *LocalStorage) RegisterTunnel(ctx context.Context, tunnelID, accountID, nodeAddress string) (*TunnelRegistration, error) {
 	s.activeTunnelsMu.Lock()
 	defer s.activeTunnelsMu.Unlock()
+	acc, err := s.accounts.GetByID(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Every node registers here, so reservation ownership is authoritative
+	// even when the ingress node has no local account database.
+	owner, err := s.accounts.GetSubdomainOwner(tunnelID)
+	if err != nil {
+		return nil, err
+	}
+	if owner != "" && owner != accountID {
+		return &TunnelRegistration{Allowed: false, Reason: "subdomain is reserved by another user"}, nil
+	}
 
 	// Check if tunnel ID already exists (cross-node duplicate check)
 	if _, exists := s.activeTunnels[tunnelID]; exists {
@@ -173,9 +187,21 @@ func (s *LocalStorage) RegisterTunnel(ctx context.Context, tunnelID, accountID, 
 
 	// Get account plan to determine limit
 	maxAllowed := int32(FreeTunnelLimit)
-	acc, err := s.accounts.GetByID(accountID)
-	if err == nil && acc.Plan == "pro" {
+	if acc.Plan == "pro" {
 		maxAllowed = ProTunnelLimit
+	}
+
+	// Preserve Pro auto-claiming on replicas as well as the login node.
+	// A full reservation allowance still permits an unreserved active name.
+	if owner == "" && acc.Plan == "pro" {
+		_ = s.accounts.ReserveSubdomain(accountID, tunnelID)
+		owner, err = s.accounts.GetSubdomainOwner(tunnelID)
+		if err != nil {
+			return nil, err
+		}
+		if owner != "" && owner != accountID {
+			return &TunnelRegistration{Allowed: false, Reason: "subdomain is reserved by another user"}, nil
+		}
 	}
 
 	// Check if limit exceeded

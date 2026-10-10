@@ -6,6 +6,7 @@ package host
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -241,6 +242,40 @@ func TestSecurityReservedSubdomainIsEnforcedOnReplica(t *testing.T) {
 	replica := NewTunnelServer(p.config, nil, nil, securityReplicaStorage(t, s))
 	if response := securityRegister(t, replica, "reserved-agent", attackerToken); response.Success {
 		t.Error("non-owner claimed another account's reserved subdomain on replica")
+	}
+	ownerToken, err := p.generateJWT(owner.PrimaryEmail)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response := securityRegister(t, replica, "reserved-agent", ownerToken); !response.Success {
+		t.Fatalf("replica denied reservation owner: %s", response.ErrorMessage)
+	}
+	if response := securityRegister(t, replica, "replica-claim", ownerToken); !response.Success {
+		t.Fatalf("replica denied Pro auto-claim: %s", response.ErrorMessage)
+	}
+	if ownerID, err := s.AccountStore().GetSubdomainOwner("replica-claim"); err != nil || ownerID != owner.ID {
+		t.Fatalf("replica auto-claim owner = %q, error = %v", ownerID, err)
+	}
+}
+
+type securityRegistrationFailure struct{ storage.Storage }
+
+func (s securityRegistrationFailure) RegisterTunnel(context.Context, string, string, string) (*storage.TunnelRegistration, error) {
+	return nil, errors.New("fixture registry failure")
+}
+
+func TestSecurityRegistrationFailureDoesNotBypassOwnership(t *testing.T) {
+	local := securityDB(t)
+	if _, err := local.FindOrCreateByEmails(context.Background(), []string{"owner@example.test"}, "github"); err != nil {
+		t.Fatal(err)
+	}
+	p := securityProxy(securityRegistrationFailure{local})
+	token, err := p.generateJWT("owner@example.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response := securityRegister(t, p.tunnelServer, "unverified", token); response.Success {
+		t.Error("registry RPC error fell back to unverified local ownership")
 	}
 }
 

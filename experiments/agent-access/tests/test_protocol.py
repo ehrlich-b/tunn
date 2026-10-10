@@ -1,8 +1,13 @@
 import json
 from pathlib import Path
 import unittest
+import hashlib
+import sys
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+import draft_copy
+import evaluate
 
 
 class FrozenProtocolTests(unittest.TestCase):
@@ -22,6 +27,12 @@ class FrozenProtocolTests(unittest.TestCase):
         })
         self.assertTrue(protocol["offers"]["early_users_grandfathered"])
         self.assertEqual(protocol["offers"]["personal_launch_annual_usd"], 12)
+
+    def test_protocol_content_pin_matches(self):
+        self.assertEqual(hashlib.sha256((ROOT / "protocol.json").read_bytes()).hexdigest(), evaluate.FROZEN_PROTOCOL_SHA256)
+
+    def test_exact_copy_packet_has_not_drifted(self):
+        self.assertEqual((ROOT / "DRAFT-COPY.md").read_text(), draft_copy.copy_packet())
 
 
 if __name__ == "__main__":

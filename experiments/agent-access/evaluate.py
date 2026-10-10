@@ -10,6 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 PROTOCOL_ID = "tunn-access-e1-e2-v1"
+FROZEN_PROTOCOL_SHA256 = "3e85498ce6184e59bb1d47254002cec8a12fefc24f7ab883d427fd73d576951a"
 RECIPES = ("mcp", "browser")
 
 
@@ -40,6 +41,8 @@ def read_json(path):
 
 
 def load_protocol():
+    if hashlib.sha256((ROOT / "protocol.json").read_bytes()).hexdigest() != FROZEN_PROTOCOL_SHA256:
+        raise ValueError("Frozen protocol changed; choose a new version before collecting new evidence")
     protocol = read_json(ROOT / "protocol.json")
     if protocol["protocol_id"] != PROTOCOL_ID:
         raise ValueError("Unsupported protocol")
@@ -286,7 +289,7 @@ def evaluate(data):
         unsafe = any(row.get("kind") == "actual" and row.get("unsafe_grant") is True for row in rows)
         if unsafe:
             decision, reason = "STOP_UNSAFE", "An actual unsafe grant stops hosted testing immediately."
-        elif cohort.get("kind") != "actual" or not actual:
+        elif cohort.get("kind") != "actual" or not rows:
             decision, reason = "NO_ACTUAL_EVIDENCE", "Synthetic or missing observations cannot establish demand."
         elif integrity:
             decision, reason = "INVALID", "; ".join(integrity)

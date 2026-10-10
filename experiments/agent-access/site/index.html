@@ -6,6 +6,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'none'; img-src 'none'; font-src 'none'; base-uri 'none'; form-action 'none'">
   <title>tunn · One private service, one useful task</title>
   <link rel="stylesheet" href="style.css">
+  <script defer src="walkthrough.js"></script>
 </head>
 <body>
   <header><a class="brand" href="index.html">tunn <span>experiment desk</span></a><nav aria-label="Variants"><a aria-current="page" href="index.html">Solo connector</a><a href="team.html">Shared service</a></nav></header>
@@ -24,7 +25,16 @@
       <article class="card"><p class="eyebrow">VERIFY</p><h2>Use it, then revoke</h2><p>Read a useful result. Check a denied caller. Revoke and check again. The fixture demonstrates the intended states; it does not test a relay.</p></article>
     </section>
     <section class="split"><div><p class="eyebrow">SOURCE-INSPECTED SYNTAX</p><h2>A native publisher route exists in this clone</h2><pre><code>tunn mcp --name cinder-almanac --tools read_almanac -- ./cinder-almanac-mcp</code></pre><p class="fine">Syntax inspected in main.go and the stdio bridge at 53cdce9. The named executable is fictional and unavailable. This command is not run here; OAuth acceptance and account prerequisites need a real-client receipt.</p></div><div class="card"><h2>Before a real task</h2><p>A hosted client must support the connector flow. The origin must stay awake. HTTPS terminates at the relay; its operator can see application traffic.</p><p>A working workaround may already be your best option. Compare the whole task before switching.</p></div></section>
-    <section id="walkthrough" class="panel"><p class="eyebrow">FIXTURE WALKTHROUGH</p><h2>The local demonstration is being prepared</h2><p>No service is connected. No credentials or data leave this page.</p></section>
+    <section id="walkthrough" class="panel" data-recipe="mcp">
+      <p class="eyebrow">SYNTHETIC FIXTURE · NO CLAUDE.AI CONNECTION</p><h2>Read the Cinder Almanac</h2>
+      <ol><li>Imagine publishing the read-only service.</li><li>Imagine adding its remote connector and approving a grant to cinder-agent-fixture.</li><li>Request the allowed result, check denial, then revoke and request again.</li></ol>
+      <p>Fake token: <code id="fixture-token"></code></p>
+      <div class="controls"><button type="button" data-action="success">Read allowed result</button><button type="button" data-action="denied">Try wrong caller</button><button type="button" data-action="ungranted">Try ungranted operation</button><button type="button" data-action="revoked">Revoke fixture grant</button><button type="button" data-action="offline">Set fixture offline</button><button type="button" data-action="reset">Reset fixture</button></div>
+      <p id="fixture-result" class="result" role="status" data-state="ready">READY · Choose a synthetic state.</p><p id="fixture-audit">Synthetic upstream operations: 0. No real service was called.</p>
+      <h3>Can you complete the intended task in 60 seconds?</h3><p>Measure the real setup separately, including install, login, consent, connector configuration and waiting. This clock only exercises the worksheet.</p>
+      <button type="button" data-action="timer-start">Start fixture timer</button> <button type="button" data-action="timer-stop" disabled>Stop fixture timer</button><p id="elapsed" role="status">Timer not started. Timing this fixture does not measure real onboarding.</p>
+      <p class="fine">Fixture transitions cannot verify security or a five-second revocation bound. Already-admitted application work may continue in a real system.</p>
+    </section>
     <section class="split"><div><p class="eyebrow">PRICE QUESTION</p><h2>Would this earn a recurring place in your work?</h2><p>Proposed personal launch offer: <strong>$12/year</strong> for about 50 paying signups, with early users grandfathered. This is a draft offer; purchase is unavailable.</p><button disabled type="button">Signup and payment unavailable</button></div><div class="card"><h2>What we need to learn</h2><p>Describe your last outside-caller task, its frequency and your workaround. A compliment, fixture completion or signup intention is not paid demand.</p><a href="team.html">Compare the shared-service proposal →</a></div></section>
   </main>
   <footer>Draft copy for Bryan's review · Frozen protocol tunn-access-e1-e2-v1 · No enrollment is open.</footer>

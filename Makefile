@@ -8,7 +8,7 @@ GO_FILES := $(wildcard *.go)
 DOCKER_IMAGE := $(APP_NAME):latest
 FLY_APP_NAME := $(APP_NAME)
 
-.PHONY: all build clean proto fmt tidy verify check test test-verbose test-mcp test-coverage test-race integration-test integration-test-smoke integration-test-ai docker docker-build docker-run cert-setup cert-renew cert-install-schedule fly-create fly-init fly-secrets fly-certs fly-deploy fly-logs fly-status analytics-hour analytics-day analytics-live help
+.PHONY: all build clean proto fmt tidy verify check vet lint test test-verbose test-mcp test-lifecycle-contract test-coverage test-race integration-test integration-test-smoke integration-test-ai integration-test-lifecycle docker docker-build docker-run cert-setup cert-renew cert-install-schedule fly-create fly-init fly-secrets fly-certs fly-deploy fly-logs fly-status analytics-hour analytics-day analytics-live help
 
 # Default target
 all: build
@@ -49,6 +49,12 @@ verify: fmt test
 check: fmt tidy test-race
 	@echo "All checks passed!"
 
+vet:
+	go vet ./...
+
+lint:
+	golangci-lint run
+
 # Build for different platforms
 build-all: build-linux build-mac build-windows
 
@@ -83,6 +89,10 @@ test-mcp:
 	@echo "Running MCP bridge tests..."
 	go test -v -timeout=20s ./internal/mcpbridge
 
+# In-process lifecycle regressions also run in sandboxes without loopback.
+test-lifecycle-contract:
+	go test -race -v -timeout=20s -run '^(TestNormalizeEmail|TestBridgeLifecycle)' ./internal/common ./internal/mcpbridge
+
 test-coverage:
 	@echo "Running tests with coverage..."
 	go test -coverprofile=coverage.out ./...
@@ -108,6 +118,11 @@ integration-test-ai: build
 	@echo "Running AI ingress end-to-end test..."
 	@if [ ! -f "./certs/cert.pem" ]; then ./scripts/gen-test-certs.sh; fi
 	./scripts/integration-tests/ai-ingress-test.sh
+
+# Authenticated local MCP lifecycle; no DNS, browser, or hosted services needed.
+integration-test-lifecycle: build
+	@if [ ! -f "./certs/cert.pem" ]; then ./scripts/gen-test-certs.sh; fi
+	python3 ./scripts/integration-tests/lifecycle-test.py
 
 # Docker targets
 docker: docker-build

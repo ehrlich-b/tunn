@@ -59,7 +59,13 @@ for line in sys.stdin:
         params = request.get("params", {})
         name = params.get("name")
         if name == "echo":
-            text = params.get("arguments", {}).get("text", "")
+            arguments = params.get("arguments", {})
+            # Fault injection is confined to this synthetic, read-only fixture.
+            if arguments.get("stall"):
+                continue
+            if arguments.get("exit"):
+                sys.exit(0)
+            text = arguments.get("text", "")
             send(
                 {
                     "jsonrpc": "2.0",

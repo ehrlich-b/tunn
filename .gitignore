@@ -42,4 +42,5 @@ fly.toml
 .env.*.local
 
 bin/
+.scratch/
 image.png

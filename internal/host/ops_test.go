@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -24,6 +25,7 @@ import (
 	"github.com/ehrlich-b/tunn/internal/config"
 	"github.com/ehrlich-b/tunn/internal/storage"
 	"github.com/ehrlich-b/tunn/internal/store"
+	internalpb "github.com/ehrlich-b/tunn/pkg/proto/internalv1"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -103,6 +105,156 @@ func TestOpsRelayOfflineStartupFailureJoinsWorkers(t *testing.T) {
 		t.Fatal("failed startup retained readiness")
 	}
 }
+
+func TestOpsRelayReadinessRejectsUnconnectedLoginNode(t *testing.T) {
+	p := opsHeadlessProxy(t)
+	p.isLoginNode = false
+	p.requiredListeners.Store(listenerHTTP2 | listenerHTTP3 | listenerInternal)
+	p.listenerState.Store(p.requiredListeners.Load())
+	conn, err := grpc.NewClient("passthrough:///fixture.invalid:50051", grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{})))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	remote := storage.NewProxyStorage()
+	remote.SetConnection(conn)
+	p.storage, p.loginNodeConn = remote, conn
+	if p.ready(context.Background()) {
+		t.Fatal("idle login node connection was reported ready")
+	}
+}
+
+type opsWaitingPeer struct {
+	internalpb.InternalServiceClient
+	entered, release chan struct{}
+}
+
+func (p opsWaitingPeer) GetNodeInfo(ctx context.Context, _ *internalpb.NodeInfoRequest, _ ...grpc.CallOption) (*internalpb.NodeInfoResponse, error) {
+	close(p.entered)
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-p.release:
+		return nil, errors.New("fixture released")
+	}
+}
+
+func TestOpsRelayDiscoveryStopsDuringPeerRequest(t *testing.T) {
+	p := opsHeadlessProxy(t)
+	p.isLoginNode = false
+	peer := opsWaitingPeer{entered: make(chan struct{}), release: make(chan struct{})}
+	p.nodeClients = map[string]internalpb.InternalServiceClient{"fixture": peer}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() { p.loginNodeDiscoveryLoop(ctx); close(done) }()
+	select {
+	case <-peer.entered:
+	case <-time.After(time.Second):
+		t.Fatal("discovery never called peer")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Error("shutdown did not cancel the in-progress peer request")
+		close(peer.release)
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Fatal("fixture discovery failed to stop")
+		}
+	}
+}
+
+type opsShutdownUsageStore struct {
+	storage.Storage
+	deadline bool
+}
+
+func (s *opsShutdownUsageStore) Available() bool { return true }
+func (s *opsShutdownUsageStore) RecordUsage(ctx context.Context, _ string, _ int64) error {
+	_, s.deadline = ctx.Deadline()
+	return nil
+}
+func TestOpsRelayShutdownUsageFlushHasDeadline(t *testing.T) {
+	p := opsHeadlessProxy(t)
+	usage := &opsShutdownUsageStore{}
+	p.storage = usage
+	p.usageBuffer = NewUsageBuffer()
+	p.usageBuffer.Add("fixture-owner", 42)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	p.usageFlushLoop(ctx)
+	if !usage.deadline {
+		t.Fatal("shutdown usage flush has no deadline")
+	}
+	if p.usageBuffer.Total("fixture-owner") != 0 {
+		t.Fatal("shutdown dropped successful usage flush")
+	}
+}
+
+func TestOpsRelayStartupValidationChild(t *testing.T) {
+	mode := os.Getenv("OPS_RELAY_STARTUP_FAILURE")
+	if mode == "" {
+		return
+	}
+	root := os.Getenv("OPS_RELAY_STARTUP_FIXTURE")
+	certPath, keyPath := filepath.Join(root, "cert.pem"), filepath.Join(root, "key.pem")
+	if err := os.WriteFile(certPath, []byte("invalid certificate fixture"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(keyPath, []byte("invalid key fixture"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if mode != "tls" {
+		public, private, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		leaf := &x509.Certificate{SerialNumber: big.NewInt(1), NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour)}
+		der, err := x509.CreateCertificate(rand.Reader, leaf, leaf, public, private)
+		if err != nil {
+			t.Fatal(err)
+		}
+		key, err := x509.MarshalPKCS8PrivateKey(private)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(certPath, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(keyPath, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: key}), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := &config.Config{Environment: config.EnvDev, LoginNode: true, DBPath: filepath.Join(root, "tunn.db"), CertFile: certPath, KeyFile: keyPath, Domain: "tunn.test"}
+	if mode == "ca" {
+		cfg.InternalCACert = filepath.Join(root, "missing-ca.pem")
+	}
+	if mode == "users" {
+		cfg.UsersFile = filepath.Join(root, "missing-users.yaml")
+	}
+	_, err := NewProxyServer(cfg)
+	if err == nil {
+		t.Fatal("invalid startup input was ignored")
+	}
+	if _, err := os.Stat(cfg.DBPath); !os.IsNotExist(err) {
+		t.Fatal("invalid startup modified the persistent volume")
+	}
+}
+
+func TestOpsRelayStartupValidationPrecedesVolumeWrites(t *testing.T) {
+	for _, mode := range []string{"tls", "users", "ca"} {
+		t.Run(mode, func(t *testing.T) {
+			cmd := exec.Command(os.Args[0], "-test.run=^TestOpsRelayStartupValidationChild$")
+			cmd.Env = append(os.Environ(), "OPS_RELAY_STARTUP_FAILURE="+mode, "OPS_RELAY_STARTUP_FIXTURE="+t.TempDir())
+			if output, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("invalid startup fixture: %v\n%s", err, output)
+			}
+		})
+	}
+}
 func opsFreeUDP(t *testing.T) string {
 	t.Helper()
 	l, err := net.ListenPacket("udp4", "127.0.0.1:0")
@@ -138,6 +290,7 @@ func opsProxy(t *testing.T) (*ProxyServer, *http.Client, *sql.DB) {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{Environment: config.EnvDev, Domain: "tunn.test", CertFile: certPath, KeyFile: keyPath, HTTP2Addr: opsFreeTCP(t), HTTP3Addr: opsFreeUDP(t), InternalGRPCPort: opsFreeTCP(t), PublicAddr: "tunn.test:443", ClientSecret: "fixture-publisher-secret", JWTSecret: "fixture-signing-secret", NodeSecret: "fixture-node-secret"}
+	cfg.DBPath = filepath.Join(root, "tunn.db")
 	p, err := NewProxyServer(cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -301,7 +454,7 @@ func TestOpsLoopbackStartupFailureReleasesSiblingListeners(t *testing.T) {
 }
 
 func TestOpsLoopbackShutdownWithLivePublisherAndRestart(t *testing.T) {
-	p, client, _ := opsProxy(t)
+	p, client, db := opsProxy(t)
 	cancel, done := opsStart(t, p)
 	opsWaitHealth(t, p, client, "/health", 200)
 	conn, err := grpc.NewClient("passthrough:///"+p.HTTP2Addr, grpc.WithTransportCredentials(credentials.NewTLS(client.Transport.(*http.Transport).TLSClientConfig)))
@@ -333,11 +486,34 @@ func TestOpsLoopbackShutdownWithLivePublisherAndRestart(t *testing.T) {
 		t.Fatal("stopped relay retained live registration")
 	}
 	opsAssertReleased(t, p)
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
 	// Restart a fresh relay on the same ports, as a replacement process does.
-	next, nextClient, _ := opsProxy(t)
+	next, _, _ := opsProxy(t)
 	next.HTTP2Addr, next.HTTP3Addr, next.config.InternalGRPCPort = p.HTTP2Addr, p.HTTP3Addr, p.config.InternalGRPCPort
+	next.tlsConfig = p.tlsConfig
+	next.CertFile, next.KeyFile = p.CertFile, p.KeyFile
+	recovered, err := store.OpenLocal(p.config.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer recovered.Close()
+	next.storage = storage.NewLocalStorage(recovered)
+	next.tunnelServer.storage = next.storage
 	nextCancel, nextDone := opsStart(t, next)
-	opsWaitHealth(t, next, nextClient, "/readyz", 200)
+	opsWaitHealth(t, next, client, "/readyz", 200)
+	nextStream, err := pb.NewTunnelServiceClient(conn).EstablishTunnel(streamCtx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := nextStream.Send(&pb.TunnelMessage{Message: &pb.TunnelMessage_RegisterClient{RegisterClient: &pb.RegisterClient{TunnelId: "restart-fixture", TunnelKey: next.config.ClientSecret}}}); err != nil {
+		t.Fatal(err)
+	}
+	response, err = nextStream.Recv()
+	if err != nil || !response.GetRegisterResponse().GetSuccess() {
+		t.Fatalf("publisher could not re-register after restart: %v %v", response, err)
+	}
 	nextCancel()
 	if err := opsWaitStopped(t, nextDone); !errors.Is(err, context.Canceled) {
 		t.Fatal(err)

@@ -120,6 +120,12 @@ if ! openssl x509 -in "${CERT_PATH}" -noout -checkend 2592000 >/dev/null; then
 	exit 1
 fi
 
+if ! openssl x509 -in "${CERT_PATH}" -noout -checkhost "${DOMAIN}" >/dev/null ||
+	! openssl x509 -in "${CERT_PATH}" -noout -checkhost "*.${DOMAIN}" >/dev/null; then
+	echo "ERROR: resulting certificate must cover the apex and wildcard tunnel hostnames" >&2
+	exit 1
+fi
+
 CERT_PUBLIC_KEY="$(openssl x509 -in "${CERT_PATH}" -pubkey -noout | openssl pkey -pubin -outform DER 2>/dev/null | shasum -a 256 | awk '{print $1}')"
 KEY_PUBLIC_KEY="$(openssl pkey -in "${KEY_PATH}" -pubout -outform DER 2>/dev/null | shasum -a 256 | awk '{print $1}')"
 if [[ "${CERT_PUBLIC_KEY}" != "${KEY_PUBLIC_KEY}" ]]; then

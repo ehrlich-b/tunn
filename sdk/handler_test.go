@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -150,6 +151,24 @@ func TestSDKCancellationStopsActiveHTTP(t *testing.T) {
 	}
 }
 
+// controlledDeadlineContext lets the caller expire its lifetime only after
+// registration, without depending on wall-clock scheduling during startup.
+type controlledDeadlineContext struct {
+	context.Context
+	expired <-chan struct{}
+}
+
+func (c controlledDeadlineContext) Done() <-chan struct{} { return c.expired }
+
+func (c controlledDeadlineContext) Err() error {
+	select {
+	case <-c.expired:
+		return context.DeadlineExceeded
+	default:
+		return nil
+	}
+}
+
 func TestSDKCallerDeadline(t *testing.T) {
 	dial, tlsConfig := startFixture(t, func(stream pb.TunnelService_EstablishTunnelServer) error {
 		reg, err := registration(stream)
@@ -161,11 +180,17 @@ func TestSDKCallerDeadline(t *testing.T) {
 		}
 		return drainUntilCanceled(stream)
 	})
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
+	expired := make(chan struct{})
+	expire := sync.OnceFunc(func() { close(expired) })
+	defer expire()
+	ctx := controlledDeadlineContext{Context: context.Background(), expired: expired}
 	o := fixtureOptions()
 	o.TLSConfig = tlsConfig
 	tunnel := startFixtureTunnel(t, ctx, o, dial, nil)
+	if _, err := tunnel.WaitReady(context.Background()); err != nil {
+		t.Fatalf("readiness before caller deadline: %v", err)
+	}
+	expire()
 	events := collectEvents(t, tunnel)
 	if !errors.Is(tunnel.Wait(), context.DeadlineExceeded) || !errors.Is(events[len(events)-1].Err, context.DeadlineExceeded) {
 		t.Fatalf("caller deadline result: %v %v", tunnel.Wait(), events)

@@ -23,6 +23,7 @@ proto:
 	@echo "Generating protobuf code..."
 	protoc --go_out=. --go-grpc_out=. proto/tunnel.proto
 	protoc --go_out=. --go-grpc_out=. proto/internal.proto
+	protoc --go_out=. --go-grpc_out=. --go_opt=module=github.com/ehrlich-b/tunn --go-grpc_opt=module=github.com/ehrlich-b/tunn proto/metering.proto
 	@mkdir -p pkg/proto/tunnelv1 pkg/proto/internalv1
 	@if [ -d github.com ]; then \
 		mv github.com/ehrlich-b/tunn/pkg/proto/tunnelv1/*.pb.go pkg/proto/tunnelv1/ 2>/dev/null || true; \
@@ -92,6 +93,12 @@ test-mcp:
 # In-process lifecycle regressions also run in sandboxes without loopback.
 test-lifecycle-contract:
 	go test -race -v -timeout=20s -run '^(TestNormalizeEmail|TestBridgeLifecycle)' ./internal/common ./internal/mcpbridge
+
+# Durable store, buffered/streamed relay fixtures, owner CLI and internal RPCs;
+# these tests do not bind TCP/UDP sockets or call hosted services.
+test-metering-contract:
+	go test -race -v -timeout=60s ./internal/metering
+	go test -race -v -timeout=60s -run '^TestMetering' . ./internal/host ./internal/client
 
 test-coverage:
 	@echo "Running tests with coverage..."

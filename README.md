@@ -295,3 +295,21 @@ See `CLAUDE.md` for architecture details and contribution guidelines.
 ## License
 
 MIT
+
+### Account cutoffs and custom domains
+
+All account traffic shares hard monthly request and byte allowances across HTTP,
+WebSockets, TCP CONNECT and MCP. See [metering](docs/METERING.md) for the counting
+contract and owner usage view. Pro accounts can attach customer DNS names with
+automatic HTTPS:
+
+```bash
+tunn domain add work.example.com --tunnel work
+# Set work.example.com's CNAME to the returned cname_target, then:
+tunn domain verify work.example.com
+tunn serve --name work 8080
+tunn domain list
+```
+
+See [custom domains and Fly setup](docs/CUSTOM-DOMAINS.md) for ownership,
+renewal, credentials and the required operator configuration.

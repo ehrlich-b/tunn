@@ -15,6 +15,10 @@ primary_region = "iad"
   TUNN_SMTP_HOST = "smtp.resend.com"
   TUNN_SMTP_PORT = "587"
   TUNN_SMTP_FROM = "noreply@tunn.to"
+  # Enable custom domains only after configuring the key/contact secrets and
+  # wildcard A/AAAA DNS described in docs/CUSTOM-DOMAINS.md.
+  # TUNN_CUSTOM_DOMAINS = "true"
+  # TUNN_HTTP01_ADDR = "0.0.0.0:80"
 
 [[services]]
   internal_port = 443
@@ -39,6 +43,16 @@ primary_region = "iad"
 
   [[services.ports]]
     port = 443
+
+# Required when TUNN_CUSTOM_DOMAINS=true: HTTP-01 on every relay.
+# TCP passthrough preserves Host; do not enable force_https on this service.
+# [[services]]
+#   internal_port = 80
+#   protocol = "tcp"
+#   auto_stop_machines = false
+#   auto_start_machines = true
+#   [[services.ports]]
+#     port = 80
 
 [mounts]
   source = "tunn_data"

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/tls"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -73,3 +74,45 @@ func httpReadFixtureRequest(peer net.Conn) (string, error) {
 	_, err = io.Copy(io.Discard, r.Body)
 	return r.URL.RequestURI(), err
 }
+
+func TestIntegrationMCPOAuthInspectionRedactsCaptureAndReconstruction(t *testing.T) {
+	const token = "tunn_mcp_inspection_integration_sentinel"
+	for _, streaming := range []bool{false, true} {
+		t.Run(fmt.Sprint(streaming), func(t *testing.T) {
+			client := &ServeClient{TargetURL: "http://sdk-handler.invalid", LocalDialContext: func(context.Context, string, string) (net.Conn, error) {
+				local, peer := net.Pipe()
+				go func() {
+					defer peer.Close()
+					_, _ = httpReadFixtureRequest(peer)
+					_, _ = io.WriteString(peer, "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+				}()
+				return local, nil
+			}}
+			client.Inspector = NewInspectorWithBodyCapture(client, true)
+			client.Inspector.host, client.Inspector.token = "127.0.0.1:4040", "session-fixture"
+			body := `{"access_token":"` + token + `"}`
+			headers := map[string]string{"Authorization": "Bearer " + token, "Content-Type": "application/json; credential=" + token}
+			if streaming {
+				client.handleStreamingHTTPRequest(context.Background(), inspectContractSender{}, &pb.ConnectionOpen{ConnectionId: "oauth-stream", Protocol: "http", HttpRequest: &pb.HttpRequestHead{Method: "POST", Path: "/mcp", Headers: headers, ContentLength: int64(len(body))}}, strings.NewReader(body))
+			} else {
+				client.handleHttpRequest(&mockEstablishTunnelClient{}, &pb.HttpRequest{ConnectionId: "oauth-buffered", Method: "POST", Path: "/mcp", Headers: headers, Body: []byte(body)})
+			}
+			event := client.Inspector.list()[0]
+			if event.Status != 200 || event.BodyCaptured || len(event.Body) != 0 || event.Replayable || len(event.RedactedHeaders) != 2 {
+				t.Fatalf("OAuth capture retained credential data: %+v", event)
+			}
+			for _, path := range []string{"/api/events", "/api/export"} {
+				w := inspectContractAPI(client.Inspector, "GET", path, nil)
+				if w.Code != 200 || strings.Contains(w.Body.String(), token) || strings.Contains(w.Body.String(), base64.StdEncoding.EncodeToString([]byte(body))) {
+					t.Fatalf("OAuth credential appeared at %s: %s", path, w.Body)
+				}
+			}
+			action := inspectContractAction(t, client.Inspector, event.ID)
+			if _, err := client.Inspector.replay(context.Background(), event.ID, inspectionReplayInput{Action: action, Headers: headers, Body: byteSlicePointer([]byte(body))}); err == nil {
+				t.Fatal("OAuth credential reconstruction reached local replay")
+			}
+		})
+	}
+}
+
+func byteSlicePointer(value []byte) *[]byte { return &value }

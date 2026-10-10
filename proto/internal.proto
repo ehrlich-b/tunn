@@ -63,6 +63,11 @@ message FindTunnelResponse {
   // If found is true, this will be the address of the node.
   // The caller can then use this address to forward the request.
   string node_address = 2;
+  // Live publisher ownership for the login node's MCP consent checks.
+  string account_id = 3;
+  string creator_email = 4;
+  string endpoint_kind = 5;
+  repeated string allowed_emails = 6;
 }
 
 // Usage tracking messages

@@ -326,12 +326,16 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 	}
 	if !s.Quiet {
 		fmt.Printf("%s -> %s\n", publicURL, displayTarget)
+		if s.PublicPath == "/mcp" {
+			fmt.Printf("Connector URL: %s\n", publicURL)
+			fmt.Println("Paste this URL into Claude.ai or ChatGPT's MCP connector settings.")
+		}
 
 		// Warn if tunnel is open to the internet (no --allow specified)
 		if len(s.AllowedEmails) == 0 && len(accessTokenDigest) == 0 {
 			fmt.Println("Warning: Tunnel is open to the internet. Use --allow=email@example.com to restrict access.")
 		} else if s.PublicPath == "/mcp" {
-			fmt.Println("Access: private. Use the endpoint token as Tunn-Authorization: Bearer <token>.")
+			fmt.Println("Access: private. Sign in to tunn and approve the connector's access to this tunnel.")
 			if s.EndpointTokenPath != "" {
 				fmt.Printf("Endpoint token: %s (mode 0600)\n", s.EndpointTokenPath)
 			}

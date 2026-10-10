@@ -29,7 +29,7 @@ func (p *ProxyServer) isPlatformAuthorization(value string) bool {
 	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
 		return false
 	}
-	if strings.HasPrefix(parts[1], "tunn_ep_") || strings.HasPrefix(parts[1], "tunn_sk_") || strings.HasPrefix(parts[1], "tunn_gr_") {
+	if strings.HasPrefix(parts[1], "tunn_ep_") || strings.HasPrefix(parts[1], "tunn_sk_") || strings.HasPrefix(parts[1], "tunn_gr_") || strings.HasPrefix(parts[1], "tunn_mcp_") {
 		return true
 	}
 	if p.config != nil && p.config.ClientSecret != "" && subtle.ConstantTimeCompare([]byte(parts[1]), []byte(p.config.ClientSecret)) == 1 {

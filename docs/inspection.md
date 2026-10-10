@@ -123,3 +123,5 @@ no response body viewer, durable queue, provider retry, sender
 verification, trailer/gRPC replay, or shared retention service. Loopback access
 with a secret does not isolate the inspector from another process running as
 the same local user.
+
+Platform credentials (`tunn_mcp_`, `tunn_ep_`, `tunn_gr_`, and `tunn_sk_`) are also masked in visible metadata. Bodies containing those credentials are omitted even with body capture enabled, and replay reconstruction rejects them before contacting the application.

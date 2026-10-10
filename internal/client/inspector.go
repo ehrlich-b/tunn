@@ -134,6 +134,17 @@ func (i *Inspector) StartInspector(ctx context.Context) (string, error) {
 
 // Only standard representation/negotiation headers retain values. Custom
 // headers, signatures, credentials, cookies and forwarding identities redact.
+// Platform credentials stay out of inspection even when an application echoes
+// one in otherwise visible metadata or an explicitly captured body.
+func inspectionCredential(value string) bool {
+	for _, prefix := range []string{"tunn_mcp_", "tunn_ep_", "tunn_gr_", "tunn_sk_"} {
+		if strings.Contains(value, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 func safeInspectionHeader(key string) bool {
 	switch http.CanonicalHeaderKey(key) {
 	case "Accept", "Accept-Encoding", "Content-Type", "Content-Length", "Host":
@@ -144,7 +155,7 @@ func safeInspectionHeader(key string) bool {
 
 func inspectionPath(path string) (string, bool, bool) {
 	u, err := url.ParseRequestURI(path)
-	if err != nil || !strings.HasPrefix(path, "/") || strings.HasPrefix(path, "//") || u.IsAbs() || u.Fragment != "" || len(path) > 2048 {
+	if err != nil || inspectionCredential(path) || !strings.HasPrefix(path, "/") || strings.HasPrefix(path, "//") || u.IsAbs() || u.Fragment != "" || len(path) > 2048 {
 		return "[unavailable path]", true, true
 	}
 	if u.RawQuery == "" {
@@ -193,10 +204,10 @@ func (i *Inspector) beginConnection(id, protocol, method, path string, headers m
 		}
 	}
 	path, queryRedacted, truncated := inspectionPath(path)
-	if len(id) > 128 {
+	if len(id) > 128 || inspectionCredential(id) {
 		id = "[unavailable]"
 	}
-	if len(method) > 32 {
+	if len(method) > 32 || inspectionCredential(method) {
 		method = "[unavailable]"
 		truncated = true
 	}
@@ -217,11 +228,11 @@ func (i *Inspector) beginConnection(id, protocol, method, path string, headers m
 	for _, key := range keys {
 		canonical := strings.Clone(http.CanonicalHeaderKey(key))
 		value := headers[key]
-		if len(key) > 128 {
+		if len(key) > 128 || inspectionCredential(key) {
 			truncated = true
 			continue
 		}
-		if !safeInspectionHeader(key) {
+		if !safeInspectionHeader(key) || inspectionCredential(value) {
 			value = redacted
 			removed = append(removed, canonical)
 		}
@@ -325,6 +336,10 @@ func (c *inspectionCapture) finishReason(status int, responseBytes int64, reason
 		return InspectionEvent{}
 	}
 	c.finished = true
+	if inspectionCredential(string(c.event.Body)) {
+		c.event.Body = nil
+		c.event.BodyCaptured = false
+	}
 	event := c.event
 	event.Body = append([]byte(nil), event.Body...)
 	event.Status = status
@@ -480,7 +495,7 @@ func reconstruction(original InspectionEvent, input inspectionReplayInput) (stri
 		query, _ := url.ParseQuery(strings.SplitN(*input.Path, "?", 2)[1])
 		for _, values := range query {
 			for _, value := range values {
-				if strings.Contains(value, redacted) {
+				if strings.Contains(value, redacted) || inspectionCredential(value) {
 					return "", nil, nil, errors.New("reconstruct every redacted query value")
 				}
 			}
@@ -499,7 +514,7 @@ func reconstruction(original InspectionEvent, input inspectionReplayInput) (stri
 			if _, exists := headers[canonical]; exists {
 				return "", nil, nil, errors.New("duplicate reconstructed header")
 			}
-			if _, exists := original.Headers[canonical]; !exists || strings.Contains(value, redacted) || strings.ContainsAny(value, "\r\n") || len(value) > 1024 {
+			if _, exists := original.Headers[canonical]; !exists || strings.Contains(value, redacted) || strings.ContainsAny(value, "\r\n") || inspectionCredential(value) || len(value) > 1024 {
 				return "", nil, nil, errors.New("invalid reconstructed header")
 			}
 			headers[canonical] = value
@@ -521,6 +536,9 @@ func reconstruction(original InspectionEvent, input inspectionReplayInput) (stri
 	}
 	if input.Body != nil && !original.BodyCaptured && int64(len(body)) != original.RequestBytes {
 		return "", nil, nil, errors.New("reconstructed body must match the observed byte count")
+	}
+	if inspectionCredential(string(body)) {
+		return "", nil, nil, errors.New("platform credentials cannot be replayed to the application")
 	}
 	if len(body) > inspectBodyLimit {
 		return "", nil, nil, errors.New("reconstructed body exceeds 64 KiB")

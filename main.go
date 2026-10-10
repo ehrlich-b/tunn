@@ -58,7 +58,7 @@ Usage:
   tunn openclaw [options]         Preview OpenClaw phone setup (needs WebSockets)
   tunn login                     Authenticate with GitHub
   tunn serve [options] <target>  Explicit serve mode (same as default)
-  tunn mcp [options] -- <command> Expose a stdio MCP server at /mcp
+  tunn mcp [options] <command…>   Connect a local MCP server to an AI agent
   tunn tcp [options] <host:port>  Publish a private raw TCP endpoint
   tunn unix [options] <path>      Publish a private Unix socket
   tunn connect [options] <name>   Open a remote TCP endpoint locally
@@ -244,6 +244,7 @@ func printMCPUsage() {
 	fmt.Fprintln(os.Stderr, `tunn mcp - expose a local stdio MCP server
 
 Usage:
+  tunn mcp [options] <command> [args...]
   tunn mcp [options] -- <command> [args...]
   tunn mcp [options] <http-url>
 
@@ -263,7 +264,7 @@ Options:
 }
 
 func runMCP(args []string) {
-	opts, err := parseMCPFlags(args)
+	opts, err := parseMCPFlags(normalizeMCPArgs(args))
 	if err != nil {
 		common.LogError("invalid MCP command", "error", err)
 		printMCPUsage()

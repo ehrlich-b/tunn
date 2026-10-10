@@ -330,7 +330,7 @@ func (w *meterResponseWriter) Flush() {
 func grantBearer(r *http.Request) (string, string) {
 	for _, name := range []string{"Tunn-Authorization", "Authorization"} {
 		fields := strings.Fields(r.Header.Get(name))
-		if len(fields) == 2 && strings.EqualFold(fields[0], "Bearer") && strings.HasPrefix(fields[1], "tunn_gr_") {
+		if len(fields) == 2 && strings.EqualFold(fields[0], "Bearer") && (strings.HasPrefix(fields[1], "tunn_gr_") || strings.HasPrefix(fields[1], "tunn_mcp_")) {
 			return fields[1], name
 		}
 	}

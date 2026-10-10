@@ -157,6 +157,10 @@ type FindTunnelResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Found         bool                   `protobuf:"varint,1,opt,name=found,proto3" json:"found,omitempty"`
 	NodeAddress   string                 `protobuf:"bytes,2,opt,name=node_address,json=nodeAddress,proto3" json:"node_address,omitempty"`
+	AccountId     string                 `protobuf:"bytes,3,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	CreatorEmail  string                 `protobuf:"bytes,4,opt,name=creator_email,json=creatorEmail,proto3" json:"creator_email,omitempty"`
+	EndpointKind  string                 `protobuf:"bytes,5,opt,name=endpoint_kind,json=endpointKind,proto3" json:"endpoint_kind,omitempty"`
+	AllowedEmails []string               `protobuf:"bytes,6,rep,name=allowed_emails,json=allowedEmails,proto3" json:"allowed_emails,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -203,6 +207,34 @@ func (x *FindTunnelResponse) GetNodeAddress() string {
 		return x.NodeAddress
 	}
 	return ""
+}
+
+func (x *FindTunnelResponse) GetAccountId() string {
+	if x != nil {
+		return x.AccountId
+	}
+	return ""
+}
+
+func (x *FindTunnelResponse) GetCreatorEmail() string {
+	if x != nil {
+		return x.CreatorEmail
+	}
+	return ""
+}
+
+func (x *FindTunnelResponse) GetEndpointKind() string {
+	if x != nil {
+		return x.EndpointKind
+	}
+	return ""
+}
+
+func (x *FindTunnelResponse) GetAllowedEmails() []string {
+	if x != nil {
+		return x.AllowedEmails
+	}
+	return nil
 }
 
 type RecordUsageRequest struct {
@@ -1831,10 +1863,15 @@ const file_proto_internal_proto_rawDesc = "" +
 	"\ris_login_node\x18\x01 \x01(\bR\visLoginNode\x12\x17\n" +
 	"\anode_id\x18\x02 \x01(\tR\x06nodeId\"0\n" +
 	"\x11FindTunnelRequest\x12\x1b\n" +
-	"\ttunnel_id\x18\x01 \x01(\tR\btunnelId\"M\n" +
+	"\ttunnel_id\x18\x01 \x01(\tR\btunnelId\"\xdd\x01\n" +
 	"\x12FindTunnelResponse\x12\x14\n" +
 	"\x05found\x18\x01 \x01(\bR\x05found\x12!\n" +
-	"\fnode_address\x18\x02 \x01(\tR\vnodeAddress\"I\n" +
+	"\fnode_address\x18\x02 \x01(\tR\vnodeAddress\x12\x1d\n" +
+	"\n" +
+	"account_id\x18\x03 \x01(\tR\taccountId\x12#\n" +
+	"\rcreator_email\x18\x04 \x01(\tR\fcreatorEmail\x12#\n" +
+	"\rendpoint_kind\x18\x05 \x01(\tR\fendpointKind\x12%\n" +
+	"\x0eallowed_emails\x18\x06 \x03(\tR\rallowedEmails\"I\n" +
 	"\x12RecordUsageRequest\x12\x1d\n" +
 	"\n" +
 	"account_id\x18\x01 \x01(\tR\taccountId\x12\x14\n" +

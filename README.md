@@ -164,7 +164,13 @@ tunn mcp --name work-tools http://127.0.0.1:3000/internal/mcp
 ```
 
 The endpoint is `https://work-tools.tunn.to/mcp`. MCP endpoints are private
-unless you explicitly pass `--public`. Each run creates a random,
+unless you explicitly pass `--public`. Paste the printed connector URL into
+your AI client's remote MCP settings, sign in to tunn, and approve access to
+this tunnel. The client discovers OAuth, registers dynamically and exchanges
+a PKCE authorization code for a one-hour token. Owners can list and disconnect
+clients at `/account/mcp`. See [the connector guide](docs/mcp-connectors.md).
+
+For clients configured manually, each run also creates a random,
 endpoint-scoped token in `~/.tunn/endpoints/work-tools.token`; only its SHA-256
 digest is sent to the relay. Retrieve it later with `tunn token work-tools` and
 configure the remote client to send it as either:

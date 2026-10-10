@@ -70,10 +70,11 @@ type ProxyServer struct {
 	PublicAddr string
 
 	// Login node discovery (for non-login nodes)
-	loginNodeConn   *grpc.ClientConn
-	loginNodeClient internalv1.InternalServiceClient
-	loginNodeMu     sync.RWMutex
-	isLoginNode     bool
+	loginNodeConn     *grpc.ClientConn
+	loginNodeClient   internalv1.InternalServiceClient
+	loginNodeMu       sync.RWMutex
+	loginNodeHTTPAddr string
+	isLoginNode       bool
 
 	// Mock OIDC server (dev only)
 	mockOIDC *mockoidc.Server
@@ -85,6 +86,7 @@ type ProxyServer struct {
 	domains        domains.Backend
 	domainRegistry *domains.Registry
 	operations     operationalCounters
+	mcpOAuth       *mcpOAuthStore
 
 	// Proxy storage reference (non-login node only, to update connection on discovery)
 	proxyStorage *storage.ProxyStorage
@@ -119,6 +121,7 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 	var storageImpl storage.Storage
 	var localStorage *storage.LocalStorage
 	var localMeter *metering.Store
+	var localOAuth *mcpOAuthStore
 
 	if cfg.LoginNode {
 		// Login node: initialize SQLite and local storage
@@ -132,6 +135,10 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 			return nil, fmt.Errorf("initialize ingress meter: %w", err)
 		}
 		storageImpl = localStorage
+		localOAuth, err = newMCPOAuthStore(db)
+		if err != nil {
+			return nil, fmt.Errorf("initialize MCP authorization: %w", err)
+		}
 		common.LogInfo("login node initialized", "db_path", cfg.DBPath)
 	} else {
 		// Non-login node: use proxy storage (connection set later during discovery)
@@ -231,6 +238,7 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 		PublicAddr:         cfg.PublicAddr,
 		storage:            storageImpl,
 		planMeter:          true,
+		mcpOAuth:           localOAuth,
 		proxyStorage:       proxyStorage,
 		isLoginNode:        cfg.LoginNode,
 		usageBuffer:        NewUsageBuffer(),
@@ -778,6 +786,10 @@ func (p *ProxyServer) createHandler() http.Handler {
 
 	// Account page (requires auth)
 	mux.HandleFunc("/account", p.handleAccount)
+	mux.HandleFunc("/account/mcp", p.handleMCPOAuth)
+	mux.HandleFunc("/api/mcp/clients", p.handleMCPOAuth)
+	mux.HandleFunc("/.well-known/oauth-authorization-server", p.handleMCPOAuth)
+	mux.HandleFunc("/oauth/", p.handleMCPOAuth)
 
 	mux.HandleFunc("/api/hosts", p.handleHosts)
 
@@ -803,6 +815,10 @@ func (p *ProxyServer) createHandler() http.Handler {
 		// Publishers own every path on their tunnel origin. Serving platform
 		// forms there would let their scripts read session-bound CSRF tokens.
 		if p.customerHost(r.Host) || extractTunnelID(requestHostname(r.Host), p.Domain) != "" {
+			if !p.customerHost(r.Host) && (r.URL.Path == "/.well-known/oauth-protected-resource/mcp" || r.URL.Path == "/.well-known/oauth-protected-resource") {
+				p.handleMCPResourceMetadata(w, r, extractTunnelID(requestHostname(r.Host), p.Domain))
+				return
+			}
 			p.handleWebProxy(w, r)
 			return
 		}
@@ -951,6 +967,7 @@ func (p *ProxyServer) findAndConnectLoginNode() bool {
 
 			p.loginNodeConn = conn
 			p.loginNodeClient = internalv1.NewInternalServiceClient(conn)
+			p.loginNodeHTTPAddr = resp.NodeId
 
 			// Update proxy storage connection (for non-login nodes)
 			if p.proxyStorage != nil {

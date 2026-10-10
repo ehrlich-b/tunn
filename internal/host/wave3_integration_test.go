@@ -2,15 +2,18 @@ package host
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/ehrlich-b/tunn/internal/metering"
 	"github.com/ehrlich-b/tunn/internal/storage"
 	"github.com/ehrlich-b/tunn/internal/store"
 	meterpb "github.com/ehrlich-b/tunn/pkg/proto/meteringv1"
+	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
 )
 
 func TestIntegrationAccountCutoffBillingReconciliationAndSuspension(t *testing.T) {
@@ -115,5 +118,50 @@ func TestIntegrationAccountCutoffBillingReconciliationAndSuspension(t *testing.T
 	after, err := ledger.Export(ctx, &meterpb.ExportRequest{Owner: account.ID})
 	if err != nil || after.OwnerUsage.AdmittedRequests != before.OwnerUsage.AdmittedRequests+1 || after.OwnerUsage.TotalBytes != before.OwnerUsage.TotalBytes+3 {
 		t.Fatalf("resume reset accounting: before=%v after=%v err=%v", before, after, err)
+	}
+}
+
+func TestIntegrationMCPOAuthStripsCredentialsBeforePublisherInspection(t *testing.T) {
+	f := newMCPOAuthFixture(t)
+	connector := discoverMCPClient(t, f)
+	token := connector.accessToken(t)
+	stream := f.tunnel.Stream.(*meteringFixtureStream)
+	forward := stream.hook
+	const applicationToken = "application-bearer-fixture"
+	stream.hook = func(message *pb.TunnelMessage) error {
+		if request := message.GetHttpRequest(); request != nil {
+			data, err := json.Marshal(request)
+			if err != nil || strings.Contains(string(data), token) || strings.Contains(string(data), "tunn_auth") {
+				t.Errorf("OAuth credentials reached publisher inspection: %s %v", data, err)
+			}
+			if request.Headers["Authorization"] != "Bearer "+applicationToken {
+				t.Errorf("application credential lost: %v", request.Headers)
+			}
+		}
+		return forward(message)
+	}
+	r := httptest.NewRequest(http.MethodPost, "https://tools.tunn.test/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"ping"}`))
+	r.Header.Set("Tunn-Authorization", "Bearer "+token)
+	r.Header.Add("Authorization", "Bearer "+token)
+	r.Header.Add("Authorization", "Bearer "+applicationToken)
+	r.AddCookie(&http.Cookie{Name: "tunn_auth", Value: createTestJWT("owner@example.com", f.p.config.JWTSecret)})
+	w := httptest.NewRecorder()
+	f.p.createHandler().ServeHTTP(w, r)
+	if w.Code != 200 || f.forwarded != 1 {
+		t.Fatalf("OAuth ingress: %d %s", w.Code, w.Body)
+	}
+	export, err := f.p.meter.Export(context.Background(), &meterpb.ExportRequest{Owner: f.tunnel.AccountID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	oauthEvents := 0
+	for _, event := range export.Events {
+		if event.AuthMethod == "mcp_oauth" && event.Allowed && event.Forwarded && event.Finished {
+			oauthEvents++
+		}
+	}
+	data, err := json.Marshal(export)
+	if err != nil || strings.Contains(string(data), token) || len(export.Events) != 2 || oauthEvents != 1 || export.OwnerUsage.AdmittedRequests != 1 {
+		t.Fatalf("OAuth audit exposed credentials or lost attribution: %s %v", data, err)
 	}
 }

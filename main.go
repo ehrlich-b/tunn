@@ -887,6 +887,10 @@ func runHost() {
 	if *keyFile != "/app/certs/privkey.pem" {
 		cfg.KeyFile = *keyFile
 	}
+	if err := cfg.ValidateHost(); err != nil {
+		common.LogError("invalid host configuration", "error", err)
+		os.Exit(1)
+	}
 
 	proxy, err := host.NewProxyServer(cfg)
 	if err != nil {

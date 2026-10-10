@@ -3,6 +3,7 @@ package host
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/tls"
 	"encoding/hex"
 	"errors"
@@ -28,6 +29,7 @@ const MaxBodySize = 100 * 1024 * 1024
 // These are tunn platform cookies that tunnel owners should never see.
 var platformCookies = map[string]bool{
 	"tunn_session": true,
+	authCookieName: true,
 }
 
 // stripPlatformCookies removes platform cookies from a Cookie header value.
@@ -117,7 +119,11 @@ func (p *ProxyServer) handleWebProxy(w http.ResponseWriter, r *http.Request) {
 
 // proxyToLocal handles proxying for a tunnel hosted on the current node
 func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunnelID string) {
-	tunnel, _ := p.tunnelServer.GetTunnel(tunnelID)
+	tunnel, exists := p.tunnelServer.GetTunnel(tunnelID)
+	if !exists {
+		http.Error(w, "Tunnel offline", http.StatusServiceUnavailable)
+		return
+	}
 
 	common.LogDebug("proxying web request locally",
 		"tunnel_id", tunnelID,
@@ -127,7 +133,7 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 
 	// Auth is only required if the tunnel has an allow-list (--allow was specified)
 	// If no allow-list, the tunnel is open to the internet (URLs are random, act like strong passwords)
-	if len(tunnel.AllowedEmails) > 0 {
+	if len(tunnel.AllowedEmails) > 0 || len(tunnel.accessTokenDigest()) > 0 {
 		// Browsers authenticate with the platform cookie. Agents and other
 		// machine clients may use a signed tunn token in a bearer header.
 		userEmail, authenticated := p.getAuthFromCookie(r)
@@ -135,11 +141,15 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		capabilityAuthenticated := false
 		if !authenticated {
 			userEmail, platformAuthHeader, capabilityAuthenticated, authenticated = p.getAuthFromTunnelBearer(r, tunnel)
+		} else {
+			// A valid cookie must not cause an accompanying tunn credential to
+			// leak to the application. The cookie still supplies the identity.
+			_, platformAuthHeader, _, _ = p.getAuthFromTunnelBearer(r, tunnel)
 		}
 		if !authenticated {
 			// MCP clients cannot consume the browser login redirect. Return an
 			// explicit bearer challenge for protocol endpoints and bearer attempts.
-			if r.URL.Path == "/mcp" || tunnel.EndpointProtocol == "tcp" || r.Header.Get("Authorization") != "" || r.Header.Get("Tunn-Authorization") != "" {
+			if common.IsWebSocketUpgrade(r.Header) || r.URL.Path == "/mcp" || tunnel.EndpointProtocol == "tcp" || r.Header.Get("Authorization") != "" || r.Header.Get("Tunn-Authorization") != "" {
 				w.Header().Set("WWW-Authenticate", `Bearer realm="tunn"`)
 				http.Error(w, "Authentication required", http.StatusUnauthorized)
 				return
@@ -167,7 +177,7 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		allowed := capabilityAuthenticated
 		if !capabilityAuthenticated {
 			// Get user's email bucket (all emails associated with their account)
-			if p.storage.Available() {
+			if p.storage != nil && p.storage.Available() {
 				if bucket, err := p.storage.GetEmailBucket(r.Context(), userEmail); err == nil {
 					userEmails = bucket
 				}
@@ -175,7 +185,7 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 
 			// Check if any email in user's bucket is on the tunnel's allow-list.
 			// Creator is implicitly always allowed.
-			allowListWithCreator := append(tunnel.AllowedEmails, tunnel.CreatorEmail)
+			allowListWithCreator := append(append([]string(nil), tunnel.AllowedEmails...), tunnel.CreatorEmail)
 			allowed = isEmailBucketAllowed(userEmails, allowListWithCreator)
 		}
 
@@ -211,6 +221,11 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 			// the request so other handlers retain the original headers.
 			clonedRequest := r.Clone(r.Context())
 			clonedRequest.Header = r.Header.Clone()
+			if capabilityAuthenticated {
+				parts := strings.Fields(r.Header.Get(platformAuthHeader))
+				digest := sha256.Sum256([]byte(parts[1]))
+				clonedRequest = clonedRequest.WithContext(context.WithValue(r.Context(), webSocketAccessKey{}, digest[:]))
+			}
 			clonedRequest.Header.Del(platformAuthHeader)
 			r = clonedRequest
 		}
@@ -272,6 +287,17 @@ func responseHasStarted(err error) bool {
 
 // proxyHTTPOverGRPC forwards an HTTP request over the gRPC tunnel and writes the response
 func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, tunnel *TunnelConnection) error {
+	if common.IsWebSocketUpgrade(r.Header) {
+		if !common.ValidWebSocketRequest(r) {
+			http.Error(w, "Invalid WebSocket upgrade; use HTTP/1.1 and version 13", http.StatusBadRequest)
+			return nil
+		}
+		if !tunnel.Supports(common.CapabilityWebSocketV1) {
+			http.Error(w, "Publisher does not support WebSockets; upgrade tunn", http.StatusNotImplemented)
+			return nil
+		}
+		return p.proxyWebSocketOverGRPC(w, r, tunnel)
+	}
 	if tunnel.Supports(common.CapabilityHTTPStreamV1) {
 		return p.proxyStreamingHTTPOverGRPC(w, r, tunnel)
 	}
@@ -296,7 +322,7 @@ func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, 
 
 	// Convert headers to map (join multi-value headers per HTTP spec)
 	// SECURITY: Strip platform cookies to prevent tunnel owners from stealing sessions
-	headers := forwardedRequestHeaders(r.Header)
+	headers := p.forwardedHTTPHeaders(r)
 
 	// Create HttpRequest message
 	httpReq := &pb.HttpRequest{
@@ -425,10 +451,19 @@ func (p *ProxyServer) proxyToNode(w http.ResponseWriter, r *http.Request, nodeAd
 	// NewSingleHostReverseProxy's default Director rewrites Host to target.Host,
 	// but the remote node needs the original subdomain (e.g., abc123.tunn.to).
 	originalDirector := proxy.Director
+	peer, proto := p.forwardingPeer(r)
 	proxy.Director = func(req *http.Request) {
 		originalHost := req.Host // Save original before Director modifies it
 		originalDirector(req)
 		req.Host = originalHost // Restore original Host
+		req.Header.Del(relayForwardedFor)
+		req.Header.Del(relayForwardedProto)
+		req.Header.Del(relayForwardedSignature)
+		if signature := p.forwardingSignature(originalHost, peer, proto); signature != "" {
+			req.Header.Set(relayForwardedFor, peer)
+			req.Header.Set(relayForwardedProto, proto)
+			req.Header.Set(relayForwardedSignature, signature)
+		}
 	}
 
 	// Invalidate cache on 503 (tunnel no longer on this node)

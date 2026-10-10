@@ -1,6 +1,7 @@
 package host
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -145,6 +146,15 @@ func (t *TunnelConnection) updateAccessTokenDigest(digest []byte) {
 	t.authMu.Lock()
 	t.AccessTokenSHA256 = append(t.AccessTokenSHA256[:0], digest...)
 	t.authMu.Unlock()
+	// Revocation includes upgraded sockets using the previous capability.
+	// Cookie-authenticated sockets have no capability digest.
+	t.pendingMu.RLock()
+	defer t.pendingMu.RUnlock()
+	for _, pending := range t.pendingStreams {
+		if len(pending.accessDigest) > 0 && !bytes.Equal(pending.accessDigest, digest) {
+			pending.stop()
+		}
+	}
 }
 
 // SendMessage sends a message on the stream in a thread-safe manner.
@@ -558,7 +568,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 			RegisterResponse: &pb.RegisterResponse{
 				Success:      true,
 				PublicUrl:    publicURL,
-				Capabilities: []string{common.CapabilityHTTPStreamV1, common.CapabilityConnectionStreamV1},
+				Capabilities: []string{common.CapabilityHTTPStreamV1, common.CapabilityConnectionStreamV1, common.CapabilityWebSocketV1},
 			},
 		},
 	}

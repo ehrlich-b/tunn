@@ -40,7 +40,7 @@ func (p *ProxyServer) proxyStreamingHTTPOverGRPC(w http.ResponseWriter, r *http.
 		HttpRequest: &pb.HttpRequestHead{
 			Method:        r.Method,
 			Path:          r.URL.RequestURI(),
-			Headers:       forwardedRequestHeaders(r.Header),
+			Headers:       p.forwardedRequestHeaders(r.Header),
 			ContentLength: r.ContentLength,
 		},
 	}

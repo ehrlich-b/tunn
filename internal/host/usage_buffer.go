@@ -65,6 +65,9 @@ func (b *UsageBuffer) Flush(ctx context.Context, store storage.Storage) (int, er
 			b.mu.Lock()
 			b.pending[accountID] += bytes
 			b.flushing[accountID] -= bytes
+			if b.flushing[accountID] == 0 {
+				delete(b.flushing, accountID)
+			}
 			b.mu.Unlock()
 
 			if firstErr == nil {
@@ -100,8 +103,8 @@ func (b *UsageBuffer) Len() int {
 	return len(b.pending)
 }
 
-// QuotaCache caches monthly usage with stale fallback.
-// When login node is unavailable, returns stale cached values rather than failing.
+// QuotaCache stores monthly usage snapshots. Cached data must not authorize
+// traffic when authoritative quota storage is unavailable.
 type QuotaCache struct {
 	mu      sync.RWMutex
 	entries map[string]*quotaCacheEntry

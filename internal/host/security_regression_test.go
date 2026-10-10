@@ -101,7 +101,11 @@ func securityEndpoint(p *ProxyServer, name, owner, accountID string, allowed []s
 			tunnel.pendingRequests[req.ConnectionId] <- &pb.HttpResponse{ConnectionId: req.ConnectionId, StatusCode: 200, Body: []byte("fixture")}
 		}
 		if open := m.GetConnectionOpen(); open != nil {
-			captured = open.HttpRequest.Headers
+			if open.HttpRequest != nil {
+				captured = open.HttpRequest.Headers
+			} else {
+				captured = map[string]string{"protocol": open.Protocol}
+			}
 			tunnel.routeConnectionMessage(&pb.TunnelMessage{Message: &pb.TunnelMessage_ConnectionAccept{ConnectionAccept: &pb.ConnectionAccept{ConnectionId: open.ConnectionId, Success: true, HttpResponse: &pb.HttpResponseHead{StatusCode: 200}}}})
 			tunnel.routeConnectionMessage(&pb.TunnelMessage{Message: &pb.TunnelMessage_ConnectionHalfClose{ConnectionHalfClose: &pb.ConnectionHalfClose{ConnectionId: open.ConnectionId}}})
 		}
@@ -187,6 +191,17 @@ func TestSecurityConsumedMagicLinkCannotAuthenticateOtherPaths(t *testing.T) {
 			t.Error("consumed magic-link JWT registered a new publisher as victim")
 		}
 	})
+	t.Run("account_middleware", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "https://tunn.test/account", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		p.CheckJWT(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+			t.Error("consumed magic link authenticated through account middleware")
+		})).ServeHTTP(w, req)
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("middleware status = %d, want 401", w.Code)
+		}
+	})
 }
 
 func TestSecurityOverQuotaAccountIsBlocked(t *testing.T) {
@@ -202,13 +217,31 @@ func TestSecurityOverQuotaAccountIsBlocked(t *testing.T) {
 	if p.CheckQuota(context.Background(), account.ID, "free") {
 		t.Fatal("precondition: account UUID quota check allowed exhausted account")
 	}
-	securityEndpoint(p, "quota", account.PrimaryEmail, account.ID, nil, false)
-	req := httptest.NewRequest("GET", "https://quota.tunn.test/", nil)
-	w := httptest.NewRecorder()
-	p.createHandler().ServeHTTP(w, req)
-	if w.Code != 429 {
-		usage, _ := s.GetMonthlyUsage(context.Background(), account.ID)
-		t.Errorf("over-quota account forwarded with status=%d, UUID usage=%d", w.Code, usage)
+	for _, protocol := range []string{"legacy HTTP", "streaming HTTP", "MCP", "TCP"} {
+		t.Run(protocol, func(t *testing.T) {
+			tunnel, headers := securityEndpoint(p, "quota", account.PrimaryEmail, account.ID, nil, protocol == "streaming HTTP")
+			req := httptest.NewRequest("GET", "https://quota.tunn.test/", nil)
+			if protocol == "MCP" {
+				req = httptest.NewRequest("POST", "https://quota.tunn.test/mcp", nil)
+			}
+			if protocol == "TCP" {
+				tunnel.EndpointProtocol = "tcp"
+				req = httptest.NewRequest("CONNECT", "https://quota.tunn.test"+common.TCPConnectPath, nil)
+				req.Host = "quota.tunn.test"
+				req.URL.Path = ""
+				req.RequestURI = "quota.tunn.test:443"
+				req.Header.Set(common.TCPConnectHeader, common.TCPConnectValue)
+			}
+			w := httptest.NewRecorder()
+			p.createHandler().ServeHTTP(w, req)
+			if w.Code != http.StatusTooManyRequests {
+				usage, _ := s.GetMonthlyUsage(context.Background(), account.ID)
+				t.Errorf("over-quota account was not blocked: status=%d, UUID usage=%d", w.Code, usage)
+			}
+			if *headers != nil {
+				t.Error("over-quota request reached the publisher")
+			}
+		})
 	}
 }
 
@@ -420,8 +453,10 @@ func TestSecurityPublicPublisherReceivesOnlyApplicationCredentials(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
+	p.config.ClientSecret = "fixture-master-secret"
+	p.tunnelServer.userTokens = map[string]string{"owner@example.test": "fixture-user-secret"}
 	for _, streaming := range []bool{false, true} {
-		for _, credential := range []string{accountToken, magicToken, expired, "tunn_ep_another-endpoint"} {
+		for _, credential := range []string{accountToken, magicToken, expired, "tunn_ep_another-endpoint", "tunn_sk_fixture", p.config.ClientSecret, "fixture-user-secret"} {
 			t.Run(fmt.Sprintf("streaming=%v/token=%x", streaming, sha256.Sum256([]byte(credential))), func(t *testing.T) {
 				_, headers := securityEndpoint(p, "publisher", "", "", nil, streaming)
 				req := httptest.NewRequest("GET", "https://publisher.tunn.test/", nil)
@@ -439,6 +474,15 @@ func TestSecurityPublicPublisherReceivesOnlyApplicationCredentials(t *testing.T)
 				}
 				if req.Header.Get("Authorization") == "" || len(req.Header.Values("Cookie")) != 2 {
 					t.Fatal("sanitizing mutated the original request")
+				}
+				// Multiple fields must not conceal a platform token behind an
+				// application credential that the relay should preserve.
+				req.Header.Set("Authorization", "Bearer upstream-application-token")
+				req.Header.Add("Authorization", "Bearer "+credential)
+				w = httptest.NewRecorder()
+				p.createHandler().ServeHTTP(w, req)
+				if (*headers)["Authorization"] != "Bearer upstream-application-token" {
+					t.Fatalf("mixed Authorization headers were not sanitized: %q", (*headers)["Authorization"])
 				}
 			})
 		}

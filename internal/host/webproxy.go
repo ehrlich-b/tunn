@@ -40,7 +40,7 @@ func stripPlatformCookies(cookieHeader string) string {
 		// Cookie format: name=value
 		name := part
 		if idx := strings.Index(part, "="); idx > 0 {
-			name = part[:idx]
+			name = strings.TrimSpace(part[:idx])
 		}
 		if !strings.HasPrefix(name, "tunn_") && !strings.HasPrefix(name, "__Host-tunn_") && !strings.HasPrefix(name, "__Secure-tunn_") {
 			kept = append(kept, part)
@@ -217,18 +217,6 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 			r = clonedRequest
 		}
 	}
-	// A browser cookie may have authenticated the request before bearer auth
-	// was considered. Still remove a recognized tunn credential in the standard
-	// header, while preserving an upstream application's unrelated credential.
-	if authorization := r.Header.Get("Authorization"); authorization != "" {
-		if p.isPlatformAuthorization(authorization) {
-			clonedRequest := r.Clone(r.Context())
-			clonedRequest.Header = r.Header.Clone()
-			clonedRequest.Header.Del("Authorization")
-			r = clonedRequest
-		}
-	}
-
 	// Check quota before proxying
 	if !tunnel.accountQuotaExempt && (tunnel.CreatorEmail != "" || tunnel.AccountID != "") {
 		if !p.CheckQuota(r.Context(), tunnel.AccountID, tunnel.Plan) {
@@ -301,7 +289,7 @@ func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, 
 
 	// Convert headers to map (join multi-value headers per HTTP spec)
 	// SECURITY: Strip platform cookies to prevent tunnel owners from stealing sessions
-	headers := forwardedRequestHeaders(r.Header)
+	headers := p.forwardedRequestHeaders(r.Header)
 
 	// Create HttpRequest message
 	httpReq := &pb.HttpRequest{
@@ -389,13 +377,25 @@ func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, 
 	}
 }
 
-func forwardedRequestHeaders(source http.Header) map[string]string {
+func (p *ProxyServer) forwardedRequestHeaders(source http.Header) map[string]string {
 	headers := make(map[string]string, len(source))
 	for key, values := range source {
 		// This header belongs exclusively to the relay, even when a browser
 		// cookie authenticated the request instead of the bearer credential.
 		if strings.EqualFold(key, "Tunn-Authorization") {
 			continue
+		}
+		if strings.EqualFold(key, "Authorization") {
+			kept := make([]string, 0, len(values))
+			for _, value := range values {
+				if !p.isPlatformAuthorization(value) {
+					kept = append(kept, value)
+				}
+			}
+			if len(kept) == 0 {
+				continue
+			}
+			values = kept
 		}
 		value := strings.Join(values, ", ")
 		if strings.EqualFold(key, "Cookie") {

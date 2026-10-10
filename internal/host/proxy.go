@@ -1000,18 +1000,35 @@ func createInternalTLSConfig(cfg *config.Config) (*tls.Config, error) {
 
 // findAndConnectLoginNode discovers which peer is the login node and connects to it
 func (p *ProxyServer) findAndConnectLoginNode() bool {
-	p.loginNodeMu.Lock()
-	defer p.loginNodeMu.Unlock()
+	return p.findAndConnectLoginNodeContext(context.Background())
+}
+
+func (p *ProxyServer) findAndConnectLoginNodeContext(parent context.Context) bool {
+	pause := func() bool {
+		timer := time.NewTimer(500 * time.Millisecond)
+		defer timer.Stop()
+		select {
+		case <-parent.Done():
+			return false
+		case <-timer.C:
+			return true
+		}
+	}
 
 	// Query each peer to find the login node (with delay between queries)
 	for addr, client := range p.nodeClients {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if parent.Err() != nil {
+			return false
+		}
+		ctx, cancel := context.WithTimeout(parent, 5*time.Second)
 		resp, err := client.GetNodeInfo(ctx, &internalv1.NodeInfoRequest{})
 		cancel()
 
 		if err != nil {
 			common.LogError("failed to get node info", "addr", addr, "error", err)
-			time.Sleep(500 * time.Millisecond) // Delay before next query
+			if !pause() {
+				return false
+			}
 			continue
 		}
 
@@ -1023,11 +1040,18 @@ func (p *ProxyServer) findAndConnectLoginNode() bool {
 			conn, err := createInternalClient(addr, p.config)
 			if err != nil {
 				common.LogError("failed to connect to login node", "addr", addr, "error", err)
-				time.Sleep(500 * time.Millisecond)
+				if !pause() {
+					return false
+				}
 				continue
+			}
+			if parent.Err() != nil {
+				_ = conn.Close()
+				return false
 			}
 
 			// Close existing connection if any
+			p.loginNodeMu.Lock()
 			if p.loginNodeConn != nil {
 				_ = p.loginNodeConn.Close()
 			}
@@ -1041,11 +1065,14 @@ func (p *ProxyServer) findAndConnectLoginNode() bool {
 				p.proxyStorage.SetConnection(conn)
 				common.LogInfo("proxy storage connected to login node")
 			}
+			p.loginNodeMu.Unlock()
 
 			return true
 		}
 
-		time.Sleep(500 * time.Millisecond) // Delay before next query
+		if !pause() {
+			return false
+		}
 	}
 
 	common.LogInfo("no login node found among peers (may be single-node or all nodes are proxies)")
@@ -1113,7 +1140,7 @@ func (p *ProxyServer) loginNodeDiscoveryLoop(ctx context.Context) {
 
 		// Not connected - try to find login node
 		common.LogInfo("login node not available, attempting discovery", "backoff", backoff)
-		if p.findAndConnectLoginNode() {
+		if p.findAndConnectLoginNodeContext(ctx) {
 			backoff = minBackoff // Reset on success
 		} else {
 			// Exponential backoff on failure
@@ -1146,7 +1173,9 @@ func (p *ProxyServer) usageFlushLoop(ctx context.Context) {
 		case <-ctx.Done():
 			// Final flush attempt on shutdown
 			if p.usageBuffer.Len() > 0 && p.storage.Available() {
-				flushed, _ := p.usageBuffer.Flush(context.Background(), p.storage)
+				shutdownCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+				flushed, _ := p.usageBuffer.Flush(shutdownCtx, p.storage)
+				cancel()
 				if flushed > 0 {
 					common.LogInfo("flushed usage on shutdown", "accounts", flushed)
 				}

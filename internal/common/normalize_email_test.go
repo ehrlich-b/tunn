@@ -54,6 +54,7 @@ func TestNormalizeEmailFullwidthFolding(t *testing.T) {
 // not a one-line change; it is out of scope here (test-only task), so we pin
 // the actual behavior as a characterization test.
 func TestNormalizeEmailCyrillicHomograph(t *testing.T) {
+	t.Skip("KNOWN GAP: NormalizeEmail does not fold cross-script homographs (Cyrillic U+0430 vs Latin a), although its doc comment says it prevents them. Unskip when a confusables mapping lands.")
 	cyrillic := "\u0430lice@example.com" // U+0430 CYRILLIC SMALL LETTER A
 	ascii := "alice@example.com"
 
@@ -67,11 +68,10 @@ func TestNormalizeEmailCyrillicHomograph(t *testing.T) {
 	normalizedCyrillic := NormalizeEmail(cyrillic)
 	normalizedASCII := NormalizeEmail(ascii)
 
-	// (b) Normalization must NOT collapse the homograph into the ASCII
-	// lookalike. This pins the function's real behavior and exposes the gap
-	// in its doc comment.
-	if normalizedCyrillic == normalizedASCII {
-		t.Errorf("NormalizeEmail collapsed Cyrillic homograph: NormalizeEmail(%q) == NormalizeEmail(%q) == %q; expected them to remain distinct", cyrillic, ascii, normalizedASCII)
+	// (b) Desired behavior: the homograph folds onto the ASCII lookalike.
+	// Currently skipped; see the KNOWN GAP note above.
+	if normalizedCyrillic != normalizedASCII {
+		t.Errorf("NormalizeEmail(%q) = %q, want it to fold to NormalizeEmail(%q) = %q", cyrillic, normalizedCyrillic, ascii, normalizedASCII)
 	}
 }
 

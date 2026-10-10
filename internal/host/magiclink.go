@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -59,7 +60,7 @@ func (p *ProxyServer) handleMagicLinkRequest(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Generate magic link JWT (5 minute expiry)
-	token, err := p.generateMagicLinkToken(email)
+	token, err := p.generateMagicLinkTokenForReturnTo(email, p.sanitizeReturnTo(r.URL.Query().Get("return_to")))
 	if err != nil {
 		common.LogError("failed to generate magic link token", "error", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -72,7 +73,7 @@ func (p *ProxyServer) handleMagicLinkRequest(w http.ResponseWriter, r *http.Requ
 	// Check for device code in URL params (for CLI login flow)
 	deviceUserCode := r.URL.Query().Get("device_user_code")
 	if deviceUserCode != "" {
-		magicLinkURL += "&device_code=" + deviceUserCode
+		magicLinkURL += "&device_code=" + url.QueryEscape(deviceUserCode)
 	}
 
 	// Send email
@@ -135,11 +136,24 @@ func (p *ProxyServer) handleMagicLinkVerify(w http.ResponseWriter, r *http.Reque
 	}
 
 	// Redirect to account page
+	verified, err := jwt.Parse(tokenString, func(*jwt.Token) (any, error) { return p.getJWTSigningKey(), nil }, jwt.WithValidMethods([]string{"HS256"}))
+	if err == nil && verified.Valid {
+		if claims, ok := verified.Claims.(jwt.MapClaims); ok {
+			if returnTo, ok := claims["return_to"].(string); ok && returnTo != "" && returnTo != "/" {
+				http.Redirect(w, r, p.sanitizeReturnTo(returnTo), http.StatusFound)
+				return
+			}
+		}
+	}
 	http.Redirect(w, r, "/account", http.StatusFound)
 }
 
 // generateMagicLinkToken creates a JWT for magic link authentication
 func (p *ProxyServer) generateMagicLinkToken(email string) (string, error) {
+	return p.generateMagicLinkTokenForReturnTo(email, "")
+}
+
+func (p *ProxyServer) generateMagicLinkTokenForReturnTo(email, returnTo string) (string, error) {
 	// Generate unique token ID to prevent replay attacks
 	jtiBytes := make([]byte, 16)
 	if _, err := rand.Read(jtiBytes); err != nil {
@@ -153,6 +167,9 @@ func (p *ProxyServer) generateMagicLinkToken(email string) (string, error) {
 		"jti":   jti,
 		"iat":   time.Now().Unix(),
 		"exp":   time.Now().Add(5 * time.Minute).Unix(),
+	}
+	if returnTo != "" {
+		claims["return_to"] = p.sanitizeReturnTo(returnTo)
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)

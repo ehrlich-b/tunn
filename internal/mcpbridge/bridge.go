@@ -30,8 +30,8 @@ const (
 )
 
 // Bridge owns one stdio MCP child process and one loopback HTTP listener.
-// The initial implementation intentionally supports one serialized MCP
-// session. See docs/DESIGN-2.0.md for the compatibility boundary.
+// Remote HTTP sessions share one serialized child process; each legacy client
+// gets a distinct, expiring transport session.
 type Bridge struct {
 	cancel context.CancelFunc
 	stdin  io.WriteCloser
@@ -47,7 +47,8 @@ type Bridge struct {
 	requestGate           chan struct{}
 	requestGateOnce       sync.Once
 	sessionMu             sync.Mutex
-	sessionID             string
+	sessions              map[string]time.Time
+	sessionStarted        bool
 	childInitialized      bool            // guarded by requestGate
 	childInitializeResult json.RawMessage // guarded by requestGate
 	requestSequence       uint64          // guarded by requestGate
@@ -90,7 +91,25 @@ func StartWithOptions(parent context.Context, command []string, stderr io.Writer
 	if err != nil {
 		return nil, fmt.Errorf("listen for local MCP bridge: %w", err)
 	}
+	b, err := StartStdioHandler(parent, command, stderr, options)
+	if err != nil {
+		_ = listener.Close()
+		return nil, err
+	}
+	b.listener = listener
+	mux := http.NewServeMux()
+	mux.Handle("/mcp", b)
+	b.httpServer = &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	go func() { _ = b.httpServer.Serve(listener) }()
+	return b, nil
+}
 
+// StartStdioHandler starts the same stdio adapter without opening an HTTP
+// listener. Embedded callers can mount it on an existing HTTP server.
+func StartStdioHandler(parent context.Context, command []string, stderr io.Writer, options Options) (*Bridge, error) {
+	if len(command) == 0 || strings.TrimSpace(command[0]) == "" {
+		return nil, fmt.Errorf("MCP command is required")
+	}
 	ctx, cancel := context.WithCancel(parent)
 	cmd := exec.CommandContext(ctx, command[0], command[1:]...)
 	cmd.Stderr = stderr
@@ -98,19 +117,16 @@ func StartWithOptions(parent context.Context, command []string, stderr io.Writer
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		cancel()
-		_ = listener.Close()
 		return nil, fmt.Errorf("open MCP command stdin: %w", err)
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		cancel()
-		_ = listener.Close()
 		return nil, fmt.Errorf("open MCP command stdout: %w", err)
 	}
 
 	if err := cmd.Start(); err != nil {
 		cancel()
-		_ = listener.Close()
 		return nil, fmt.Errorf("start MCP command %q: %w", command[0], err)
 	}
 
@@ -123,18 +139,10 @@ func StartWithOptions(parent context.Context, command []string, stderr io.Writer
 	b := &Bridge{
 		cancel:         cancel,
 		stdin:          stdin,
-		listener:       listener,
 		outputs:        make(chan childOutput, 16),
 		done:           make(chan struct{}),
 		requestTimeout: defaultRequestTimeout,
 		allowedTools:   allowedTools,
-	}
-
-	mux := http.NewServeMux()
-	mux.Handle("/mcp", b)
-	b.httpServer = &http.Server{
-		Handler:           mux,
-		ReadHeaderTimeout: 5 * time.Second,
 	}
 
 	go b.readChild(stdout)
@@ -144,9 +152,6 @@ func StartWithOptions(parent context.Context, command []string, stderr io.Writer
 		b.processErr = err
 		b.processMu.Unlock()
 		close(b.done)
-	}()
-	go func() {
-		_ = b.httpServer.Serve(listener)
 	}()
 
 	return b, nil
@@ -167,6 +172,9 @@ func (b *Bridge) Wait() error {
 
 // URL is the loopback base URL. The MCP endpoint is URL()+"/mcp".
 func (b *Bridge) URL() string {
+	if b.listener == nil {
+		return ""
+	}
 	return "http://" + b.listener.Addr().String()
 }
 
@@ -174,8 +182,10 @@ func (b *Bridge) URL() string {
 func (b *Bridge) Close(ctx context.Context) error {
 	var closeErr error
 	b.closeOnce.Do(func() {
-		if err := b.httpServer.Shutdown(ctx); err != nil {
-			closeErr = err
+		if b.httpServer != nil {
+			if err := b.httpServer.Shutdown(ctx); err != nil {
+				closeErr = err
+			}
 		}
 		_ = b.stdin.Close()
 		b.cancel()
@@ -227,7 +237,7 @@ func (b *Bridge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPost:
 		b.handlePOST(w, r)
 	case http.MethodDelete:
-		if !b.validSession(r.Header.Get("Mcp-Session-Id")) {
+		if !b.deleteSession(r.Header.Get("Mcp-Session-Id")) {
 			http.Error(w, "unknown MCP session", http.StatusNotFound)
 			return
 		}
@@ -275,7 +285,7 @@ func (b *Bridge) handlePOST(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !modern && !b.validSession(r.Header.Get("Mcp-Session-Id")) {
+	if !modern && !(incoming.Method == "initialize" && r.Header.Get("Mcp-Session-Id") == "") && !b.validSession(r.Header.Get("Mcp-Session-Id")) {
 		http.Error(w, "unknown MCP session", http.StatusNotFound)
 		return
 	}
@@ -361,7 +371,9 @@ func (b *Bridge) handlePOST(w http.ResponseWriter, r *http.Request) {
 					response = b.filterToolsList(response)
 				}
 				if incoming.Method == "initialize" && b.childInitialized {
-					w.Header().Set("Mcp-Session-Id", b.ensureSessionID())
+					if !b.setNewSession(w) {
+						return
+					}
 				}
 				if modern && methodNotFound(response) {
 					w.Header().Set("Content-Type", "application/json")
@@ -544,25 +556,47 @@ func (b *Bridge) rejectChildRequest(ctx context.Context, id json.RawMessage) err
 func (b *Bridge) validSession(got string) bool {
 	b.sessionMu.Lock()
 	defer b.sessionMu.Unlock()
-	return b.sessionID == "" || got == b.sessionID
+	if !b.sessionStarted && got == "" {
+		return true
+	}
+	expires, exists := b.sessions[got]
+	return exists && time.Now().Before(expires)
 }
 
-func (b *Bridge) ensureSessionID() string {
+func (b *Bridge) setNewSession(w http.ResponseWriter) bool {
 	b.sessionMu.Lock()
 	defer b.sessionMu.Unlock()
-	if b.sessionID != "" {
-		return b.sessionID
+	if b.sessions == nil {
+		b.sessions = make(map[string]time.Time)
 	}
-
-	random := make([]byte, 16)
+	now := time.Now()
+	for id, expires := range b.sessions {
+		if !now.Before(expires) {
+			delete(b.sessions, id)
+		}
+	}
+	if len(b.sessions) >= 1024 {
+		http.Error(w, "MCP session capacity reached", 503)
+		return false
+	}
+	random := make([]byte, 32)
 	if _, err := rand.Read(random); err != nil {
-		// rand.Read failures are extraordinarily rare. A timestamp still makes
-		// accidental cross-session reuse unlikely without weakening ingress auth.
-		b.sessionID = fmt.Sprintf("tunn-%d", time.Now().UnixNano())
-	} else {
-		b.sessionID = hex.EncodeToString(random)
+		http.Error(w, "Could not create MCP session", 500)
+		return false
 	}
-	return b.sessionID
+	id := hex.EncodeToString(random)
+	b.sessions[id] = now.Add(time.Hour)
+	b.sessionStarted = true
+	w.Header().Set("Mcp-Session-Id", id)
+	return true
+}
+
+func (b *Bridge) deleteSession(id string) bool {
+	b.sessionMu.Lock()
+	defer b.sessionMu.Unlock()
+	expires, exists := b.sessions[id]
+	delete(b.sessions, id)
+	return exists && time.Now().Before(expires)
 }
 
 func hasID(id json.RawMessage) bool {

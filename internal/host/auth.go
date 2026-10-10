@@ -318,9 +318,9 @@ func (p *ProxyServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 	if hasEmail {
 		// Pass device_user_code as URL param to magic link endpoint
-		magicURL := "/auth/magic"
+		magicURL := "/auth/magic?" + url.Values{"return_to": {returnTo}}.Encode()
 		if deviceUserCode != "" {
-			magicURL += "?device_user_code=" + url.QueryEscape(deviceUserCode)
+			magicURL += "&device_user_code=" + url.QueryEscape(deviceUserCode)
 		}
 		_, _ = fmt.Fprintf(w, `
 <form id="email-form">

@@ -44,11 +44,15 @@ func (s *InternalServer) FindTunnel(ctx context.Context, req *internalv1.FindTun
 	tunnelID := req.GetTunnelId()
 	common.LogInfo("internal request to find tunnel", "tunnel_id", tunnelID)
 
-	if _, exists := s.tunnelServer.GetTunnel(tunnelID); exists {
+	if tunnel, exists := s.tunnelServer.GetTunnel(tunnelID); exists {
 		common.LogInfo("tunnel found locally", "tunnel_id", tunnelID)
 		return &internalv1.FindTunnelResponse{
-			Found:       true,
-			NodeAddress: s.publicAddr,
+			Found:         true,
+			NodeAddress:   s.publicAddr,
+			AccountId:     tunnel.AccountID,
+			CreatorEmail:  tunnel.CreatorEmail,
+			EndpointKind:  tunnel.TargetURL,
+			AllowedEmails: append([]string(nil), tunnel.AllowedEmails...),
 		}, nil
 	}
 

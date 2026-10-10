@@ -187,7 +187,9 @@ func (b *Bridge) writeDiscover(w http.ResponseWriter, id json.RawMessage) {
 }
 
 func (b *Bridge) writeCachedInitialize(w http.ResponseWriter, id json.RawMessage) {
-	w.Header().Set("Mcp-Session-Id", b.ensureSessionID())
+	if !b.setNewSession(w) {
+		return
+	}
 	writeRPCResult(w, id, b.childInitializeResult)
 }
 

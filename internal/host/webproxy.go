@@ -155,6 +155,19 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 			http.Error(w, "Usage ledger unavailable", 503)
 			return
 		}
+		if strings.HasPrefix(token, "tunn_mcp_") {
+			session.event.AuthMethod = "mcp_oauth"
+			if grant.Id != "" {
+				session.event.Caller = "grant:" + grant.Id
+				session.event.GrantId = grant.Id
+			}
+			if grant.Id == "" || !strings.HasPrefix(grant.Consumer, "oauth:") || grant.Revoked || grant.ExpiresAt <= time.Now().UnixMilli() || r.URL.Path != "/mcp" || tunnel.TargetURL != "mcp" || common.IsWebSocketUpgrade(r.Header) {
+				session.reason = "invalid_oauth_token"
+				p.mcpChallenge(w, tunnelID, "invalid_token")
+				http.Error(w, "Invalid or expired MCP access token", http.StatusUnauthorized)
+				return
+			}
+		}
 		if grant.Id == "" || tunnel.EndpointProtocol == "tcp" || common.IsWebSocketUpgrade(r.Header) {
 			session.reason = "invalid_grant"
 			w.Header().Set("Tunn-Limit-Reason", session.reason)
@@ -164,6 +177,9 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		session.event.Caller = "grant:" + grant.Id
 		session.event.GrantId = grant.Id
 		session.event.AuthMethod = "grant"
+		if strings.HasPrefix(token, "tunn_mcp_") {
+			session.event.AuthMethod = "mcp_oauth"
+		}
 		grantAuthenticated = true
 		r = strippedAuth(r, header)
 	}
@@ -189,6 +205,9 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 			// explicit bearer challenge for protocol endpoints and bearer attempts.
 			if common.IsWebSocketUpgrade(r.Header) || r.URL.Path == "/mcp" || tunnel.EndpointProtocol == "tcp" || r.Header.Get("Authorization") != "" || r.Header.Get("Tunn-Authorization") != "" {
 				w.Header().Set("WWW-Authenticate", `Bearer realm="tunn"`)
+				if r.URL.Path == "/mcp" {
+					p.mcpChallenge(w, tunnelID, "")
+				}
 				http.Error(w, "Authentication required", http.StatusUnauthorized)
 				return
 			}

@@ -472,3 +472,19 @@ test-inspect-browser:
 test-ssh:
 	go test -race -count=1 -timeout=90s ./internal/sshfront ./internal/cliopts
 	go test -race -count=1 -timeout=90s -run 'TestSSH|TestParseServe|TestServeWebSocket' ./internal/host .
+
+# Offline edge correctness: shared TCP/443, SSH commands, DNS/ACME/TLS and
+# disposable install/renewal fixtures. Never invokes a live renewal tool.
+.PHONY: test-edge-contract test-edge-renewal test-edge-openssh
+test-edge-contract:
+	$(MAKE) -j1 test-ssh test-domains-contract
+	go test -race -count=1 -timeout=90s -run '^TestEdge|^TestIntegrationSSH' ./internal/host
+	$(MAKE) -j1 test-install-recovery
+
+test-edge-renewal:
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s deploy/install -p 'test_edge_renewal.py'
+
+# Coordinator acceptance: real loopback TCP, native OpenSSH, verified host key
+# and TLS. Keep separate from lanes that forbid executing ssh or binding sockets.
+test-edge-openssh:
+	go test -race -count=1 -timeout=45s -run '^TestLoopbackEdgeOpenSSHAndHTTPSSharePort$$' ./internal/host

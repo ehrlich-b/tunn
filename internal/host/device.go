@@ -90,14 +90,14 @@ func (p *ProxyServer) handleDeviceToken(w http.ResponseWriter, r *http.Request) 
 	if deviceCode == "" {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "missing_code"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "missing_code"})
 		return
 	}
 
 	if !p.storage.Available() {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(map[string]string{"error": "service_unavailable"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "service_unavailable"})
 		return
 	}
 
@@ -106,20 +106,20 @@ func (p *ProxyServer) handleDeviceToken(w http.ResponseWriter, r *http.Request) 
 		common.LogError("failed to get device code", "error", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "internal_error"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "internal_error"})
 		return
 	}
 	if code == nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "expired_token"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "expired_token"})
 		return
 	}
 
 	if !code.Authorized {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{"error": "authorization_pending"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "authorization_pending"})
 		return
 	}
 
@@ -189,7 +189,7 @@ func (p *ProxyServer) showDeviceAuthorizePage(w http.ResponseWriter, r *http.Req
 
 	w.Header().Set("Content-Type", "text/html")
 	writePageStart(w, "tunn - Authorize Device")
-	fmt.Fprintf(w, `
+	_, _ = fmt.Fprintf(w, `
 <h1 class="page-title">Authorize Device</h1>
 <p class="page-subtitle">A device is requesting access to your account.</p>
 <div class="device-info">

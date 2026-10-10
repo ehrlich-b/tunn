@@ -65,7 +65,7 @@ func (s *AccountStore) FindOrCreateByEmails(emails []string, verifiedVia string)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var accounts []*Account
 	for rows.Next() {
@@ -112,10 +112,13 @@ func (s *AccountStore) FindOrCreateByEmails(emails []string, verifiedVia string)
 	// Add any new emails to the account
 	for _, email := range emails {
 		// Try to insert, ignore if already exists
-		s.db.Exec(
+		_, err := s.db.Exec(
 			"INSERT OR IGNORE INTO account_emails (account_id, email, verified_via, added_at) VALUES (?, ?, ?, ?)",
 			account.ID, email, verifiedVia, time.Now().Unix(),
 		)
+		if err != nil {
+			return nil, fmt.Errorf("add account email: %w", err)
+		}
 	}
 
 	// Load all emails for the account
@@ -224,7 +227,7 @@ func (s *AccountStore) getAccountEmails(accountID string) ([]AccountEmail, error
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var emails []AccountEmail
 	for rows.Next() {
@@ -322,7 +325,7 @@ func (s *AccountStore) GetReservedSubdomains(accountID string) ([]ReservedSubdom
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var subdomains []ReservedSubdomain
 	for rows.Next() {

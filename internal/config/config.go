@@ -67,7 +67,7 @@ type Config struct {
 
 	// Client configuration
 	ServerAddr string
-	Insecure bool
+	Insecure   bool
 
 	// Login node configuration
 	// Login node owns SQLite and handles all DB operations

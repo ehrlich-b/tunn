@@ -5,6 +5,23 @@ import (
 	"testing"
 )
 
+func TestNormalizeEmail(t *testing.T) {
+	for _, tt := range []struct {
+		name, input, want string
+	}{
+		{"whitespace and case", "  Alice@EXAMPLE.COM\t", "alice@example.com"},
+		{"compatibility letters", "Ａｌｉｃｅ@example.com", "alice@example.com"},
+		{"canonical composition", "e\u0301@example.com", "é@example.com"},
+		{"Cyrillic stays distinct", "аlice@example.com", "аlice@example.com"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := NormalizeEmail(tt.input); got != tt.want {
+				t.Errorf("NormalizeEmail(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestRandID(t *testing.T) {
 	tests := []struct {
 		name   string

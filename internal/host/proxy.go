@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -269,7 +270,7 @@ func createInternalClient(addr string, cfg *config.Config) (*grpc.ClientConn, er
 	}
 	// Otherwise use system CA pool (tunn.to uses Let's Encrypt, which is trusted)
 
-	return grpc.Dial(addr,
+	return grpc.NewClient("passthrough:///"+addr,
 		grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)),
 		grpc.WithPerRPCCredentials(&nodeSecretCreds{secret: cfg.NodeSecret}),
 	)
@@ -532,7 +533,7 @@ func (p *ProxyServer) Run(ctx context.Context) error {
 		// Shutdown mock OIDC server if running
 		if p.mockOIDC != nil {
 			common.LogInfo("shutting down mock OIDC server")
-			p.mockOIDC.Shutdown()
+			_ = p.mockOIDC.Shutdown()
 		}
 
 		// Shutdown internal gRPC server
@@ -560,7 +561,9 @@ func (p *ProxyServer) startHTTP2Server(ctx context.Context, handler http.Handler
 	}
 
 	// Enable HTTP/2
-	http2.ConfigureServer(srv, &http2.Server{})
+	if err := http2.ConfigureServer(srv, &http2.Server{}); err != nil {
+		return fmt.Errorf("configure HTTP/2 server: %w", err)
+	}
 
 	common.LogInfo("starting HTTP/2 server", "addr", p.HTTP2Addr)
 
@@ -577,7 +580,9 @@ func (p *ProxyServer) startHTTP2Server(ctx context.Context, handler http.Handler
 		common.LogInfo("shutting down HTTP/2 server")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
-		srv.Shutdown(shutdownCtx)
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			_ = srv.Close()
+		}
 	}()
 
 	if err := srv.Serve(tlsLn); err != nil && err != http.ErrServerClosed {
@@ -601,7 +606,7 @@ func (p *ProxyServer) startHTTP3Server(ctx context.Context, handler http.Handler
 	go func() {
 		<-ctx.Done()
 		common.LogInfo("shutting down HTTP/3 server")
-		srv.Close()
+		_ = srv.Close()
 	}()
 
 	if err := srv.ListenAndServeTLS(p.CertFile, p.KeyFile); err != nil && err != http.ErrServerClosed {
@@ -646,8 +651,27 @@ func (p *ProxyServer) createHTTP2Router(httpHandler http.Handler) http.Handler {
 		}
 
 		// Otherwise, route to HTTP handler
+		p.advertiseHTTP3(w, r)
 		httpHandler.ServeHTTP(w, r)
 	})
+}
+
+// advertiseHTTP3 makes the QUIC listener discoverable to clients that first
+// reach the service over HTTPS/TCP. The configured UDP port must also be
+// exposed by the deployment platform.
+func (p *ProxyServer) advertiseHTTP3(w http.ResponseWriter, r *http.Request) {
+	if r.TLS == nil || r.Method == http.MethodConnect {
+		return
+	}
+	_, portText, err := net.SplitHostPort(p.HTTP3Addr)
+	if err != nil {
+		return
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil || port < 1 || port > 65535 {
+		return
+	}
+	w.Header().Set("Alt-Svc", fmt.Sprintf(`h3=":%d"; ma=3600`, port))
 }
 
 // createHandler creates the HTTP handler for both servers
@@ -657,7 +681,7 @@ func (p *ProxyServer) createHandler() http.Handler {
 	// Health check endpoint (no auth required)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, "ok")
+		_, _ = fmt.Fprint(w, "ok")
 	})
 
 	// Install script endpoint
@@ -687,7 +711,16 @@ func (p *ProxyServer) createHandler() http.Handler {
 	// Main handler - check if this is apex domain or a tunnel subdomain
 	mux.HandleFunc("/", p.handleWebProxy)
 
-	return mux
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// HTTP/2 CONNECT is authority-form and arrives without a URL path. An
+		// empty path does not match ServeMux's "/" pattern, so raw tunnel
+		// connections must enter the subdomain router before mux dispatch.
+		if r.Method == http.MethodConnect {
+			p.handleWebProxy(w, r)
+			return
+		}
+		mux.ServeHTTP(w, r)
+	})
 }
 
 // handleInstallScript serves the install script for curl | sh installation
@@ -696,7 +729,7 @@ func (p *ProxyServer) handleInstallScript(w http.ResponseWriter, r *http.Request
 	ip := extractClientIP(r)
 	common.LogInfo("install script download", "ip", ip, "ua", ua)
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	fmt.Fprint(w, installScript)
+	_, _ = fmt.Fprint(w, installScript)
 }
 
 // installScript is the embedded install.sh content
@@ -813,7 +846,7 @@ func (p *ProxyServer) findAndConnectLoginNode() bool {
 
 			// Close existing connection if any
 			if p.loginNodeConn != nil {
-				p.loginNodeConn.Close()
+				_ = p.loginNodeConn.Close()
 			}
 
 			p.loginNodeConn = conn

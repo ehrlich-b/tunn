@@ -79,6 +79,36 @@ Starts proxy and test web server in containers.
 
 ## Integration Tests
 
+The authenticated MCP lifecycle has a self-contained local test:
+
+```bash
+make integration-test-lifecycle
+```
+
+It starts an isolated TLS relay, mock login provider, SQLite database, and
+echo-only stdio fixture. It requires explicit device authorization, then tests
+endpoint-token access, discovery, tool policy, live token rotation, relay
+reconnect, a 25-second timeout, recovery, and child-process failure. Traffic goes
+directly to loopback; no DNS changes, browser, developer login-token file, or
+external service is needed. Scratch state lives under `.scratch/`; private logs
+are retained there on failure. The test takes about 30 seconds after the build.
+
+This clone implements shared endpoint tokens, not the roadmap's expiring,
+per-consumer grants. A synthetic local HTTP client passing this test does not
+establish acceptance by ChatGPT, Claude, or another hosted UI. Hosted acceptance
+and the temporary-grant workflow remain separate, unresolved milestones.
+
+```bash
+make test-lifecycle-contract # In-process regressions, including race detection
+make test                   # Full suite; requires loopback sockets
+make check                  # Existing format/tidy/race gate; requires loopback
+make vet
+make lint                   # Requires golangci-lint v2
+```
+
+Sandboxes that deny loopback listeners can run the contract tests, vet, and
+lint, but must run the full suite and end-to-end test outside that sandbox.
+
 ```bash
 # All integration tests
 ./scripts/integration-tests/run-all.sh

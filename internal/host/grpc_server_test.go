@@ -48,6 +48,33 @@ func TestNewTunnelServer(t *testing.T) {
 	}
 }
 
+func TestTunnelServerRejectsTCPWithoutConnectionCapability(t *testing.T) {
+	server := NewTunnelServer(testConfig(), nil, nil, nil)
+	stream := &mockTunnelStream{
+		recvQueue: make(chan *pb.TunnelMessage, 1),
+	}
+	stream.recvQueue <- &pb.TunnelMessage{
+		Message: &pb.TunnelMessage_RegisterClient{
+			RegisterClient: &pb.RegisterClient{
+				TunnelId:         "database",
+				EndpointProtocol: "tcp",
+			},
+		},
+	}
+	close(stream.recvQueue)
+
+	if err := server.EstablishTunnel(stream); err == nil {
+		t.Fatal("TCP registration without connection capability succeeded")
+	}
+	if len(stream.sentMsgs) != 1 {
+		t.Fatalf("registration responses = %d", len(stream.sentMsgs))
+	}
+	response := stream.sentMsgs[0].GetRegisterResponse()
+	if response == nil || response.Success {
+		t.Fatalf("registration response = %#v", response)
+	}
+}
+
 func TestTunnelServerRegistration(t *testing.T) {
 	srv := NewTunnelServer(testConfig(), nil, nil, nil)
 
@@ -119,6 +146,67 @@ func TestTunnelServerRegistration(t *testing.T) {
 	}
 }
 
+func TestTunnelServerPublicModePreservesVisitorAccessPolicy(t *testing.T) {
+	tests := []struct {
+		name          string
+		allowedEmails []string
+	}{
+		{name: "anonymous"},
+		{name: "allow-listed", allowedEmails: []string{"visitor@example.com"}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := testConfig()
+			cfg.PublicMode = true
+			server := NewTunnelServer(cfg, nil, nil, nil)
+			stream := &mockTunnelStream{
+				recvQueue: make(chan *pb.TunnelMessage, 1),
+				sentMsgs:  make([]*pb.TunnelMessage, 0),
+			}
+			stream.recvQueue <- &pb.TunnelMessage{
+				Message: &pb.TunnelMessage_RegisterClient{
+					RegisterClient: &pb.RegisterClient{
+						TunnelId:      "public-policy",
+						TargetUrl:     "http://localhost:8000",
+						AllowedEmails: test.allowedEmails,
+					},
+				},
+			}
+
+			done := make(chan error, 1)
+			go func() { done <- server.EstablishTunnel(stream) }()
+
+			var tunnel *TunnelConnection
+			deadline := time.Now().Add(time.Second)
+			for time.Now().Before(deadline) {
+				if connected, exists := server.GetTunnel("public-policy"); exists {
+					tunnel = connected
+					break
+				}
+				time.Sleep(time.Millisecond)
+			}
+			if tunnel == nil {
+				close(stream.recvQueue)
+				t.Fatalf("public tunnel did not register: %v", <-done)
+			}
+			if len(tunnel.AllowedEmails) != len(test.allowedEmails) {
+				t.Fatalf("allowed emails = %v, want %v", tunnel.AllowedEmails, test.allowedEmails)
+			}
+			for index := range test.allowedEmails {
+				if tunnel.AllowedEmails[index] != test.allowedEmails[index] {
+					t.Fatalf("allowed emails = %v, want %v", tunnel.AllowedEmails, test.allowedEmails)
+				}
+			}
+
+			close(stream.recvQueue)
+			if err := <-done; err != nil {
+				t.Fatalf("public tunnel shutdown: %v", err)
+			}
+		})
+	}
+}
+
 func TestTunnelServerDuplicateRegistration(t *testing.T) {
 	srv := NewTunnelServer(testConfig(), nil, nil, nil)
 
@@ -143,7 +231,7 @@ func TestTunnelServerDuplicateRegistration(t *testing.T) {
 
 	// Run first connection in background
 	go func() {
-		srv.EstablishTunnel(stream1)
+		_ = srv.EstablishTunnel(stream1)
 	}()
 
 	// Give it time to register
@@ -400,6 +488,35 @@ func TestTunnelServerReservedSubdomain(t *testing.T) {
 
 	if regResp.ErrorMessage == "" {
 		t.Error("Expected error message")
+	}
+}
+
+func TestTunnelServerRejectsInvalidAccessTokenDigest(t *testing.T) {
+	srv := NewTunnelServer(testConfig(), nil, nil, nil)
+	stream := &mockTunnelStream{
+		recvQueue: make(chan *pb.TunnelMessage, 1),
+		sentMsgs:  make([]*pb.TunnelMessage, 0),
+	}
+	stream.recvQueue <- &pb.TunnelMessage{
+		Message: &pb.TunnelMessage_RegisterClient{
+			RegisterClient: &pb.RegisterClient{
+				TunnelId:          "badtoken",
+				TargetUrl:         "http://localhost:8000",
+				AccessTokenSha256: []byte("not-a-sha256-digest"),
+			},
+		},
+	}
+	close(stream.recvQueue)
+
+	if err := srv.EstablishTunnel(stream); err == nil {
+		t.Fatal("expected invalid access-token digest to reject registration")
+	}
+	if len(stream.sentMsgs) != 1 {
+		t.Fatalf("sent %d responses, want 1", len(stream.sentMsgs))
+	}
+	response := stream.sentMsgs[0].GetRegisterResponse()
+	if response == nil || response.Success {
+		t.Fatalf("registration response = %#v, want failure", response)
 	}
 }
 

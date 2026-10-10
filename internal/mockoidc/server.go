@@ -112,7 +112,7 @@ func (s *Server) handleDiscovery(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(discovery)
+	_ = json.NewEncoder(w).Encode(discovery)
 }
 
 // handleDeviceCode implements the device authorization endpoint
@@ -150,7 +150,7 @@ func (s *Server) handleDeviceCode(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 // handleToken implements the token endpoint for both device flow and auth code flow
@@ -188,7 +188,7 @@ func (s *Server) handleDeviceTokenRequest(w http.ResponseWriter, r *http.Request
 		errorResp := map[string]string{"error": "invalid_grant"}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(errorResp)
+		_ = json.NewEncoder(w).Encode(errorResp)
 		return
 	}
 
@@ -196,7 +196,7 @@ func (s *Server) handleDeviceTokenRequest(w http.ResponseWriter, r *http.Request
 		errorResp := map[string]string{"error": "expired_token"}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(errorResp)
+		_ = json.NewEncoder(w).Encode(errorResp)
 		return
 	}
 
@@ -204,7 +204,7 @@ func (s *Server) handleDeviceTokenRequest(w http.ResponseWriter, r *http.Request
 		errorResp := map[string]string{"error": "authorization_pending"}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(errorResp)
+		_ = json.NewEncoder(w).Encode(errorResp)
 		return
 	}
 
@@ -218,7 +218,7 @@ func (s *Server) handleDeviceTokenRequest(w http.ResponseWriter, r *http.Request
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 func (s *Server) handleAuthCodeTokenRequest(w http.ResponseWriter, r *http.Request) {
@@ -233,7 +233,7 @@ func (s *Server) handleAuthCodeTokenRequest(w http.ResponseWriter, r *http.Reque
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 // handleAuthorize handles the web-based OAuth authorization flow
@@ -263,7 +263,7 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fmt.Fprintf(w, "Authorization successful! Code: %s", code)
+	_, _ = fmt.Fprintf(w, "Authorization successful! Code: %s", code)
 }
 
 // handleDeviceVerification shows the device verification page
@@ -285,7 +285,7 @@ func (s *Server) handleDeviceVerification(w http.ResponseWriter, r *http.Request
 </html>
 `, userCode)
 		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte(html))
+		_, _ = w.Write([]byte(html))
 		return
 	}
 
@@ -314,7 +314,7 @@ func (s *Server) handleDeviceVerification(w http.ResponseWriter, r *http.Request
 		}
 
 		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte(`
+		_, _ = w.Write([]byte(`
 <!DOCTYPE html>
 <html>
 <head><title>Success</title></head>

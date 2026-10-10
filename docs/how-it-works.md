@@ -90,14 +90,15 @@ The proxy listens on both protocols:
 | HTTP/2   | TCP       | 8443 | gRPC tunnel + web traffic |
 | HTTP/3   | QUIC/UDP  | 8443 | Web traffic only |
 
-**gRPC always uses HTTP/2** because it requires TCP's reliable ordered delivery.
+The current gRPC tunnel implementation uses HTTP/2. Public web requests can
+use HTTP/2 or HTTP/3 at the relay, then traverse the existing gRPC tunnel.
 
-**Browser traffic** can use either. Modern browsers (Chrome, Firefox, Safari) will use HTTP/3 if available because QUIC provides:
-- Faster connection establishment (0-RTT)
-- Better performance on lossy networks
-- No head-of-line blocking
+**Browser traffic** can use either when UDP reaches the relay. QUIC can avoid
+transport-level head-of-line blocking between HTTP/3 streams.
 
-The server advertises HTTP/3 support via the `Alt-Svc` header. Browsers that support it will switch automatically.
+The TCP HTTPS listener advertises the UDP listener through `Alt-Svc`. The Fly
+deployment also needs its UDP 443 service and a dedicated IPv4 address;
+HTTP/3 reachability has not yet been checked against a live deployment.
 
 ## Request Lifecycle
 

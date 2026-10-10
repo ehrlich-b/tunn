@@ -2,6 +2,8 @@ package host
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -173,6 +175,53 @@ func (p *ProxyServer) getAuthEmail(r *http.Request) string {
 	return email
 }
 
+// getAuthFromTunnelBearer validates machine-to-machine identity for a tunnel
+// request. Tunn-Authorization is preferred so Authorization can remain owned
+// by the upstream application. Authorization is accepted for MCP clients that
+// only support the standard bearer header.
+//
+// The returned header name must be stripped before proxying: it contains a
+// tunn account credential, not an upstream credential.
+func (p *ProxyServer) getAuthFromTunnelBearer(r *http.Request, tunnel *TunnelConnection) (email, headerName string, capability, ok bool) {
+	for _, name := range []string{"Tunn-Authorization", "Authorization"} {
+		authHeader := strings.TrimSpace(r.Header.Get(name))
+		parts := strings.Fields(authHeader)
+		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+			continue
+		}
+
+		accessTokenDigest := tunnel.accessTokenDigest()
+		if len(accessTokenDigest) == sha256.Size {
+			digest := sha256.Sum256([]byte(parts[1]))
+			if subtle.ConstantTimeCompare(digest[:], accessTokenDigest) == 1 {
+				return tunnel.CreatorEmail, name, true, true
+			}
+		}
+
+		token, err := jwt.Parse(parts[1], func(token *jwt.Token) (interface{}, error) {
+			if _, validMethod := token.Method.(*jwt.SigningMethodHMAC); !validMethod {
+				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+			}
+			return p.getJWTSigningKey(), nil
+		})
+		if err != nil || !token.Valid {
+			continue
+		}
+
+		claims, validClaims := token.Claims.(jwt.MapClaims)
+		if !validClaims {
+			continue
+		}
+		email, validEmail := claims["email"].(string)
+		if !validEmail || email == "" {
+			continue
+		}
+		return common.NormalizeEmail(email), name, false, true
+	}
+
+	return "", "", false, false
+}
+
 // sanitizeReturnTo validates and sanitizes a return_to URL parameter.
 // Allows relative paths starting with "/" or absolute URLs on the same domain.
 // Returns "/" if the input is empty or invalid.
@@ -226,24 +275,24 @@ func (p *ProxyServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 	writePageStart(w, "tunn - Login")
 
 	if tunnelID != "" {
-		fmt.Fprint(w, `<h1 class="page-title">Sign in to access tunnel</h1>
+		_, _ = fmt.Fprint(w, `<h1 class="page-title">Sign in to access tunnel</h1>
 <p class="page-subtitle">This tunnel requires authentication.</p>
 <div id="message"></div>`)
 	} else {
-		fmt.Fprint(w, `<h1 class="page-title">Sign in to tunn</h1>
+		_, _ = fmt.Fprint(w, `<h1 class="page-title">Sign in to tunn</h1>
 <p class="page-subtitle">Access your tunnels and account settings.</p>
 <div id="message"></div>`)
 	}
 
 	// Show OAuth button (GitHub in prod, Mock OIDC in dev)
 	if hasGitHub {
-		fmt.Fprintf(w, `<a href="/auth/github?%s" class="btn btn-github">Continue with GitHub</a>`, oauthParams)
+		_, _ = fmt.Fprintf(w, `<a href="/auth/github?%s" class="btn btn-github">Continue with GitHub</a>`, oauthParams)
 	} else if hasMockOIDC {
-		fmt.Fprintf(w, `<a href="/auth/mock?%s" class="btn btn-github">Continue with Mock Login</a>`, oauthParams)
+		_, _ = fmt.Fprintf(w, `<a href="/auth/mock?%s" class="btn btn-github">Continue with Mock Login</a>`, oauthParams)
 	}
 
 	if hasOAuth && hasEmail {
-		fmt.Fprint(w, `<div class="divider"><span>or</span></div>`)
+		_, _ = fmt.Fprint(w, `<div class="divider"><span>or</span></div>`)
 	}
 
 	if hasEmail {
@@ -252,7 +301,7 @@ func (p *ProxyServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 		if deviceUserCode != "" {
 			magicURL += "?device_user_code=" + url.QueryEscape(deviceUserCode)
 		}
-		fmt.Fprintf(w, `
+		_, _ = fmt.Fprintf(w, `
 <form id="email-form">
 <input type="email" name="email" placeholder="you@example.com" required>
 <button type="submit" class="btn btn-secondary">Continue with Email</button>
@@ -293,7 +342,7 @@ document.getElementById('email-form').addEventListener('submit', async (e) => {
 	}
 
 	if !hasOAuth && !hasEmail {
-		fmt.Fprint(w, `<p>No login methods configured. Contact your administrator.</p>`)
+		_, _ = fmt.Fprint(w, `<p>No login methods configured. Contact your administrator.</p>`)
 	}
 
 	writePageEnd(w)
@@ -432,7 +481,7 @@ func (p *ProxyServer) exchangeGitHubCode(code string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("token request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -476,7 +525,7 @@ func (p *ProxyServer) getGitHubEmails(accessToken string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("email request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)

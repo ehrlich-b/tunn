@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"html"
 	"io"
@@ -127,9 +128,23 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 	// Auth is only required if the tunnel has an allow-list (--allow was specified)
 	// If no allow-list, the tunnel is open to the internet (URLs are random, act like strong passwords)
 	if len(tunnel.AllowedEmails) > 0 {
-		// Check authentication via JWT cookie
+		// Browsers authenticate with the platform cookie. Agents and other
+		// machine clients may use a signed tunn token in a bearer header.
 		userEmail, authenticated := p.getAuthFromCookie(r)
+		platformAuthHeader := ""
+		capabilityAuthenticated := false
 		if !authenticated {
+			userEmail, platformAuthHeader, capabilityAuthenticated, authenticated = p.getAuthFromTunnelBearer(r, tunnel)
+		}
+		if !authenticated {
+			// MCP clients cannot consume the browser login redirect. Return an
+			// explicit bearer challenge for protocol endpoints and bearer attempts.
+			if r.URL.Path == "/mcp" || tunnel.EndpointProtocol == "tcp" || r.Header.Get("Authorization") != "" || r.Header.Get("Tunn-Authorization") != "" {
+				w.Header().Set("WWW-Authenticate", `Bearer realm="tunn"`)
+				http.Error(w, "Authentication required", http.StatusUnauthorized)
+				return
+			}
+
 			// Build full return URL including the tunnel subdomain
 			returnTo := fmt.Sprintf("https://%s%s", r.Host, r.URL.RequestURI())
 			loginURL := fmt.Sprintf("https://%s/auth/login?return_to=%s&tunnel=%s",
@@ -148,18 +163,21 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 			"tunnel_id", tunnelID,
 			"path", r.URL.Path)
 
-		// Get user's email bucket (all emails associated with their account)
 		userEmails := []string{userEmail}
-		if p.storage.Available() {
-			if bucket, err := p.storage.GetEmailBucket(r.Context(), userEmail); err == nil {
-				userEmails = bucket
+		allowed := capabilityAuthenticated
+		if !capabilityAuthenticated {
+			// Get user's email bucket (all emails associated with their account)
+			if p.storage.Available() {
+				if bucket, err := p.storage.GetEmailBucket(r.Context(), userEmail); err == nil {
+					userEmails = bucket
+				}
 			}
-		}
 
-		// Check if any email in user's bucket is on the tunnel's allow-list
-		// Creator is implicitly always allowed
-		allowListWithCreator := append(tunnel.AllowedEmails, tunnel.CreatorEmail)
-		allowed := isEmailBucketAllowed(userEmails, allowListWithCreator)
+			// Check if any email in user's bucket is on the tunnel's allow-list.
+			// Creator is implicitly always allowed.
+			allowListWithCreator := append(tunnel.AllowedEmails, tunnel.CreatorEmail)
+			allowed = isEmailBucketAllowed(userEmails, allowListWithCreator)
+		}
 
 		if !allowed {
 			common.LogInfo("access denied - user not on allow-list",
@@ -168,10 +186,15 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 				"tunnel_id", tunnelID,
 				"allowed_emails", tunnel.AllowedEmails)
 
+			if r.URL.Path == "/mcp" || tunnel.EndpointProtocol == "tcp" || platformAuthHeader != "" {
+				http.Error(w, "Access denied", http.StatusForbidden)
+				return
+			}
+
 			w.Header().Set("Content-Type", "text/html")
 			w.WriteHeader(http.StatusForbidden)
 			writePageStart(w, "tunn - Access Denied")
-			fmt.Fprintf(w, `<h1 class="error-title">Access denied</h1>
+			_, _ = fmt.Fprintf(w, `<h1 class="error-title">Access denied</h1>
 <p>You (<code>%s</code>) are not authorized to access this tunnel.</p>
 <p>Contact the tunnel owner to request access.</p>
 `, html.EscapeString(userEmail))
@@ -182,8 +205,23 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		common.LogDebug("allow-list check passed",
 			"email", userEmail,
 			"tunnel_id", tunnelID)
+
+		if platformAuthHeader != "" {
+			// Never expose a tunn account credential to the tunneled process. Clone
+			// the request so other handlers retain the original headers.
+			clonedRequest := r.Clone(r.Context())
+			clonedRequest.Header = r.Header.Clone()
+			clonedRequest.Header.Del(platformAuthHeader)
+			r = clonedRequest
+		}
 	} else {
 		common.LogDebug("open tunnel - no allow-list", "tunnel_id", tunnelID)
+		if r.Header.Get("Tunn-Authorization") != "" {
+			clonedRequest := r.Clone(r.Context())
+			clonedRequest.Header = r.Header.Clone()
+			clonedRequest.Header.Del("Tunn-Authorization")
+			r = clonedRequest
+		}
 	}
 
 	// Check quota before proxying
@@ -198,16 +236,46 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		}
 	}
 
-	// Proxy the HTTP request over gRPC
-	if err := p.proxyHTTPOverGRPC(w, r, tunnel); err != nil {
-		common.LogError("failed to proxy request", "error", err, "tunnel_id", tunnelID)
-		http.Error(w, "Failed to proxy request", http.StatusBadGateway)
+	var proxyErr error
+	if tunnel.EndpointProtocol == "tcp" {
+		validPath := r.URL.Path == "" || r.URL.Path == common.TCPConnectPath
+		if r.Method != http.MethodConnect || !validPath || r.Header.Get(common.TCPConnectHeader) != common.TCPConnectValue {
+			w.Header().Set("Allow", http.MethodConnect)
+			http.Error(w, "TCP endpoints require tunn connect", http.StatusMethodNotAllowed)
+			return
+		}
+		proxyErr = p.proxyTCPOverGRPC(w, r, tunnel)
+	} else {
+		proxyErr = p.proxyHTTPOverGRPC(w, r, tunnel)
+	}
+
+	if proxyErr != nil {
+		common.LogError("failed to proxy request", "error", proxyErr, "tunnel_id", tunnelID)
+		if !responseHasStarted(proxyErr) {
+			http.Error(w, "Failed to proxy request", http.StatusBadGateway)
+		}
 		return
 	}
 }
 
+type responseStartedError struct {
+	err error
+}
+
+func (e *responseStartedError) Error() string { return e.err.Error() }
+func (e *responseStartedError) Unwrap() error { return e.err }
+
+func responseHasStarted(err error) bool {
+	var started *responseStartedError
+	return errors.As(err, &started)
+}
+
 // proxyHTTPOverGRPC forwards an HTTP request over the gRPC tunnel and writes the response
 func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, tunnel *TunnelConnection) error {
+	if tunnel.Supports(common.CapabilityHTTPStreamV1) {
+		return p.proxyStreamingHTTPOverGRPC(w, r, tunnel)
+	}
+
 	// Generate unique connection ID
 	connectionID, err := generateConnectionID()
 	if err != nil {
@@ -220,7 +288,7 @@ func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, 
 	if err != nil {
 		return fmt.Errorf("failed to read request body: %w", err)
 	}
-	defer r.Body.Close()
+	defer func() { _ = r.Body.Close() }()
 	if int64(len(limitedBody)) > MaxBodySize {
 		return fmt.Errorf("request body too large (max %d bytes)", MaxBodySize)
 	}
@@ -228,17 +296,7 @@ func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, 
 
 	// Convert headers to map (join multi-value headers per HTTP spec)
 	// SECURITY: Strip platform cookies to prevent tunnel owners from stealing sessions
-	headers := make(map[string]string)
-	for key, values := range r.Header {
-		value := strings.Join(values, ", ")
-		if strings.EqualFold(key, "Cookie") {
-			value = stripPlatformCookies(value)
-			if value == "" {
-				continue // Don't include empty Cookie header
-			}
-		}
-		headers[key] = value
-	}
+	headers := forwardedRequestHeaders(r.Header)
 
 	// Create HttpRequest message
 	httpReq := &pb.HttpRequest{
@@ -326,6 +384,21 @@ func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, 
 	}
 }
 
+func forwardedRequestHeaders(source http.Header) map[string]string {
+	headers := make(map[string]string, len(source))
+	for key, values := range source {
+		value := strings.Join(values, ", ")
+		if strings.EqualFold(key, "Cookie") {
+			value = stripPlatformCookies(value)
+			if value == "" {
+				continue
+			}
+		}
+		headers[key] = value
+	}
+	return headers
+}
+
 // generateConnectionID creates a random connection ID
 func generateConnectionID() (string, error) {
 	bytes := make([]byte, 16)
@@ -404,9 +477,9 @@ func (p *ProxyServer) handleApexDomain(w http.ResponseWriter, r *http.Request) {
 
 	switch r.URL.Path {
 	case "/privacy":
-		fmt.Fprint(w, privacyHTML)
+		_, _ = fmt.Fprint(w, privacyHTML)
 	case "/terms":
-		fmt.Fprint(w, termsHTML)
+		_, _ = fmt.Fprint(w, termsHTML)
 	case "/favicon.ico", "/robots.txt", "/sitemap.xml":
 		http.NotFound(w, r)
 	default:
@@ -420,7 +493,7 @@ func (p *ProxyServer) handleApexDomain(w http.ResponseWriter, r *http.Request) {
 				common.LogInfo("homepage human", "ip", ip, "ua", ua)
 			}
 		}
-		fmt.Fprint(w, homepageHTML)
+		_, _ = fmt.Fprint(w, homepageHTML)
 	}
 }
 

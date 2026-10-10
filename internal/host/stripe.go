@@ -137,7 +137,7 @@ func (p *ProxyServer) handleStripeWebhook(w http.ResponseWriter, r *http.Request
 
 	// Return success
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"received": true}`))
+	_, _ = w.Write([]byte(`{"received": true}`))
 }
 
 // handleCheckoutCompleted processes checkout.session.completed events
@@ -258,7 +258,7 @@ func (p *ProxyServer) getStripeCustomerEmail(ctx context.Context, customerID str
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)

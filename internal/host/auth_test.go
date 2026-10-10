@@ -1,6 +1,7 @@
 package host
 
 import (
+	"crypto/sha256"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -243,6 +244,97 @@ func TestCheckJWT(t *testing.T) {
 		}
 		if w.Code != http.StatusUnauthorized {
 			t.Errorf("Expected status 401, got %d", w.Code)
+		}
+	})
+}
+
+func TestGetAuthFromTunnelBearer(t *testing.T) {
+	proxy := &ProxyServer{
+		config: &config.Config{
+			Environment: config.EnvProd,
+			JWTSecret:   "test-jwt-secret",
+		},
+	}
+	tunnel := &TunnelConnection{}
+
+	claims := jwt.MapClaims{
+		"email": "Alice@Example.com",
+		"exp":   time.Now().Add(time.Hour).Unix(),
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tokenString, err := token.SignedString([]byte("test-jwt-secret"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("prefers tunn-specific header", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "https://tools.tunn.to/mcp", nil)
+		req.Header.Set("Tunn-Authorization", "Bearer "+tokenString)
+		req.Header.Set("Authorization", "Bearer upstream-application-token")
+
+		email, headerName, capability, ok := proxy.getAuthFromTunnelBearer(req, tunnel)
+		if !ok || capability || email != "alice@example.com" || headerName != "Tunn-Authorization" {
+			t.Fatalf("getAuthFromTunnelBearer = (%q, %q, %v, %v)", email, headerName, capability, ok)
+		}
+	})
+
+	t.Run("accepts standard authorization", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "https://tools.tunn.to/mcp", nil)
+		req.Header.Set("Authorization", "Bearer "+tokenString)
+
+		email, headerName, capability, ok := proxy.getAuthFromTunnelBearer(req, tunnel)
+		if !ok || capability || email != "alice@example.com" || headerName != "Authorization" {
+			t.Fatalf("getAuthFromTunnelBearer = (%q, %q, %v, %v)", email, headerName, capability, ok)
+		}
+	})
+
+	t.Run("accepts endpoint-scoped capability", func(t *testing.T) {
+		endpointToken := "tunn_ep_test-capability"
+		digest := sha256.Sum256([]byte(endpointToken))
+		capabilityTunnel := &TunnelConnection{
+			CreatorEmail:      "owner@example.com",
+			AccessTokenSHA256: digest[:],
+		}
+		req := httptest.NewRequest(http.MethodPost, "https://tools.tunn.to/mcp", nil)
+		req.Header.Set("Authorization", "Bearer "+endpointToken)
+
+		email, headerName, capability, ok := proxy.getAuthFromTunnelBearer(req, capabilityTunnel)
+		if !ok || !capability || email != "owner@example.com" || headerName != "Authorization" {
+			t.Fatalf("getAuthFromTunnelBearer = (%q, %q, %v, %v)", email, headerName, capability, ok)
+		}
+	})
+
+	t.Run("rotation revokes old capability", func(t *testing.T) {
+		oldToken := "tunn_ep_old-capability"
+		oldDigest := sha256.Sum256([]byte(oldToken))
+		capabilityTunnel := &TunnelConnection{CreatorEmail: "owner@example.com", AccessTokenSHA256: oldDigest[:]}
+		newToken := "tunn_ep_new-capability"
+		newDigest := sha256.Sum256([]byte(newToken))
+		capabilityTunnel.updateAccessTokenDigest(newDigest[:])
+
+		oldRequest := httptest.NewRequest(http.MethodPost, "https://tools.tunn.to/mcp", nil)
+		oldRequest.Header.Set("Authorization", "Bearer "+oldToken)
+		if _, _, _, ok := proxy.getAuthFromTunnelBearer(oldRequest, capabilityTunnel); ok {
+			t.Fatal("old endpoint token remained valid after rotation")
+		}
+		newRequest := httptest.NewRequest(http.MethodPost, "https://tools.tunn.to/mcp", nil)
+		newRequest.Header.Set("Authorization", "Bearer "+newToken)
+		if _, _, capability, ok := proxy.getAuthFromTunnelBearer(newRequest, capabilityTunnel); !ok || !capability {
+			t.Fatal("new endpoint token was not accepted after rotation")
+		}
+	})
+
+	t.Run("rejects wrong signature", func(t *testing.T) {
+		badToken := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+		badTokenString, err := badToken.SignedString([]byte("wrong-secret"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req := httptest.NewRequest(http.MethodPost, "https://tools.tunn.to/mcp", nil)
+		req.Header.Set("Tunn-Authorization", "Bearer "+badTokenString)
+
+		if _, _, _, ok := proxy.getAuthFromTunnelBearer(req, tunnel); ok {
+			t.Fatal("accepted a bearer token signed with the wrong key")
 		}
 	})
 }

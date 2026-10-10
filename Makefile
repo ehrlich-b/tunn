@@ -8,7 +8,7 @@ GO_FILES := $(wildcard *.go)
 DOCKER_IMAGE := $(APP_NAME):latest
 FLY_APP_NAME := $(APP_NAME)
 
-.PHONY: all build clean proto fmt tidy verify check test test-verbose test-coverage test-race integration-test integration-test-smoke docker docker-build docker-run cert-setup cert-renew fly-create fly-init fly-secrets fly-certs fly-deploy fly-logs fly-status analytics-hour analytics-day analytics-live help
+.PHONY: all build clean proto fmt tidy verify check vet lint test test-verbose test-mcp test-lifecycle-contract test-coverage test-race integration-test integration-test-smoke integration-test-ai integration-test-lifecycle docker docker-build docker-run cert-setup cert-renew cert-install-schedule fly-create fly-init fly-secrets fly-certs fly-deploy fly-logs fly-status analytics-hour analytics-day analytics-live help
 
 # Default target
 all: build
@@ -49,6 +49,12 @@ verify: fmt test
 check: fmt tidy test-race
 	@echo "All checks passed!"
 
+vet:
+	go vet ./...
+
+lint:
+	golangci-lint run
+
 # Build for different platforms
 build-all: build-linux build-mac build-windows
 
@@ -79,6 +85,14 @@ test-verbose:
 	@echo "Running tests with verbose output..."
 	go test -v ./...
 
+test-mcp:
+	@echo "Running MCP bridge tests..."
+	go test -v -timeout=20s ./internal/mcpbridge
+
+# In-process lifecycle regressions also run in sandboxes without loopback.
+test-lifecycle-contract:
+	go test -race -v -timeout=20s -run '^(TestNormalizeEmail|TestBridgeLifecycle)' ./internal/common ./internal/mcpbridge
+
 test-coverage:
 	@echo "Running tests with coverage..."
 	go test -coverprofile=coverage.out ./...
@@ -100,6 +114,16 @@ integration-test-smoke: build
 	@if [ ! -f "./certs/cert.pem" ]; then ./scripts/gen-test-certs.sh; fi
 	./scripts/integration-tests/smoke-test.sh
 
+integration-test-ai: build
+	@echo "Running AI ingress end-to-end test..."
+	@if [ ! -f "./certs/cert.pem" ]; then ./scripts/gen-test-certs.sh; fi
+	./scripts/integration-tests/ai-ingress-test.sh
+
+# Authenticated local MCP lifecycle; no DNS, browser, or hosted services needed.
+integration-test-lifecycle: build
+	@if [ ! -f "./certs/cert.pem" ]; then ./scripts/gen-test-certs.sh; fi
+	python3 ./scripts/integration-tests/lifecycle-test.py
+
 # Docker targets
 docker: docker-build
 
@@ -120,6 +144,13 @@ cert-renew:
 	@echo "Renewing SSL certificates..."
 	./renew-certs.sh
 
+cert-install-schedule:
+	@mkdir -p "$(HOME)/Library/LaunchAgents" "$(HOME)/.config/tunn"
+	@install -m 600 scripts/com.ehrlich.tunn-cert-renewal.plist "$(HOME)/Library/LaunchAgents/com.ehrlich.tunn-cert-renewal.plist"
+	@launchctl bootout "gui/$$(id -u)/com.ehrlich.tunn-cert-renewal" >/dev/null 2>&1 || true
+	@launchctl bootstrap "gui/$$(id -u)" "$(HOME)/Library/LaunchAgents/com.ehrlich.tunn-cert-renewal.plist"
+	@echo "Installed daily certificate renewal check."
+
 # Create certs directory structure
 certs-dir:
 	@echo "Creating certificates directory..."
@@ -133,7 +164,8 @@ certs-dir:
 #   3. make fly-deploy    (deploy)
 #
 # Subsequent deploys: make fly-deploy
-# Cert renewal (every 90 days): make fly-certs && make fly-deploy
+# Certificate renewal: make cert-renew (DNS, Fly secret update, restart, and
+# live verification are handled as one operation).
 
 fly-create:
 	@echo "Creating Fly.io application..."
@@ -181,19 +213,7 @@ fly-secrets:
 	@echo "Secrets set! Now run: make fly-deploy"
 
 fly-certs:
-	@echo "Updating TLS certs..."
-	@if ! sudo test -f "/etc/letsencrypt/live/tunn.to/fullchain.pem"; then \
-		echo "ERROR: Certs not found. Run: sudo certbot renew"; \
-		exit 1; \
-	fi
-	@sudo cat /etc/letsencrypt/live/tunn.to/fullchain.pem | base64 | tr -d '\n' > /tmp/cert.b64
-	@sudo cat /etc/letsencrypt/live/tunn.to/privkey.pem | base64 | tr -d '\n' > /tmp/key.b64
-	fly secrets set \
-		TUNN_CERT_DATA="$$(cat /tmp/cert.b64)" \
-		TUNN_KEY_DATA="$$(cat /tmp/key.b64)" \
-		-a $(FLY_APP_NAME)
-	@rm -f /tmp/cert.b64 /tmp/key.b64
-	@echo "Certs updated! Run: make fly-deploy"
+	@$(MAKE) cert-renew
 
 fly-deploy:
 	@echo "Deploying to Fly.io..."
@@ -294,7 +314,7 @@ help:
 	@echo "  make fly-create    - Create Fly app and allocate IPs"
 	@echo "  make fly-init      - Generate and set JWT secret"
 	@echo "  make fly-secrets   - Set GitHub and SMTP secrets (interactive)"
-	@echo "  make fly-certs     - Set TLS certs from certbot"
+	@echo "  make fly-certs     - Renew and deploy TLS certificate (alias of cert-renew)"
 	@echo "  make fly-deploy    - Deploy to Fly.io"
 	@echo ""
 	@echo "Fly.io Maintenance:"

@@ -45,6 +45,7 @@ run_test() {
 
 # Run tests in order of complexity
 run_test "Smoke Test" "smoke-test.sh"
+run_test "AI Ingress (MCP + raw TCP)" "ai-ingress-test.sh"
 run_test "Device Login E2E" "device-login-test.sh"
 run_test "Multi-Node gRPC" "multi-node-test.sh"
 run_test "Auth Flow" "auth-flow-test.sh"

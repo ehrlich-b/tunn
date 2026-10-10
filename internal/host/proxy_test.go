@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -147,6 +148,47 @@ func TestProxyServerHealthCheck(t *testing.T) {
 	}
 }
 
+func TestHTTP3Advertisement(t *testing.T) {
+	proxy := &ProxyServer{HTTP3Addr: "fly-global-services:443"}
+	request := httptest.NewRequest(http.MethodGet, "https://example.com/health", nil)
+	request.TLS = &tls.ConnectionState{}
+	recorder := httptest.NewRecorder()
+	proxy.advertiseHTTP3(recorder, request)
+	if got := recorder.Header().Get("Alt-Svc"); got != `h3=":443"; ma=3600` {
+		t.Fatalf("Alt-Svc = %q", got)
+	}
+	request.TLS = nil
+	recorder = httptest.NewRecorder()
+	proxy.advertiseHTTP3(recorder, request)
+	if got := recorder.Header().Get("Alt-Svc"); got != "" {
+		t.Fatalf("insecure request advertised HTTP/3: %q", got)
+	}
+}
+
+func TestProxyServerRoutesAuthorityFormConnect(t *testing.T) {
+	cfg := &config.Config{
+		Environment: config.EnvProd,
+		Domain:      "tunn.to",
+	}
+	proxy := &ProxyServer{
+		Domain:       cfg.Domain,
+		config:       cfg,
+		tunnelServer: NewTunnelServer(cfg, nil, nil, nil),
+	}
+
+	request := httptest.NewRequest(http.MethodConnect, "https://offline.tunn.to/_tunn/connect", nil)
+	request.Host = "offline.tunn.to"
+	request.URL.Path = ""
+	request.RequestURI = "offline.tunn.to:443"
+	request.Header.Set("Tunn-Protocol", "tcp/1")
+	recorder := httptest.NewRecorder()
+
+	proxy.createHandler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("authority-form CONNECT status = %d, want tunnel router status 503", recorder.Code)
+	}
+}
+
 func TestProxyServerRun(t *testing.T) {
 	// This test verifies that the server can start and stop gracefully
 	cfg := &config.Config{
@@ -194,7 +236,7 @@ func TestProxyServerRun(t *testing.T) {
 	if err != nil {
 		t.Logf("HTTP/2 server connection attempt: %v (may be expected in test environment)", err)
 	} else {
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		if resp.StatusCode != http.StatusOK {
 			t.Errorf("Expected health check status 200, got %d", resp.StatusCode)
 		}

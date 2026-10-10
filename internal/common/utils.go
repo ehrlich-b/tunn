@@ -20,9 +20,10 @@ func RandID(n int) string {
 	return string(b)
 }
 
-// NormalizeEmail applies Unicode NFKC normalization and lowercasing to an email.
-// This prevents Unicode homograph attacks where visually similar characters
-// (like Cyrillic 'а' vs ASCII 'a') could bypass email allow-lists.
+// NormalizeEmail trims whitespace, applies Unicode NFKC normalization, and
+// lowercases an email. Compatibility forms such as full-width Latin letters
+// normalize to ASCII; visually similar letters from other scripts (for example,
+// Cyrillic 'а' and ASCII 'a') remain distinct.
 func NormalizeEmail(email string) string {
 	return strings.ToLower(norm.NFKC.String(strings.TrimSpace(email)))
 }

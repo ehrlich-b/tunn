@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -25,7 +27,7 @@ const MaxResponseBodySize = 100 * 1024 * 1024
 
 // MaxConcurrentRequests is the maximum number of concurrent HTTP requests being processed.
 // Prevents goroutine exhaustion from flood of requests.
-const MaxConcurrentRequests = 100
+const MaxConcurrentRequests = common.MaxConcurrentConnections
 
 // messageSender is the interface for sending tunnel messages.
 // This allows for thread-safe sending and testing with mocks.
@@ -40,6 +42,13 @@ type streamSender struct {
 	mu     sync.Mutex
 }
 
+type permanentTunnelError struct {
+	err error
+}
+
+func (e *permanentTunnelError) Error() string { return e.err.Error() }
+func (e *permanentTunnelError) Unwrap() error { return e.err }
+
 // Send sends a message on the stream in a thread-safe manner.
 func (s *streamSender) Send(msg *pb.TunnelMessage) error {
 	s.mu.Lock()
@@ -49,11 +58,21 @@ func (s *streamSender) Send(msg *pb.TunnelMessage) error {
 
 // ServeClient is the new gRPC-based tunnel client for "tunn serve"
 type ServeClient struct {
-	TunnelID      string
-	TargetURL     string
-	ServerAddr    string
-	AuthToken     string
-	TunnelKey     string
+	TunnelID           string
+	TargetURL          string
+	DisplayTarget      string // Optional redacted target shown in the CLI
+	PublicPath         string // Optional path appended to the registered public URL
+	UpstreamPath       string // Optional path replacing PublicPath at the target
+	UpstreamRawQuery   string // Optional fixed query appended at the target
+	ServerAddr         string
+	AuthToken          string
+	CreatorEmail       string // Optional identity for non-JWT/self-hosted auth
+	AccessTokenSHA256  []byte // Optional endpoint-scoped access-token digest
+	EndpointTokenPath  string // Optional local token path shown after registration
+	EndpointProtocol   string // "http" (default) or "tcp"
+	TargetNetwork      string // "tcp" (default) or "unix" for raw endpoints
+	DialAddress        string // Optional transport address when TargetURL is only an HTTP origin
+	TunnelKey          string
 	AllowedEmails      []string
 	Insecure           bool // Skip TLS verification for proxy gRPC connection
 	SkipLocalTLSVerify bool // Skip TLS verification for local HTTPS target
@@ -64,6 +83,7 @@ type ServeClient struct {
 
 	// HTTP client settings
 	HTTPTimeout time.Duration // Timeout for HTTP requests to local target (default: 30s)
+	Inspector   *Inspector    // Optional local, short-lived HTTP request inspector
 }
 
 // Run establishes a gRPC tunnel with automatic reconnection on failure.
@@ -94,6 +114,10 @@ func (s *ServeClient) Run(ctx context.Context) error {
 		// If runOnce returned nil (clean shutdown), exit
 		if err == nil {
 			return nil
+		}
+		var permanent *permanentTunnelError
+		if errors.As(err, &permanent) {
+			return err
 		}
 
 		// Reset backoff if connection was stable for at least 30 seconds
@@ -143,7 +167,7 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to connect: %w", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// Create tunnel service client
 	client := pb.NewTunnelServiceClient(conn)
@@ -157,29 +181,46 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 	common.LogInfo("gRPC stream established")
 
 	// Extract email from JWT (skip if no token)
-	var creatorEmail string
-	if s.AuthToken != "" {
-		var err error
-		creatorEmail, err = common.ExtractEmailFromJWT(s.AuthToken)
-		if err != nil {
-			return fmt.Errorf("failed to extract email from JWT: %w", err)
+	creatorEmail := s.CreatorEmail
+	if creatorEmail == "" {
+		if s.AuthToken != "" {
+			if email, err := common.ExtractEmailFromJWT(s.AuthToken); err == nil {
+				creatorEmail = email
+				common.LogInfo("extracted creator email", "email", creatorEmail)
+			} else {
+				// Self-hosted client secrets and per-user tokens are not JWTs. The
+				// server derives their identity from its own trusted configuration.
+				common.LogDebug("auth token has no JWT email; server will derive identity")
+			}
+		} else {
+			common.LogInfo("no auth token - using public mode")
 		}
-		common.LogInfo("extracted creator email", "email", creatorEmail)
-	} else {
-		common.LogInfo("no auth token - using public mode")
-		creatorEmail = ""
+	}
+
+	accessTokenDigest := s.AccessTokenSHA256
+	if s.EndpointTokenPath != "" {
+		accessTokenDigest, err = endpointTokenDigestFromFile(s.EndpointTokenPath)
+		if err != nil {
+			return &permanentTunnelError{err: fmt.Errorf("load endpoint token before registration: %w", err)}
+		}
 	}
 
 	// Send registration message
 	regMsg := &pb.TunnelMessage{
 		Message: &pb.TunnelMessage_RegisterClient{
 			RegisterClient: &pb.RegisterClient{
-				TunnelId:      s.TunnelID,
-				TargetUrl:     s.TargetURL,
-				AuthToken:     s.AuthToken,
-				CreatorEmail:  creatorEmail,
-				AllowedEmails: s.AllowedEmails,
-				TunnelKey:     s.TunnelKey,
+				TunnelId:          s.TunnelID,
+				TargetUrl:         s.registrationTarget(),
+				AuthToken:         s.AuthToken,
+				CreatorEmail:      creatorEmail,
+				AllowedEmails:     s.AllowedEmails,
+				TunnelKey:         s.TunnelKey,
+				AccessTokenSha256: accessTokenDigest,
+				Capabilities: []string{
+					common.CapabilityHTTPStreamV1,
+					common.CapabilityConnectionStreamV1,
+				},
+				EndpointProtocol: s.EndpointProtocol,
 			},
 		},
 	}
@@ -202,15 +243,33 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 	}
 
 	if !regResp.Success {
-		return fmt.Errorf("registration failed: %s", regResp.ErrorMessage)
+		return &permanentTunnelError{err: fmt.Errorf("registration failed: %s", regResp.ErrorMessage)}
+	}
+	if s.EndpointProtocol == "tcp" && !containsString(regResp.Capabilities, common.CapabilityConnectionStreamV1) {
+		return &permanentTunnelError{err: fmt.Errorf("relay does not support raw connection streams")}
 	}
 
 	common.LogInfo("tunnel registered successfully", "public_url", regResp.PublicUrl)
-	fmt.Printf("%s -> %s\n", regResp.PublicUrl, s.TargetURL)
+	publicURL := regResp.PublicUrl + s.PublicPath
+	displayTarget := s.TargetURL
+	if s.DisplayTarget != "" {
+		displayTarget = s.DisplayTarget
+	}
+	fmt.Printf("%s -> %s\n", publicURL, displayTarget)
 
 	// Warn if tunnel is open to the internet (no --allow specified)
 	if len(s.AllowedEmails) == 0 {
 		fmt.Println("Warning: Tunnel is open to the internet. Use --allow=email@example.com to restrict access.")
+	} else if s.PublicPath == "/mcp" {
+		fmt.Println("Access: private. Use the endpoint token as Tunn-Authorization: Bearer <token>.")
+		if s.EndpointTokenPath != "" {
+			fmt.Printf("Endpoint token: %s (mode 0600)\n", s.EndpointTokenPath)
+		}
+	} else if s.EndpointProtocol == "tcp" {
+		fmt.Printf("Access: private. Run tunn connect --token-file %s %s\n", s.EndpointTokenPath, s.TunnelID)
+	} else if s.EndpointTokenPath != "" {
+		fmt.Println("Access: private. Use the endpoint token as Tunn-Authorization: Bearer <token>.")
+		fmt.Printf("Endpoint token: %s (mode 0600)\n", s.EndpointTokenPath)
 	}
 
 	// Wrap stream with mutex for thread-safe sends
@@ -222,15 +281,76 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 
 	// Start health check sender
 	go s.sendHealthChecks(connCtx, sender)
+	if s.EndpointTokenPath != "" {
+		go s.watchEndpointToken(connCtx, sender, accessTokenDigest, time.Second)
+	}
 
 	// Enter message processing loop
 	return s.processMessages(ctx, stream, sender)
+}
+
+func (s *ServeClient) watchEndpointToken(ctx context.Context, sender messageSender, current []byte, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	current = append([]byte(nil), current...)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			digest, err := endpointTokenDigestFromFile(s.EndpointTokenPath)
+			if err != nil {
+				common.LogError("failed to read endpoint token for rotation", "error", err)
+				continue
+			}
+			if bytes.Equal(digest, current) {
+				continue
+			}
+			if err := sender.Send(&pb.TunnelMessage{
+				Message: &pb.TunnelMessage_UpdateAccessToken{
+					UpdateAccessToken: &pb.UpdateAccessToken{AccessTokenSha256: digest},
+				},
+			}); err != nil {
+				common.LogError("failed to rotate endpoint token at relay", "error", err)
+				return
+			}
+			current = digest
+			common.LogInfo("endpoint access token rotated")
+		}
+	}
+}
+
+func (s *ServeClient) registrationTarget() string {
+	if s.TargetNetwork == "unix" && s.EndpointProtocol != "tcp" {
+		return "unix-http"
+	}
+	if s.EndpointProtocol == "tcp" {
+		if s.TargetNetwork == "unix" {
+			return "unix"
+		}
+		return "tcp"
+	}
+	if s.PublicPath == "/mcp" {
+		return "mcp"
+	}
+	return "http"
+}
+
+func containsString(values []string, wanted string) bool {
+	for _, value := range values {
+		if value == wanted {
+			return true
+		}
+	}
+	return false
 }
 
 // processMessages handles incoming messages from the server
 func (s *ServeClient) processMessages(ctx context.Context, stream pb.TunnelService_EstablishTunnelClient, sender messageSender) error {
 	// Semaphore to limit concurrent HTTP request handlers
 	sem := make(chan struct{}, MaxConcurrentRequests)
+	connections := newInboundConnectionManager()
+	defer connections.closeAll(fmt.Errorf("tunnel connection closed"))
 
 	for {
 		select {
@@ -269,6 +389,18 @@ func (s *ServeClient) processMessages(ctx context.Context, stream pb.TunnelServi
 			rtt := time.Now().UnixMilli() - m.HealthCheckResponse.Timestamp
 			common.LogDebug("health check response", "rtt_ms", rtt)
 
+		case *pb.TunnelMessage_ConnectionOpen:
+			connections.open(ctx, s, sender, m.ConnectionOpen)
+
+		case *pb.TunnelMessage_ConnectionData:
+			connections.write(m.ConnectionData.ConnectionId, m.ConnectionData.Data)
+
+		case *pb.TunnelMessage_ConnectionHalfClose:
+			connections.halfClose(m.ConnectionHalfClose.ConnectionId)
+
+		case *pb.TunnelMessage_ConnectionClose:
+			connections.close(m.ConnectionClose.ConnectionId, m.ConnectionClose.ErrorMessage)
+
 		default:
 			common.LogInfo("unexpected message type", "type", fmt.Sprintf("%T", m))
 		}
@@ -277,13 +409,24 @@ func (s *ServeClient) processMessages(ctx context.Context, stream pb.TunnelServi
 
 // handleHttpRequest handles an HTTP request from the proxy, makes a request to the local target, and sends back the response
 func (s *ServeClient) handleHttpRequest(sender messageSender, httpReq *pb.HttpRequest) {
+	var capture *inspectionCapture
+	if s.Inspector != nil {
+		capture = s.Inspector.begin(httpReq.Method, httpReq.Path, httpReq.Headers)
+		_, _ = capture.Write(httpReq.Body)
+		capture.complete()
+	}
+	status, responseBytes, failure := http.StatusBadGateway, int64(0), "failed to forward"
+	if capture != nil {
+		defer func() { capture.finish(status, responseBytes, failure) }()
+	}
 	common.LogDebug("http request received",
 		"connection_id", httpReq.ConnectionId,
 		"method", httpReq.Method,
 		"path", httpReq.Path)
 
-	// Build the target URL
-	targetURL := s.TargetURL + httpReq.Path
+	// Build the target URL. Protocol adapters can expose one stable public path
+	// while forwarding to a differently named local endpoint.
+	targetURL := s.targetURL(httpReq.Path)
 
 	// Create HTTP request
 	req, err := http.NewRequest(httpReq.Method, targetURL, bytes.NewReader(httpReq.Body))
@@ -303,16 +446,24 @@ func (s *ServeClient) handleHttpRequest(sender messageSender, httpReq *pb.HttpRe
 	if timeout == 0 {
 		timeout = 30 * time.Second
 	}
-	client := &http.Client{
-		Timeout: timeout,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: s.SkipLocalTLSVerify,
-			},
-			// Custom TLSClientConfig disables HTTP/2 by default; re-enable it
-			// so we can talk to local HTTPS servers that require HTTP/2 via ALPN.
-			ForceAttemptHTTP2: true,
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: s.SkipLocalTLSVerify,
 		},
+		// Custom TLSClientConfig disables HTTP/2 by default; re-enable it
+		// so we can talk to local HTTPS servers that require HTTP/2 via ALPN.
+		ForceAttemptHTTP2: true,
+	}
+	if s.TargetNetwork == "unix" {
+		dialAddress := s.DialAddress
+		transport.DialContext = func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "unix", dialAddress)
+		}
+	}
+	defer transport.CloseIdleConnections()
+	client := &http.Client{
+		Timeout:   timeout,
+		Transport: transport,
 	}
 
 	resp, err := client.Do(req)
@@ -321,7 +472,9 @@ func (s *ServeClient) handleHttpRequest(sender messageSender, httpReq *pb.HttpRe
 		s.sendErrorResponse(sender, httpReq.ConnectionId, http.StatusBadGateway, "Failed to reach local target")
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
+	status = resp.StatusCode
+	failure = ""
 
 	// Read response body with size limit to prevent memory exhaustion
 	// Read one extra byte to detect if body exceeds limit
@@ -337,6 +490,7 @@ func (s *ServeClient) handleHttpRequest(sender messageSender, httpReq *pb.HttpRe
 		return
 	}
 	body := limitedBody
+	responseBytes = int64(len(body))
 
 	// Convert headers to map (join multi-value headers per HTTP spec)
 	headers := make(map[string]string)
@@ -367,6 +521,36 @@ func (s *ServeClient) handleHttpRequest(sender messageSender, httpReq *pb.HttpRe
 		"connection_id", httpReq.ConnectionId,
 		"status", resp.StatusCode,
 		"body_size", len(body))
+}
+
+func (s *ServeClient) targetURL(requestPath string) string {
+	if s.PublicPath != "" && s.UpstreamPath != "" {
+		requestPath = rewritePublicPath(requestPath, s.PublicPath, s.UpstreamPath, s.UpstreamRawQuery)
+	}
+	return s.TargetURL + requestPath
+}
+
+func rewritePublicPath(requestURI, publicPath, upstreamPath, upstreamRawQuery string) string {
+	path, rawQuery, found := strings.Cut(requestURI, "?")
+	if path == publicPath || strings.HasPrefix(path, strings.TrimSuffix(publicPath, "/")+"/") {
+		suffix := strings.TrimPrefix(path, publicPath)
+		path = strings.TrimSuffix(upstreamPath, "/") + suffix
+		if path == "" {
+			path = "/"
+		}
+	}
+
+	queries := make([]string, 0, 2)
+	if upstreamRawQuery != "" {
+		queries = append(queries, upstreamRawQuery)
+	}
+	if found && rawQuery != "" {
+		queries = append(queries, rawQuery)
+	}
+	if len(queries) > 0 {
+		return path + "?" + strings.Join(queries, "&")
+	}
+	return path
 }
 
 // sendErrorResponse sends an error response back to the proxy

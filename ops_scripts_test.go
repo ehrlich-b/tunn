@@ -244,3 +244,11 @@ func TestOpsDockerBuildAndFlyPersistenceContract(t *testing.T) {
 		}
 	}
 }
+
+func TestOpsDefaultMakeBuildsBinary(t *testing.T) {
+	cmd := exec.Command("make", "--no-print-directory", "-n")
+	output, err := cmd.CombinedOutput()
+	if err != nil || !strings.Contains(string(output), "go build ") || strings.Contains(string(output), "go test ") {
+		t.Fatalf("default make no longer builds the application: %v\n%s", err, output)
+	}
+}

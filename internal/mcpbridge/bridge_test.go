@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -293,17 +295,78 @@ func TestBridgeValidatesHTTPEnvelope(t *testing.T) {
 }
 
 func TestBridgeTimesOut(t *testing.T) {
-	bridge := startTestBridge(t)
-	bridge.requestTimeout = 30 * time.Millisecond
-	sessionID := initializeTestBridge(t, bridge)
+	// Keep process startup and network scheduling out of the deadline check.
+	// synctest advances the real handler's clock only once it is blocked
+	// waiting for the child response, regardless of host load.
+	synctest.Test(t, func(t *testing.T) {
+		bridge := &Bridge{
+			outputs:        make(chan childOutput, 1),
+			requestTimeout: defaultRequestTimeout,
+		}
+		neverWritten := false
+		bridge.stdin = lifecycleWriteFunc(func(message []byte) (int, error) {
+			var request envelope
+			if err := json.Unmarshal(message, &request); err != nil {
+				t.Fatalf("decode child request: %v", err)
+			}
+			switch request.Method {
+			case "initialize":
+				bridge.outputs <- childOutput{message: []byte(fmt.Sprintf(
+					`{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":"2025-11-25","capabilities":{"tools":{}},"serverInfo":{"name":"fake","version":"1"}}}`,
+					request.ID))}
+			case "test/never":
+				neverWritten = true // The child accepts the call but never replies.
+			default:
+				t.Fatalf("unexpected child method: %q", request.Method)
+			}
+			return len(message), nil
+		})
 
-	response := postMCP(t, bridge, sessionID, "application/json", `{
-		"jsonrpc":"2.0","id":99,"method":"test/never","params":{}
-	}`)
-	defer func() { _ = response.Body.Close() }()
-	if response.StatusCode != http.StatusGatewayTimeout {
-		t.Fatalf("timeout status = %d, want 504: %s", response.StatusCode, readBody(t, response.Body))
-	}
+		initialize := httptest.NewRecorder()
+		bridge.ServeHTTP(initialize, lifecycleRequest(context.Background(), `{
+			"jsonrpc":"2.0","id":1,"method":"initialize",
+			"params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"test","version":"1"}}
+		}`))
+		if initialize.Code != http.StatusOK {
+			t.Fatalf("initialize status = %d, want 200: %s", initialize.Code, initialize.Body)
+		}
+		sessionID := initialize.Header().Get("Mcp-Session-Id")
+		if sessionID == "" {
+			t.Fatal("initialize response has no Mcp-Session-Id")
+		}
+
+		bridge.requestTimeout = 30 * time.Millisecond
+		request := lifecycleRequest(context.Background(), `{
+			"jsonrpc":"2.0","id":99,"method":"test/never","params":{}
+		}`)
+		request.Header.Set("Mcp-Session-Id", sessionID)
+		response := httptest.NewRecorder()
+		start := time.Now()
+		bridge.ServeHTTP(response, request)
+		if !neverWritten {
+			t.Fatal("timeout request never reached the child")
+		}
+		if elapsed := time.Since(start); elapsed != bridge.requestTimeout {
+			t.Fatalf("timeout after %s, want %s", elapsed, bridge.requestTimeout)
+		}
+		if response.Code != http.StatusGatewayTimeout {
+			t.Fatalf("timeout status = %d, want 504: %s", response.Code, response.Body)
+		}
+		var message struct {
+			JSONRPC string `json:"jsonrpc"`
+			ID      int    `json:"id"`
+			Error   struct {
+				Code    int    `json:"code"`
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		if err := json.Unmarshal(response.Body.Bytes(), &message); err != nil {
+			t.Fatalf("decode timeout response: %v", err)
+		}
+		if message.JSONRPC != "2.0" || message.ID != 99 || message.Error.Code != -32603 || message.Error.Message != "local MCP request timed out" {
+			t.Fatalf("uncorrelated or incorrect timeout error: %s", response.Body)
+		}
+	})
 }
 
 func TestBridgeReportsChildExit(t *testing.T) {

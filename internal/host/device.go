@@ -252,6 +252,7 @@ func (p *ProxyServer) handleDeviceAuthorize(w http.ResponseWriter, r *http.Reque
 func (p *ProxyServer) generateJWT(email string) (string, error) {
 	claims := jwt.MapClaims{
 		"email": email,
+		"type":  "access",
 		"sub":   email,
 		"iss":   "tunn",
 		"iat":   time.Now().Unix(),

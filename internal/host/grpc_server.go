@@ -742,10 +742,5 @@ func (s *TunnelServer) validateJWTAndExtractEmail(tokenString string) (string, e
 	}
 
 	// Extract email
-	email, ok := claims["email"].(string)
-	if !ok || email == "" {
-		return "", fmt.Errorf("email claim not found or empty in JWT")
-	}
-
-	return email, nil
+	return identityEmail(claims)
 }

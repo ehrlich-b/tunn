@@ -14,16 +14,12 @@ import (
 type LocalStorage struct {
 	deviceCodes *store.DeviceCodeStore
 	accounts    *store.AccountStore
+	db          *sql.DB
 
 	// Active tunnels tracked in memory
 	// Maps tunnel_id -> account_id
 	activeTunnels   map[string]string
 	activeTunnelsMu sync.RWMutex
-
-	// Magic link JTI tracking (replay protection)
-	// Maps jti -> expiry time
-	usedJTIs   map[string]time.Time
-	usedJTIsMu sync.RWMutex
 
 	// Magic link rate limiting
 	// Maps email -> list of request times
@@ -36,29 +32,11 @@ func NewLocalStorage(db *sql.DB) *LocalStorage {
 	s := &LocalStorage{
 		deviceCodes:       store.NewDeviceCodeStore(db),
 		accounts:          store.NewAccountStore(db),
+		db:                db,
 		activeTunnels:     make(map[string]string),
-		usedJTIs:          make(map[string]time.Time),
 		magicLinkRequests: make(map[string][]time.Time),
 	}
-	// Start cleanup goroutine for expired JTIs
-	go s.cleanupExpiredJTIs()
 	return s
-}
-
-// cleanupExpiredJTIs periodically removes expired JTIs from memory
-func (s *LocalStorage) cleanupExpiredJTIs() {
-	ticker := time.NewTicker(1 * time.Minute)
-	defer ticker.Stop()
-	for range ticker.C {
-		now := time.Now()
-		s.usedJTIsMu.Lock()
-		for jti, expiry := range s.usedJTIs {
-			if now.After(expiry) {
-				delete(s.usedJTIs, jti)
-			}
-		}
-		s.usedJTIsMu.Unlock()
-	}
 }
 
 // Available returns true since local storage is always available on login node.
@@ -246,15 +224,22 @@ func (s *LocalStorage) GetTunnelCount(ctx context.Context, accountID string) (in
 // Returns wasUnused=true if token was unused and is now marked.
 // Returns wasUnused=false if token was already used (replay attempt).
 func (s *LocalStorage) MarkMagicTokenUsed(ctx context.Context, jti string, expiry time.Time) (bool, error) {
-	s.usedJTIsMu.Lock()
-	defer s.usedJTIsMu.Unlock()
-
-	if _, exists := s.usedJTIs[jti]; exists {
+	if jti == "" || expiry.Unix() <= time.Now().Unix() {
 		return false, nil
 	}
-
-	s.usedJTIs[jti] = expiry
-	return true, nil
+	if _, err := s.db.ExecContext(ctx, "DELETE FROM used_magic_tokens WHERE expires_at <= ?", time.Now().Unix()); err != nil {
+		return false, err
+	}
+	result, err := s.db.ExecContext(ctx, `
+		INSERT INTO used_magic_tokens (jti, expires_at)
+		SELECT ?, ? WHERE ? > unixepoch()
+		ON CONFLICT(jti) DO NOTHING
+	`, jti, expiry.Unix(), expiry.Unix())
+	if err != nil {
+		return false, err
+	}
+	rows, err := result.RowsAffected()
+	return rows == 1, err
 }
 
 // Magic link rate limiting constants

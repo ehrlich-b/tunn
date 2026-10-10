@@ -24,13 +24,6 @@ import (
 // Prevents memory exhaustion from large requests.
 const MaxBodySize = 100 * 1024 * 1024
 
-// platformCookies lists cookies that should NOT be forwarded to tunnel targets.
-// These are tunn platform cookies that tunnel owners should never see.
-var platformCookies = map[string]bool{
-	"tunn_session": true,
-	authCookieName: true,
-}
-
 // stripPlatformCookies removes platform cookies from a Cookie header value.
 // Returns the sanitized cookie string, or empty if no cookies remain.
 func stripPlatformCookies(cookieHeader string) string {
@@ -49,7 +42,7 @@ func stripPlatformCookies(cookieHeader string) string {
 		if idx := strings.Index(part, "="); idx > 0 {
 			name = part[:idx]
 		}
-		if !platformCookies[name] {
+		if !strings.HasPrefix(name, "tunn_") && !strings.HasPrefix(name, "__Host-tunn_") && !strings.HasPrefix(name, "__Secure-tunn_") {
 			kept = append(kept, part)
 		}
 	}
@@ -227,10 +220,8 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 	// A browser cookie may have authenticated the request before bearer auth
 	// was considered. Still remove a recognized tunn credential in the standard
 	// header, while preserving an upstream application's unrelated credential.
-	if authorization := r.Header.Get("Authorization"); len(tunnel.AllowedEmails) > 0 && authorization != "" {
-		authRequest := &http.Request{Header: make(http.Header)}
-		authRequest.Header.Set("Authorization", authorization)
-		if _, _, _, valid := p.getAuthFromTunnelBearer(authRequest, tunnel); valid {
+	if authorization := r.Header.Get("Authorization"); authorization != "" {
+		if p.isPlatformAuthorization(authorization) {
 			clonedRequest := r.Clone(r.Context())
 			clonedRequest.Header = r.Header.Clone()
 			clonedRequest.Header.Del("Authorization")
@@ -408,7 +399,7 @@ func forwardedRequestHeaders(source http.Header) map[string]string {
 		}
 		value := strings.Join(values, ", ")
 		if strings.EqualFold(key, "Cookie") {
-			value = stripPlatformCookies(value)
+			value = stripPlatformCookies(strings.Join(values, "; "))
 			if value == "" {
 				continue
 			}

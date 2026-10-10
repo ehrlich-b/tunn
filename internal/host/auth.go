@@ -35,6 +35,7 @@ func (p *ProxyServer) setAuthCookie(w http.ResponseWriter, email string) error {
 	// Create JWT claims
 	claims := jwt.MapClaims{
 		"email": email,
+		"type":  "session",
 		"iat":   time.Now().Unix(),
 		"exp":   time.Now().Add(authCookieLifetime).Unix(),
 	}
@@ -84,8 +85,8 @@ func (p *ProxyServer) getAuthFromCookie(r *http.Request) (string, bool) {
 		return "", false
 	}
 
-	email, ok := claims["email"].(string)
-	if !ok || email == "" {
+	email, err := identityEmail(claims)
+	if err != nil {
 		return "", false
 	}
 
@@ -212,8 +213,8 @@ func (p *ProxyServer) getAuthFromTunnelBearer(r *http.Request, tunnel *TunnelCon
 		if !validClaims {
 			continue
 		}
-		email, validEmail := claims["email"].(string)
-		if !validEmail || email == "" {
+		email, err := identityEmail(claims)
+		if err != nil {
 			continue
 		}
 		return common.NormalizeEmail(email), name, false, true
@@ -757,8 +758,8 @@ func (p *ProxyServer) CheckJWT(next http.Handler) http.Handler {
 		}
 
 		// Extract user email from claims
-		email, ok := claims["email"].(string)
-		if !ok || email == "" {
+		email, err := identityEmail(claims)
+		if err != nil {
 			common.LogError("missing email claim in JWT")
 			http.Error(w, "Invalid token: missing email", http.StatusUnauthorized)
 			return

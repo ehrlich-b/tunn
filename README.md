@@ -82,6 +82,15 @@ WebSocket message, so keep gateway token/password auth enabled instead of using
 that header guard. See the [OpenClaw guide draft](docs/guides/openclaw.md) and
 [forwarded-header contract](docs/how-it-works.md#websocket-upgrades).
 
+### Embed in Go
+
+Import `github.com/ehrlich-b/tunn/sdk` to publish an existing `http.Handler` or
+HTTP origin with context cancellation, bounded reconnects, lifecycle events and
+concurrent-safe Close. It reuses the CLI publisher and relay authentication.
+See the [Go SDK API and lifecycle](docs/go-sdk.md) and the runnable
+[handler](examples/sdk-handler/main.go) and [origin](examples/sdk-origin/main.go)
+examples. Full loopback acceptance is required before SDK release.
+
 ### Local request inspector
 
 Add `--inspect` when debugging an HTTP endpoint or webhook handler:
@@ -286,6 +295,7 @@ make test-mcp # Run the focused stdio/Streamable HTTP bridge tests
 make test-ai-hosts # Offline deployment-kit unit and shell syntax checks
 make test-websocket # Local TLS relay, auth, headers, rotation, 100 sockets
 make test-websocket-memory # Same WebSocket stack over net.Pipe; no socket binds
+make test-sdk-contract # Go SDK lifecycle, external consumer and required loopback parity
 make integration-test-ai # TLS relay; private MCP/TCP, rotation, concurrency, reconnect
 make check    # Full pre-commit check (format, tidy, test with race detection)
 ```

@@ -2,7 +2,6 @@ package client
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/binary"
 	"errors"
 	"io"
@@ -55,6 +54,19 @@ type webSocketTargetConn struct{ net.Conn }
 func (c webSocketTargetConn) Write(p []byte) (int, error) {
 	_ = c.Conn.SetWriteDeadline(time.Now().Add(30 * time.Second))
 	return c.Conn.Write(p)
+}
+
+// Closing a TLS response body can wait for close-notify to be consumed by a
+// peer that has finished its WebSocket handshake. Close the owned raw socket
+// first so cancellation and worker joins do not wait for another TLS write.
+type webSocketUpstream struct {
+	io.ReadWriteCloser
+	closeTransport func()
+}
+
+func (c webSocketUpstream) Close() error {
+	c.closeTransport()
+	return c.ReadWriteCloser.Close()
 }
 
 func sendHTTPConnectionHead(sender messageSender, id string, status int, headers http.Header) error {
@@ -116,23 +128,24 @@ func (s *ServeClient) handleWebSocket(ctx context.Context, sender messageSender,
 	}
 	var targetMu sync.Mutex
 	var targetConn net.Conn
-	defer func() {
+	closeTarget := func() {
 		targetMu.Lock()
 		defer targetMu.Unlock()
 		if targetConn != nil {
 			_ = targetConn.Close()
 		}
-	}()
+	}
+	defer closeTarget()
 	transport := &http.Transport{
-		TLSClientConfig:     &tls.Config{InsecureSkipVerify: s.SkipLocalTLSVerify},
+		TLSClientConfig:     s.localTLSConfig(),
 		TLSHandshakeTimeout: timeout, ResponseHeaderTimeout: timeout,
 		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
 			if s.TargetNetwork == "unix" {
 				network, address = "unix", s.DialAddress
 			}
 			dial := (&net.Dialer{Timeout: timeout, KeepAlive: 30 * time.Second}).DialContext
-			if s.DialContext != nil {
-				dial = s.DialContext
+			if localDial := s.localDialContext(); localDial != nil {
+				dial = localDial
 			}
 			conn, err := dial(ctx, network, address)
 			if err != nil {
@@ -169,13 +182,7 @@ func (s *ServeClient) handleWebSocket(ctx context.Context, sender messageSender,
 	// Close the raw transport before Body.Close sends a TLS close-notify.
 	// A peer may stop reading after its WebSocket closing frame; waiting for
 	// another TLS write would unnecessarily retain the connection slot.
-	defer func() {
-		targetMu.Lock()
-		defer targetMu.Unlock()
-		if targetConn != nil {
-			_ = targetConn.Close()
-		}
-	}()
+	defer closeTarget()
 	if !duplex || !common.ValidWebSocketResponse(response.Header, request.Header.Get("Sec-WebSocket-Key")) {
 		sendConnectionRejection(sender, id, "invalid local WebSocket handshake")
 		return
@@ -195,13 +202,23 @@ func (s *ServeClient) handleWebSocket(ctx context.Context, sender messageSender,
 	if err := sendHTTPConnectionHead(sender, id, response.StatusCode, response.Header); err != nil {
 		return
 	}
-	s.runWebSocket(ctx, sender, id, input, upstream, options)
+	s.runWebSocket(ctx, sender, id, input, webSocketUpstream{upstream, closeTarget}, options)
 }
 
 func (s *ServeClient) runWebSocket(ctx context.Context, sender messageSender, id string, input io.Reader, upstream io.ReadWriteCloser, options common.WebSocketOptions) {
+	var workers sync.WaitGroup
+	defer func() {
+		_ = upstream.Close()
+		if closer, ok := input.(io.Closer); ok {
+			_ = closer.Close()
+		}
+		workers.Wait()
+	}()
 	watchDone := make(chan struct{})
 	defer close(watchDone)
+	workers.Add(1)
 	go func() {
+		defer workers.Done()
 		select {
 		case <-ctx.Done():
 			_ = upstream.Close()
@@ -218,10 +235,13 @@ func (s *ServeClient) runWebSocket(ctx context.Context, sender messageSender, id
 	toLocal := &common.WebSocketFrameWriter{Writer: upstream}
 	toRemote := &common.WebSocketFrameWriter{Writer: webSocketTunnelWriter{sender, id}}
 	incoming, outgoing := make(chan error, 1), make(chan error, 1)
+	workers.Add(2)
 	go func() {
+		defer workers.Done()
 		incoming <- toLocal.CopyFrames(webSocketActivityReader{input, &last}, true, options.MaxMessageSize)
 	}()
 	go func() {
+		defer workers.Done()
 		outgoing <- toRemote.CopyFrames(webSocketActivityReader{upstream, &last}, false, options.MaxMessageSize)
 	}()
 

@@ -3,6 +3,7 @@
 # Variables
 APP_NAME := tunn
 BINARY_NAME := tunn
+BUILD_DIR ?= bin
 GO_BUILD_ENV := CGO_ENABLED=0 GOOS=linux GOARCH=amd64
 GO_FILES := $(wildcard *.go)
 DOCKER_IMAGE := $(APP_NAME):latest
@@ -16,7 +17,7 @@ all: build
 # Build the binary
 build:
 	@echo "Building $(BINARY_NAME)..."
-	go build -ldflags="-s -w" -o ./bin/$(BINARY_NAME) .
+	go build -ldflags="-s -w" -o $(BUILD_DIR)/$(BINARY_NAME) .
 
 # Generate protobuf and gRPC code
 proto:
@@ -125,6 +126,32 @@ test-websocket-memory:
 # In-process lifecycle regressions also run in sandboxes without loopback.
 test-lifecycle-contract:
 	go test -race -v -timeout=20s -run '^(TestNormalizeEmail|TestBridgeLifecycle)' ./internal/common ./internal/mcpbridge
+
+# Memory TLS/gRPC lifecycle fixtures, plus a genuinely separate Go importer.
+# No registry resolution: dependencies must already exist in the offline cache.
+.PHONY: test-sdk-unit test-sdk-contract test-sdk-consumer
+test-sdk-unit:
+	GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go test -race -count=1 -timeout=45s ./sdk
+
+test-sdk-consumer:
+	mkdir -p .scratch/sdk-consumer
+	cp sdk/testdata/consumer/*.go .scratch/sdk-consumer/
+	printf 'module tunn-sdk-consumer\n\ngo 1.25.0\n\nrequire github.com/ehrlich-b/tunn v0.0.0\n\nreplace github.com/ehrlich-b/tunn => ../..\n' > .scratch/sdk-consumer/go.mod
+	cp go.sum .scratch/sdk-consumer/go.sum
+	cd .scratch/sdk-consumer && GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go test -mod=mod -race -count=1 -timeout=20s ./...
+	GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go test ./examples/sdk-handler ./examples/sdk-origin
+
+# Acceptance includes the actual relay/auth/HTTP/WS loopback stack. Never
+# skip or substitute the unit target when TCP listeners are unavailable.
+test-sdk-contract: test-sdk-unit test-sdk-consumer
+	GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go test -race -count=1 -v -timeout=90s -run '^TestSDK' ./internal/host
+
+.PHONY: run-sdk-handler run-sdk-origin
+run-sdk-handler:
+	go run ./examples/sdk-handler
+
+run-sdk-origin:
+	go run ./examples/sdk-origin
 
 # Durable store, buffered/streamed relay fixtures, owner CLI and internal RPCs;
 # these tests do not bind TCP/UDP sockets or call hosted services.

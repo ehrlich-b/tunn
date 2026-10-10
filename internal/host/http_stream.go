@@ -23,7 +23,7 @@ type requestBodyResult struct {
 // connection-oriented data path. Unlike the legacy path, the response may
 // remain open indefinitely for SSE and MCP standalone event streams.
 func (p *ProxyServer) proxyStreamingHTTPOverGRPC(w http.ResponseWriter, r *http.Request, tunnel *TunnelConnection) error {
-	connectionID, err := generateConnectionID()
+	connectionID, err := requestConnectionID(r)
 	if err != nil {
 		return fmt.Errorf("failed to generate connection ID: %w", err)
 	}

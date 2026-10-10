@@ -61,6 +61,7 @@ func (m *inboundConnectionManager) open(ctx context.Context, client *ServeClient
 		}
 	}
 	if !valid {
+		client.Inspector.denied()
 		connectionID := ""
 		if open != nil {
 			connectionID = open.ConnectionId
@@ -71,6 +72,7 @@ func (m *inboundConnectionManager) open(ctx context.Context, client *ServeClient
 	select {
 	case m.slots <- struct{}{}:
 	default:
+		client.Inspector.denied()
 		sendConnectionRejection(sender, open.ConnectionId, "endpoint connection limit reached")
 		return
 	}
@@ -101,6 +103,7 @@ func (m *inboundConnectionManager) open(ctx context.Context, client *ServeClient
 
 	m.mu.Lock()
 	if _, exists := m.connections[open.ConnectionId]; exists {
+		client.Inspector.denied()
 		m.mu.Unlock()
 		<-m.slots
 		_ = bodyReader.Close()
@@ -128,11 +131,27 @@ func (m *inboundConnectionManager) open(ctx context.Context, client *ServeClient
 }
 
 func (s *ServeClient) handleStreamingTCP(ctx context.Context, sender messageSender, connectionID string, input io.Reader) {
+	status, reason := 0, "target_error"
+	var capture *inspectionCapture
+	if s.Inspector != nil {
+		capture = s.Inspector.beginConnection(connectionID, "tcp", "CONNECT", "/", nil)
+		input = &inspectionReader{reader: input, capture: capture}
+		defer func() {
+			if ctx.Err() != nil {
+				reason = "canceled"
+			}
+			capture.finishReason(status, -1, reason)
+		}()
+	}
 	targetNetwork := s.TargetNetwork
 	if targetNetwork == "" {
 		targetNetwork = "tcp"
 	}
-	connection, err := (&net.Dialer{}).DialContext(ctx, targetNetwork, s.TargetURL)
+	dial := (&net.Dialer{}).DialContext
+	if s.DialContext != nil {
+		dial = s.DialContext
+	}
+	connection, err := dial(ctx, targetNetwork, s.TargetURL)
 	if err != nil {
 		sendConnectionRejection(sender, connectionID, "failed to reach local TCP target")
 		return
@@ -153,6 +172,7 @@ func (s *ServeClient) handleStreamingTCP(ctx context.Context, sender messageSend
 			ConnectionAccept: &pb.ConnectionAccept{ConnectionId: connectionID, Success: true},
 		},
 	}); err != nil {
+		reason = "relay_error"
 		return
 	}
 
@@ -163,9 +183,13 @@ func (s *ServeClient) handleStreamingTCP(ctx context.Context, sender messageSend
 		}
 	}()
 
+	status, reason = http.StatusOK, "complete"
 	buffer := make([]byte, common.StreamChunkSize)
 	for {
 		n, readErr := connection.Read(buffer)
+		if capture != nil {
+			capture.response(n)
+		}
 		if n > 0 {
 			chunk := append([]byte(nil), buffer[:n]...)
 			if err := sender.Send(&pb.TunnelMessage{
@@ -173,18 +197,23 @@ func (s *ServeClient) handleStreamingTCP(ctx context.Context, sender messageSend
 					ConnectionData: &pb.ConnectionData{ConnectionId: connectionID, Data: chunk},
 				},
 			}); err != nil {
+				reason = "relay_error"
 				return
 			}
 		}
 		if readErr == io.EOF {
-			_ = sender.Send(&pb.TunnelMessage{
+			reason = "peer_closed"
+			if err := sender.Send(&pb.TunnelMessage{
 				Message: &pb.TunnelMessage_ConnectionHalfClose{
 					ConnectionHalfClose: &pb.ConnectionHalfClose{ConnectionId: connectionID},
 				},
-			})
+			}); err != nil {
+				reason = "relay_error"
+			}
 			return
 		}
 		if readErr != nil {
+			reason = "response_error"
 			select {
 			case <-ctx.Done():
 				return
@@ -286,12 +315,18 @@ func (s *ServeClient) handleStreamingHTTPRequest(ctx context.Context, sender mes
 	head := open.HttpRequest
 	var capture *inspectionCapture
 	if s.Inspector != nil {
-		capture = s.Inspector.begin(head.Method, head.Path, head.Headers)
+		capture = s.Inspector.beginConnection(open.ConnectionId, "http", head.Method, head.Path, head.Headers)
+		capture.expectLength(head.ContentLength)
 		body = &inspectionReader{reader: body, capture: capture}
 	}
-	status, responseBytes, failure := http.StatusBadGateway, int64(0), "failed to forward"
+	status, responseBytes, reason := http.StatusBadGateway, int64(0), "target_error"
 	if capture != nil {
-		defer func() { capture.finish(status, responseBytes, failure) }()
+		defer func() {
+			if ctx.Err() != nil {
+				reason = "canceled"
+			}
+			capture.finishReason(status, responseBytes, reason)
+		}()
 	}
 	request, err := http.NewRequestWithContext(ctx, head.Method, s.targetURL(head.Path), body)
 	if err != nil {
@@ -304,6 +339,8 @@ func (s *ServeClient) handleStreamingHTTPRequest(ctx context.Context, sender mes
 	request.Host = request.Header.Get("Host")
 	request.Header.Del("Host")
 	if s.RequireUpstreamAuth && strings.TrimSpace(request.Header.Get("Authorization")) == "" {
+		status, reason = http.StatusUnauthorized, "auth_required"
+		s.Inspector.denied()
 		sendUpstreamAuthRequired(sender, open.ConnectionId)
 		return
 	}
@@ -338,7 +375,10 @@ func (s *ServeClient) handleStreamingHTTPRequest(ctx context.Context, sender mes
 	}
 	defer func() { _ = response.Body.Close() }()
 	status = response.StatusCode
-	failure = ""
+	reason = "complete"
+	if capture != nil && strings.HasPrefix(strings.ToLower(response.Header.Get("Content-Type")), "text/event-stream") {
+		capture.setProtocol("sse")
+	}
 
 	headers := make(map[string]string, len(response.Header))
 	for key, values := range response.Header {
@@ -356,6 +396,7 @@ func (s *ServeClient) handleStreamingHTTPRequest(ctx context.Context, sender mes
 			},
 		},
 	}); err != nil {
+		reason = "relay_error"
 		return
 	}
 
@@ -370,18 +411,22 @@ func (s *ServeClient) handleStreamingHTTPRequest(ctx context.Context, sender mes
 					ConnectionData: &pb.ConnectionData{ConnectionId: open.ConnectionId, Data: chunk},
 				},
 			}); err != nil {
+				reason = "relay_error"
 				return
 			}
 		}
 		if readErr == io.EOF {
-			_ = sender.Send(&pb.TunnelMessage{
+			if err := sender.Send(&pb.TunnelMessage{
 				Message: &pb.TunnelMessage_ConnectionHalfClose{
 					ConnectionHalfClose: &pb.ConnectionHalfClose{ConnectionId: open.ConnectionId},
 				},
-			})
+			}); err != nil {
+				reason = "relay_error"
+			}
 			return
 		}
 		if readErr != nil {
+			reason = "response_error"
 			_ = sender.Send(&pb.TunnelMessage{
 				Message: &pb.TunnelMessage_ConnectionClose{
 					ConnectionClose: &pb.ConnectionClose{ConnectionId: open.ConnectionId, ErrorMessage: "failed to read local response"},

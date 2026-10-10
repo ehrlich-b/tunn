@@ -115,6 +115,7 @@ func (p *ProxyServer) handleWebProxy(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Tunn-Request-ID", id)
 			_, err = p.meter.Admit(r.Context(), &meterpb.Event{RequestId: id, Endpoint: tunnelID, Caller: "anonymous", AuthMethod: "none", Reason: "endpoint_offline", Status: 503})
 			if err != nil {
+				p.operations.drops.Add(1)
 				common.LogError("failed to audit offline endpoint", "request_id", id, "error", err)
 			}
 		}
@@ -200,7 +201,7 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 
 			common.LogInfo("unauthenticated tunnel access, redirecting to login",
 				"tunnel_id", tunnelID,
-				"return_to", returnTo)
+				"request_id", session.event.RequestId)
 			http.Redirect(w, r, loginURL, http.StatusFound)
 			return
 		}
@@ -385,7 +386,7 @@ func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, 
 	}
 
 	// Generate unique connection ID
-	connectionID, err := generateConnectionID()
+	connectionID, err := requestConnectionID(r)
 	if err != nil {
 		return fmt.Errorf("failed to generate connection ID: %w", err)
 	}
@@ -593,7 +594,7 @@ func (p *ProxyServer) proxyToNode(w http.ResponseWriter, r *http.Request, nodeAd
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: p.config.Insecure},
 	}
 
-	common.LogInfo("proxying to remote node", "target", target.String())
+	common.LogInfo("proxying to remote node", "node_addr", nodeAddr, "tunnel_id", tunnelID)
 	proxy.ServeHTTP(w, r)
 }
 

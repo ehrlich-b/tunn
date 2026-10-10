@@ -76,8 +76,9 @@ type ProxyServer struct {
 	mockOIDC *mockoidc.Server
 
 	// Unified storage interface (local for login node, proxy for others)
-	storage storage.Storage
-	meter   metering.Backend
+	storage    storage.Storage
+	meter      metering.Backend
+	operations operationalCounters
 
 	// Proxy storage reference (non-login node only, to update connection on discovery)
 	proxyStorage *storage.ProxyStorage

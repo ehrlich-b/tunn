@@ -90,14 +90,16 @@ Add `--inspect` when debugging an HTTP endpoint or webhook handler:
 tunn 8080 --inspect
 ```
 
-The CLI prints a loopback viewer URL. It shows the last 50 forwarded requests,
-their status, timing, and byte counts. Select a request to inspect its headers
-and body, then replay it directly to the configured target after changing
-your handler. Only complete bodies up to 64 KiB can be replayed. Captures stay
-in the local process and disappear when tunn stops; they may contain webhook
-secrets or personal data. Replay creates a new delivery, so use a test endpoint
-or an idempotent handler when the action has side effects. Provider signatures
-with timestamps may expire before replay.
+The CLI prints a secret-protected loopback viewer URL with the last 50 completed
+requests, correlation IDs, status, terminal reasons, timing and byte counts.
+Headers and query values are redacted; request bodies are omitted by default.
+Add `--inspect-body` to explicitly retain local HTTP bodies up to 64 KiB.
+Captured application data can still contain secrets and disappears when tunn
+stops. Replay is a deliberate action against the original configured target:
+reconstruct redacted or missing fields explicitly, then review the visible
+result. Incomplete/truncated requests and SSE/WebSocket/CONNECT streams cannot
+be replayed. Replay can repeat side effects; use a test or idempotent handler.
+See the [debugging journey and limitations](docs/inspection.md).
 
 ### Metered consumer grants
 

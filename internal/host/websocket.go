@@ -27,7 +27,7 @@ func closeUpgradedConnection(conn net.Conn) {
 }
 
 func (p *ProxyServer) proxyWebSocketOverGRPC(w http.ResponseWriter, r *http.Request, tunnel *TunnelConnection) error {
-	id, err := generateConnectionID()
+	id, err := requestConnectionID(r)
 	if err != nil {
 		return err
 	}

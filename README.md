@@ -108,6 +108,8 @@ supports finite SSE responses and a 25-second request window covering queueing,
 child initialization, pipe writes, and the response wait after validation.
 Canceled queued requests do not reach the child. Timeout and child-process
 failures return HTTP 504 and 502 with the caller's JSON-RPC ID. Already forwarded
+responses cannot satisfy a later request that reuses the same caller ID.
+Already forwarded
 work may continue in the child after caller cancellation; a partial pipe write
 terminates the child to avoid reusing a corrupted stream. Modern
 `subscriptions/listen`, multi round-trip requests, concurrent child calls,

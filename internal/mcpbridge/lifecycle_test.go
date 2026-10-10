@@ -198,14 +198,51 @@ func TestBridgeLifecycleBlockedPipeDeadline(t *testing.T) {
 	}
 	defer func() { _ = reader.Close() }()
 	defer func() { _ = writer.Close() }()
-	bridge := &Bridge{stdin: writer, outputs: make(chan childOutput), requestTimeout: 50 * time.Millisecond}
+	bridge := &Bridge{stdin: writer}
 	body := `{"jsonrpc":"2.0","id":"large","method":"tools/call","params":{"name":"echo","arguments":{"text":"` + strings.Repeat("x", 1024*1024) + `"}}}`
-	response := httptest.NewRecorder()
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	// Exercise the validated-message write boundary directly; JSON parsing
+	// and ID rewriting are separate from the pipe's readiness and deadline.
 	start := time.Now()
-	bridge.ServeHTTP(response, lifecycleRequest(context.Background(), body))
+	err = bridge.writeChild(ctx, []byte(body))
 	elapsed := time.Since(start)
+	response := httptest.NewRecorder()
+	writeRequestError(response, json.RawMessage(`"large"`), err, "pipe failed")
 	if response.Code != http.StatusGatewayTimeout || elapsed > 200*time.Millisecond {
 		t.Fatalf("blocked child stdin status = %d after %s: %s", response.Code, elapsed, response.Body)
 	}
 	t.Logf("blocked pipe bounded in %s", elapsed)
+}
+
+func TestBridgeLifecycleLateReplyAfterTimeout(t *testing.T) {
+	bridge := &Bridge{outputs: make(chan childOutput, 2), requestTimeout: 20 * time.Millisecond}
+	var firstID json.RawMessage
+	bridge.stdin = lifecycleWriteFunc(func(message []byte) (int, error) {
+		var request envelope
+		if json.Unmarshal(message, &request) != nil {
+			return len(message), nil
+		}
+		if firstID == nil {
+			firstID = append(json.RawMessage(nil), request.ID...)
+		} else {
+			// The first call finished late. A different HTTP caller may reuse
+			// the same remote ID; it must receive its own result.
+			bridge.outputs <- childOutput{message: []byte(`{"jsonrpc":"2.0","id":` + string(firstID) + `,"result":{"text":"stale"}}`)}
+			bridge.outputs <- childOutput{message: []byte(`{"jsonrpc":"2.0","id":` + string(request.ID) + `,"result":{"text":"fresh"}}`)}
+		}
+		return len(message), nil
+	})
+	body := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"echo"}}`
+	first := httptest.NewRecorder()
+	bridge.ServeHTTP(first, lifecycleRequest(context.Background(), body))
+	if first.Code != http.StatusGatewayTimeout {
+		t.Fatalf("first call = %d, want 504", first.Code)
+	}
+	second := httptest.NewRecorder()
+	bridge.ServeHTTP(second, lifecycleRequest(context.Background(), body))
+	if second.Code != http.StatusOK || !strings.Contains(second.Body.String(), `"fresh"`) ||
+		!strings.Contains(second.Body.String(), `"id":1`) {
+		t.Fatalf("later caller received a stale or uncorrelated reply: %d %s", second.Code, second.Body)
+	}
 }

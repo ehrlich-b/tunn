@@ -108,8 +108,8 @@ func (b *Bridge) initializeChild(ctx context.Context) error {
 	if b.childInitialized {
 		return nil
 	}
-	const initID = `"tunn-bridge-initialize"`
-	message := []byte(`{"jsonrpc":"2.0","id":` + initID + `,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"tunn","version":"2"}}}`)
+	initID := b.nextChildID()
+	message := []byte(`{"jsonrpc":"2.0","id":` + string(initID) + `,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"tunn","version":"2"}}}`)
 	if err := b.writeChild(ctx, message); err != nil {
 		return err
 	}
@@ -123,7 +123,7 @@ func (b *Bridge) initializeChild(ctx context.Context) error {
 			if json.Unmarshal(output.message, &response) != nil {
 				return errors.New("invalid child initialization response")
 			}
-			if sameID(response.ID, json.RawMessage(initID)) && response.Method == "" {
+			if sameID(response.ID, initID) && response.Method == "" {
 				b.cacheInitialize(output.message)
 				if !b.childInitialized {
 					return errors.New("child rejected legacy initialization")

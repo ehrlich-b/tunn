@@ -50,6 +50,7 @@ type Bridge struct {
 	sessionID             string
 	childInitialized      bool            // guarded by requestGate
 	childInitializeResult json.RawMessage // guarded by requestGate
+	requestSequence       uint64          // guarded by requestGate
 
 	requestTimeout time.Duration
 	allowedTools   map[string]bool
@@ -324,6 +325,11 @@ func (b *Bridge) handlePOST(w http.ResponseWriter, r *http.Request) {
 	if modern {
 		body = legacyChildRequest(body)
 	}
+	// Remote callers may reuse IDs, including after a timeout. Give every
+	// admitted child call a distinct ID so a late result cannot satisfy a
+	// later caller's request.
+	childID := b.nextChildID()
+	body = replaceMessageID(body, childID)
 
 	if err := b.writeChild(ctx, body); err != nil {
 		writeRequestError(w, incoming.ID, err, "local MCP process is unavailable")
@@ -346,8 +352,8 @@ func (b *Bridge) handlePOST(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			if outgoing.Method == "" && sameID(outgoing.ID, incoming.ID) {
-				response := output.message
+			if outgoing.Method == "" && sameID(outgoing.ID, childID) {
+				response := replaceMessageID(output.message, incoming.ID)
 				if incoming.Method == "initialize" {
 					b.cacheInitialize(response)
 				}
@@ -468,6 +474,21 @@ func (b *Bridge) acquireRequest(ctx context.Context) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+func (b *Bridge) nextChildID() json.RawMessage {
+	b.requestSequence++
+	id, _ := json.Marshal(fmt.Sprintf("tunn-request-%d", b.requestSequence))
+	return id
+}
+
+// Both callers supply validated JSON-RPC objects and valid JSON IDs.
+func replaceMessageID(message []byte, id json.RawMessage) []byte {
+	var object map[string]json.RawMessage
+	_ = json.Unmarshal(message, &object)
+	object["id"] = id
+	encoded, _ := json.Marshal(object)
+	return encoded
 }
 
 func (b *Bridge) writeChild(ctx context.Context, message []byte) error {

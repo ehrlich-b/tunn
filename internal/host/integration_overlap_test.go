@@ -336,7 +336,7 @@ func TestWebSocketIntegrationMeteringAndAccountQuota(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 	usage, err := local.GetMonthlyUsage(ctx, account.ID)
-	if err != nil || usage != wantBytes || len(out.Events) != 2 || !out.Events[1].Finished || out.Events[1].Status != 101 || !out.Events[1].Forwarded || out.OwnerUsage.AdmittedRequests != 1 || out.OwnerUsage.TotalBytes != 0 {
+	if err != nil || usage != wantBytes || len(out.Events) != 2 || !out.Events[1].Finished || out.Events[1].Status != 101 || !out.Events[1].Forwarded || out.OwnerUsage.AdmittedRequests != 1 || out.OwnerUsage.TotalBytes != wantBytes {
 		t.Fatalf("upgrade usage=%d want=%d err=%v ledger=%v", usage, wantBytes, err, out)
 	}
 	before := s.fixture.hits.Load()

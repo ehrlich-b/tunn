@@ -94,7 +94,9 @@ func (c *ConnectClient) handleConnection(ctx context.Context, httpClient *http.C
 		uploadDone <- copyErr
 	}()
 
-	response, err := httpClient.Do(request)
+	copyClient := *httpClient
+	copyClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	response, err := copyClient.Do(request)
 	if err != nil {
 		_ = requestWriter.CloseWithError(err)
 		return fmt.Errorf("open remote TCP endpoint: %w", err)
@@ -108,6 +110,9 @@ func (c *ConnectClient) handleConnection(ctx context.Context, httpClient *http.C
 	_, downloadErr := io.Copy(local, response.Body)
 	if halfCloser, ok := local.(interface{ CloseWrite() error }); ok {
 		_ = halfCloser.CloseWrite()
+	}
+	if reason := response.Trailer.Get("Tunn-Limit-Reason"); reason != "" {
+		return fmt.Errorf("remote TCP endpoint stopped: %s", reason)
 	}
 	if downloadErr != nil {
 		return fmt.Errorf("read remote TCP endpoint: %w", downloadErr)

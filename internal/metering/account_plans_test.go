@@ -99,3 +99,28 @@ func TestAccountPlanRequestsShareTransportEndpoints(t *testing.T) {
 		}
 	}
 }
+
+func TestRetentionCannotResetActiveBudgetAndRestartEndsOldRequest(t *testing.T) {
+	s, db := fixture(t)
+	s.ownerBytes = 5
+	e := event(nil, 1)
+	if d := admit(t, s, e); !d.Allowed {
+		t.Fatal(d)
+	}
+	charge(t, s, e.RequestId, 4, 0)
+	s.now = func() time.Time { return testNow.AddDate(0, 14, 0) }
+	if d := admit(t, s, event(nil, 2)); !d.Allowed {
+		t.Fatal(d)
+	}
+	if d := charge(t, s, e.RequestId, 6, 0); d.Allowed || d.RequestBytes != 5 {
+		t.Fatal("retention erased active stream budget", d)
+	}
+	restarted, err := New(db, WithOwnerBudgets(0, 5))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := restarted.Charge(context.Background(), &pb.ChargeRequest{RequestId: e.RequestId, RequestBytes: 5})
+	if err != nil || d.Allowed || d.Reason != "request_finished" {
+		t.Fatalf("restart kept old idle request alive: %v %v", d, err)
+	}
+}

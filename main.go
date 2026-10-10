@@ -66,6 +66,7 @@ Usage:
   tunn usage <name>              Export caller usage and audit decisions
   tunn grant create <name>       Issue a metered, expiring consumer token
   tunn grant revoke <name> <id>  Revoke one consumer grant
+  tunn domain add|verify|list|delete  Manage Pro custom domains
 
 Examples:
   tunn 8080                              # https://abc123.tunn.to -> localhost:8080
@@ -120,6 +121,8 @@ Options:
 		runConnect(args[1:])
 	case "token":
 		runEndpointToken(args[1:])
+	case "domain":
+		runDomains(args[1:])
 	case "usage", "grant":
 		runMetering(args[0], args[1:])
 	case "magic-link":

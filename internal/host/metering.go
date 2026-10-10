@@ -87,6 +87,12 @@ func (s *ingressMeter) admit(ctx context.Context, w http.ResponseWriter, r *http
 		return false
 	}
 	s.admitted = true
+	if s.proxy.planMeter && s.accountID != "" && (d.RequestsRemaining < 0 || d.BytesRemaining < 0) {
+		s.reason = "meter_unavailable"
+		w.Header().Set("Tunn-Limit-Reason", s.reason)
+		http.Error(w, "Usage authority must support account plan limits", 503)
+		return false
+	}
 	return true
 }
 func (s *ingressMeter) charge(ctx context.Context, request bool, n int) (int, error) {
@@ -154,7 +160,10 @@ func (s *ingressMeter) checkResponse(ctx context.Context, size int64) error {
 // Bound idle-stream revocation and ledger-outage exposure without allowing a
 // cached quota decision. Every data chunk still needs an atomic reservation.
 func (s *ingressMeter) watch(ctx context.Context, cancel context.CancelCauseFunc) {
-	ticker := time.NewTicker(5 * time.Second)
+	s.watchEvery(ctx, cancel, 5*time.Second)
+}
+func (s *ingressMeter) watchEvery(ctx context.Context, cancel context.CancelCauseFunc, interval time.Duration) {
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
 		select {
@@ -220,7 +229,7 @@ func chargeWebSocket(r *http.Request, request bool, data []byte) ([]byte, error)
 	return data, nil
 }
 
-func recordWebSocketWrite(r *http.Request, n int) {
+func recordMeteredWrite(r *http.Request, n int) {
 	if s := meterForRequest(r); s != nil {
 		s.mu.Lock()
 		s.writtenBytes += int64(n)

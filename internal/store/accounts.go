@@ -229,6 +229,15 @@ ON CONFLICT(account_id, machine) DO UPDATE SET last_seen=MAX(host_machines.last_
 				return nil, err
 			}
 		}
+		var domainTables int
+		if err := tx.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='custom_domains'").Scan(&domainTables); err != nil {
+			return nil, err
+		}
+		if domainTables != 0 {
+			if _, err := tx.Exec("UPDATE custom_domains SET owner=? WHERE owner=?", primary.ID, acc.ID); err != nil {
+				return nil, err
+			}
+		}
 		if err := mergeAccountUsage(tx, primary.ID, acc.ID); err != nil {
 			return nil, err
 		}

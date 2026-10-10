@@ -78,8 +78,13 @@ type Config struct {
 	// Other nodes proxy DB operations to it
 	LoginNode            bool
 	DBPath               string // Path to SQLite database (login node only)
-	OwnerMonthlyRequests int64  // optional shared HTTP admission cap per owner
-	OwnerMonthlyBytes    int64  // optional shared HTTP body-byte cap per owner
+	OwnerMonthlyRequests int64  // optional tighter shared transport admission cap per owner
+	OwnerMonthlyBytes    int64  // optional tighter shared transport byte cap per owner
+	CustomDomainsEnabled bool
+	HTTP01Addr           string
+	ACMEDirectory        string
+	ACMEEmail            string
+	DomainKeySecret      string // base64-encoded AES-256 key; login node only
 }
 
 // LoadConfig loads configuration based on environment
@@ -111,6 +116,11 @@ func LoadConfig() (*Config, error) {
 		*budget.value = value
 	}
 
+	cfg.CustomDomainsEnabled = os.Getenv("TUNN_CUSTOM_DOMAINS") == "true"
+	cfg.HTTP01Addr = getEnvOrDefault("TUNN_HTTP01_ADDR", ":80")
+	cfg.ACMEDirectory = getEnvOrDefault("TUNN_ACME_DIRECTORY", "https://acme-v02.api.letsencrypt.org/directory")
+	cfg.ACMEEmail = os.Getenv("TUNN_ACME_EMAIL")
+	cfg.DomainKeySecret = os.Getenv("TUNN_DOMAIN_KEY_SECRET")
 	return cfg, nil
 }
 

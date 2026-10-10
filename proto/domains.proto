@@ -1,0 +1,31 @@
+syntax = "proto3";
+package domains;
+option go_package = "github.com/ehrlich-b/tunn/pkg/proto/domainv1";
+import "google/protobuf/empty.proto";
+
+// Login-node authority only, protected by the node-secret interceptor and TLS.
+// Certificate private keys are returned only to trusted terminating relays.
+service Domains {
+ rpc Add(Domain) returns (Domain);
+ rpc List(Owner) returns (DomainList);
+ rpc Verify(Domain) returns (Domain);
+ rpc Delete(Domain) returns (google.protobuf.Empty);
+ rpc Route(Domain) returns (Domain);
+ rpc Certificate(Domain) returns (CertificatePair);
+ rpc Challenge(ChallengeRequest) returns (ChallengeResponse);
+}
+message Owner { string owner = 1; }
+message Domain {
+ string name = 1;
+ string owner = 2;
+ string tunnel = 3;
+ string cname_target = 4;
+ string state = 5;
+ int64 verified_until = 6; // Unix seconds; DNS proof lease
+ int64 certificate_expires = 7;
+ string last_error = 8; // bounded diagnostic code, never a private key
+}
+message DomainList { repeated Domain domains = 1; }
+message CertificatePair { bytes certificate_pem = 1; bytes key_pem = 2; }
+message ChallengeRequest { string name = 1; string token = 2; }
+message ChallengeResponse { string body = 1; }

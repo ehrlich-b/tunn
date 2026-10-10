@@ -411,7 +411,7 @@ func (s *Store) Admit(ctx context.Context, input *pb.Event) (*pb.Decision, error
 		// Bounded rows, not merely a time-based retention promise. Never evict active
 		// events or current counters to make a depleted budget appear unused.
 		monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
-		if _, err = tx.Exec(`DELETE FROM meter_usage WHERE month<?`, monthStart.AddDate(0, -RetentionMonths+1, 0).Format("2006-01")); err != nil {
+		if _, err = tx.Exec(`DELETE FROM meter_usage WHERE month<? AND NOT EXISTS (SELECT 1 FROM meter_events WHERE meter_events.owner=meter_usage.owner AND meter_events.month=meter_usage.month AND finished=0)`, monthStart.AddDate(0, -RetentionMonths+1, 0).Format("2006-01")); err != nil {
 			return err
 		}
 		var count int
@@ -533,6 +533,9 @@ func (s *Store) Charge(ctx context.Context, r *pb.ChargeRequest) (*pb.Decision, 
 		if e.Finished {
 			if r.RequestBytes != e.RequestBytes || r.ResponseBytes != e.ResponseBytes {
 				return fmt.Errorf("audit event already finished")
+			}
+			if e.Allowed {
+				deny(d, "request_finished", 409)
 			}
 			return nil
 		}

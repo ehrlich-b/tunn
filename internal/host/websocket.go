@@ -1,6 +1,9 @@
 package host
 
 import (
+	"context"
+	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -26,7 +29,7 @@ func closeUpgradedConnection(conn net.Conn) {
 	}
 }
 
-func (p *ProxyServer) proxyWebSocketOverGRPC(w http.ResponseWriter, r *http.Request, tunnel *TunnelConnection) error {
+func (p *ProxyServer) proxyWebSocketOverGRPC(w http.ResponseWriter, r *http.Request, tunnel *TunnelConnection) (result error) {
 	id, err := generateConnectionID()
 	if err != nil {
 		return err
@@ -104,6 +107,27 @@ func (p *ProxyServer) proxyWebSocketOverGRPC(w http.ResponseWriter, r *http.Requ
 		writer.status, writer.started, writer.bodyMeter = http.StatusSwitchingProtocols, true, false
 	}
 	defer closeUpgradedConnection(conn)
+	var boundary webSocketBoundary
+	defer func() {
+		failure := result
+		if cause := context.Cause(r.Context()); cause != nil {
+			failure = cause
+		}
+		code, reason := uint16(0), ""
+		var limit *ingressLimitError
+		var unavailable *meterUnavailableError
+		if errors.As(failure, &limit) {
+			code, reason = 1008, limit.decision.Reason
+		}
+		if errors.As(failure, &unavailable) {
+			code, reason = 1013, "meter_unavailable"
+		}
+		if code != 0 && boundary.atBoundary() {
+			_ = conn.SetWriteDeadline(time.Now().Add(time.Second))
+			frameWriter := &common.WebSocketFrameWriter{Writer: conn}
+			_ = frameWriter.TryControl(8, append(binary.BigEndian.AppendUint16(nil, code), []byte(reason)...), false)
+		}
+	}()
 	// Hijack retains the HTTP server's deadlines. An upgraded connection must
 	// outlive those header/body limits; the publisher owns its idle timer.
 	_ = conn.SetDeadline(time.Time{})
@@ -114,7 +138,7 @@ func (p *ProxyServer) proxyWebSocketOverGRPC(w http.ResponseWriter, r *http.Requ
 		case <-pending.done:
 			closeUpgradedConnection(conn)
 		case <-r.Context().Done():
-			closeUpgradedConnection(conn)
+			_ = conn.SetReadDeadline(time.Now())
 		case <-watchDone:
 		}
 	}()
@@ -182,7 +206,8 @@ func (p *ProxyServer) proxyWebSocketOverGRPC(w http.ResponseWriter, r *http.Requ
 				responseBytes += int64(len(event.data))
 				_ = conn.SetWriteDeadline(time.Now().Add(30 * time.Second))
 				n, err := conn.Write(chunk)
-				recordWebSocketWrite(r, n)
+				boundary.consume(chunk[:n])
+				recordMeteredWrite(r, n)
 				if err != nil {
 					return &responseStartedError{err}
 				}

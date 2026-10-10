@@ -8,7 +8,7 @@ GO_FILES := $(wildcard *.go)
 DOCKER_IMAGE := $(APP_NAME):latest
 FLY_APP_NAME := $(APP_NAME)
 
-.PHONY: all build clean proto fmt tidy verify check vet lint test test-ai-hosts test-ai-hosts-security test-verbose test-mcp test-websocket test-websocket-memory test-websocket-unit test-lifecycle-contract test-metering-contract test-coverage test-race integration-test integration-test-smoke integration-test-ai integration-test-lifecycle integration-test-metering docker docker-build docker-run cert-setup cert-renew cert-install-schedule fly-create fly-init fly-secrets fly-certs fly-deploy fly-logs fly-status analytics-hour analytics-day analytics-live help
+.PHONY: all build clean proto fmt tidy verify check vet lint test test-ai-hosts test-ai-hosts-security test-verbose test-mcp test-websocket test-websocket-memory test-websocket-unit test-lifecycle-contract test-metering-contract test-domains-contract test-coverage test-race integration-test integration-test-smoke integration-test-ai integration-test-lifecycle integration-test-metering docker docker-build docker-run cert-setup cert-renew cert-install-schedule fly-create fly-init fly-secrets fly-certs fly-deploy fly-logs fly-status analytics-hour analytics-day analytics-live help
 
 # Default target
 all: build
@@ -24,6 +24,7 @@ proto:
 	protoc --go_out=. --go-grpc_out=. proto/tunnel.proto
 	protoc --go_out=. --go-grpc_out=. proto/internal.proto
 	protoc --go_out=. --go-grpc_out=. --go_opt=module=github.com/ehrlich-b/tunn --go-grpc_opt=module=github.com/ehrlich-b/tunn proto/metering.proto
+	protoc --go_out=. --go-grpc_out=. --go_opt=module=github.com/ehrlich-b/tunn --go-grpc_opt=module=github.com/ehrlich-b/tunn proto/domains.proto
 	@mkdir -p pkg/proto/tunnelv1 pkg/proto/internalv1
 	@if [ -d github.com ]; then \
 		mv github.com/ehrlich-b/tunn/pkg/proto/tunnelv1/*.pb.go pkg/proto/tunnelv1/ 2>/dev/null || true; \
@@ -131,7 +132,12 @@ test-lifecycle-contract:
 test-metering-contract:
 	go test -race -v -timeout=60s ./internal/metering
 	go test -race -v -timeout=60s ./internal/config
-	go test -race -v -timeout=60s -run '^(TestMetering|TestProxyHTTPOverGRPC|TestLegacyClientKeepsBufferedHTTPPath|TestTunnelConnectionLimitRejectsPendingStream|TestHandleWebProxy|TestPublicTunnelStripsTunnAuthorization|TestGetAuthFromTunnelBearer|TestCheckJWT|TestAllowListCheck|TestEmailBucketAllowListCheck)' . ./internal/host ./internal/client
+	go test -race -v -timeout=60s -run '^(TestMetering|TestMeterIdle|TestAccountPlan|TestAccountUsageView|TestBufferedResponseReserves|TestWebSocketFrames|TestWebSocketBoundary|TestTransportTCP|TestConnectReports|TestProxyHTTPOverGRPC|TestLegacyClientKeepsBufferedHTTPPath|TestTunnelConnectionLimitRejectsPendingStream|TestHandleWebProxy|TestPublicTunnelStripsTunnAuthorization|TestGetAuthFromTunnelBearer|TestCheckJWT|TestAllowListCheck|TestEmailBucketAllowListCheck)' . ./internal/host ./internal/client
+
+# Fake DNS/ACME, memory TLS/gRPC, owner API/client and CLI parsing; no sockets.
+test-domains-contract:
+	go test -race -timeout=60s ./internal/domains
+	go test -race -timeout=60s -run '^(TestDomain|TestParseDomain)' . ./internal/host ./internal/client
 
 test-coverage:
 	@echo "Running tests with coverage..."

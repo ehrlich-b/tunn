@@ -17,6 +17,7 @@ import (
 	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/ehrlich-b/tunn/internal/config"
 	"github.com/ehrlich-b/tunn/internal/metering"
+	"github.com/ehrlich-b/tunn/internal/storage"
 	"github.com/ehrlich-b/tunn/internal/store"
 	meterpb "github.com/ehrlich-b/tunn/pkg/proto/meteringv1"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
@@ -39,6 +40,17 @@ func (s *meteringFixtureStream) Send(msg *pb.TunnelMessage) error {
 
 type meteringFixtureStorage struct{ mockStorage }
 
+func (s *meteringFixtureStorage) GetAccountByEmail(ctx context.Context, email string) (*storage.Account, error) {
+	switch email {
+	case "owner@example.com":
+		return &storage.Account{ID: "ad38bf44-0c4a-40ce-bdee-2d8579bf63cc", PrimaryEmail: email, Plan: "free"}, nil
+	case "stranger@example.com":
+		return &storage.Account{ID: "60b009cf-6023-4d39-8c69-39a692790e37", PrimaryEmail: email, Plan: "free"}, nil
+	default:
+		return nil, nil
+	}
+}
+
 func (s *meteringFixtureStorage) GetEmailBucket(ctx context.Context, email string) ([]string, error) {
 	return []string{email}, nil
 }
@@ -56,7 +68,7 @@ func meteringRelay(t *testing.T, streaming bool, response string) (*ProxyServer,
 	cfg := webproxyTestConfig()
 	cfg.Domain = "tunn.test"
 	stream := &meteringFixtureStream{}
-	tunnel := &TunnelConnection{TunnelID: "api", CreatorEmail: "owner@example.com", AccountID: "owner-account", AllowedEmails: []string{"alice@example.com", "owner@example.com"}, Stream: stream, pendingRequests: make(map[string]chan *pb.HttpResponse)}
+	tunnel := &TunnelConnection{TunnelID: "api", CreatorEmail: "owner@example.com", AccountID: "ad38bf44-0c4a-40ce-bdee-2d8579bf63cc", AllowedEmails: []string{"alice@example.com", "owner@example.com"}, Stream: stream, pendingRequests: make(map[string]chan *pb.HttpResponse)}
 	if streaming {
 		tunnel.Capabilities = map[string]bool{common.CapabilityHTTPStreamV1: true}
 	}
@@ -89,7 +101,7 @@ func relayGrant(t *testing.T, ledger *metering.Store, requests, bytes int64) (*m
 	t.Helper()
 	token := "tunn_gr_" + fmt.Sprintf("fixture-%d-%d", requests, bytes)
 	digest := sha256.Sum256([]byte(token))
-	g, err := ledger.CreateGrant(context.Background(), &meterpb.Grant{Owner: "owner@example.com", Endpoint: "api", TokenSha256: digest[:], ExpiresAt: time.Now().Add(time.Hour).UnixMilli(), MonthlyRequests: requests, MonthlyBytes: bytes})
+	g, err := ledger.CreateGrant(context.Background(), &meterpb.Grant{Owner: "ad38bf44-0c4a-40ce-bdee-2d8579bf63cc", Endpoint: "api", TokenSha256: digest[:], ExpiresAt: time.Now().Add(time.Hour).UnixMilli(), MonthlyRequests: requests, MonthlyBytes: bytes})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +116,7 @@ func relayRequest(token, body string) *http.Request {
 }
 func relayExport(t *testing.T, ledger metering.Backend) *meterpb.ExportResponse {
 	t.Helper()
-	out, err := ledger.Export(context.Background(), &meterpb.ExportRequest{Owner: "owner@example.com", Endpoint: "api", Month: time.Now().UTC().Format("2006-01")})
+	out, err := ledger.Export(context.Background(), &meterpb.ExportRequest{Owner: "ad38bf44-0c4a-40ce-bdee-2d8579bf63cc", Endpoint: "api", Month: time.Now().UTC().Format("2006-01")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +156,7 @@ func TestMeteringBufferedAndStreamingAccuracy(t *testing.T) {
 			if rec.Header().Get("Tunn-Request-ID") != e.RequestId || rec.Header().Get("Tunn-Requests-Remaining") != "0" {
 				t.Fatal(rec.Header())
 			}
-			if account := p.storage.(*meteringFixtureStorage).usage["owner-account"]; account != u.RequestBytes+u.ResponseBytes {
+			if account := p.storage.(*meteringFixtureStorage).usage["ad38bf44-0c4a-40ce-bdee-2d8579bf63cc"]; account != u.RequestBytes+u.ResponseBytes {
 				t.Fatalf("account counted %d", account)
 			}
 			stream.mu.Lock()
@@ -276,7 +288,7 @@ func TestMeteringDisconnectSettlesPartialWrites(t *testing.T) {
 			if w.status != 200 || w.written != 2 || out.Usage[0].RequestBytes != 3 || out.Usage[0].ResponseBytes != 2 || out.Events[0].Status != 200 || out.Events[0].Reason != "proxy_failure" {
 				t.Fatalf("writer=%+v export=%v", w, out)
 			}
-			if account := p.storage.(*meteringFixtureStorage).usage["owner-account"]; account != 5 {
+			if account := p.storage.(*meteringFixtureStorage).usage["ad38bf44-0c4a-40ce-bdee-2d8579bf63cc"]; account != 5 {
 				t.Fatal(account)
 			}
 		})
@@ -353,12 +365,24 @@ func TestMeteringCallerIdentityEmailTokenAnonymous(t *testing.T) {
 	tunnel.AllowedEmails = nil
 	token := "tunn_ep_existing-endpoint-token"
 	digest := sha256.Sum256([]byte(token))
-	tunnel.AccessTokenSHA256 = digest[:]
 	for _, credential := range []string{relayJWT(t, p, "alice@example.com"), token, ""} {
+		// Enabling an endpoint bearer makes the endpoint private; anonymous
+		// attribution is exercised after disabling it again.
+		tunnel.AccessTokenSHA256 = nil
+		if credential == token {
+			tunnel.AccessTokenSHA256 = digest[:]
+		}
 		rec := httptest.NewRecorder()
 		p.createHandler().ServeHTTP(rec, relayRequest(credential, ""))
 		if rec.Code != 200 {
 			t.Fatal(rec.Code)
+		}
+		if credential == token {
+			denied := httptest.NewRecorder()
+			p.createHandler().ServeHTTP(denied, relayRequest("", ""))
+			if denied.Code != http.StatusFound {
+				t.Fatalf("anonymous access with endpoint bearer enabled: %d", denied.Code)
+			}
 		}
 	}
 	out := relayExport(t, ledger)
@@ -480,8 +504,8 @@ func TestMeteringOwnerCapsEnforceOnBothHTTPPaths(t *testing.T) {
 			before := messageCount()
 			rec = httptest.NewRecorder()
 			p.createHandler().ServeHTTP(rec, relayRequest(jwt, "data"))
-			if rec.Code != 429 || rec.Header().Get("Tunn-Limit-Reason") != "owner_request_budget" || messageCount() != before || local.usage["owner-account"] != 12 {
-				t.Fatalf("denied=%d %v account=%d", rec.Code, rec.Header(), local.usage["owner-account"])
+			if rec.Code != 429 || rec.Header().Get("Tunn-Limit-Reason") != "owner_request_budget" || messageCount() != before || local.usage["ad38bf44-0c4a-40ce-bdee-2d8579bf63cc"] != 12 {
+				t.Fatalf("denied=%d %v account=%d", rec.Code, rec.Header(), local.usage["ad38bf44-0c4a-40ce-bdee-2d8579bf63cc"])
 			}
 		})
 	}
@@ -556,7 +580,7 @@ func TestMeteringHeadMetadataDoesNotConsumeByteBudget(t *testing.T) {
 }
 func TestMeteringAccountQuotaUsesAccountID(t *testing.T) {
 	p, _, ledger, stream := meteringRelay(t, false, "ok")
-	p.storage.(*meteringFixtureStorage).usage["owner-account"] = FreeQuotaBytes
+	p.storage.(*meteringFixtureStorage).usage["ad38bf44-0c4a-40ce-bdee-2d8579bf63cc"] = FreeQuotaBytes
 	_, token := relayGrant(t, ledger, 100, 100)
 	rec := httptest.NewRecorder()
 	p.createHandler().ServeHTTP(rec, relayRequest(token, "123"))

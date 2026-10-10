@@ -839,82 +839,87 @@ func appendUniqueEmail(emails []string, email string) []string {
 	return append(emails, normalized)
 }
 
-// Serve subcommand flags
-func parseServeFlags(args []string) (target string, tunnelID string, allowedEmails []string, tunnelKey string, clientSecret string, skipLocalTLSVerify bool, inspect bool) {
-	fs := flag.NewFlagSet("serve", flag.ExitOnError)
-	idFlag := fs.String("id", "", "tunnel ID (blank → random)")
-	subdomainFlag := fs.String("subdomain", "", "reserved subdomain (Pro feature, alias for -id)")
-	allowFlag := fs.String("allow", "", "comma-separated list of emails allowed to access tunnel")
-	keyFlag := fs.String("tunnel-key", "", "tunnel creation authorization key")
-	secretFlag := fs.String("secret", "", "client secret for auth (or set TUNN_SECRET env var)")
-	skipLocalTLSVerifyFlag := fs.Bool("skip-local-tls-verify", false, "skip TLS verification for local HTTPS target (e.g. self-signed certs)")
-	inspectFlag := fs.Bool("inspect", false, "open a local request inspector with bounded body capture and replay")
+type serveCommandOptions struct {
+	target              string
+	tunnelID            string
+	allowedEmails       []string
+	tunnelKey           string
+	clientSecret        string
+	skipLocalTLSVerify  bool
+	inspect             bool
+	bearer              bool
+	requireUpstreamAuth bool
+	webSocket           common.WebSocketOptions
+}
 
-	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, `tunn serve - expose localhost to the internet
+func parseServeFlags(args []string) (*serveCommandOptions, error) {
+	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	opts := &serveCommandOptions{webSocket: common.DefaultWebSocketOptions()}
+	fs.StringVar(&opts.tunnelID, "id", "", "tunnel ID (blank generates one)")
+	fs.StringVar(&opts.tunnelID, "name", "", "endpoint name (alias for --id)")
+	subdomain := fs.String("subdomain", "", "reserved subdomain (alias for --id)")
+	allow := fs.String("allow", "", "comma-separated list of allowed emails")
+	fs.StringVar(&opts.tunnelKey, "tunnel-key", "", "tunnel creation authorization key")
+	fs.StringVar(&opts.clientSecret, "secret", "", "self-hosted authentication secret (or TUNN_SECRET)")
+	fs.BoolVar(&opts.skipLocalTLSVerify, "skip-local-tls-verify", false, "skip local HTTPS certificate verification")
+	fs.BoolVar(&opts.inspect, "inspect", false, "open a local request inspector")
+	fs.BoolVar(&opts.bearer, "bearer", false, "enable private endpoint-token access for HTTP and WebSockets")
+	fs.BoolVar(&opts.requireUpstreamAuth, "require-upstream-auth", false, "require an upstream Authorization header after tunn authentication")
+	fs.DurationVar(&opts.webSocket.IdleTimeout, "ws-idle-timeout", opts.webSocket.IdleTimeout, "WebSocket inactivity timeout (0 disables)")
+	fs.DurationVar(&opts.webSocket.KeepaliveInterval, "ws-keepalive", opts.webSocket.KeepaliveInterval, "WebSocket ping interval (0 disables)")
+	fs.Int64Var(&opts.webSocket.MaxMessageSize, "ws-max-message-size", opts.webSocket.MaxMessageSize, "maximum WebSocket message bytes, including fragments")
 
-Usage:
-  tunn serve [options] <target>
-  tunn <target>                  (shorthand)
-
-Examples:
-  tunn 8080                         # Tunnel localhost:8080
-  tunn 8080 --allow=bob@co.com      # Share with specific people
-  tunn serve --id=myapp 3000        # Custom tunnel ID
-  tunn serve --subdomain=myapp 3000 # Reserved subdomain (Pro)
-
-Options:
-`)
-		fs.PrintDefaults()
+	// Serve accepts flags on either side of the target, including --flag value.
+	var flags, targets []string
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" {
+			targets = append(targets, args[i+1:]...)
+			break
+		}
+		if !strings.HasPrefix(arg, "-") {
+			targets = append(targets, arg)
+			continue
+		}
+		flags = append(flags, arg)
+		name, _, hasValue := strings.Cut(strings.TrimLeft(arg, "-"), "=")
+		definition := fs.Lookup(name)
+		if definition == nil || hasValue {
+			continue
+		}
+		boolean, isBoolean := definition.Value.(interface{ IsBoolFlag() bool })
+		if isBoolean && boolean.IsBoolFlag() {
+			continue
+		}
+		if i+1 >= len(args) {
+			return nil, fmt.Errorf("flag --%s requires a value", name)
+		}
+		i++
+		flags = append(flags, args[i])
 	}
-
-	// Find target (non-flag arg)
-	var nonFlagArgs []string
-	var flagArgs []string
-	for _, arg := range args {
-		if strings.HasPrefix(arg, "-") {
-			flagArgs = append(flagArgs, arg)
-		} else {
-			nonFlagArgs = append(nonFlagArgs, arg)
+	if err := fs.Parse(flags); err != nil {
+		return nil, err
+	}
+	if len(targets) != 1 {
+		return nil, fmt.Errorf("provide one target: tunn [options] <port|host:port|url>")
+	}
+	opts.target = targets[0]
+	if *subdomain != "" {
+		opts.tunnelID = *subdomain
+	}
+	if opts.clientSecret == "" {
+		opts.clientSecret = os.Getenv("TUNN_SECRET")
+	}
+	for _, email := range strings.Split(*allow, ",") {
+		if email = strings.TrimSpace(email); email != "" {
+			opts.allowedEmails = append(opts.allowedEmails, email)
 		}
 	}
-
-	// Parse just the flags
-	if err := fs.Parse(flagArgs); err != nil {
-		os.Exit(2)
+	if err := opts.webSocket.Validate(); err != nil {
+		return nil, err
 	}
-
-	if len(nonFlagArgs) == 0 {
-		common.LogError("target required: tunn <port|host:port|url>")
-		fs.Usage()
-		os.Exit(1)
-	}
-
-	target = nonFlagArgs[0]
-	// --subdomain takes precedence over --id (they're effectively the same)
-	tunnelID = *idFlag
-	if *subdomainFlag != "" {
-		tunnelID = *subdomainFlag
-	}
-	tunnelKey = *keyFlag
-
-	// Client secret: flag takes precedence, then env var
-	clientSecret = *secretFlag
-	if clientSecret == "" {
-		clientSecret = os.Getenv("TUNN_SECRET")
-	}
-
-	if *allowFlag != "" {
-		emails := strings.Split(*allowFlag, ",")
-		for _, email := range emails {
-			allowedEmails = append(allowedEmails, strings.TrimSpace(email))
-		}
-	}
-
-	skipLocalTLSVerify = *skipLocalTLSVerifyFlag
-	inspect = *inspectFlag
-
-	return
+	return opts, nil
 }
 
 func runLogin() {
@@ -988,7 +993,17 @@ func runHost() {
 }
 
 func runServe(args []string) {
-	target, tunnelID, allowedEmails, tunnelKey, clientSecret, skipLocalTLSVerify, inspect := parseServeFlags(args)
+	opts, err := parseServeFlags(args)
+	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			printServeUsage()
+			return
+		}
+		common.LogError("invalid serve command", "error", err)
+		printServeUsage()
+		os.Exit(1)
+	}
+	target, tunnelID, allowedEmails, tunnelKey, clientSecret := opts.target, opts.tunnelID, opts.allowedEmails, opts.tunnelKey, opts.clientSecret
 
 	cfg, err := config.LoadConfig()
 	if err != nil {
@@ -1032,19 +1047,44 @@ func runServe(args []string) {
 	}
 
 	serveClient := &client.ServeClient{
-		TunnelID:           tunnelID,
-		TargetURL:          normalizedTarget,
-		ServerAddr:         cfg.ServerAddr,
-		AuthToken:          token,
-		TunnelKey:          tunnelKey,
-		AllowedEmails:      allowedEmails,
-		Insecure:           cfg.Insecure || *insecure,
-		SkipLocalTLSVerify: skipLocalTLSVerify,
+		TunnelID:            tunnelID,
+		TargetURL:           normalizedTarget,
+		ServerAddr:          cfg.ServerAddr,
+		AuthToken:           token,
+		TunnelKey:           tunnelKey,
+		AllowedEmails:       allowedEmails,
+		Insecure:            cfg.Insecure || *insecure,
+		SkipLocalTLSVerify:  opts.skipLocalTLSVerify,
+		RequireUpstreamAuth: opts.requireUpstreamAuth,
+		WebSocket:           &opts.webSocket,
+	}
+
+	if opts.bearer {
+		creator, identityErr := common.ExtractEmailFromJWT(token)
+		if identityErr != nil && len(allowedEmails) == 0 {
+			common.LogError("--bearer requires a tunn login token or an explicit --allow")
+			os.Exit(1)
+		}
+		if creator != "" {
+			serveClient.AllowedEmails = appendUniqueEmail(serveClient.AllowedEmails, creator)
+		}
+		endpointToken, digest, tokenErr := client.GenerateEndpointToken()
+		if tokenErr != nil {
+			common.LogError("failed to generate endpoint token", "error", tokenErr)
+			os.Exit(1)
+		}
+		path, tokenErr := client.SaveEndpointToken(tunnelID, endpointToken)
+		if tokenErr != nil {
+			common.LogError("failed to store endpoint token", "error", tokenErr)
+			os.Exit(1)
+		}
+		serveClient.AccessTokenSHA256 = digest
+		serveClient.EndpointTokenPath = path
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	if inspect {
+	if opts.inspect {
 		inspector := client.NewInspector(serveClient)
 		viewerURL, err := inspector.StartInspector(ctx)
 		if err != nil {
@@ -1067,6 +1107,24 @@ func runServe(args []string) {
 		common.LogError("tunnel error", "error", err)
 		os.Exit(1)
 	}
+}
+
+func printServeUsage() {
+	fmt.Fprintln(os.Stderr, `Usage: tunn serve [options] <port|host:port|url>
+       tunn <target> [options]
+
+Options:
+  --id, --name, --subdomain NAME  Tunnel name (blank generates one)
+  --allow EMAILS                 Comma-separated email allow-list
+  --bearer                       Enable endpoint tokens for HTTP and WebSockets
+  --require-upstream-auth        Require application Authorization after tunn auth
+  --ws-idle-timeout DURATION     WebSocket inactivity timeout (default 5m; 0 disables)
+  --ws-keepalive DURATION        Ping interval (default 30s; 0 disables)
+  --ws-max-message-size BYTES    Message limit across fragments (default 8388608)
+  --inspect                     Open a local HTTP request inspector
+  --skip-local-tls-verify        Skip local HTTPS certificate verification
+  --secret SECRET               Self-hosted publisher secret (or TUNN_SECRET)
+  --tunnel-key KEY               Tunnel creation authorization key`)
 }
 
 // normalizeTargetURL converts various input formats to a full URL

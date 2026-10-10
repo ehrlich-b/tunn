@@ -6,9 +6,12 @@ import (
 )
 
 func TestParseServeFlagsInspectShorthand(t *testing.T) {
-	target, _, _, _, _, _, inspect := parseServeFlags([]string{"8080", "--inspect"})
-	if target != "8080" || !inspect {
-		t.Fatalf("serve flags: target = %q, inspect = %v", target, inspect)
+	opts, err := parseServeFlags([]string{"8080", "--inspect"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.target != "8080" || !opts.inspect {
+		t.Fatalf("serve flags: target = %q, inspect = %v", opts.target, opts.inspect)
 	}
 }
 
@@ -152,5 +155,27 @@ func TestResolveConnectEndpoint(t *testing.T) {
 	}
 	if _, _, err := resolveConnectEndpoint("http://database.example", "", ""); err == nil {
 		t.Fatal("accepted plaintext remote endpoint URL")
+	}
+}
+
+func TestServeWebSocketOptions(t *testing.T) {
+	opts, err := parseServeFlags([]string{"18789", "--name", "claw", "--bearer", "--require-upstream-auth", "--ws-idle-timeout", "0", "--ws-keepalive=0", "--ws-max-message-size", "1048576", "--allow", "alice@example.com"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.tunnelID != "claw" || !opts.bearer || !opts.requireUpstreamAuth || opts.webSocket.IdleTimeout != 0 || opts.webSocket.KeepaliveInterval != 0 || opts.webSocket.MaxMessageSize != 1048576 || len(opts.allowedEmails) != 1 {
+		t.Fatalf("options %#v", opts)
+	}
+	defaults, err := parseServeFlags([]string{"8080"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if defaults.bearer || defaults.requireUpstreamAuth || defaults.webSocket.MaxMessageSize != 8<<20 || defaults.webSocket.IdleTimeout == 0 || defaults.webSocket.KeepaliveInterval == 0 {
+		t.Fatalf("defaults %#v", defaults)
+	}
+	for _, args := range [][]string{{"8080", "--ws-max-message-size=0"}, {"8080", "--ws-max-message-size=104857601"}, {"8080", "--ws-idle-timeout=-1s"}, {"8080", "--ws-keepalive=-1s"}, {"8080", "--name"}, {"8080", "9000"}} {
+		if _, err := parseServeFlags(args); err == nil {
+			t.Errorf("accepted invalid flags %v", args)
+		}
 	}
 }

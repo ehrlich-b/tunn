@@ -567,6 +567,22 @@ func TestUsageWindowOwnerTotalsAndRetention(t *testing.T) {
 	}
 }
 
+func TestUsageWindowIncludesCurrentMillisecond(t *testing.T) {
+	s, _ := fixture(t)
+	e := event(nil, 1)
+	admit(t, s, e)
+	finish(t, s, e, 0)
+	r := &pb.ExportRequest{Owner: e.Owner, Since: testNow.Add(-time.Hour).UnixMilli(), Until: testNow.UnixMilli() + 1}
+	out, err := s.Export(context.Background(), r)
+	if err != nil || out.OwnerUsage.Requests != 1 || len(out.Events) != 1 {
+		t.Fatalf("current-millisecond admission missing: %v %v", out, err)
+	}
+	r.Until++
+	if _, err := s.Export(context.Background(), r); err == nil {
+		t.Fatal("accepted a window beyond the current millisecond")
+	}
+}
+
 func TestListGrantsOwnerIsolationAndDurability(t *testing.T) {
 	s, db := fixture(t)
 	g := newGrant(t, s, 10, 20, 30)

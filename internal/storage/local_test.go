@@ -17,6 +17,15 @@ func newTestLocalStorage(t *testing.T) *LocalStorage {
 	return NewLocalStorage(db)
 }
 
+func testLocalAccount(t *testing.T, ls *LocalStorage, email string) string {
+	t.Helper()
+	account, err := ls.FindOrCreateByEmails(context.Background(), []string{email}, "github")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return account.ID
+}
+
 func registerTunnel(t *testing.T, ls *LocalStorage, tunnelID, accountID string) *TunnelRegistration {
 	t.Helper()
 	reg, err := ls.RegisterTunnel(context.Background(), tunnelID, accountID, "localhost")
@@ -28,7 +37,7 @@ func registerTunnel(t *testing.T, ls *LocalStorage, tunnelID, accountID string) 
 
 func TestRegisterTunnelFreeLimit(t *testing.T) {
 	ls := newTestLocalStorage(t)
-	const accountID = "acct-free-limit"
+	accountID := testLocalAccount(t, ls, "free-limit@example.test")
 	ctx := context.Background()
 
 	// 1. Register up to the free limit.
@@ -70,8 +79,8 @@ func TestRegisterTunnelDuplicateID(t *testing.T) {
 	ls := newTestLocalStorage(t)
 	ctx := context.Background()
 
-	const accountA = "acct-dup-a"
-	const accountB = "acct-dup-b"
+	accountA := testLocalAccount(t, ls, "dup-a@example.test")
+	accountB := testLocalAccount(t, ls, "dup-b@example.test")
 
 	reg := registerTunnel(t, ls, "shared-tunnel", accountA)
 	if !reg.Allowed {
@@ -100,7 +109,7 @@ func TestRegisterTunnelDuplicateID(t *testing.T) {
 
 func TestUnregisterTunnel(t *testing.T) {
 	ls := newTestLocalStorage(t)
-	const accountID = "acct-unregister"
+	accountID := testLocalAccount(t, ls, "unregister@example.test")
 	ctx := context.Background()
 
 	// 1. Set up three tunnels.
@@ -147,8 +156,8 @@ func TestUnregisterTunnel(t *testing.T) {
 
 func TestTunnelLimitsArePerAccount(t *testing.T) {
 	ls := newTestLocalStorage(t)
-	const accountA = "acct-a"
-	const accountB = "acct-b"
+	accountA := testLocalAccount(t, ls, "a@example.test")
+	accountB := testLocalAccount(t, ls, "b@example.test")
 	ctx := context.Background()
 
 	// 6. Fill account A's free limit.

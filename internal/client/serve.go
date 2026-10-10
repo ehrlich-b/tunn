@@ -67,12 +67,13 @@ type ServeClient struct {
 	UpstreamRawQuery   string // Optional fixed query appended at the target
 	ServerAddr         string
 	AuthToken          string
-	CreatorEmail       string // Optional identity for non-JWT/self-hosted auth
-	AccessTokenSHA256  []byte // Optional endpoint-scoped access-token digest
-	EndpointTokenPath  string // Optional local token path shown after registration
-	EndpointProtocol   string // "http" (default) or "tcp"
-	TargetNetwork      string // "tcp" (default) or "unix" for raw endpoints
-	DialAddress        string // Optional transport address when TargetURL is only an HTTP origin
+	CreatorEmail       string                                                  // Optional identity for non-JWT/self-hosted auth
+	AccessTokenSHA256  []byte                                                  // Optional endpoint-scoped access-token digest
+	EndpointTokenPath  string                                                  // Optional local token path shown after registration
+	EndpointProtocol   string                                                  // "http" (default) or "tcp"
+	TargetNetwork      string                                                  // "tcp" (default) or "unix" for raw endpoints
+	DialAddress        string                                                  // Optional transport address when TargetURL is only an HTTP origin
+	DialContext        func(context.Context, string, string) (net.Conn, error) // Optional embedded transport dialer
 	TunnelKey          string
 	AllowedEmails      []string
 	Insecure           bool // Skip TLS verification for proxy gRPC connection
@@ -89,8 +90,10 @@ type ServeClient struct {
 	InitialDelay      time.Duration // Initial delay for exponential backoff (default: 1s)
 
 	// HTTP client settings
-	HTTPTimeout time.Duration // Timeout for HTTP requests to local target (default: 30s)
-	Inspector   *Inspector    // Optional local, short-lived HTTP request inspector
+	HTTPTimeout         time.Duration // Timeout for HTTP requests to local target (default: 30s)
+	Inspector           *Inspector    // Optional local, short-lived HTTP request inspector
+	WebSocket           *common.WebSocketOptions
+	RequireUpstreamAuth bool // Require an application Authorization header after tunn auth is stripped
 }
 
 // Run establishes a gRPC tunnel with automatic reconnection on failure.
@@ -162,14 +165,20 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 
 	// Connect to the gRPC server with keepalive
 	common.LogInfo("connecting to proxy", "server", s.ServerAddr)
-	conn, err := grpc.NewClient(s.ServerAddr,
+	dialOptions := []grpc.DialOption{
 		grpc.WithTransportCredentials(creds),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
 			Time:                10 * time.Second, // Ping server every 10s
 			Timeout:             5 * time.Second,  // Wait 5s for pong
 			PermitWithoutStream: true,             // Ping even without active streams
 		}),
-	)
+	}
+	if s.DialContext != nil {
+		dialOptions = append(dialOptions, grpc.WithContextDialer(func(ctx context.Context, address string) (net.Conn, error) {
+			return s.DialContext(ctx, "tcp", address)
+		}))
+	}
+	conn, err := grpc.NewClient(s.ServerAddr, dialOptions...)
 	if err != nil {
 		return fmt.Errorf("failed to connect: %w", err)
 	}
@@ -228,6 +237,7 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 				Capabilities: []string{
 					common.CapabilityHTTPStreamV1,
 					common.CapabilityConnectionStreamV1,
+					common.CapabilityWebSocketV1,
 				},
 				EndpointProtocol: s.EndpointProtocol,
 			},
@@ -257,6 +267,9 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 	if s.EndpointProtocol == "tcp" && !containsString(regResp.Capabilities, common.CapabilityConnectionStreamV1) {
 		return &permanentTunnelError{err: fmt.Errorf("relay does not support raw connection streams")}
 	}
+	if s.RequireUpstreamAuth && !containsString(regResp.Capabilities, common.CapabilityWebSocketV1) {
+		return &permanentTunnelError{err: fmt.Errorf("relay must support websocket-v1 for --require-upstream-auth")}
+	}
 
 	if s.OnState != nil {
 		s.OnState(true)
@@ -273,7 +286,7 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 		fmt.Printf("%s -> %s\n", publicURL, displayTarget)
 
 		// Warn if tunnel is open to the internet (no --allow specified)
-		if len(s.AllowedEmails) == 0 {
+		if len(s.AllowedEmails) == 0 && len(accessTokenDigest) == 0 {
 			fmt.Println("Warning: Tunnel is open to the internet. Use --allow=email@example.com to restrict access.")
 		} else if s.PublicPath == "/mcp" {
 			fmt.Println("Access: private. Use the endpoint token as Tunn-Authorization: Bearer <token>.")
@@ -459,6 +472,12 @@ func (s *ServeClient) handleHttpRequest(sender messageSender, httpReq *pb.HttpRe
 	// Copy headers
 	for key, value := range httpReq.Headers {
 		req.Header.Set(key, value)
+	}
+	req.Host = req.Header.Get("Host")
+	req.Header.Del("Host")
+	if s.RequireUpstreamAuth && strings.TrimSpace(req.Header.Get("Authorization")) == "" {
+		s.sendErrorResponse(sender, httpReq.ConnectionId, http.StatusUnauthorized, "Upstream Authorization required")
+		return
 	}
 
 	// Make the request to local target

@@ -11,15 +11,18 @@ import os
 from pathlib import Path
 import signal
 import socket
+import sqlite3
 import ssl
 import subprocess
 import tempfile
 import threading
 import time
+import uuid
 
 ROOT = Path(__file__).resolve().parents[2]
 DOMAIN = "metering.test"
 OWNER = "owner@example.com"
+ENDPOINT = "metered-fixture"
 JWT_SECRET = "local-metering-fixture-signing-key"
 
 
@@ -121,7 +124,7 @@ class Fixture:
         conn = http.client.HTTPSConnection("127.0.0.1", self.port, context=self.tls, timeout=3)
         try:
             conn.request("GET" if ready else "POST", "/ready" if ready else "/api", body=None if ready else body,
-                         headers={"Host": f"api.{DOMAIN}", "Tunn-Authorization": "Bearer " + token,
+                         headers={"Host": f"{ENDPOINT}.{DOMAIN}", "Tunn-Authorization": "Bearer " + token,
                                   "Authorization": "Bearer upstream-fixture"})
             response = conn.getresponse()
             return response.status, dict(response.getheaders()), response.read()
@@ -149,15 +152,15 @@ class Fixture:
         return result.stdout
 
     def create(self, *limits):
-        return json.loads(self.cli("grant", "create", "api", "--expires", "1h", *limits))
+        return json.loads(self.cli("grant", "create", ENDPOINT, "--expires", "1h", *limits))
 
     def usage(self, grant):
         month = datetime.now(timezone.utc).strftime("%Y-%m")
-        output = json.loads(self.cli("usage", "api", "--month", month))
+        output = json.loads(self.cli("usage", ENDPOINT, "--month", month))
         caller = "grant:" + grant["grant"]["id"]
         rows = [row for row in output.get("usage", []) if row["caller"] == caller]
         require(len(rows) == 1, "grant has no unique usage row")
-        window = json.loads(self.cli("usage", "--tunnel", "api", "--since", "1h"))
+        window = json.loads(self.cli("usage", "--tunnel", ENDPOINT, "--since", "1h"))
         window_rows = [row for row in window.get("usage", []) if row["caller"] == caller]
         require(not window.get("usage_truncated") and window_rows == rows,
                 "duration usage disagrees with durable monthly usage")
@@ -166,7 +169,22 @@ class Fixture:
     def run(self):
         self.old_relay = None
         relay = self.start("relay", "-mode=host")
-        self.start("publisher", "serve", "--id=api", "--allow=" + OWNER, "--secret=" + self.jwt,
+        # Hosted registration now requires a real account, even with a signed JWT.
+        # Seed only this disposable fixture database after its schema is ready.
+        self.account_id = str(uuid.uuid4())
+        deadline = time.monotonic() + 30
+        while True:
+            with sqlite3.connect(self.work / "relay.db") as db:
+                if db.execute("SELECT 1 FROM sqlite_master WHERE name='account_emails'").fetchone():
+                    now = int(time.time())
+                    db.execute("INSERT INTO accounts(id,primary_email,plan,created_at) VALUES(?,?,?,?)",
+                               (self.account_id, OWNER, "free", now))
+                    db.execute("INSERT INTO account_emails(account_id,email,verified_via,added_at) VALUES(?,?,?,?)",
+                               (self.account_id, OWNER, "github", now))
+                    break
+            require(time.monotonic() < deadline and relay.poll() is None, "relay schema did not become ready")
+            time.sleep(0.05)
+        self.start("publisher", "serve", "--id=" + ENDPOINT, "--allow=" + OWNER, "--secret=" + self.jwt,
                    f"http://127.0.0.1:{self.target.server_port}")
         self.wait_publisher()
         first = self.create("--monthly-requests", "2", "--monthly-bytes", "20")
@@ -189,10 +207,10 @@ class Fixture:
                 "byte boundary charged a denied request body")
         second = self.create("--monthly-requests", "10", "--monthly-bytes", "100")
         require(self.request(second["token"])[0] == 200, "second grant was affected by first grant")
-        self.cli("grant", "revoke", "api", second["grant"]["id"])
+        self.cli("grant", "revoke", ENDPOINT, second["grant"]["id"])
         status, headers, _ = self.request(second["token"])
         require(status == 403 and headers.get("Tunn-Limit-Reason") == "grant_revoked", "revocation failed")
-        expiring = json.loads(self.cli("grant", "create", "api", "--expires", "2s"))
+        expiring = json.loads(self.cli("grant", "create", ENDPOINT, "--expires", "2s"))
         time.sleep(2.1)
         status, headers, _ = self.request(expiring["token"])
         require(status == 403 and headers.get("Tunn-Limit-Reason") == "grant_expired", "expiry failed")
@@ -209,7 +227,7 @@ class Fixture:
         row = self.usage(durable)
         require((row["requests"], row["admitted_requests"], row["request_bytes"], row["response_bytes"]) == (3, 2, 8, 12),
                 "usage ledger did not survive restart")
-        listed = json.loads(self.cli("grant", "list", "api"))
+        listed = json.loads(self.cli("grant", "list", ENDPOINT))
         by_id = {grant["id"]: grant for grant in listed.get("grants", [])}
         require(second["grant"]["id"] in by_id and by_id[second["grant"]["id"]].get("revoked"),
                 "grant listing lost durable revocation")
@@ -217,7 +235,7 @@ class Fixture:
                 "grant listing exposed credential digests")
         owner_usage = json.loads(self.cli("usage"))
         totals = owner_usage["owner_usage"]
-        require(totals["owner"] == OWNER and totals["total_bytes"] == sum(
+        require(totals["owner"] == self.account_id and totals["total_bytes"] == sum(
             row.get("request_bytes", 0) + row.get("response_bytes", 0)
             for row in owner_usage.get("usage", [])), "per-user byte totals disagree")
         # Keep both rate requests in the same fixed UTC minute.

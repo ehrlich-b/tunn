@@ -19,6 +19,8 @@ type inboundConnection struct {
 	bodyWriter *io.PipeWriter
 	cancel     context.CancelFunc
 	closeOnce  sync.Once
+	input      chan []byte // Bounded WebSocket queue; a slow socket cannot stall the control receiver
+	done       <-chan struct{}
 }
 
 func (c *inboundConnection) stop(err error) {
@@ -53,8 +55,8 @@ func (m *inboundConnectionManager) open(ctx context.Context, client *ServeClient
 		endpointProtocol = "http"
 	}
 	if valid {
-		valid = open.Protocol == endpointProtocol
-		if open.Protocol == "http" {
+		valid = open.Protocol == endpointProtocol || (endpointProtocol == "http" && open.Protocol == "websocket")
+		if open.Protocol == "http" || open.Protocol == "websocket" {
 			valid = valid && open.HttpRequest != nil
 		}
 	}
@@ -76,6 +78,26 @@ func (m *inboundConnectionManager) open(ctx context.Context, client *ServeClient
 	bodyReader, bodyWriter := io.Pipe()
 	connectionCtx, cancel := context.WithCancel(ctx)
 	connection := &inboundConnection{bodyWriter: bodyWriter, cancel: cancel}
+	if open.Protocol == "websocket" {
+		connection.input = make(chan []byte, 16)
+		connection.done = connectionCtx.Done()
+		go func() {
+			for {
+				select {
+				case data := <-connection.input:
+					if data == nil {
+						_ = bodyWriter.Close()
+						return
+					}
+					if _, err := bodyWriter.Write(data); err != nil {
+						return
+					}
+				case <-connectionCtx.Done():
+					return
+				}
+			}
+		}()
+	}
 
 	m.mu.Lock()
 	if _, exists := m.connections[open.ConnectionId]; exists {
@@ -99,6 +121,8 @@ func (m *inboundConnectionManager) open(ctx context.Context, client *ServeClient
 			client.handleStreamingHTTPRequest(connectionCtx, sender, open, bodyReader)
 		case "tcp":
 			client.handleStreamingTCP(connectionCtx, sender, open.ConnectionId, bodyReader)
+		case "websocket":
+			client.handleWebSocket(connectionCtx, sender, open, bodyReader)
 		}
 	}()
 }
@@ -181,6 +205,17 @@ func (m *inboundConnectionManager) write(connectionID string, data []byte) {
 	if connection == nil {
 		return
 	}
+	if connection.input != nil {
+		if len(data) > common.StreamChunkSize {
+			connection.stop(fmt.Errorf("oversized WebSocket transport chunk"))
+			return
+		}
+		select {
+		case connection.input <- data:
+		case <-connection.done:
+		}
+		return
+	}
 	if _, err := connection.bodyWriter.Write(data); err != nil {
 		connection.stop(err)
 	}
@@ -189,7 +224,14 @@ func (m *inboundConnectionManager) write(connectionID string, data []byte) {
 func (m *inboundConnectionManager) halfClose(connectionID string) {
 	connection := m.get(connectionID)
 	if connection != nil {
-		_ = connection.bodyWriter.Close()
+		if connection.input != nil {
+			select {
+			case connection.input <- nil:
+			case <-connection.done:
+			}
+		} else {
+			_ = connection.bodyWriter.Close()
+		}
 	}
 }
 
@@ -259,6 +301,12 @@ func (s *ServeClient) handleStreamingHTTPRequest(ctx context.Context, sender mes
 	for key, value := range head.Headers {
 		request.Header.Set(key, value)
 	}
+	request.Host = request.Header.Get("Host")
+	request.Header.Del("Host")
+	if s.RequireUpstreamAuth && strings.TrimSpace(request.Header.Get("Authorization")) == "" {
+		sendUpstreamAuthRequired(sender, open.ConnectionId)
+		return
+	}
 	request.ContentLength = head.ContentLength
 
 	timeout := s.HTTPTimeout
@@ -271,6 +319,9 @@ func (s *ServeClient) handleStreamingHTTPRequest(ctx context.Context, sender mes
 		},
 		ForceAttemptHTTP2:     true,
 		ResponseHeaderTimeout: timeout,
+	}
+	if s.DialContext != nil {
+		transport.DialContext = s.DialContext
 	}
 	if s.TargetNetwork == "unix" {
 		dialAddress := s.DialAddress

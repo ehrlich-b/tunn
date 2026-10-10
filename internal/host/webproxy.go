@@ -3,6 +3,7 @@ package host
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/tls"
 	"encoding/hex"
 	"errors"
@@ -15,7 +16,6 @@ import (
 	"strings"
 	"time"
 
-	"crypto/sha256"
 	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/ehrlich-b/tunn/internal/metering"
 	internalv1 "github.com/ehrlich-b/tunn/pkg/proto/internalv1"
@@ -150,7 +150,7 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 			http.Error(w, "Usage ledger unavailable", 503)
 			return
 		}
-		if grant.Id == "" || tunnel.EndpointProtocol == "tcp" {
+		if grant.Id == "" || tunnel.EndpointProtocol == "tcp" || common.IsWebSocketUpgrade(r.Header) {
 			session.reason = "invalid_grant"
 			w.Header().Set("Tunn-Limit-Reason", session.reason)
 			http.Error(w, "Invalid endpoint grant", 403)
@@ -171,7 +171,7 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 
 	// Auth is only required if the tunnel has an allow-list (--allow was specified)
 	// If no allow-list, the tunnel is open to the internet (URLs are random, act like strong passwords)
-	if len(tunnel.AllowedEmails) > 0 && !grantAuthenticated {
+	if (len(tunnel.AllowedEmails) > 0 || len(tunnel.accessTokenDigest()) > 0) && !grantAuthenticated {
 		// Browsers authenticate with the platform cookie. Agents and other
 		// machine clients may use a signed tunn token in a bearer header.
 		userEmail, platformAuthHeader, capabilityAuthenticated, authenticated := p.getAuthFromTunnelBearer(r, tunnel)
@@ -182,7 +182,7 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 			session.reason = "authentication_required"
 			// MCP clients cannot consume the browser login redirect. Return an
 			// explicit bearer challenge for protocol endpoints and bearer attempts.
-			if r.URL.Path == "/mcp" || tunnel.EndpointProtocol == "tcp" || r.Header.Get("Authorization") != "" || r.Header.Get("Tunn-Authorization") != "" {
+			if common.IsWebSocketUpgrade(r.Header) || r.URL.Path == "/mcp" || tunnel.EndpointProtocol == "tcp" || r.Header.Get("Authorization") != "" || r.Header.Get("Tunn-Authorization") != "" {
 				w.Header().Set("WWW-Authenticate", `Bearer realm="tunn"`)
 				http.Error(w, "Authentication required", http.StatusUnauthorized)
 				return
@@ -264,7 +264,18 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 			// the request so other handlers retain the original headers.
 			clonedRequest := r.Clone(r.Context())
 			clonedRequest.Header = r.Header.Clone()
-			clonedRequest.Header.Del(platformAuthHeader)
+			if capabilityAuthenticated {
+				parts := strings.Fields(r.Header.Get(platformAuthHeader))
+				digest := sha256.Sum256([]byte(parts[1]))
+				clonedRequest = clonedRequest.WithContext(context.WithValue(r.Context(), webSocketAccessKey{}, digest[:]))
+			}
+			clonedRequest = strippedAuth(clonedRequest, platformAuthHeader)
+			clonedRequest.Header.Del("Tunn-Authorization")
+			// Clients can send both bearer fields. Consume any second tunn
+			// credential too, while retaining an unrelated upstream credential.
+			if _, otherHeader, _, valid := p.getAuthFromTunnelBearer(clonedRequest, tunnel); valid {
+				clonedRequest = strippedAuth(clonedRequest, otherHeader)
+			}
 			r = clonedRequest
 		}
 	} else if !grantAuthenticated {
@@ -353,6 +364,17 @@ func responseHasStarted(err error) bool {
 
 // proxyHTTPOverGRPC forwards an HTTP request over the gRPC tunnel and writes the response
 func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, tunnel *TunnelConnection) error {
+	if common.IsWebSocketUpgrade(r.Header) {
+		if !common.ValidWebSocketRequest(r) {
+			http.Error(w, "Invalid WebSocket upgrade; use HTTP/1.1 and version 13", http.StatusBadRequest)
+			return nil
+		}
+		if !tunnel.Supports(common.CapabilityWebSocketV1) {
+			http.Error(w, "Publisher does not support WebSockets; upgrade tunn", http.StatusNotImplemented)
+			return nil
+		}
+		return p.proxyWebSocketOverGRPC(w, r, tunnel)
+	}
 	if tunnel.Supports(common.CapabilityHTTPStreamV1) {
 		return p.proxyStreamingHTTPOverGRPC(w, r, tunnel)
 	}
@@ -377,7 +399,7 @@ func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, 
 
 	// Convert headers to map (join multi-value headers per HTTP spec)
 	// SECURITY: Strip platform cookies to prevent tunnel owners from stealing sessions
-	headers := p.forwardedRequestHeaders(r.Header)
+	headers := p.forwardedHTTPHeaders(r)
 
 	// Create HttpRequest message
 	httpReq := &pb.HttpRequest{
@@ -539,10 +561,19 @@ func (p *ProxyServer) proxyToNode(w http.ResponseWriter, r *http.Request, nodeAd
 	// NewSingleHostReverseProxy's default Director rewrites Host to target.Host,
 	// but the remote node needs the original subdomain (e.g., abc123.tunn.to).
 	originalDirector := proxy.Director
+	peer, proto := p.forwardingPeer(r)
 	proxy.Director = func(req *http.Request) {
 		originalHost := req.Host // Save original before Director modifies it
 		originalDirector(req)
 		req.Host = originalHost // Restore original Host
+		req.Header.Del(relayForwardedFor)
+		req.Header.Del(relayForwardedProto)
+		req.Header.Del(relayForwardedSignature)
+		if signature := p.forwardingSignature(originalHost, peer, proto); signature != "" {
+			req.Header.Set(relayForwardedFor, peer)
+			req.Header.Set(relayForwardedProto, proto)
+			req.Header.Set(relayForwardedSignature, signature)
+		}
 	}
 
 	// Invalidate cache on 503 (tunnel no longer on this node)

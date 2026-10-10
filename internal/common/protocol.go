@@ -6,6 +6,7 @@ const (
 	// HttpRequest and HttpResponse messages.
 	CapabilityHTTPStreamV1       = "http-stream-v1"
 	CapabilityConnectionStreamV1 = "connection-stream-v1"
+	CapabilityWebSocketV1        = "websocket-v1"
 
 	TCPConnectPath   = "/_tunn/connect"
 	TCPConnectHeader = "Tunn-Protocol"

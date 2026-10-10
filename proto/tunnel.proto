@@ -152,7 +152,8 @@ message StreamClosed {
 }
 
 // ConnectionOpen starts one logical connection on the multiplexed tunnel.
-// protocol identifies the adapter; v1 currently defines "http" and "tcp".
+// protocol identifies the adapter: "http", "tcp", or (with websocket-v1)
+// "websocket" for an HTTP/1.1 upgrade followed by bidirectional wire frames.
 message ConnectionOpen {
   string connection_id = 1;
   string protocol = 2;

@@ -35,7 +35,9 @@ add a separate adapter for each one before the common HTTP/MCP path works well.
 ## What exists today
 
 - HTTP forwarding, private email allow-lists, MCP stdio and HTTP publishing,
-  endpoint tokens, raw TCP/Unix previews, streaming HTTP, and relay reconnects.
+  endpoint tokens, raw TCP/Unix previews, streaming HTTP, WebSocket upgrades,
+  and relay reconnects. Ordinary HTTP tunnels can opt into endpoint tokens with
+  `--bearer`; WebSocket upgrades retain the HTTP email allow-list gate.
 - Monthly **account-level bandwidth** accounting and per-tunnel bandwidth rate
   limits, plus a durable per-caller endpoint request/body-byte ledger and
   expiring, revocable HTTP grants with monthly budgets and minute-rate limits.
@@ -158,7 +160,8 @@ with real payment commitments rather than a spreadsheet forecast.
 - **Tunn versus application policy:** ingress decides whether a named caller may
   reach an endpoint and how much. The application decides which records, tools,
   or operations that caller may use.
-- **HTTP parity:** repeated headers, WebSockets, trailers, and live HTTP/3
+- **HTTP parity:** WebSocket upgrades now have a local TLS-stack regression
+  suite. Repeated headers, trailers, and live HTTP/3
   verification remain necessary for a credible general tunnel. Fix any parity
   bug that blocks these workflows before expanding protocol surface area.
 

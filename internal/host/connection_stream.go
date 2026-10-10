@@ -1,6 +1,7 @@
 package host
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"sync"
@@ -17,9 +18,10 @@ type connectionEvent struct {
 }
 
 type pendingConnection struct {
-	events    chan connectionEvent
-	done      chan struct{}
-	closeOnce sync.Once
+	events       chan connectionEvent
+	done         chan struct{}
+	closeOnce    sync.Once
+	accessDigest []byte // Immutable after publication; empty for cookie/public connections
 }
 
 func newPendingConnection() *pendingConnection {
@@ -49,7 +51,19 @@ func connectionMessageID(msg *pb.TunnelMessage) (string, connectionEvent) {
 }
 
 func (t *TunnelConnection) addPendingConnection(connectionID string) (*pendingConnection, error) {
+	return t.addPendingAuthenticatedConnection(connectionID, nil)
+}
+
+func (t *TunnelConnection) addPendingAuthenticatedConnection(connectionID string, digest []byte) (*pendingConnection, error) {
 	pending := newPendingConnection()
+	pending.accessDigest = append([]byte(nil), digest...)
+	// Hold auth through publication so a concurrent rotation cannot miss a
+	// socket authorized against the old token immediately before opening.
+	t.authMu.RLock()
+	defer t.authMu.RUnlock()
+	if len(digest) > 0 && !bytes.Equal(digest, t.AccessTokenSHA256) {
+		return nil, fmt.Errorf("endpoint token was revoked before upgrade")
+	}
 	t.pendingMu.Lock()
 	defer t.pendingMu.Unlock()
 	if t.pendingStreams == nil {

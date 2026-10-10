@@ -41,7 +41,7 @@ type ingressMeter struct {
 
 func newIngressMeter(p *ProxyServer, tunnel *TunnelConnection) *ingressMeter {
 	id, _ := generateConnectionID()
-	return &ingressMeter{backend: p.meter, proxy: p, accountID: tunnel.AccountID, event: &pb.Event{RequestId: id, Owner: common.NormalizeEmail(tunnel.CreatorEmail), Endpoint: tunnel.TunnelID, Caller: "anonymous", AuthMethod: "none", Allowed: true, Reason: "allowed", StartedAt: time.Now().UnixMilli()}}
+	return &ingressMeter{backend: p.meter, proxy: p, accountID: tunnel.AccountID, event: &pb.Event{RequestId: id, Owner: tunnel.AccountID, Endpoint: tunnel.TunnelID, Caller: "anonymous", AuthMethod: "none", Allowed: true, Reason: "allowed", StartedAt: time.Now().UnixMilli()}}
 }
 func (s *ingressMeter) recordError(err error, ctx context.Context) {
 	s.mu.Lock()
@@ -175,7 +175,7 @@ func (s *ingressMeter) complete(ctx context.Context, w *meterResponseWriter) {
 		}
 		return
 	}
-	if s.accountID != "" {
+	if s.accountID != "" && w.status != http.StatusSwitchingProtocols {
 		s.proxy.RecordUsage(ctx, s.accountID, s.requestBytes+s.writtenBytes)
 	}
 	_, err := s.backend.Finish(ctx, &pb.Event{RequestId: s.event.RequestId, Status: int32(w.status), Reason: s.reason, Forwarded: s.event.Forwarded, ResponseBytes: s.writtenBytes})
@@ -266,7 +266,17 @@ func grantBearer(r *http.Request) (string, string) {
 func strippedAuth(r *http.Request, header string) *http.Request {
 	clone := r.Clone(r.Context())
 	clone.Header = r.Header.Clone()
+	consumed := r.Header.Get(header)
 	clone.Header.Del(header)
+	// Authorization can also carry application credentials. Remove the
+	// consumed value while retaining unrelated values for boundary filtering.
+	if strings.EqualFold(header, "Authorization") {
+		for _, value := range r.Header.Values(header) {
+			if value != consumed {
+				clone.Header.Add(header, value)
+			}
+		}
+	}
 	return clone
 }
 func meterForRequest(r *http.Request) *ingressMeter {
@@ -305,7 +315,20 @@ func (p *ProxyServer) handleMeteringAPI(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "Owner authentication required", 401)
 		return
 	}
-	owner := common.NormalizeEmail(email)
+	if p.storage == nil || !p.storage.Available() {
+		http.Error(w, "Account service temporarily unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	account, err := p.storage.GetAccountByEmail(r.Context(), common.NormalizeEmail(email))
+	if err != nil {
+		http.Error(w, "Account service temporarily unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	if account == nil || account.ID == "" {
+		http.Error(w, "Owner account could not be verified", http.StatusForbidden)
+		return
+	}
+	owner := account.ID
 	switch {
 	case parts[1] == "usage" && len(parts) == 2 && r.Method == http.MethodGet:
 		month := r.URL.Query().Get("month")
@@ -317,7 +340,9 @@ func (p *ProxyServer) handleMeteringAPI(w http.ResponseWriter, r *http.Request) 
 				http.Error(w, "since must be a positive duration and cannot be combined with month", 400)
 				return
 			}
-			export.Since, export.Until = now.Add(-duration).UnixMilli(), now.UnixMilli()
+			// Export's upper bound is exclusive; include events recorded during
+			// this millisecond, including a request that just completed.
+			export.Since, export.Until = now.Add(-duration).UnixMilli(), now.UnixMilli()+1
 		} else {
 			if month == "" {
 				month = time.Now().UTC().Format("2006-01")
@@ -369,7 +394,7 @@ func (p *ProxyServer) handleMeteringAPI(w http.ResponseWriter, r *http.Request) 
 			http.Error(w, "Endpoint offline", 503)
 			return
 		}
-		if common.NormalizeEmail(tunnel.CreatorEmail) != owner {
+		if tunnel.AccountID == "" || tunnel.AccountID != owner {
 			http.Error(w, "Only the endpoint owner can create grants", 403)
 			return
 		}

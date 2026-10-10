@@ -578,7 +578,8 @@ func (s *Store) Export(ctx context.Context, r *pb.ExportRequest) (*pb.ExportResp
 	}
 	firstMonth, lastMonth := month, month
 	if window {
-		if month != "" || r.Since <= 0 || r.Until <= r.Since || r.Until > now.UnixMilli() {
+		// The exclusive bound may include the current timestamp's millisecond.
+		if month != "" || r.Since <= 0 || r.Until <= r.Since || r.Until > now.UnixMilli()+1 {
 			return nil, fmt.Errorf("invalid usage time window")
 		}
 		firstMonth = time.UnixMilli(r.Since).UTC().Format("2006-01")

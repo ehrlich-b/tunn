@@ -54,10 +54,15 @@ traffic and shared endpoint tokens, so creating another grant cannot multiply
 the allowance. They use durable monthly rollups and atomic byte reservations;
 remaining headers report the tighter owner/grant allowance. Exhaustion returns
 `429` with `owner_request_budget` or `owner_byte_budget`. Existing account-level
-bandwidth limits still apply. This prototype policy is uniform per normalized
-owner email, covers HTTP only, and does not merge verified email aliases or
-select budgets by subscription plan; account identity reconciliation and paid
-plan provisioning remain separate work.
+bandwidth limits still apply. Quotas, owner caps, grants, and owner exports use
+the account UUID, so verified email aliases share one allowance. Unknown
+accounts and unavailable account or metering services fail closed. This
+prototype policy does not select owner budgets by subscription plan.
+
+WebSocket handshakes consume one owner request and retain their admission
+headers and final `101` audit status. Frame bytes count toward account bandwidth
+usage, rather than HTTP body-byte budgets. HTTP consumer grants cannot authorize
+WebSocket upgrades; use a browser session or shared endpoint token instead.
 
 Expired/revoked/wrong-endpoint grants return `403`. Exhausted request or byte
 budgets and request-rate limits return `429`. Responses include
@@ -76,7 +81,7 @@ its next byte check fails or it disconnects.
 ## Contract and privacy
 
 An endpoint is the registered tunnel name (for example `api` or `work-tools`),
-not an application URL path. Counters are scoped by owner, endpoint, caller,
+not an application URL path. Counters are scoped by owner account UUID, endpoint, caller,
 and UTC admission month. A caller is `email:<normalized verified email>`,
 `token:<non-secret endpoint-token identifier>`, `grant:<grant-id>`, or
 `anonymous`. Tokens rotated through the existing shared-token flow get a new
@@ -215,7 +220,7 @@ No current Fly rate or sustainable allowance is asserted by this prototype.
 The counters are candidate packaging units, not billable usage or a payment
 system. Before charging, reconcile real node routing,
 authority failures, crashes, retries, and consumer receipts; define treatment
-of failed admissions and conservative crash reservations, and unify verified
-owner aliases into billing accounts. Team controls can be a separate higher
+of failed admissions and conservative crash reservations, and provision paid
+account plans. Team controls can be a separate higher
 tier; the entry-tier target is the pricing input for this metering experiment.
 See [the commercial thesis](COMMERCIAL-THESIS.md).

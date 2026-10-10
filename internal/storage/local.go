@@ -14,16 +14,12 @@ import (
 type LocalStorage struct {
 	deviceCodes *store.DeviceCodeStore
 	accounts    *store.AccountStore
+	db          *sql.DB
 
 	// Active tunnels tracked in memory
 	// Maps tunnel_id -> account_id
 	activeTunnels   map[string]string
 	activeTunnelsMu sync.RWMutex
-
-	// Magic link JTI tracking (replay protection)
-	// Maps jti -> expiry time
-	usedJTIs   map[string]time.Time
-	usedJTIsMu sync.RWMutex
 
 	// Magic link rate limiting
 	// Maps email -> list of request times
@@ -51,37 +47,18 @@ func NewLocalStorage(db *sql.DB) *LocalStorage {
 	s := &LocalStorage{
 		deviceCodes:       store.NewDeviceCodeStore(db),
 		accounts:          store.NewAccountStore(db),
+		db:                db,
 		activeTunnels:     make(map[string]string),
-		usedJTIs:          make(map[string]time.Time),
 		magicLinkRequests: make(map[string][]time.Time),
 		now:               time.Now,
 	}
-	// Start cleanup goroutine for expired JTIs
-	go s.cleanupExpiredJTIs()
 	return s
 }
 
-// cleanupExpiredJTIs periodically removes expired JTIs from memory.
-// Each pass runs in cleanupExpiredJTIsOnce, which in-package tests call
-// directly to make past-TTL expiry deterministic against the injected clock.
-func (s *LocalStorage) cleanupExpiredJTIs() {
-	ticker := time.NewTicker(1 * time.Minute)
-	defer ticker.Stop()
-	for range ticker.C {
-		s.cleanupExpiredJTIsOnce()
-	}
-}
-
-// cleanupExpiredJTIsOnce removes expired JTIs from memory in a single pass.
-func (s *LocalStorage) cleanupExpiredJTIsOnce() {
-	now := s.currentTime()
-	s.usedJTIsMu.Lock()
-	defer s.usedJTIsMu.Unlock()
-	for jti, expiry := range s.usedJTIs {
-		if now.After(expiry) {
-			delete(s.usedJTIs, jti)
-		}
-	}
+// cleanupExpiredJTIsOnce removes expired replay records using the same clock as redemption.
+func (s *LocalStorage) cleanupExpiredJTIsOnce() error {
+	_, err := s.db.Exec("DELETE FROM used_magic_tokens WHERE expires_at <= ?", s.currentTime().Unix())
+	return err
 }
 
 // Available returns true since local storage is always available on login node.
@@ -199,15 +176,19 @@ func (s *LocalStorage) GetMonthlyUsage(ctx context.Context, accountID string) (i
 func (s *LocalStorage) RegisterTunnel(ctx context.Context, tunnelID, accountID, nodeAddress string) (*TunnelRegistration, error) {
 	s.activeTunnelsMu.Lock()
 	defer s.activeTunnelsMu.Unlock()
+	acc, err := s.accounts.GetByID(accountID)
+	if err != nil {
+		return nil, err
+	}
 
-	// Enforce durable ownership on every relay, including ordinary publishers
-	// and non-login nodes using the existing internal RegisterTunnel RPC.
+	// Every node registers here, so reservation ownership is authoritative
+	// even when the ingress node has no local account database.
 	owner, err := s.accounts.GetSubdomainOwner(tunnelID)
 	if err != nil {
 		return nil, err
 	}
 	if owner != "" && owner != accountID {
-		return &TunnelRegistration{Allowed: false, Reason: "name reserved by another account"}, nil
+		return &TunnelRegistration{Allowed: false, Reason: "subdomain is reserved by another user"}, nil
 	}
 
 	// Check if tunnel ID already exists (cross-node duplicate check)
@@ -228,9 +209,21 @@ func (s *LocalStorage) RegisterTunnel(ctx context.Context, tunnelID, accountID, 
 
 	// Get account plan to determine limit
 	maxAllowed := int32(FreeTunnelLimit)
-	acc, err := s.accounts.GetByID(accountID)
-	if err == nil && acc.Plan == "pro" {
+	if acc.Plan == "pro" {
 		maxAllowed = ProTunnelLimit
+	}
+
+	// Preserve Pro auto-claiming on replicas as well as the login node.
+	// A full reservation allowance still permits an unreserved active name.
+	if owner == "" && acc.Plan == "pro" {
+		_ = s.accounts.ReserveSubdomain(accountID, tunnelID)
+		owner, err = s.accounts.GetSubdomainOwner(tunnelID)
+		if err != nil {
+			return nil, err
+		}
+		if owner != "" && owner != accountID {
+			return &TunnelRegistration{Allowed: false, Reason: "subdomain is reserved by another user"}, nil
+		}
 	}
 
 	// Check if limit exceeded
@@ -279,15 +272,22 @@ func (s *LocalStorage) GetTunnelCount(ctx context.Context, accountID string) (in
 // Returns wasUnused=true if token was unused and is now marked.
 // Returns wasUnused=false if token was already used (replay attempt).
 func (s *LocalStorage) MarkMagicTokenUsed(ctx context.Context, jti string, expiry time.Time) (bool, error) {
-	s.usedJTIsMu.Lock()
-	defer s.usedJTIsMu.Unlock()
-
-	if _, exists := s.usedJTIs[jti]; exists {
+	if jti == "" || expiry.Unix() <= s.currentTime().Unix() {
 		return false, nil
 	}
-
-	s.usedJTIs[jti] = expiry
-	return true, nil
+	if _, err := s.db.ExecContext(ctx, "DELETE FROM used_magic_tokens WHERE expires_at <= ?", s.currentTime().Unix()); err != nil {
+		return false, err
+	}
+	result, err := s.db.ExecContext(ctx, `
+		INSERT INTO used_magic_tokens (jti, expires_at)
+		SELECT ?, ? WHERE ? > ?
+		ON CONFLICT(jti) DO NOTHING
+	`, jti, expiry.Unix(), expiry.Unix(), s.currentTime().Unix())
+	if err != nil {
+		return false, err
+	}
+	rows, err := result.RowsAffected()
+	return rows == 1, err
 }
 
 // Magic link rate limiting constants

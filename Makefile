@@ -8,7 +8,7 @@ GO_FILES := $(wildcard *.go)
 DOCKER_IMAGE := $(APP_NAME):latest
 FLY_APP_NAME := $(APP_NAME)
 
-.PHONY: all build clean proto fmt tidy verify check vet lint test test-verbose test-mcp test-lifecycle-contract test-metering-contract test-coverage test-race integration-test integration-test-smoke integration-test-ai integration-test-lifecycle integration-test-metering docker docker-build docker-run cert-setup cert-renew cert-install-schedule fly-create fly-init fly-secrets fly-certs fly-deploy fly-logs fly-status analytics-hour analytics-day analytics-live help
+.PHONY: all build clean proto fmt tidy verify check vet lint test test-ai-hosts test-ai-hosts-security test-verbose test-mcp test-lifecycle-contract test-metering-contract test-coverage test-race integration-test integration-test-smoke integration-test-ai integration-test-lifecycle integration-test-metering docker docker-build docker-run cert-setup cert-renew cert-install-schedule fly-create fly-init fly-secrets fly-certs fly-deploy fly-logs fly-status analytics-hour analytics-day analytics-live help
 
 # Default target
 all: build
@@ -52,6 +52,14 @@ check: fmt tidy test-race
 
 vet:
 	go vet ./...
+
+# Offline checks for the AI-host kit; no sockets, hosted relay, or credentials.
+test-ai-hosts:
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s deploy/ai-hosts -p 'test_*.py'
+	bash -n deploy/ai-hosts/wsl-run.sh
+
+test-ai-hosts-security:
+	go test -run '^(TestLogin|TestGetTokenPath|TestSaveAndLoadToken|TestLoadTokenNotFound|TestSaveTokenCreatesDirectory|TestCookieAuthenticatedRequestDoesNotForwardPlatformCredentials|TestMalformedAuthorizationIsNotLogged|TestHandleWebProxy|TestPublicTunnelStripsTunnAuthorization|TestProxyHTTPOverGRPC|TestSaveAndLoadEndpointToken|TestRotateEndpointTokenReplacesFile|TestWatchEndpointTokenSendsDigestOnly)' ./internal/client ./internal/host
 
 lint:
 	golangci-lint run

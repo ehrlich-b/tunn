@@ -128,6 +128,13 @@ func initSchema(db *sql.DB) error {
 		FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
 	);
 	CREATE INDEX IF NOT EXISTS idx_reserved_subdomains_account_id ON reserved_subdomains(account_id);
+
+	-- Consumed magic links survive login-node restarts until token expiry.
+	CREATE TABLE IF NOT EXISTS used_magic_tokens (
+		jti TEXT PRIMARY KEY,
+		expires_at INTEGER NOT NULL
+	);
+	CREATE INDEX IF NOT EXISTS idx_used_magic_tokens_expires_at ON used_magic_tokens(expires_at);
 	`
 	_, err := db.Exec(schema)
 	return err

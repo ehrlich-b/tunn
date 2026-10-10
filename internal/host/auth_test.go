@@ -1,9 +1,12 @@
 package host
 
 import (
+	"bytes"
 	"crypto/sha256"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,6 +14,26 @@ import (
 	"github.com/ehrlich-b/tunn/internal/mockoidc"
 	"github.com/golang-jwt/jwt/v4"
 )
+
+func TestMalformedAuthorizationIsNotLogged(t *testing.T) {
+	var logs bytes.Buffer
+	previous := slog.Default()
+	defer slog.SetDefault(previous)
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	proxy := &ProxyServer{config: &config.Config{JWTSecret: "synthetic-test-key"}}
+	request := httptest.NewRequest(http.MethodGet, "https://tunn.to/api/test", nil)
+	request.Header.Set("Authorization", "Basic synthetic-sensitive-credential")
+	recorder := httptest.NewRecorder()
+	proxy.CheckJWT(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("malformed Authorization reached handler")
+	})).ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d", recorder.Code)
+	}
+	if strings.Contains(logs.String(), "synthetic-sensitive-credential") {
+		t.Fatal("credential was written to logs")
+	}
+}
 
 func TestCheckJWT(t *testing.T) {
 	// Create a mock OIDC server to get a signing key

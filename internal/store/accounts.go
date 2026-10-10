@@ -399,12 +399,11 @@ func (s *AccountStore) GetMonthlyUsage(accountID string) (int64, error) {
 
 	var bytesUsed int64
 	err := s.db.QueryRow(
-		"SELECT bytes_used FROM account_usage WHERE account_id = ? AND month = ?",
-		accountID, month,
+		`SELECT COALESCE(u.bytes_used, 0)
+		 FROM accounts a LEFT JOIN account_usage u ON u.account_id = a.id AND u.month = ?
+		 WHERE a.id = ?`,
+		month, accountID,
 	).Scan(&bytesUsed)
-	if err == sql.ErrNoRows {
-		return 0, nil
-	}
 	if err != nil {
 		return 0, err
 	}

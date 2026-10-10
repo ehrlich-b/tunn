@@ -8,7 +8,10 @@ import (
 
 func TestGetTokenPath(t *testing.T) {
 	client := &LoginClient{}
-	path := client.getTokenPath()
+	path, err := client.getTokenPath()
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// Should contain .tunn/token
 	if !filepath.IsAbs(path) && path != ".tunn/token" {
@@ -127,5 +130,67 @@ func TestLoginClientBasic(t *testing.T) {
 	}
 	if !client.Insecure {
 		t.Error("Expected Insecure to be true")
+	}
+}
+
+func TestLoginTokenUsesIsolatedConfigDirectory(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv(configDirectoryEnvironment, dir)
+	path := filepath.Join(dir, "token")
+	if err := os.WriteFile(path, []byte("old-test-token"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := (&LoginClient{}).saveToken("replacement-test-token"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := LoadToken()
+	if err != nil || got != "replacement-test-token" {
+		t.Fatalf("isolated login token = %q, %v", got, err)
+	}
+	for path, want := range map[string]os.FileMode{dir: 0700, path: 0600} {
+		info, err := os.Stat(path)
+		if err != nil || info.Mode().Perm() != want {
+			t.Fatalf("permissions for %s: info=%v, error=%v, want %o", path, info, err, want)
+		}
+	}
+	files, err := filepath.Glob(filepath.Join(dir, ".token.*.tmp"))
+	if err != nil || len(files) != 0 {
+		t.Fatalf("temporary credential files remain: %v, %v", files, err)
+	}
+}
+
+func TestLoginTokenReplacesSymlinkWithoutOverwritingTarget(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv(configDirectoryEnvironment, dir)
+	target := filepath.Join(dir, "other-file")
+	if err := os.WriteFile(target, []byte("unchanged"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(dir, "token")); err != nil {
+		t.Fatal(err)
+	}
+	if err := (&LoginClient{}).saveToken("test-token"); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(target)
+	if err != nil || string(data) != "unchanged" {
+		t.Fatalf("symlink target was overwritten: %q, %v", data, err)
+	}
+	info, err := os.Lstat(filepath.Join(dir, "token"))
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0600 {
+		t.Fatalf("replacement is not a private regular file: %v, %v", info, err)
+	}
+}
+
+func TestLoginRejectsRelativeConfigDirectory(t *testing.T) {
+	t.Setenv(configDirectoryEnvironment, "relative/config")
+	if err := (&LoginClient{}).saveToken("test-token"); err == nil {
+		t.Fatal("saving login token accepted a relative directory")
+	}
+	if _, err := LoadToken(); err == nil {
+		t.Fatal("loading login token accepted a relative directory")
 	}
 }

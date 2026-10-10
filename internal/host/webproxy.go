@@ -27,13 +27,6 @@ import (
 // Prevents memory exhaustion from large requests.
 const MaxBodySize = 100 * 1024 * 1024
 
-// platformCookies lists cookies that should NOT be forwarded to tunnel targets.
-// These are tunn platform cookies that tunnel owners should never see.
-var platformCookies = map[string]bool{
-	"tunn_session": true,
-	"tunn_auth":    true,
-}
-
 // stripPlatformCookies removes platform cookies from a Cookie header value.
 // Returns the sanitized cookie string, or empty if no cookies remain.
 func stripPlatformCookies(cookieHeader string) string {
@@ -50,9 +43,9 @@ func stripPlatformCookies(cookieHeader string) string {
 		// Cookie format: name=value
 		name := part
 		if idx := strings.Index(part, "="); idx > 0 {
-			name = part[:idx]
+			name = strings.TrimSpace(part[:idx])
 		}
-		if !platformCookies[name] {
+		if !strings.HasPrefix(name, "tunn_") && !strings.HasPrefix(name, "__Host-tunn_") && !strings.HasPrefix(name, "__Secure-tunn_") {
 			kept = append(kept, part)
 		}
 	}
@@ -298,17 +291,9 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 			r = clonedRequest
 		}
 	}
-
-	if r.Header.Get("Tunn-Authorization") != "" {
-		r = strippedAuth(r, "Tunn-Authorization")
-	}
 	// Check quota before proxying
-	if tunnel.CreatorEmail != "" {
-		quotaAccount := tunnel.AccountID
-		if quotaAccount == "" {
-			quotaAccount = tunnel.CreatorEmail
-		}
-		if !p.CheckQuota(r.Context(), quotaAccount, tunnel.Plan) {
+	if !tunnel.accountQuotaExempt && (tunnel.CreatorEmail != "" || tunnel.AccountID != "") {
+		if !p.CheckQuota(r.Context(), tunnel.AccountID, tunnel.Plan) {
 			session.reason = "account_quota"
 			common.LogInfo("quota exceeded, rejecting request",
 				"tunnel_id", tunnelID,
@@ -392,7 +377,7 @@ func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, 
 
 	// Convert headers to map (join multi-value headers per HTTP spec)
 	// SECURITY: Strip platform cookies to prevent tunnel owners from stealing sessions
-	headers := forwardedRequestHeaders(r.Header)
+	headers := p.forwardedRequestHeaders(r.Header)
 
 	// Create HttpRequest message
 	httpReq := &pb.HttpRequest{
@@ -496,12 +481,29 @@ func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, 
 	}
 }
 
-func forwardedRequestHeaders(source http.Header) map[string]string {
+func (p *ProxyServer) forwardedRequestHeaders(source http.Header) map[string]string {
 	headers := make(map[string]string, len(source))
 	for key, values := range source {
+		// This header belongs exclusively to the relay, even when a browser
+		// cookie authenticated the request instead of the bearer credential.
+		if strings.EqualFold(key, "Tunn-Authorization") {
+			continue
+		}
+		if strings.EqualFold(key, "Authorization") {
+			kept := make([]string, 0, len(values))
+			for _, value := range values {
+				if !p.isPlatformAuthorization(value) {
+					kept = append(kept, value)
+				}
+			}
+			if len(kept) == 0 {
+				continue
+			}
+			values = kept
+		}
 		value := strings.Join(values, ", ")
 		if strings.EqualFold(key, "Cookie") {
-			value = stripPlatformCookies(value)
+			value = stripPlatformCookies(strings.Join(values, "; "))
 			if value == "" {
 				continue
 			}

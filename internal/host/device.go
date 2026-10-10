@@ -3,6 +3,7 @@ package host
 import (
 	"encoding/json"
 	"fmt"
+	"html"
 	"net/http"
 	"net/url"
 	"strings"
@@ -23,6 +24,9 @@ const (
 func (p *ProxyServer) handleDeviceCode(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !p.requireAuthOrigin(w, r, true) {
 		return
 	}
 
@@ -186,7 +190,13 @@ func (p *ProxyServer) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 // showDeviceAuthorizePage shows the "Authorize this device?" confirmation page
 func (p *ProxyServer) showDeviceAuthorizePage(w http.ResponseWriter, r *http.Request, userCode string) {
 	email := p.getAuthEmail(r)
+	csrfToken, err := p.createCSRFToken(r, "/auth/device/authorize")
+	if err != nil {
+		http.Error(w, "Failed to create confirmation", http.StatusInternalServerError)
+		return
+	}
 
+	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "text/html")
 	writePageStart(w, "tunn - Authorize Device")
 	_, _ = fmt.Fprintf(w, `
@@ -198,10 +208,11 @@ func (p *ProxyServer) showDeviceAuthorizePage(w http.ResponseWriter, r *http.Req
 </div>
 <form method="POST" action="/auth/device/authorize">
 <input type="hidden" name="code" value="%s">
+<input type="hidden" name="csrf_token" value="%s">
 <button type="submit" class="btn btn-github">Authorize</button>
 </form>
 <p style="margin-top: 1rem;"><a href="/">Cancel</a></p>
-`, userCode, email, userCode)
+`, html.EscapeString(userCode), html.EscapeString(email), html.EscapeString(userCode), html.EscapeString(csrfToken))
 	writePageEnd(w)
 }
 
@@ -209,6 +220,9 @@ func (p *ProxyServer) showDeviceAuthorizePage(w http.ResponseWriter, r *http.Req
 func (p *ProxyServer) handleDeviceAuthorize(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !p.requireCSRFToken(w, r, "/auth/device/authorize") {
 		return
 	}
 
@@ -236,7 +250,7 @@ func (p *ProxyServer) handleDeviceAuthorize(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if _, err := p.storage.AuthorizeDeviceCode(r.Context(), deviceCode.Code, email); err != nil {
+	if authorized, err := p.storage.AuthorizeDeviceCode(r.Context(), deviceCode.Code, email); err != nil || !authorized {
 		common.LogError("failed to authorize device code", "error", err)
 		http.Error(w, "Failed to authorize device", http.StatusInternalServerError)
 		return
@@ -252,6 +266,7 @@ func (p *ProxyServer) handleDeviceAuthorize(w http.ResponseWriter, r *http.Reque
 func (p *ProxyServer) generateJWT(email string) (string, error) {
 	claims := jwt.MapClaims{
 		"email": email,
+		"type":  "access",
 		"sub":   email,
 		"iss":   "tunn",
 		"iat":   time.Now().Unix(),

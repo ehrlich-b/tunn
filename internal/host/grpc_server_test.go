@@ -76,7 +76,11 @@ func TestTunnelServerRejectsTCPWithoutConnectionCapability(t *testing.T) {
 }
 
 func TestTunnelServerRegistration(t *testing.T) {
-	srv := NewTunnelServer(testConfig(), nil, nil, nil)
+	local := securityDB(t)
+	if _, err := local.FindOrCreateByEmails(context.Background(), []string{"test@example.com"}, "github"); err != nil {
+		t.Fatal(err)
+	}
+	srv := NewTunnelServer(testConfig(), nil, local.AccountStore(), local)
 
 	// Create a mock stream
 	stream := &mockTunnelStream{
@@ -208,7 +212,11 @@ func TestTunnelServerPublicModePreservesVisitorAccessPolicy(t *testing.T) {
 }
 
 func TestTunnelServerDuplicateRegistration(t *testing.T) {
-	srv := NewTunnelServer(testConfig(), nil, nil, nil)
+	local := securityDB(t)
+	if _, err := local.FindOrCreateByEmails(context.Background(), []string{"test@example.com"}, "github"); err != nil {
+		t.Fatal(err)
+	}
+	srv := NewTunnelServer(testConfig(), nil, local.AccountStore(), local)
 
 	// First stream
 	stream1 := &mockTunnelStream{
@@ -684,7 +692,11 @@ func TestTunnelServerRejectsForgedJWT(t *testing.T) {
 func TestTunnelServerAcceptsValidJWT(t *testing.T) {
 	// Create a valid JWT signed with the test secret
 	cfg := testConfig()
-	srv := NewTunnelServer(cfg, nil, nil, nil)
+	local := securityDB(t)
+	if _, err := local.FindOrCreateByEmails(context.Background(), []string{"valid@example.com"}, "github"); err != nil {
+		t.Fatal(err)
+	}
+	srv := NewTunnelServer(cfg, nil, local.AccountStore(), local)
 
 	// Create a properly signed JWT
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{

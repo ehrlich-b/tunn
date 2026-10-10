@@ -106,18 +106,19 @@ type TunnelServer struct {
 
 // TunnelConnection represents an active tunnel connection
 type TunnelConnection struct {
-	HostID            string
-	TunnelID          string
-	TargetURL         string
-	Stream            pb.TunnelService_EstablishTunnelServer
-	Connected         time.Time
-	CreatorEmail      string
-	AccountID         string   // Account ID for usage tracking (from storage)
-	AllowedEmails     []string // Includes creator_email + any additional allowed emails
-	AccessTokenSHA256 []byte   // Endpoint-scoped bearer digest; plaintext never reaches the relay
-	Capabilities      map[string]bool
-	EndpointProtocol  string
-	Plan              string // "free" or "pro" - cached for quota checks
+	HostID             string
+	TunnelID           string
+	TargetURL          string
+	Stream             pb.TunnelService_EstablishTunnelServer
+	Connected          time.Time
+	CreatorEmail       string
+	AccountID          string   // Account ID for usage tracking (from storage)
+	accountQuotaExempt bool     // Explicit self-hosted authentication without an account
+	AllowedEmails      []string // Includes creator_email + any additional allowed emails
+	AccessTokenSHA256  []byte   // Endpoint-scoped bearer digest; plaintext never reaches the relay
+	Capabilities       map[string]bool
+	EndpointProtocol   string
+	Plan               string // "free" or "pro" - cached for quota checks
 
 	// Bandwidth rate limiter (token bucket)
 	rateLimiter *rate.Limiter
@@ -302,6 +303,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 
 	var creatorEmail string
 	var allowedEmails []string
+	var requiresAccount bool
 
 	// Skip auth in public mode
 	if s.cfg.PublicMode {
@@ -376,60 +378,24 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		}
 		creatorEmail = extractedEmail
 		allowedEmails = regClient.AllowedEmails
+		requiresAccount = true
 
 		common.LogInfo("tunnel registration", "tunnel_id", tunnelID, "creator", creatorEmail, "allowed", allowedEmails)
 	}
 
-	// Check subdomain reservations (if account store is available)
-	if s.accounts != nil && !s.cfg.PublicMode {
-		ownerAccountID, err := s.accounts.GetSubdomainOwner(tunnelID)
-		if err != nil {
-			common.LogError("failed to check subdomain owner", "tunnel_id", tunnelID, "error", err)
-		} else if ownerAccountID != "" {
-			// Subdomain is reserved - check if this user owns it
-			userAccount, err := s.accounts.GetByEmail(creatorEmail)
-			if err != nil || userAccount == nil || userAccount.ID != ownerAccountID {
-				common.LogError("subdomain reserved by another user", "tunnel_id", tunnelID, "creator", creatorEmail)
-				respMsg := &pb.TunnelMessage{
-					Message: &pb.TunnelMessage_RegisterResponse{
-						RegisterResponse: &pb.RegisterResponse{
-							Success:      false,
-							ErrorMessage: fmt.Sprintf("Subdomain '%s' is reserved by another user.", tunnelID),
-						},
-					},
-				}
-				_ = stream.Send(respMsg)
-				return fmt.Errorf("subdomain %s is reserved by another user", tunnelID)
-			}
-			common.LogInfo("using reserved subdomain", "tunnel_id", tunnelID, "creator", creatorEmail)
-		} else {
-			// Subdomain is not reserved - try to claim it if user is Pro
-			userAccount, err := s.accounts.GetByEmail(creatorEmail)
-			if err == nil && userAccount != nil && userAccount.Plan == "pro" {
-				// Try to reserve the subdomain for this user
-				if err := s.accounts.ReserveSubdomain(userAccount.ID, tunnelID); err == nil {
-					common.LogInfo("auto-claimed subdomain for Pro user", "tunnel_id", tunnelID, "creator", creatorEmail)
-				}
-				// If reservation fails (e.g., max limit), just continue without reserving
-			}
-		}
-	}
-
-	// Look up plan and accountID for quota enforcement (default to "free" if lookup fails)
+	// Resolve hosted publishers through shared storage; unknown ownership fails closed.
 	plan := "free"
 	var accountID string
-	if s.storage != nil && s.storage.Available() && creatorEmail != "" {
-		// Cross-node: use storage interface (proxies to login node if needed)
-		if account, err := s.storage.GetAccountByEmail(stream.Context(), creatorEmail); err == nil && account != nil {
-			plan = account.Plan
-			accountID = account.ID
+	if requiresAccount {
+		if s.storage == nil || !s.storage.Available() {
+			return rejectTunnelRegistration(stream, "Account service temporarily unavailable.")
 		}
-	} else if s.accounts != nil && creatorEmail != "" {
-		// Local fallback: direct account store access
-		if account, err := s.accounts.GetByEmail(creatorEmail); err == nil && account != nil {
-			plan = account.Plan
-			accountID = account.ID
+		account, err := s.storage.GetAccountByEmail(stream.Context(), creatorEmail)
+		if err != nil || account == nil || account.ID == "" {
+			return rejectTunnelRegistration(stream, "Account could not be verified. Run 'tunn login' again.")
 		}
+		plan = account.Plan
+		accountID = account.ID
 	}
 
 	if hostID != "" {
@@ -463,21 +429,22 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		capabilities[capability] = true
 	}
 	conn := &TunnelConnection{
-		HostID:            hostID,
-		TunnelID:          tunnelID,
-		TargetURL:         targetURL,
-		Stream:            stream,
-		Connected:         time.Now(),
-		CreatorEmail:      creatorEmail,
-		AccountID:         accountID,
-		AllowedEmails:     allowedEmails,
-		AccessTokenSHA256: append([]byte(nil), regClient.AccessTokenSha256...),
-		Capabilities:      capabilities,
-		EndpointProtocol:  endpointProtocol,
-		Plan:              plan,
-		rateLimiter:       newRateLimiter(plan),
-		pendingRequests:   make(map[string]chan *pb.HttpResponse),
-		pendingStreams:    make(map[string]*pendingConnection),
+		HostID:             hostID,
+		TunnelID:           tunnelID,
+		TargetURL:          targetURL,
+		Stream:             stream,
+		Connected:          time.Now(),
+		CreatorEmail:       creatorEmail,
+		AccountID:          accountID,
+		accountQuotaExempt: !requiresAccount && hostID == "",
+		AllowedEmails:      allowedEmails,
+		AccessTokenSHA256:  append([]byte(nil), regClient.AccessTokenSha256...),
+		Capabilities:       capabilities,
+		EndpointProtocol:   endpointProtocol,
+		Plan:               plan,
+		rateLimiter:        newRateLimiter(plan),
+		pendingRequests:    make(map[string]chan *pb.HttpResponse),
+		pendingStreams:     make(map[string]*pendingConnection),
 	}
 
 	// Check if tunnel exists locally first
@@ -499,12 +466,12 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 
 	// Register tunnel and check limits (cross-node if available)
 	var registeredWithStorage bool
-	if s.storage != nil && s.storage.Available() && accountID != "" {
+	if s.storage != nil && accountID != "" {
 		// Cross-node: register with login node (includes duplicate and limit checks)
 		reg, err := s.storage.RegisterTunnel(stream.Context(), tunnelID, accountID, s.cfg.Domain)
 		if err != nil {
 			common.LogError("failed to register tunnel with login node", "tunnel_id", tunnelID, "error", err)
-			// Fall back to local check
+			return rejectTunnelRegistration(stream, "Tunnel ownership could not be verified. Please try again later.")
 		} else if !reg.Allowed {
 			respMsg := &pb.TunnelMessage{
 				Message: &pb.TunnelMessage_RegisterResponse{
@@ -801,10 +768,13 @@ func (s *TunnelServer) validateJWTAndExtractEmail(tokenString string) (string, e
 	}
 
 	// Extract email
-	email, ok := claims["email"].(string)
-	if !ok || email == "" {
-		return "", fmt.Errorf("email claim not found or empty in JWT")
-	}
+	return identityEmail(claims)
+}
 
-	return email, nil
+// rejectTunnelRegistration sends a failed reply before terminating the stream.
+func rejectTunnelRegistration(stream pb.TunnelService_EstablishTunnelServer, reason string) error {
+	_ = stream.Send(&pb.TunnelMessage{Message: &pb.TunnelMessage_RegisterResponse{
+		RegisterResponse: &pb.RegisterResponse{Success: false, ErrorMessage: reason},
+	}})
+	return fmt.Errorf("tunnel registration denied: %s", reason)
 }

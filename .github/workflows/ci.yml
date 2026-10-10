@@ -41,3 +41,6 @@ jobs:
 
       - name: Deploy and test local AI ingress
         run: make integration-test-ai
+
+      - name: Test authenticated MCP lifecycle
+        run: make integration-test-lifecycle

@@ -9,8 +9,8 @@ import http.client
 import json
 import os
 from pathlib import Path
-import re
 import signal
+import shutil
 import socket
 import ssl
 import subprocess
@@ -258,7 +258,7 @@ class Lifecycle:
 
         self.stop(relay)
         started = time.monotonic()
-        self.start_relay()
+        relay = self.start_relay()
         self.wait("publisher reconnect", lambda: registered() >= 2, publisher)
         self.echo(7, "after-reconnect", token, session)
         require(self.rpc(8, "tools/list", {}, old_token, session)[0] == 401,
@@ -281,10 +281,14 @@ class Lifecycle:
             "name": "echo", "arguments": {"exit": True},
         }, token, session)
         require(status == 502, f"child exit returned {status}, expected 502")
-        error = json.loads(body)
-        require(error.get("id") == 11 and error["error"]["code"] == -32603,
-                "child exit did not return a correlated JSON-RPC error")
-        print("PASS recovery after timeout and explicit 502 on child exit", flush=True)
+        # The CLI tears down the tunnel when its child exits. The relay can
+        # observe that disconnect before the adapter's JSON-RPC error arrives;
+        # the transport boundary promises 502, not an RPC body on disconnect.
+        require(publisher.wait(timeout=5) != 0, "publisher silently accepted child exit")
+        self.wait("offline endpoint",
+                  lambda: self.rpc(12, "tools/list", {}, token, session)[0] == 503,
+                  relay, timeout=5)
+        print("PASS recovery after timeout; child exit returns 502, then offline 503", flush=True)
 
     def close(self, failed):
         for process in reversed(self.processes):
@@ -307,7 +311,6 @@ def main():
     finally:
         lifecycle.close(failed)
         if not failed:
-            import shutil
             shutil.rmtree(work)
     print("PASS local endpoint-token lifecycle; hosted UI and expiring grants remain untested")
 

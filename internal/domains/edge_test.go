@@ -195,3 +195,76 @@ func TestEdgeDomainCertificateKeyBindingAndRestart(t *testing.T) {
 		t.Fatal("corrupt key served")
 	}
 }
+
+func TestEdgeDomainVerificationGateHonorsCancellation(t *testing.T) {
+	r, dns, _ := domainFixture(t, nil)
+	d := addDomain(t, r, "work.example.com", "site", "one")
+	dns.records[d.Name] = d.CnameTarget
+	started, release := make(chan struct{}), make(chan struct{})
+	r.issuer = issuerFunc(func(ctx context.Context, _ string, _ PresentChallenge) ([]byte, []byte, error) {
+		close(started)
+		select {
+		case <-release:
+			return nil, nil, fmt.Errorf("fixture order ended")
+		case <-ctx.Done():
+			return nil, nil, ctx.Err()
+		}
+	})
+	firstCtx, cancelFirst := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancelFirst()
+	done := make(chan error, 1)
+	go func() { _, err := r.Verify(firstCtx, d); done <- err }()
+	select {
+	case <-started:
+	case <-firstCtx.Done():
+		t.Fatal("first order did not start")
+	}
+	secondCtx, cancelSecond := context.WithCancel(context.Background())
+	cancelSecond()
+	if _, err := r.Verify(secondCtx, d); err != context.Canceled {
+		t.Fatalf("queued verification did not honor cancellation: %v", err)
+	}
+	close(release)
+	if err := <-done; status.Code(err) != codes.Unavailable {
+		t.Fatalf("fixture issuance error=%v", err)
+	}
+	// An ended order releases the gate for the next verification.
+	r.issuer = issuerFunc(func(context.Context, string, PresentChallenge) ([]byte, []byte, error) {
+		cert, key := fakeCert(t, d.Name, r.now())
+		return cert, key, nil
+	})
+	if _, err := r.Verify(firstCtx, d); err != nil {
+		t.Fatal("ended order retained verification gate", err)
+	}
+}
+
+func TestEdgeDomainRouteLeaseBoundaryAndRefresh(t *testing.T) {
+	r, dns, _ := domainFixture(t, nil)
+	d := addDomain(t, r, "work.example.com", "site", "one")
+	dns.records[d.Name] = strings.ToUpper(d.CnameTarget) + "."
+	issues := 0
+	r.issuer = issuerFunc(func(context.Context, string, PresentChallenge) ([]byte, []byte, error) {
+		issues++
+		cert, key := fakeCert(t, d.Name, r.now())
+		return cert, key, nil
+	})
+	ready, err := r.Verify(context.Background(), d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(ready.VerifiedUntil-1, 0)
+	r.now = func() time.Time { return now }
+	if _, err := r.Route(context.Background(), d); err != nil {
+		t.Fatal("lease expired one second early", err)
+	}
+	now = now.Add(time.Second)
+	if _, err := r.Certificate(context.Background(), d); status.Code(err) != codes.FailedPrecondition {
+		t.Fatal("certificate served at expired DNS lease", err)
+	}
+	if err := r.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Route(context.Background(), d); err != nil || issues != 1 {
+		t.Fatalf("healthy refresh lost route or needlessly issued: %v issues=%d", err, issues)
+	}
+}

@@ -9,10 +9,12 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -42,11 +44,12 @@ type Bridge struct {
 	processErr error
 
 	writeMu               sync.Mutex
-	requestMu             sync.Mutex
+	requestGate           chan struct{}
+	requestGateOnce       sync.Once
 	sessionMu             sync.Mutex
 	sessionID             string
-	childInitialized      bool            // guarded by requestMu
-	childInitializeResult json.RawMessage // guarded by requestMu
+	childInitialized      bool            // guarded by requestGate
+	childInitializeResult json.RawMessage // guarded by requestGate
 
 	requestTimeout time.Duration
 	allowedTools   map[string]bool
@@ -280,6 +283,14 @@ func (b *Bridge) handlePOST(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ctx, cancel := context.WithTimeout(r.Context(), b.requestTimeout)
+	defer cancel()
+	if err := b.acquireRequest(ctx); err != nil {
+		writeRequestError(w, incoming.ID, err, "local MCP request could not start")
+		return
+	}
+	defer func() { <-b.requestGate }()
+
 	// Notifications and responses do not receive an HTTP response body.
 	if !hasID(incoming.ID) || incoming.Method == "" {
 		if modern {
@@ -289,19 +300,17 @@ func (b *Bridge) handlePOST(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusAccepted)
 			return
 		}
-		if err := b.writeChild(body); err != nil {
-			writeBridgeError(w, http.StatusBadGateway, incoming.ID, "local MCP process is unavailable")
+		if err := b.writeChild(ctx, body); err != nil {
+			writeRequestError(w, incoming.ID, err, "local MCP process is unavailable")
 			return
 		}
 		w.WriteHeader(http.StatusAccepted)
 		return
 	}
 
-	b.requestMu.Lock()
-	defer b.requestMu.Unlock()
 	if modern {
-		if err := b.initializeChild(r.Context()); err != nil {
-			writeBridgeError(w, http.StatusBadGateway, incoming.ID, "local MCP process could not initialize")
+		if err := b.initializeChild(ctx); err != nil {
+			writeRequestError(w, incoming.ID, err, "local MCP process could not initialize")
 			return
 		}
 		if incoming.Method == "server/discover" {
@@ -316,13 +325,10 @@ func (b *Bridge) handlePOST(w http.ResponseWriter, r *http.Request) {
 		body = legacyChildRequest(body)
 	}
 
-	if err := b.writeChild(body); err != nil {
-		writeBridgeError(w, http.StatusBadGateway, incoming.ID, "local MCP process is unavailable")
+	if err := b.writeChild(ctx, body); err != nil {
+		writeRequestError(w, incoming.ID, err, "local MCP process is unavailable")
 		return
 	}
-
-	timer := time.NewTimer(b.requestTimeout)
-	defer timer.Stop()
 
 	var events [][]byte
 	eventBytes := 0
@@ -366,7 +372,7 @@ func (b *Bridge) handlePOST(w http.ResponseWriter, r *http.Request) {
 				// receive the client's answer before the outer HTTP response ends.
 				// Fail that capability explicitly so the child can continue and
 				// potentially return an error for the original call.
-				_ = b.rejectChildRequest(outgoing.ID)
+				_ = b.rejectChildRequest(ctx, outgoing.ID)
 				continue
 			}
 
@@ -380,10 +386,8 @@ func (b *Bridge) handlePOST(w http.ResponseWriter, r *http.Request) {
 				events = append(events, output.message)
 			}
 
-		case <-timer.C:
-			writeBridgeError(w, http.StatusGatewayTimeout, incoming.ID, "local MCP request timed out")
-			return
-		case <-r.Context().Done():
+		case <-ctx.Done():
+			writeRequestError(w, incoming.ID, ctx.Err(), "local MCP request failed")
 			return
 		}
 	}
@@ -452,23 +456,68 @@ func (b *Bridge) writeMCPResponse(w http.ResponseWriter, r *http.Request, events
 	_, _ = w.Write(response)
 }
 
-func (b *Bridge) writeChild(message []byte) error {
+func (b *Bridge) acquireRequest(ctx context.Context) error {
+	b.requestGateOnce.Do(func() { b.requestGate = make(chan struct{}, 1) })
+	select {
+	case b.requestGate <- struct{}{}:
+		if err := ctx.Err(); err != nil {
+			<-b.requestGate
+			return err
+		}
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (b *Bridge) writeChild(ctx context.Context, message []byte) error {
 	b.writeMu.Lock()
 	defer b.writeMu.Unlock()
-
-	if _, err := b.stdin.Write(message); err != nil {
+	if err := ctx.Err(); err != nil {
 		return err
 	}
-	_, err := b.stdin.Write([]byte("\n"))
+
+	// StdinPipe is an os.File backed by a pollable pipe. Bound writes as well
+	// as reads: a child that stops reading must not hold the queue indefinitely.
+	if pipe, ok := b.stdin.(interface{ SetWriteDeadline(time.Time) error }); ok {
+		deadline, _ := ctx.Deadline()
+		if err := pipe.SetWriteDeadline(deadline); err != nil {
+			return err
+		}
+		canceled := make(chan struct{})
+		stop := context.AfterFunc(ctx, func() {
+			_ = pipe.SetWriteDeadline(time.Now())
+			close(canceled)
+		})
+		defer func() {
+			if !stop() {
+				<-canceled
+			}
+			_ = pipe.SetWriteDeadline(time.Time{})
+		}()
+	}
+
+	line := append(append([]byte(nil), message...), '\n')
+	n, err := b.stdin.Write(line)
+	if n > 0 && n < len(line) {
+		// A partial JSON line cannot be safely resumed by a later request.
+		_ = b.stdin.Close()
+		if b.cancel != nil {
+			b.cancel()
+		}
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	return err
 }
 
-func (b *Bridge) rejectChildRequest(id json.RawMessage) error {
+func (b *Bridge) rejectChildRequest(ctx context.Context, id json.RawMessage) error {
 	response := fmt.Sprintf(
 		`{"jsonrpc":"2.0","id":%s,"error":{"code":-32601,"message":"client-side MCP requests are not supported by this tunn preview"}}`,
 		id,
 	)
-	return b.writeChild([]byte(response))
+	return b.writeChild(ctx, []byte(response))
 }
 
 func (b *Bridge) validSession(got string) bool {
@@ -515,6 +564,18 @@ func writeBridgeError(w http.ResponseWriter, status int, id json.RawMessage, mes
 			"message": message,
 		},
 	})
+}
+
+func writeRequestError(w http.ResponseWriter, id json.RawMessage, err error, message string) {
+	if errors.Is(err, context.Canceled) {
+		return
+	}
+	status := http.StatusBadGateway
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, os.ErrDeadlineExceeded) {
+		status = http.StatusGatewayTimeout
+		message = "local MCP request timed out"
+	}
+	writeBridgeError(w, status, id, message)
 }
 
 func writeToolDenied(w http.ResponseWriter, id json.RawMessage) {

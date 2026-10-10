@@ -8,7 +8,6 @@ import (
 	"errors"
 	"net/http"
 	"strings"
-	"time"
 )
 
 const modernProtocolVersion = "2026-07-28"
@@ -104,18 +103,16 @@ func decodeMCPHeader(value string) (string, error) {
 
 // initializeChild negotiates the older stdio shape once, then serves modern
 // remote requests without exposing a transport session to callers.
-// Caller holds requestMu.
+// Caller holds requestGate and supplies the shared request deadline.
 func (b *Bridge) initializeChild(ctx context.Context) error {
 	if b.childInitialized {
 		return nil
 	}
 	const initID = `"tunn-bridge-initialize"`
 	message := []byte(`{"jsonrpc":"2.0","id":` + initID + `,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"tunn","version":"2"}}}`)
-	if err := b.writeChild(message); err != nil {
+	if err := b.writeChild(ctx, message); err != nil {
 		return err
 	}
-	timer := time.NewTimer(b.requestTimeout)
-	defer timer.Stop()
 	for {
 		select {
 		case output := <-b.outputs:
@@ -131,14 +128,12 @@ func (b *Bridge) initializeChild(ctx context.Context) error {
 				if !b.childInitialized {
 					return errors.New("child rejected legacy initialization")
 				}
-				if err := b.writeChild([]byte(`{"jsonrpc":"2.0","method":"notifications/initialized"}`)); err != nil {
+				if err := b.writeChild(ctx, []byte(`{"jsonrpc":"2.0","method":"notifications/initialized"}`)); err != nil {
 					b.childInitialized = false
 					return err
 				}
 				return nil
 			}
-		case <-timer.C:
-			return errors.New("child initialization timed out")
 		case <-ctx.Done():
 			return ctx.Err()
 		}

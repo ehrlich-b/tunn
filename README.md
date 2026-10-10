@@ -104,7 +104,12 @@ The stdio adapter accepts MCP 2026-07-28 sessionless Streamable HTTP clients:
 `server/discover`, tool listing and calls, per-request metadata, and the
 standard method/name headers. It initializes an older stdio child once and
 also retains legacy HTTP session compatibility through MCP 2025-11-25. It
-supports finite SSE responses and a 25-second call window. Modern
+supports finite SSE responses and a 25-second request window covering queueing,
+child initialization, pipe writes, and the response wait after validation.
+Canceled queued requests do not reach the child. Timeout and child-process
+failures return HTTP 504 and 502 with the caller's JSON-RPC ID. Already forwarded
+work may continue in the child after caller cancellation; a partial pipe write
+terminates the child to avoid reusing a corrupted stream. Modern
 `subscriptions/listen`, multi round-trip requests, concurrent child calls,
 and server-to-client requests are not yet supported by this adapter.
 Already-networked HTTP MCP servers are forwarded without MCP translation and

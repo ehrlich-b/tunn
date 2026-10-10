@@ -60,7 +60,9 @@ func Share(ctx context.Context, listener net.Listener, serveSSH func(context.Con
 				_ = conn.SetReadDeadline(time.Time{})
 				buffered := bufferedConn{conn, r}
 				if sshProtocol {
-					serveSSH(ctx, buffered)
+					// Classification slots must remain available for HTTPS while
+					// long-lived SSH sessions use their separate admission limit.
+					go serveSSH(ctx, buffered)
 					return
 				}
 				if first[0] != 0x16 {

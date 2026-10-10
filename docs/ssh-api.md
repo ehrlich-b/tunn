@@ -98,6 +98,10 @@ synthetic free accounts also pass through ordinary account quotas and ingress
 metering. SSH admission is bounded globally, per key and per IP; attempts to
 link an email reuse the existing key/IP and email throttles.
 
+After authentication, start a command or a permitted raw connection within
+15 seconds. Idle handshakes and PTY-only sessions close automatically. Owner
+commands have a 30-second deadline, including reading a service manifest.
+
 ## Names, HTTP targets and Unix sockets
 
 ```sh
@@ -218,7 +222,8 @@ Scheduled Task scripts. `service run` prints the foreground SSH commands.
 Verify the relay's host key and link your client key before installing a
 service, because unattended services use `BatchMode=yes`. These ephemeral SSH
 forwards do not reserve persistent machines in the separate host-mode registry.
-Use HTTP MCP targets in service manifests; stdio processes require a local pump.
+Service manifests also support stdio MCP commands: the returned native service
+starts the local process and an OpenSSH stdio pump, and stops both if either exits.
 
 ## Relay configuration and Fly.io
 

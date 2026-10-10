@@ -6,13 +6,14 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
-	"github.com/ehrlich-b/tunn/internal/testnet"
-	"golang.org/x/crypto/ssh"
 	"io"
 	"math/big"
 	"net"
 	"testing"
 	"time"
+
+	"github.com/ehrlich-b/tunn/internal/testnet"
+	"golang.org/x/crypto/ssh"
 )
 
 func TestSniffSSHAndTLS(t *testing.T) {
@@ -146,5 +147,61 @@ func TestSniffRealSSHAndTLSHandshakesOnOneListener(t *testing.T) {
 	}
 	if err := <-done; err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestSniffHTTPSIsNotStarvedBySSHSessionSlots(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	l := testnet.NewListener()
+	started := make(chan struct{}, 128)
+	shared := Share(ctx, l, func(ctx context.Context, c net.Conn) {
+		defer func() { _ = c.Close() }()
+		started <- struct{}{}
+		<-ctx.Done()
+	})
+	defer func() { _ = shared.Close() }()
+	for range 128 {
+		raw, err := l.Dial()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = raw.Close() }()
+		if _, err := raw.Write([]byte("SSH-2.0-client\r\n")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for range 128 {
+		select {
+		case <-started:
+		case <-time.After(3 * time.Second):
+			t.Fatal("SSH classification stalled")
+		}
+	}
+	raw, err := l.Dial()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = raw.Close() }()
+	_, _ = raw.Write([]byte{0x16, 3, 1, 0, 1, 0})
+	done := make(chan error, 1)
+	go func() {
+		c, err := shared.Accept()
+		if err != nil {
+			done <- err
+			return
+		}
+		defer func() { _ = c.Close() }()
+		data := make([]byte, 6)
+		_, err = io.ReadFull(c, data)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("SSH sessions starved HTTPS")
 	}
 }

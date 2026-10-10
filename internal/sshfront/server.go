@@ -31,13 +31,14 @@ const AnonymousBytes int64 = 10 << 20
 
 type Identity struct{ Fingerprint, PublicKey, Email, IP string }
 type Config struct {
-	HostKey     ssh.Signer
-	Resolve     func(context.Context, string) (string, error)
-	Establish   func(context.Context, Identity, *Stream) error
-	Command     func(context.Context, Identity, []string, io.Reader, io.Writer) error
-	RenderQR    func(context.Context, string, io.Writer) error
-	RotateToken func(context.Context, Identity, string, []byte) error
-	Connect     func(context.Context, Identity, string) (net.Conn, error)
+	HostKey        ssh.Signer
+	Resolve        func(context.Context, string) (string, error)
+	Establish      func(context.Context, Identity, *Stream) error
+	Command        func(context.Context, Identity, []string, io.Reader, io.Writer) error
+	RenderQR       func(context.Context, string, io.Writer) error
+	RotateToken    func(context.Context, Identity, string, []byte) error
+	Connect        func(context.Context, Identity, string) (net.Conn, error)
+	StartupTimeout time.Duration
 }
 type budget struct {
 	active  int
@@ -161,6 +162,11 @@ func (s *Server) Serve(ctx context.Context, l net.Listener) error {
 }
 func (s *Server) ServeConn(parent context.Context, raw net.Conn) {
 	defer func() { _ = raw.Close() }()
+	if parent.Err() != nil {
+		return
+	}
+	stopParent := context.AfterFunc(parent, func() { _ = raw.Close() })
+	defer stopParent()
 	select {
 	case s.sessions <- struct{}{}:
 		defer func() { <-s.sessions }()
@@ -189,6 +195,13 @@ func (s *Server) ServeConn(parent context.Context, raw net.Conn) {
 	defer cancel()
 	id := Identity{Fingerprint: conn.Permissions.Extensions["fingerprint"], PublicKey: conn.Permissions.Extensions["public"], IP: ip}
 	state := &connection{server: s, ssh: conn, ctx: ctx, id: id, forwards: map[forwardSpec]*forward{}, cancel: cancel, directSlots: make(chan struct{}, 32), sessionDone: make(chan struct{})}
+	startupTimeout := s.cfg.StartupTimeout
+	if startupTimeout <= 0 {
+		startupTimeout = 15 * time.Second
+	}
+	startup := time.AfterFunc(startupTimeout, cancel)
+	defer startup.Stop()
+	state.started = func() { startup.Stop() }
 	go func() {
 		<-ctx.Done()
 		select {
@@ -259,15 +272,24 @@ type connection struct {
 	kind        string
 	output      *sessionOutput
 	bridge      *mcpbridge.Bridge
+	started     func()
 }
 type sessionOutput struct {
 	mu      sync.Mutex
 	channel io.Writer
+	pty     bool
 }
 
 func (o *sessionOutput) Write(p []byte) (int, error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
+	if o.pty {
+		_, err := o.channel.Write([]byte(strings.ReplaceAll(string(p), "\n", "\r\n")))
+		if err != nil {
+			return 0, err
+		}
+		return len(p), nil
+	}
 	return o.channel.Write(p)
 }
 func (c *connection) requests(requests <-chan *ssh.Request) {
@@ -296,6 +318,12 @@ func (c *connection) requests(requests <-chan *ssh.Request) {
 				<-f.done
 			}
 			_ = req.Reply(f != nil, nil)
+			c.mu.Lock()
+			empty := len(c.forwards) == 0 && c.options != nil
+			c.mu.Unlock()
+			if f != nil && empty {
+				c.cancel()
+			}
 			continue
 		}
 		if len(c.forwards) >= 10 {
@@ -340,6 +368,11 @@ func (c *connection) session(ch ssh.Channel, requests <-chan *ssh.Request) {
 	for req := range requests {
 		switch req.Type {
 		case "pty-req", "window-change":
+			if req.Type == "pty-req" {
+				c.output.mu.Lock()
+				c.output.pty = true
+				c.output.mu.Unlock()
+			}
 			_ = req.Reply(true, nil)
 		case "signal":
 			_ = req.Reply(true, nil)
@@ -361,6 +394,7 @@ func (c *connection) session(ch ssh.Channel, requests <-chan *ssh.Request) {
 				}
 			}
 			_ = req.Reply(true, nil)
+			c.started()
 			// Exec owns the session until the tunnel ends; keep receiving control
 			// requests so OpenSSH signals are effective while run is blocked.
 			go func() {
@@ -427,7 +461,11 @@ func (c *connection) run(args []string, in ssh.Channel) error {
 			if c.server.cfg.Command == nil {
 				return fmt.Errorf("command unavailable")
 			}
-			return c.server.cfg.Command(c.ctx, c.id, args, in, c.output)
+			ctx, cancel := context.WithTimeout(c.ctx, 30*time.Second)
+			defer cancel()
+			stop := context.AfterFunc(ctx, func() { _ = in.Close(); c.cancel() })
+			defer stop()
+			return c.server.cfg.Command(ctx, c.id, args, in, c.output)
 		}
 	}
 	userArgs, err := UsernameArgs(c.ssh.User())
@@ -601,30 +639,6 @@ func (c *connection) start(f *forward) error {
 		}
 		return fmt.Errorf("invalid relay registration reply")
 	}
-	publicURL := r.PublicUrl
-	if c.kind == "mcp" {
-		publicURL += "/mcp"
-	}
-	fmt.Fprintf(c.output, "%s\nAccess: %s\n", publicURL, strings.Join(o.AllowedEmails, ", "))
-	if o.Public {
-		fmt.Fprintln(c.output, "Access: public")
-	}
-	if o.Expire > 0 {
-		fmt.Fprintf(c.output, "Expires after: %s\n", o.Expire)
-	}
-	if token != "" {
-		c.server.mu.Lock()
-		c.server.tokens[name] = token
-		c.server.mu.Unlock()
-		fmt.Fprintf(c.output, "Endpoint token: %s\n", token)
-	}
-	if o.QR {
-		if c.server.cfg.RenderQR == nil {
-			fmt.Fprintln(c.output, "QR unavailable: install qrencode on the relay")
-		} else if err := c.server.cfg.RenderQR(ctx, publicURL, c.output); err != nil {
-			fmt.Fprintln(c.output, err)
-		}
-	}
 	messages.Observe = func(m *pb.TunnelMessage) {
 		if o.Stdio {
 			if data := m.GetConnectionData(); data != nil && !c.server.charge(id, len(data.Data)) {
@@ -698,23 +712,55 @@ func (c *connection) start(f *forward) error {
 		adapter.Inspector = f.inspector
 	}
 	c.server.mu.Lock()
+	if ctx.Err() != nil {
+		c.server.mu.Unlock()
+		cancel()
+		return fmt.Errorf("SSH registration expired")
+	}
 	c.server.endpoints[name] = f
+	if token != "" {
+		c.server.tokens[name] = token
+	}
 	c.server.mu.Unlock()
+	publicURL := r.PublicUrl
+	if c.kind == "mcp" {
+		publicURL += "/mcp"
+	}
+	fmt.Fprintf(c.output, "%s\nAccess: %s\n", publicURL, strings.Join(o.AllowedEmails, ", "))
+	if o.Public {
+		fmt.Fprintln(c.output, "Access: public")
+	}
+	if o.Expire > 0 {
+		fmt.Fprintf(c.output, "Expires after: %s\n", o.Expire)
+	}
+	if token != "" {
+		fmt.Fprintf(c.output, "Endpoint token: %s\n", token)
+	}
+	if o.QR {
+		if c.server.cfg.RenderQR == nil {
+			fmt.Fprintln(c.output, "QR unavailable: install qrencode on the relay")
+		} else if err := c.server.cfg.RenderQR(ctx, publicURL, c.output); err != nil {
+			fmt.Fprintln(c.output, err)
+		}
+	}
 	go func() { _ = adapter.ServeMessages(ctx, messages); cancel() }()
 	go func() {
 		<-ctx.Done()
 		cancel()
 		c.server.mu.Lock()
-		delete(c.server.tokens, name)
-		delete(c.server.endpoints, name)
+		if c.server.endpoints[name] == f {
+			delete(c.server.tokens, name)
+			delete(c.server.endpoints, name)
+		}
 		c.server.mu.Unlock()
 		c.mu.Lock()
-		if c.forwards[f.spec] == f {
+		removed := c.forwards[f.spec] == f
+		if removed {
 			delete(c.forwards, f.spec)
 		}
 		empty := len(c.forwards) == 0
 		c.mu.Unlock()
-		if empty {
+		if removed && empty {
 			c.cancel()
 		}
 	}()
@@ -843,6 +889,7 @@ func (c *connection) direct(channel ssh.NewChannel) {
 		_ = channel.Reject(ssh.Prohibited, err.Error())
 		return
 	}
+	c.started()
 	timer.Stop()
 	// Admission has its own timeout. The data path lives for the SSH session.
 	ch, requests, err := channel.Accept()

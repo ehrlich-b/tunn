@@ -599,3 +599,91 @@ func TestSSHExpiryClosesForward(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 }
+
+func TestSSHNamedForwardCancellationAndAccountNameOwnership(t *testing.T) {
+	p, c, dial := sshRelay(t, true)
+	channels := c.HandleChannelOpen("forwarded-tcpip")
+	spec := struct {
+		Address string
+		Port    uint32
+	}{"named-demo", 80}
+	ok, _, err := c.SendRequest("tcpip-forward", true, ssh.Marshal(spec))
+	if err != nil || !ok {
+		t.Fatalf("named forward=%v %v", ok, err)
+	}
+	go func() {
+		newChannel := <-channels
+		if newChannel == nil {
+			return
+		}
+		ch, requests, err := newChannel.Accept()
+		if err != nil {
+			return
+		}
+		defer func() { _ = ch.Close() }()
+		go ssh.DiscardRequests(requests)
+		r, err := http.ReadRequest(bufio.NewReader(ch))
+		if err != nil {
+			return
+		}
+		_, _ = io.Copy(io.Discard, r.Body)
+		_ = r.Body.Close()
+		_, _ = io.WriteString(ch, "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nnamed")
+	}()
+	session, err := c.NewSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := session.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := session.Start("--public"); err != nil {
+		t.Fatal(err)
+	}
+	if line := sshLine(t, bufio.NewReader(out)); line != "https://named-demo.tunn.test\n" {
+		t.Fatal(line)
+	}
+	w := httptest.NewRecorder()
+	p.handleWebProxy(w, httptest.NewRequest("GET", "https://named-demo.tunn.test/", nil))
+	if w.Code != 200 || w.Body.String() != "named" {
+		t.Fatalf("named request=%d %s", w.Code, w.Body.String())
+	}
+	ok, _, err = c.SendRequest("cancel-tcpip-forward", true, ssh.Marshal(spec))
+	if err != nil || !ok {
+		t.Fatalf("cancel=%v %v", ok, err)
+	}
+	if err := session.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := p.tunnelServer.GetTunnel("named-demo"); ok {
+		t.Fatal("cancelled forward remains online")
+	}
+	// Anonymous publishers cannot take a subdomain reserved by a real account.
+	owner, err := p.storage.GetAccountByEmail(context.Background(), "owner@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.tunnelServer.accounts.UpdatePlan(owner.ID, "pro"); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.tunnelServer.accounts.ReserveSubdomain(owner.ID, "reserved-demo"); err != nil {
+		t.Fatal(err)
+	}
+	keys, err := p.sshKeys.List(context.Background(), []string{owner.PrimaryEmail})
+	if err != nil || len(keys) != 1 {
+		t.Fatalf("keys=%v %v", keys, err)
+	}
+	if err := p.sshKeys.Remove(context.Background(), []string{owner.PrimaryEmail}, keys[0].Fingerprint); err != nil {
+		t.Fatal(err)
+	}
+	anonymous := dial()
+	rejected, output := sshForward(t, anonymous, "--name reserved-demo --allow alice@example.com", http.NotFoundHandler())
+	if line := sshLine(t, output); strings.TrimSpace(line) != "subdomain is reserved by another user" {
+		t.Fatal(line)
+	}
+	if err := rejected.Wait(); err == nil {
+		t.Fatal("anonymous key claimed another account's reserved name")
+	}
+
+}

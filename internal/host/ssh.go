@@ -434,7 +434,23 @@ func (p *ProxyServer) handleSSHKeys(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Invalid key", 400)
 			return
 		}
-		key, err := p.sshKeys.Add(r.Context(), account.PrimaryEmail, req.PublicKey)
+		key, err := sshfront.ParseKey(req.PublicKey)
+		if err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		ownerEmail := account.PrimaryEmail
+		previousOwner, err := p.sshKeys.Owner(r.Context(), key.Fingerprint)
+		if err != nil {
+			http.Error(w, "Key service unavailable", 503)
+			return
+		}
+		for _, email := range emails {
+			if email == previousOwner {
+				ownerEmail = email
+			}
+		}
+		key, err = p.sshKeys.Add(r.Context(), ownerEmail, req.PublicKey)
 		if err != nil {
 			http.Error(w, err.Error(), 409)
 			return

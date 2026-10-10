@@ -11,6 +11,20 @@ GO_FILES := $(wildcard *.go)
 DOCKER_IMAGE := $(APP_NAME):latest
 FLY_APP_NAME := $(APP_NAME)
 
+.PHONY: test-ops-config test-ops-store test-ops-host test-ops-logs test-ops-scripts test-ops
+test-ops-config:
+	go test $(GO_TEST_FLAGS) -p 2 -parallel=2 -count=1 -timeout=60s ./internal/config
+test-ops-store:
+	go test $(GO_TEST_FLAGS) -p 2 -parallel=2 -count=1 -timeout=90s -run '^TestOps' ./internal/store
+test-ops-host:
+	go test $(GO_TEST_FLAGS) -p 2 -parallel=2 -count=1 -timeout=90s -run '^TestOps' ./internal/host
+test-ops-logs:
+	go test $(GO_TEST_FLAGS) -p 2 -parallel=2 -count=1 -timeout=60s ./internal/common
+test-ops-scripts:
+	go test $(GO_TEST_FLAGS) -p 2 -parallel=2 -count=1 -timeout=60s -run '^TestOps' .
+test-ops:
+	$(MAKE) -j1 test-ops-config test-ops-store test-ops-host test-ops-logs test-ops-scripts
+
 .PHONY: all build clean proto fmt tidy verify check vet lint test test-ai-hosts test-ai-hosts-security test-verbose test-mcp test-websocket test-websocket-memory test-websocket-unit test-lifecycle-contract test-metering-contract test-domains-contract test-coverage test-race integration-test integration-test-smoke integration-test-ai integration-test-lifecycle integration-test-metering docker docker-build docker-run cert-setup cert-renew cert-install-schedule fly-create fly-init fly-secrets fly-certs fly-deploy fly-logs fly-status analytics-hour analytics-day analytics-live help test-install-recovery
 
 # Default target

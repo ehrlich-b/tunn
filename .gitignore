@@ -21,6 +21,7 @@ certbot
 
 # Output of the go coverage tool
 *.out
+*.prof
 coverage.html
 
 # Go workspace file

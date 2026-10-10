@@ -276,6 +276,12 @@ func (c *inspectionCapture) Write(data []byte) (int, error) {
 		return len(data), nil
 	}
 	c.event.RequestBytes += int64(len(data))
+	// net/http treats zero ContentLength with a nonempty body as unknown.
+	// Once bytes arrive, require EOF instead of treating zero as a body limit.
+	if c.expectedBytes == 0 && len(data) > 0 {
+		c.expectedBytes = -1
+		c.event.BodyComplete = false
+	}
 	if c.expectedBytes >= 0 {
 		c.event.BodyComplete = c.event.RequestBytes == c.expectedBytes
 	}

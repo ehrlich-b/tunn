@@ -203,6 +203,12 @@ test-race:
 	@echo "Running tests with race detection..."
 	go test $(GO_TEST_FLAGS) -race ./...
 
+# Offline production authorization matrix and lifecycle regressions.
+.PHONY: test-auth-contract
+AUTH_TESTS ?= ^TestProdAuth
+test-auth-contract:
+	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=180s -run '$(AUTH_TESTS)' ./internal/host
+
 # Integration tests (require build + certs)
 integration-test: build
 	@echo "Running all integration tests..."

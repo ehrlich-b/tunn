@@ -1,9 +1,22 @@
 package client
 
 import (
+	"context"
+	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
+	"io"
 	"testing"
 	"time"
 )
+
+func TestHostClientPersistentEOF(t *testing.T) {
+	stream := &hostEOFStream{}
+	if err := (&ServeClient{Persistent: true}).processMessages(context.Background(), stream, stream); err == nil {
+		t.Fatal("persistent publisher treated relay EOF as a completed session")
+	}
+	if err := (&ServeClient{}).processMessages(context.Background(), stream, stream); err != nil {
+		t.Fatalf("ordinary publisher EOF behavior changed: %v", err)
+	}
+}
 
 func TestReconnectBackoffBounds(t *testing.T) {
 	for _, initial := range []time.Duration{time.Nanosecond, time.Second, time.Minute} {
@@ -30,3 +43,7 @@ func TestReconnectBackoffBounds(t *testing.T) {
 		t.Fatal("backoff overflowed")
 	}
 }
+
+type hostEOFStream struct{ mockEstablishTunnelClient }
+
+func (*hostEOFStream) Recv() (*pb.TunnelMessage, error) { return nil, io.EOF }

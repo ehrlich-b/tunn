@@ -112,3 +112,52 @@ func TestHostStoreSurvivesRestart(t *testing.T) {
 		t.Fatal("reservation did not survive restart")
 	}
 }
+
+func TestHostStoreAccountMerge(t *testing.T) {
+	db, err := InitForTest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxOpenConns(1)
+	defer func() { _ = db.Close() }()
+	accounts := NewAccountStore(db)
+	a, err := accounts.FindOrCreateByEmails([]string{"first@example.com"}, "github")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := accounts.FindOrCreateByEmails([]string{"second@example.com"}, "github")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := accounts.UpdatePlan(a.ID, "pro"); err != nil {
+		t.Fatal(err)
+	}
+	registry, err := NewHostStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ account, endpoint string }{{a.ID, "first-api"}, {b.ID, "second-api"}} {
+		if err := registry.Register(tc.account, common.HostManifest{Machine: "gpu-box", Tunnels: []common.HostEndpointSpec{{Name: tc.endpoint, Kind: "http"}}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	merged, err := accounts.FindOrCreateByEmails([]string{"first@example.com", "second@example.com"}, "github")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if merged.ID != a.ID {
+		t.Fatal("merge discarded Pro identity")
+	}
+	for _, name := range []string{"first-api", "second-api"} {
+		if owner, err := accounts.GetSubdomainOwner(name); err != nil || owner != a.ID {
+			t.Fatalf("merged reservation %s: %s %v", name, owner, err)
+		}
+		if err := registry.CheckEndpoint(a.ID, "gpu-box", name, "http"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	list, err := registry.List(a.ID)
+	if err != nil || len(list) != 1 || len(list[0].Tunnels) != 2 {
+		t.Fatalf("merged inventory = %v %v", list, err)
+	}
+}

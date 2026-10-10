@@ -45,6 +45,9 @@ func DefaultPath() (string, error) {
 	if root == "" {
 		root = filepath.Join(home, ".config")
 	}
+	if !filepath.IsAbs(root) {
+		return "", fmt.Errorf("XDG_CONFIG_HOME must be absolute")
+	}
 	return filepath.Join(root, "tunn", "host.yaml"), nil
 }
 

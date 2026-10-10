@@ -14,6 +14,11 @@ func TestServiceGolden(t *testing.T) {
 	for _, platform := range []string{"darwin", "linux", "windows"} {
 		t.Run(platform, func(t *testing.T) {
 			s := ServiceSpec{OS: platform, Home: "/home/owner", Binary: "/opt/tunn/bin/tunn", Config: "/home/owner/.config/tunn/host.yaml", Username: "OWNER\\bryan", UID: 501}
+			if platform == "windows" {
+				s.Home = `C:\Users\bryan`
+				s.Binary = `C:\Program Files\tunn\tunn.exe`
+				s.Config = `C:\Users\bryan\.config\tunn\host.yaml`
+			}
 			got, err := s.Unit()
 			if err != nil {
 				t.Fatal(err)

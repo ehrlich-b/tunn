@@ -89,6 +89,10 @@ func (s *TunnelServer) HandleHosts(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "could not list hosts", http.StatusServiceUnavailable)
 				return
 			}
+			identities := map[string]bool{}
+			for _, email := range a.Emails {
+				identities[common.NormalizeEmail(email.Email)] = true
+			}
 			s.mu.RLock()
 			for i := range machines {
 				m := &machines[i]
@@ -98,7 +102,7 @@ func (s *TunnelServer) HandleHosts(w http.ResponseWriter, r *http.Request) {
 					if e.Kind == "mcp" {
 						e.URL += "/mcp"
 					}
-					if conn := s.tunnels[e.Name]; conn != nil && conn.AccountID == a.ID && conn.HostID == m.Name {
+					if conn := s.tunnels[e.Name]; conn != nil && (conn.AccountID == a.ID || identities[common.NormalizeEmail(conn.CreatorEmail)]) && conn.HostID == m.Name {
 						e.Online = true
 						m.Online = true
 					}
@@ -152,8 +156,24 @@ func (s *TunnelServer) HandleHosts(w http.ResponseWriter, r *http.Request) {
 
 func (s *TunnelServer) hostSeen(conn *TunnelConnection) {
 	if conn.HostID != "" && s.hosts != nil {
-		if err := s.hosts.Seen(conn.AccountID, conn.HostID, conn.TunnelID, time.Now()); err != nil {
+		accountID := conn.AccountID
+		// Verified email buckets can merge while a stream remains connected.
+		// Resolve its current owner without mutating the live connection fields.
+		if account, err := s.accounts.GetByEmail(conn.CreatorEmail); err == nil {
+			accountID = account.ID
+		}
+		if err := s.hosts.Seen(accountID, conn.HostID, conn.TunnelID, time.Now()); err != nil {
 			common.LogError("could not update host presence", "tunnel_id", conn.TunnelID)
 		}
 	}
+}
+
+func (p *ProxyServer) handleHosts(w http.ResponseWriter, r *http.Request) {
+	// A local app may itself have /api/hosts. Only the relay authority exposes
+	// the management API; tunnel subdomains retain their ordinary data path.
+	if extractTunnelID(r.Host, p.Domain) != "" {
+		p.handleWebProxy(w, r)
+		return
+	}
+	p.tunnelServer.HandleHosts(w, r)
 }

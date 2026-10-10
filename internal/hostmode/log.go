@@ -24,6 +24,13 @@ func OpenLog(path string, limit int64) (*BoundedLog, error) {
 		return nil, err
 	}
 	l := &BoundedLog{path: path, limit: limit}
+	if st, err := os.Stat(path + ".1"); err == nil && st.Size() > limit {
+		if err := os.Remove(path + ".1"); err != nil {
+			return nil, err
+		}
+	} else if err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
 	if err := l.open(); err != nil {
 		return nil, err
 	}
@@ -45,6 +52,13 @@ func (l *BoundedLog) open() error {
 		return err
 	}
 	l.file, l.size = f, st.Size()
+	if l.size > l.limit {
+		if err := f.Truncate(0); err != nil {
+			_ = f.Close()
+			return err
+		}
+		l.size = 0
+	}
 	return nil
 }
 

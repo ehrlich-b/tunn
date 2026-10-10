@@ -195,24 +195,46 @@ func (s *AccountStore) mergeAccounts(accounts []*Account) (*Account, error) {
 		}
 	}
 
-	// Move all emails from other accounts to the primary account
+	// Move account-owned endpoints and reservations with the verified email
+	// bucket. Without this, a later multi-email login would orphan stable names.
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var hostTables int
+	if err := tx.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='host_machines'").Scan(&hostTables); err != nil {
+		return nil, err
+	}
 	for _, acc := range accounts {
-		if acc.ID != primary.ID {
-			// Update emails to point to primary account
-			_, err := s.db.Exec(
-				"UPDATE account_emails SET account_id = ? WHERE account_id = ?",
-				primary.ID, acc.ID,
-			)
-			if err != nil {
+		if acc.ID == primary.ID {
+			continue
+		}
+		if _, err := tx.Exec("UPDATE account_emails SET account_id = ? WHERE account_id = ?", primary.ID, acc.ID); err != nil {
+			return nil, err
+		}
+		if _, err := tx.Exec("UPDATE reserved_subdomains SET account_id = ? WHERE account_id = ?", primary.ID, acc.ID); err != nil {
+			return nil, err
+		}
+		if hostTables != 0 {
+			if _, err := tx.Exec(`INSERT INTO host_machines(account_id, machine, last_seen)
+SELECT ?, machine, last_seen FROM host_machines WHERE account_id=?
+ON CONFLICT(account_id, machine) DO UPDATE SET last_seen=MAX(host_machines.last_seen, excluded.last_seen)`, primary.ID, acc.ID); err != nil {
 				return nil, err
 			}
-
-			// Delete the merged account
-			_, err = s.db.Exec("DELETE FROM accounts WHERE id = ?", acc.ID)
-			if err != nil {
+			if _, err := tx.Exec("UPDATE host_endpoints SET account_id=? WHERE account_id=?", primary.ID, acc.ID); err != nil {
+				return nil, err
+			}
+			if _, err := tx.Exec("DELETE FROM host_machines WHERE account_id=?", acc.ID); err != nil {
 				return nil, err
 			}
 		}
+		if _, err := tx.Exec("DELETE FROM accounts WHERE id=?", acc.ID); err != nil {
+			return nil, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
 	}
 
 	return primary, nil

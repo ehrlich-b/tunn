@@ -26,7 +26,7 @@ func hostFixture(t *testing.T) *TunnelServer {
 	t.Cleanup(func() { _ = db.Close() })
 	cfg := testConfig()
 	cfg.HostModeEnabled, cfg.LoginNode, cfg.Domain = true, true, "host.test"
-	s := NewTunnelServer(cfg, nil, store.NewAccountStore(db), nil)
+	s := NewTunnelServer(cfg, nil, store.NewAccountStore(db), storage.NewLocalStorage(db))
 	if err := s.EnableHostMode(db); err != nil {
 		t.Fatal(err)
 	}
@@ -117,9 +117,61 @@ func TestHostAPIValidation(t *testing.T) {
 	}
 }
 
+func TestHostAPIAccountMergeLivePresence(t *testing.T) {
+	s := hostFixture(t)
+	token := createTestJWT("owner@example.com", s.cfg.JWTSecret)
+	if w := hostRequest(t, s, http.MethodPost, token, fixtureManifest); w.Code != 200 {
+		t.Fatal(w.Body.String())
+	}
+	owner, err := s.hostAccount(token, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := s.accounts.FindOrCreateByEmails([]string{"other@example.com"}, "github")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.accounts.UpdatePlan(other.ID, "pro"); err != nil {
+		t.Fatal(err)
+	}
+	conn := &TunnelConnection{TunnelID: "gpu-http", AccountID: owner.ID, CreatorEmail: "owner@example.com", HostID: "gpu-box"}
+	s.tunnels[conn.TunnelID] = conn
+	merged, err := s.accounts.FindOrCreateByEmails([]string{"owner@example.com", "other@example.com"}, "github")
+	if err != nil || merged.ID != other.ID {
+		t.Fatalf("merge = %v %v", merged, err)
+	}
+	s.hostSeen(conn)
+	var machines []common.Machine
+	w := hostRequest(t, s, http.MethodGet, token, "")
+	if err := json.Unmarshal(w.Body.Bytes(), &machines); err != nil {
+		t.Fatal(err)
+	}
+	if len(machines) != 1 || !machines[0].Online || machines[0].Tunnels[0].LastSeen.IsZero() {
+		t.Fatalf("merged live presence = %#v", machines)
+	}
+}
+
 type hostFixtureStream struct {
 	*mockTunnelStream
 	ctx context.Context
+}
+
+func TestHostAPITunnelPath(t *testing.T) {
+	s := hostFixture(t)
+	p := &ProxyServer{Domain: s.cfg.Domain, config: s.cfg, tunnelServer: s}
+	token := createTestJWT("owner@example.com", s.cfg.JWTSecret)
+	for _, tc := range []struct {
+		authority string
+		status    int
+	}{{"host.test", 200}, {"gpu-http.host.test", 503}} {
+		r := httptest.NewRequest(http.MethodGet, "https://"+tc.authority+"/api/hosts", nil)
+		r.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		p.createHandler().ServeHTTP(w, r)
+		if w.Code != tc.status {
+			t.Fatalf("authority %s: %d", tc.authority, w.Code)
+		}
+	}
 }
 
 func (s *hostFixtureStream) Context() context.Context { return s.ctx }

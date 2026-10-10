@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -122,14 +121,13 @@ func TestHostRuntimeTokensSurviveRestart(t *testing.T) {
 
 func TestOpenClawScaffold(t *testing.T) {
 	var b bytes.Buffer
-	dir := t.TempDir()
-	// Stub only the local QR executable here; the loopback integration target
-	// checks the real renderer. The scaffold itself never calls the relay.
-	if err := os.WriteFile(filepath.Join(dir, "qrencode"), []byte("#!/bin/sh\nprintf 'fixture-qr\\n'\n"), 0700); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", dir)
-	err := OpenClaw(context.Background(), OpenClawOptions{Name: "gpu-claw", Domain: "host.test", ConfigPath: "/tmp/host.yaml", Probe: func(ctx context.Context, addr string) error {
+	err := OpenClaw(context.Background(), OpenClawOptions{Name: "gpu-claw", Domain: "host.test", ConfigPath: "/tmp/host.yaml", RenderQR: func(ctx context.Context, url string, out io.Writer, png string) error {
+		if url != "https://gpu-claw.host.test" {
+			t.Fatal(url)
+		}
+		_, err := io.WriteString(out, "fixture-qr")
+		return err
+	}, Probe: func(ctx context.Context, addr string) error {
 		if addr != "127.0.0.1:18789" {
 			t.Fatal(addr)
 		}

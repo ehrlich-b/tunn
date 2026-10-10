@@ -438,9 +438,16 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		if kind == "unix-http" {
 			kind = "unix"
 		}
+		expectedProtocol := "http"
+		if targetURL == "tcp" || targetURL == "unix" {
+			expectedProtocol = "tcp"
+		}
 		if err == nil && account != nil {
 			accountID, plan = account.ID, account.Plan
 			err = s.hosts.CheckEndpoint(accountID, hostID, tunnelID, kind)
+			if endpointProtocol != expectedProtocol {
+				err = fmt.Errorf("host endpoint protocol mismatch")
+			}
 		} else if err == nil {
 			err = fmt.Errorf("host must be registered before publishing")
 		}

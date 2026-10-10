@@ -23,13 +23,14 @@ func xmlText(s string) string {
 	return b.String()
 }
 
-func systemdArg(s string) string {
+func systemdPath(s string) string {
 	s = strings.ReplaceAll(s, "%", "%%")
 	s = strings.ReplaceAll(s, "\\", "\\\\")
 	s = strings.ReplaceAll(s, "\"", "\\\"")
-	s = strings.ReplaceAll(s, "$", "$$")
 	return "\"" + s + "\""
 }
+
+func systemdArg(s string) string { return strings.ReplaceAll(systemdPath(s), "$", "$$") }
 
 // windowsArg implements CommandLineToArgvW quoting, including trailing slashes.
 func windowsArg(s string) string {
@@ -96,7 +97,7 @@ StandardError=null
 
 [Install]
 WantedBy=default.target
-`, systemdArg(s.Binary), systemdArg(s.Config), systemdArg(s.Home)), nil
+`, systemdArg(s.Binary), systemdArg(s.Config), systemdPath(s.Home)), nil
 	case "windows":
 		if s.Username == "" {
 			return "", fmt.Errorf("Windows scheduled task requires the current username")

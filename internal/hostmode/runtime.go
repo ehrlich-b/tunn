@@ -118,6 +118,9 @@ func (r *Runtime) Run(ctx context.Context) error {
 	if err := r.Config.Validate(); err != nil {
 		return err
 	}
+	if err := ValidateAddress(r.API.Server); err != nil {
+		return err
+	}
 	listener, err := net.Listen("tcp", r.Config.Health)
 	if err != nil {
 		return fmt.Errorf("bind loopback health: %w", err)
@@ -162,7 +165,7 @@ func (r *Runtime) Run(ctx context.Context) error {
 			defer wg.Done()
 			for attempt := 0; ctx.Err() == nil; attempt++ {
 				if err := r.publish(ctx, t, h); err != nil && ctx.Err() == nil {
-					common.LogError("host endpoint stopped; retrying", "name", t.Name)
+					common.LogError("host endpoint stopped; retrying", "name", t.Name, "error", err)
 				}
 				if ctx.Err() != nil || waitReconnect(ctx, attempt) != nil {
 					return

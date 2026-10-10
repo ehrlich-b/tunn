@@ -14,6 +14,7 @@ import (
 type OpenClawOptions struct {
 	Name, Domain, Gateway, ConfigPath, QRFile string
 	Probe                                     func(context.Context, string) error
+	RenderQR                                  func(context.Context, string, io.Writer, string) error
 }
 
 // OpenClaw is a scaffold: the QR contains only the future HTTPS URL, never a
@@ -75,17 +76,28 @@ func OpenClaw(ctx context.Context, o OpenClawOptions, out io.Writer) error {
 	fmt.Fprintf(out, "2. On a relay with TUNN_HOST_MODE=true, run tunn service install --config %s; verify with tunn hosts.\n", strconv.Quote(o.ConfigPath))
 	fmt.Fprintln(out, "3. After WebSocket support lands, scan this URL on your phone, authenticate to tunn, and approve the device in OpenClaw. Keep gateway authentication enabled.")
 	fmt.Fprintln(out, "Phone setup QR (URL only; does not grant access or enroll a device):")
-	// qrencode is a local-only optional dependency for this scaffold.
+	render := o.RenderQR
+	if render == nil {
+		render = RenderQR
+	}
+	if err := render(ctx, endpointURL, out, o.QRFile); err != nil {
+		return err
+	}
+	return nil
+}
+
+// RenderQR uses the local qrencode executable; no URL is fetched.
+func RenderQR(ctx context.Context, endpointURL string, out io.Writer, pngPath string) error {
 	qrCommand := exec.CommandContext(ctx, "qrencode", "-t", "ANSIUTF8", "--", endpointURL)
 	qrCommand.Stdout = out
 	if err := qrCommand.Run(); err != nil {
 		return fmt.Errorf("render QR: install qrencode and rerun: %w", err)
 	}
-	if o.QRFile != "" {
-		if err := exec.CommandContext(ctx, "qrencode", "-t", "PNG", "-o", o.QRFile, "--", endpointURL).Run(); err != nil {
+	if pngPath != "" {
+		if err := exec.CommandContext(ctx, "qrencode", "-t", "PNG", "-s", "8", "-m", "4", "-o", pngPath, "--", endpointURL).Run(); err != nil {
 			return fmt.Errorf("write QR PNG: %w", err)
 		}
-		fmt.Fprintf(out, "QR PNG: %s\n", o.QRFile)
+		fmt.Fprintf(out, "QR PNG: %s\n", pngPath)
 	}
 	return nil
 }

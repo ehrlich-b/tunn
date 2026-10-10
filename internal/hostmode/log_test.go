@@ -8,6 +8,12 @@ import (
 
 func TestBoundedLogs(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "host.log")
+	// A stale file from an older daemon must not defeat the bound at startup.
+	for _, path := range []string{p, p + ".1"} {
+		if err := os.WriteFile(path, make([]byte, 1000), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
 	l, err := OpenLog(p, 32)
 	if err != nil {
 		t.Fatal(err)

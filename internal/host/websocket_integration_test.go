@@ -589,6 +589,18 @@ func TestWebSocketBearerHTTPRotationAndRevocation(t *testing.T) {
 		t.Fatal("Authorization fallback leaked")
 	}
 	_ = fallback.Close()
+	for _, cookie := range []string{"", s.cookie(t, s.tunnel.CreatorEmail)} {
+		duplicate, duplicateReader := mustWebSocket(t, s, "/headers", http.Header{"Tunn-Authorization": {"Bearer " + token}, "Authorization": {"Bearer " + token}, "Cookie": {cookie}})
+		frame, err = fixtureReadFrame(duplicateReader, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(frame.payload), token) {
+			t.Fatal("duplicate tunn bearer credential leaked")
+		}
+		_ = duplicate.Close()
+	}
+
 	request, _ := http.NewRequest(http.MethodGet, s.relay.URL+"/http", nil)
 	request.Host = "websocket-fixture.tunn.test"
 	request.Header = tokenHeaders.Clone()
@@ -833,4 +845,38 @@ func TestWebSocketBearerDisabledAndUpstreamHTTPGuard(t *testing.T) {
 	if response.StatusCode != 502 {
 		t.Fatalf("unrequested subprotocol accepted: %d", response.StatusCode)
 	}
+}
+
+func TestWebSocketLocalHTTPS(t *testing.T) {
+	fixture := &webSocketFixture{closes: make(chan []byte, 1)}
+	var local *httptest.Server
+	var listener *webSocketMemoryListener
+	if *webSocketMemory {
+		listener = newWebSocketMemoryListener("127.0.0.1:10444")
+		local = &httptest.Server{Listener: listener, Config: &http.Server{Handler: fixture}}
+	} else {
+		local = httptest.NewUnstartedServer(fixture)
+	}
+	local.EnableHTTP2 = true
+	local.StartTLS()
+	t.Cleanup(local.Close)
+	s := startWebSocketStack(t, func(p *client.ServeClient) {
+		p.TargetURL = local.URL
+		p.SkipLocalTLSVerify = true
+		if listener != nil {
+			original := p.DialContext
+			p.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+				if address == listener.Addr().String() {
+					return listener.Dial(ctx)
+				}
+				return original(ctx, network, address)
+			}
+		}
+	})
+	conn, reader := mustWebSocket(t, s, "/echo", nil)
+	_, _ = conn.Write(fixtureFrame(2, true, true, []byte{0, 1, 255}))
+	expectWireFrame(t, reader, 2, []byte{0, 1, 255})
+	_, _ = conn.Write(fixtureFrame(8, true, true, []byte{3, 232}))
+	expectWireFrame(t, reader, 8, []byte{3, 232})
+	waitWebSocketsClosed(t, s)
 }

@@ -94,7 +94,7 @@ test-websocket:
 	go test -race -v -count=1 -timeout=90s -run 'TestWebSocket|TestServeWebSocket|TestForwardedHTTP' . ./internal/common ./internal/client ./internal/host
 
 test-websocket-unit:
-	go test -race -count=1 -timeout=20s -run 'TestServeWebSocket|TestWebSocketFrames|TestWebSocketFrame|TestWebSocketFragmented|TestForwardedHTTP' . ./internal/common ./internal/host
+	go test -race -count=1 -timeout=20s -run 'TestServeWebSocket|TestWebSocketFrames|TestWebSocketFrame|TestWebSocketFragmented|TestForwardedHTTP|TestProxyHTTPOverGRPC|TestHandleWebProxy|TestPublicTunnel|TestGetAuthFromTunnelBearer|TestAllowList|TestEmailBucket' . ./internal/common ./internal/host
 
 WS_TESTS ?= TestWebSocket
 test-websocket-memory:

@@ -227,6 +227,12 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 				clonedRequest = clonedRequest.WithContext(context.WithValue(r.Context(), webSocketAccessKey{}, digest[:]))
 			}
 			clonedRequest.Header.Del(platformAuthHeader)
+			clonedRequest.Header.Del("Tunn-Authorization")
+			// Clients can send both bearer fields. Consume any second tunn
+			// credential too, while retaining an unrelated upstream credential.
+			if _, otherHeader, _, valid := p.getAuthFromTunnelBearer(clonedRequest, tunnel); valid {
+				clonedRequest.Header.Del(otherHeader)
+			}
 			r = clonedRequest
 		}
 	} else {

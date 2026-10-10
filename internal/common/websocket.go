@@ -150,7 +150,10 @@ func (w *WebSocketFrameWriter) CopyFrames(source io.Reader, masked bool, maxMess
 			_, _ = io.CopyBuffer(io.Discard, io.LimitReader(source, int64(length)), buffer)
 			return io.EOF
 		}
-		_, err := w.Writer.Write(header[:headerLen])
+		written, err := w.Writer.Write(header[:headerLen])
+		if err == nil && written != headerLen {
+			err = io.ErrShortWrite
+		}
 		if err == nil {
 			var n int64
 			n, err = io.CopyBuffer(w.Writer, io.LimitReader(source, int64(length)), buffer)
@@ -195,7 +198,10 @@ func (w *WebSocketFrameWriter) TryControl(opcode byte, payload []byte, masked bo
 	} else {
 		frame = append(frame, payload...)
 	}
-	_, err := w.Writer.Write(frame)
+	written, err := w.Writer.Write(frame)
+	if err == nil && written != len(frame) {
+		err = io.ErrShortWrite
+	}
 	if opcode == 8 {
 		w.closed = true
 	}

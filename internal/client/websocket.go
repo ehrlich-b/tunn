@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -113,6 +114,15 @@ func (s *ServeClient) handleWebSocket(ctx context.Context, sender messageSender,
 	if timeout == 0 {
 		timeout = 30 * time.Second
 	}
+	var targetMu sync.Mutex
+	var targetConn net.Conn
+	defer func() {
+		targetMu.Lock()
+		defer targetMu.Unlock()
+		if targetConn != nil {
+			_ = targetConn.Close()
+		}
+	}()
 	transport := &http.Transport{
 		TLSClientConfig:     &tls.Config{InsecureSkipVerify: s.SkipLocalTLSVerify},
 		TLSHandshakeTimeout: timeout, ResponseHeaderTimeout: timeout,
@@ -128,6 +138,9 @@ func (s *ServeClient) handleWebSocket(ctx context.Context, sender messageSender,
 			if err != nil {
 				return nil, err
 			}
+			targetMu.Lock()
+			targetConn = conn
+			targetMu.Unlock()
 			return webSocketTargetConn{conn}, nil
 		},
 	}
@@ -142,13 +155,27 @@ func (s *ServeClient) handleWebSocket(ctx context.Context, sender messageSender,
 		if err := sendHTTPConnectionHead(sender, id, response.StatusCode, response.Header); err != nil {
 			return
 		}
-		_, err := io.Copy(webSocketTunnelWriter{sender, id}, io.LimitReader(response.Body, MaxResponseBodySize))
-		if err == nil {
+		n, err := io.Copy(webSocketTunnelWriter{sender, id}, io.LimitReader(response.Body, MaxResponseBodySize+1))
+		if err == nil && n <= MaxResponseBodySize {
 			sendConnectionHalfClose(sender, id)
+		} else {
+			_ = sender.Send(&pb.TunnelMessage{Message: &pb.TunnelMessage_ConnectionClose{
+				ConnectionClose: &pb.ConnectionClose{ConnectionId: id, ErrorMessage: "failed to stream local WebSocket rejection"},
+			}})
 		}
 		return
 	}
 	upstream, duplex := response.Body.(io.ReadWriteCloser)
+	// Close the raw transport before Body.Close sends a TLS close-notify.
+	// A peer may stop reading after its WebSocket closing frame; waiting for
+	// another TLS write would unnecessarily retain the connection slot.
+	defer func() {
+		targetMu.Lock()
+		defer targetMu.Unlock()
+		if targetConn != nil {
+			_ = targetConn.Close()
+		}
+	}()
 	if !duplex || !common.ValidWebSocketResponse(response.Header, request.Header.Get("Sec-WebSocket-Key")) {
 		sendConnectionRejection(sender, id, "invalid local WebSocket handshake")
 		return

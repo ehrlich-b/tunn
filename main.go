@@ -985,8 +985,12 @@ func runHost() {
 func runServe(args []string) {
 	opts, err := parseServeFlags(args)
 	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			printServeUsage()
+			return
+		}
 		common.LogError("invalid serve command", "error", err)
-		fmt.Fprintln(os.Stderr, "Usage: tunn [--allow=EMAILS] [--bearer] [--require-upstream-auth] [--ws-idle-timeout=5m] [--ws-keepalive=30s] [--ws-max-message-size=8388608] <target>")
+		printServeUsage()
 		os.Exit(1)
 	}
 	target, tunnelID, allowedEmails, tunnelKey, clientSecret := opts.target, opts.tunnelID, opts.allowedEmails, opts.tunnelKey, opts.clientSecret
@@ -1093,6 +1097,24 @@ func runServe(args []string) {
 		common.LogError("tunnel error", "error", err)
 		os.Exit(1)
 	}
+}
+
+func printServeUsage() {
+	fmt.Fprintln(os.Stderr, `Usage: tunn serve [options] <port|host:port|url>
+       tunn <target> [options]
+
+Options:
+  --id, --name, --subdomain NAME  Tunnel name (blank generates one)
+  --allow EMAILS                 Comma-separated email allow-list
+  --bearer                       Enable endpoint tokens for HTTP and WebSockets
+  --require-upstream-auth        Require application Authorization after tunn auth
+  --ws-idle-timeout DURATION     WebSocket inactivity timeout (default 5m; 0 disables)
+  --ws-keepalive DURATION        Ping interval (default 30s; 0 disables)
+  --ws-max-message-size BYTES    Message limit across fragments (default 8388608)
+  --inspect                     Open a local HTTP request inspector
+  --skip-local-tls-verify        Skip local HTTPS certificate verification
+  --secret SECRET               Self-hosted publisher secret (or TUNN_SECRET)
+  --tunnel-key KEY               Tunnel creation authorization key`)
 }
 
 // normalizeTargetURL converts various input formats to a full URL

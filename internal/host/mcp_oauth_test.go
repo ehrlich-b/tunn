@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"html"
 	"io"
 	"net/http"
@@ -22,8 +23,10 @@ import (
 	"github.com/ehrlich-b/tunn/internal/metering"
 	"github.com/ehrlich-b/tunn/internal/storage"
 	"github.com/ehrlich-b/tunn/internal/store"
+	internalpb "github.com/ehrlich-b/tunn/pkg/proto/internalv1"
 	meterpb "github.com/ehrlich-b/tunn/pkg/proto/meteringv1"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
+	"google.golang.org/grpc"
 )
 
 // A real newline-delimited stdio MCP server, launched as a child by the bridge.
@@ -519,5 +522,103 @@ func TestMCPOAuthRegistrationAndMetadataSecurity(t *testing.T) {
 	}
 	if w := f.request("GET", "https://tools.tunn.test/.well-known/oauth-protected-resource", "", "", "", nil); w.Code != 200 || !strings.Contains(w.Body.String(), `"resource":"https://tools.tunn.test/mcp"`) {
 		t.Fatalf("root resource discovery: %d %s", w.Code, w.Body)
+	}
+}
+
+type mcpOAuthPeerClient struct{ server *InternalServer }
+
+func (c mcpOAuthPeerClient) FindTunnel(ctx context.Context, request *internalpb.FindTunnelRequest, _ ...grpc.CallOption) (*internalpb.FindTunnelResponse, error) {
+	return c.server.FindTunnel(ctx, request)
+}
+func (c mcpOAuthPeerClient) GetNodeInfo(ctx context.Context, request *internalpb.NodeInfoRequest, _ ...grpc.CallOption) (*internalpb.NodeInfoResponse, error) {
+	return c.server.GetNodeInfo(ctx, request)
+}
+
+func TestMCPOAuthCrossNodeOwnership(t *testing.T) {
+	f := newMCPOAuthFixture(t)
+	c := discoverMCPClient(t, f)
+	edge := securityProxy(f.p.storage)
+	edge.meter = f.p.meter
+	edge.tunnelServer.tunnels["tools"] = f.tunnel
+	delete(f.p.tunnelServer.tunnels, "tools")
+	f.p.nodeClients = map[string]internalpb.InternalServiceClient{"edge": mcpOAuthPeerClient{server: NewInternalServer(edge.tunnelServer, "edge.tunn.test", false)}}
+	token := c.accessToken(t)
+	r := httptest.NewRequest("POST", c.resource, strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"ping"}`))
+	r.Header.Set("Authorization", "Bearer "+token)
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	edge.createHandler().ServeHTTP(w, r)
+	if w.Code != 200 || f.forwarded != 1 {
+		t.Fatalf("remote-issued grant: %d %s", w.Code, w.Body)
+	}
+	// Old peers cannot prove publisher ownership and must fail consent closed.
+	f.tunnel.AccountID = ""
+	if _, _, err := f.p.mcpTunnel(context.Background(), "tools"); err == nil {
+		t.Fatal("accepted remote publisher without an owner UUID")
+	}
+}
+
+func TestMCPOAuthDurableSingleUseCodes(t *testing.T) {
+	f := newMCPOAuthFixture(t)
+	c := discoverMCPClient(t, f)
+	code := c.code(t)
+	second, err := newMCPOAuthStore(f.p.mcpOAuth.db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client, err := second.client(context.Background(), c.clientID); err != nil || client.ID != c.clientID {
+		t.Fatal("registration did not survive registry recreation")
+	}
+	selected := make(chan struct{}, 2)
+	release := make(chan struct{})
+	results := make(chan error, 2)
+	for _, registry := range []*mcpOAuthStore{f.p.mcpOAuth, second} {
+		go func(registry *mcpOAuthStore) {
+			registry.mu.Lock()
+			defer registry.mu.Unlock()
+			_, err := registry.takeCode(context.Background(), code, func(*mcpAuthorization) bool { selected <- struct{}{}; <-release; return true })
+			results <- err
+		}(registry)
+	}
+	for i := 0; i < 2; i++ {
+		select {
+		case <-selected:
+		case <-time.After(time.Second):
+			close(release)
+			t.Fatal("persisted code not available to concurrent exchange fixtures")
+		}
+	}
+	close(release)
+	successes := 0
+	for i := 0; i < 2; i++ {
+		select {
+		case err := <-results:
+			if err == nil {
+				successes++
+			}
+		case <-time.After(time.Second):
+			t.Fatal("concurrent exchange did not complete")
+		}
+	}
+	if successes != 1 {
+		t.Fatalf("single code consumed %d times", successes)
+	}
+}
+
+func TestMCPOAuthRegistrationRateLimitRejectsSpoofedForwarding(t *testing.T) {
+	f := newMCPOAuthFixture(t)
+	for i := 0; i < 6; i++ {
+		r := httptest.NewRequest("POST", "https://tunn.test/oauth/register", strings.NewReader(`{"redirect_uris":["https://connector.example/cb"]}`))
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("X-Forwarded-For", fmt.Sprintf("192.0.2.%d", i+1))
+		w := httptest.NewRecorder()
+		f.p.createHandler().ServeHTTP(w, r)
+		want := 201
+		if i == 5 {
+			want = 429
+		}
+		if w.Code != want {
+			t.Fatalf("registration %d status = %d: %s", i+1, w.Code, w.Body)
+		}
 	}
 }

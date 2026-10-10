@@ -41,6 +41,9 @@ loopback HTTP redirect URIs, and authorization-code grants with mandatory S256
 PKCE. Include the exact connector URL as `resource` in both authorization and
 token requests. Request scope `mcp`. The token permits this tunnel's exposed MCP
 capabilities only at `/mcp`; it does not grant tunn account or management access.
+Registration is capped at five requests per five minutes per verified peer;
+HTTP 429 includes `Retry-After`. Client registrations, codes and consent forms
+have bounded storage capacity.
 
 Each call uses the existing ingress ledger, with a grant ID and `mcp_oauth`
 authentication method. `tunn usage my-tools` exports usage and request decisions.

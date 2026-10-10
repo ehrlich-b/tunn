@@ -169,6 +169,12 @@ func (p *ProxyServer) handleMCPRegistration(w http.ResponseWriter, r *http.Reque
 		oauthProblem(w, 400, "invalid_client_metadata", "Expected JSON client metadata")
 		return
 	}
+	peer, _ := p.forwardingPeer(r)
+	if !p.mcpOAuth.allowRegistration(peer) {
+		w.Header().Set("Retry-After", "300")
+		oauthProblem(w, 429, "temporarily_unavailable", "Too many client registrations; try again in five minutes")
+		return
+	}
 	var client mcpOAuthClient
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16*1024))
 	if err := decoder.Decode(&client); err != nil {

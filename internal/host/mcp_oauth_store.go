@@ -14,8 +14,46 @@ import (
 // The login node owns client registrations and one-use authorization codes.
 // Resource nodes validate issued tokens through the existing shared grant ledger.
 type mcpOAuthStore struct {
-	db *sql.DB
-	mu sync.Mutex // serializes code exchange with connected-client revocation
+	db                *sql.DB
+	mu                sync.Mutex // serializes code exchange with connected-client revocation
+	registrationRates map[string]mcpRegistrationRate
+}
+
+type mcpRegistrationRate struct {
+	started time.Time
+	count   int
+}
+
+// Bound unauthenticated registration writes and rate-limit state. The caller
+// supplies the socket peer or verified relay metadata, never public XFF values.
+func (s *mcpOAuthStore) allowRegistration(peer string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now()
+	if s.registrationRates == nil {
+		s.registrationRates = make(map[string]mcpRegistrationRate)
+	}
+	entry, exists := s.registrationRates[peer]
+	if exists && now.Before(entry.started.Add(5*time.Minute)) {
+		if entry.count >= 5 {
+			return false
+		}
+	} else {
+		if len(s.registrationRates) >= 4096 {
+			for key, value := range s.registrationRates {
+				if !now.Before(value.started.Add(5 * time.Minute)) {
+					delete(s.registrationRates, key)
+				}
+			}
+			if len(s.registrationRates) >= 4096 && !exists {
+				return false
+			}
+		}
+		entry = mcpRegistrationRate{started: now}
+	}
+	entry.count++
+	s.registrationRates[peer] = entry
+	return true
 }
 
 type mcpOAuthClient struct {
@@ -162,8 +200,13 @@ func (s *mcpOAuthStore) takeCode(ctx context.Context, code string, valid func(*m
 	if !valid(&auth) {
 		return nil, errors.New("invalid authorization code binding")
 	}
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM mcp_oauth_codes WHERE digest=?`, digest[:]); err != nil {
+	consumed, err := s.db.ExecContext(ctx, `DELETE FROM mcp_oauth_codes WHERE digest=? AND expires>? AND data=?`, digest[:], time.Now().Unix(), data)
+	if err != nil {
 		return nil, err
+	}
+	count, err := consumed.RowsAffected()
+	if err != nil || count != 1 {
+		return nil, errors.New("authorization code already consumed or expired")
 	}
 	return &auth, nil
 }

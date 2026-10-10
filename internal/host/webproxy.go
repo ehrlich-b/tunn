@@ -15,8 +15,11 @@ import (
 	"strings"
 	"time"
 
+	"crypto/sha256"
 	"github.com/ehrlich-b/tunn/internal/common"
+	"github.com/ehrlich-b/tunn/internal/metering"
 	internalv1 "github.com/ehrlich-b/tunn/pkg/proto/internalv1"
+	meterpb "github.com/ehrlich-b/tunn/pkg/proto/meteringv1"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
 )
 
@@ -28,6 +31,7 @@ const MaxBodySize = 100 * 1024 * 1024
 // These are tunn platform cookies that tunnel owners should never see.
 var platformCookies = map[string]bool{
 	"tunn_session": true,
+	"tunn_auth":    true,
 }
 
 // stripPlatformCookies removes platform cookies from a Cookie header value.
@@ -112,12 +116,59 @@ func (p *ProxyServer) handleWebProxy(w http.ResponseWriter, r *http.Request) {
 
 	// 4. If not found anywhere, return an error
 	common.LogInfo("tunnel not found on any node", "tunnel_id", tunnelID, "host", r.Host)
+	if p.meter != nil {
+		id, err := generateConnectionID()
+		if err == nil {
+			w.Header().Set("Tunn-Request-ID", id)
+			_, err = p.meter.Admit(r.Context(), &meterpb.Event{RequestId: id, Endpoint: tunnelID, Caller: "anonymous", AuthMethod: "none", Reason: "endpoint_offline", Status: 503})
+			if err != nil {
+				common.LogError("failed to audit offline endpoint", "request_id", id, "error", err)
+			}
+		}
+	}
 	http.Error(w, "Tunnel not found or offline", http.StatusServiceUnavailable)
 }
 
 // proxyToLocal handles proxying for a tunnel hosted on the current node
 func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunnelID string) {
-	tunnel, _ := p.tunnelServer.GetTunnel(tunnelID)
+	tunnel, exists := p.tunnelServer.GetTunnel(tunnelID)
+	if !exists {
+		http.Error(w, "Tunnel offline", 503)
+		return
+	}
+	session := newIngressMeter(p, tunnel)
+	meterWriter := &meterResponseWriter{ResponseWriter: w, meter: session, ctx: r.Context(), status: 200}
+	w = meterWriter
+	if p.meter != nil {
+		w.Header().Set("Tunn-Request-ID", session.event.RequestId)
+	}
+	defer session.complete(r.Context(), meterWriter)
+	grantAuthenticated := false
+	if token, header := grantBearer(r); token != "" {
+		if p.meter == nil {
+			session.reason = "meter_unavailable"
+			http.Error(w, "Usage ledger unavailable", 503)
+			return
+		}
+		digest := sha256.Sum256([]byte(token))
+		grant, err := p.meter.Resolve(r.Context(), &meterpb.ResolveRequest{Owner: session.event.Owner, Endpoint: tunnelID, TokenSha256: digest[:]})
+		if err != nil {
+			session.reason = "meter_unavailable"
+			http.Error(w, "Usage ledger unavailable", 503)
+			return
+		}
+		if grant.Id == "" || tunnel.EndpointProtocol == "tcp" {
+			session.reason = "invalid_grant"
+			w.Header().Set("Tunn-Limit-Reason", session.reason)
+			http.Error(w, "Invalid endpoint grant", 403)
+			return
+		}
+		session.event.Caller = "grant:" + grant.Id
+		session.event.GrantId = grant.Id
+		session.event.AuthMethod = "grant"
+		grantAuthenticated = true
+		r = strippedAuth(r, header)
+	}
 
 	common.LogDebug("proxying web request locally",
 		"tunnel_id", tunnelID,
@@ -127,16 +178,15 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 
 	// Auth is only required if the tunnel has an allow-list (--allow was specified)
 	// If no allow-list, the tunnel is open to the internet (URLs are random, act like strong passwords)
-	if len(tunnel.AllowedEmails) > 0 {
+	if len(tunnel.AllowedEmails) > 0 && !grantAuthenticated {
 		// Browsers authenticate with the platform cookie. Agents and other
 		// machine clients may use a signed tunn token in a bearer header.
-		userEmail, authenticated := p.getAuthFromCookie(r)
-		platformAuthHeader := ""
-		capabilityAuthenticated := false
+		userEmail, platformAuthHeader, capabilityAuthenticated, authenticated := p.getAuthFromTunnelBearer(r, tunnel)
 		if !authenticated {
-			userEmail, platformAuthHeader, capabilityAuthenticated, authenticated = p.getAuthFromTunnelBearer(r, tunnel)
+			userEmail, authenticated = p.getAuthFromCookie(r)
 		}
 		if !authenticated {
+			session.reason = "authentication_required"
 			// MCP clients cannot consume the browser login redirect. Return an
 			// explicit bearer challenge for protocol endpoints and bearer attempts.
 			if r.URL.Path == "/mcp" || tunnel.EndpointProtocol == "tcp" || r.Header.Get("Authorization") != "" || r.Header.Get("Tunn-Authorization") != "" {
@@ -157,6 +207,15 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 			return
 		}
 
+		session.event.Caller = metering.CallerEmail(common.NormalizeEmail(userEmail))
+		session.event.AuthMethod = "cookie"
+		if platformAuthHeader != "" {
+			session.event.AuthMethod = "jwt"
+		}
+		if capabilityAuthenticated {
+			session.event.Caller = metering.TokenID(tunnel.accessTokenDigest())
+			session.event.AuthMethod = "endpoint_token"
+		}
 		// User is authenticated, check allow-list
 		common.LogDebug("authenticated tunnel access",
 			"email", userEmail,
@@ -167,7 +226,7 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		allowed := capabilityAuthenticated
 		if !capabilityAuthenticated {
 			// Get user's email bucket (all emails associated with their account)
-			if p.storage.Available() {
+			if p.storage != nil && p.storage.Available() {
 				if bucket, err := p.storage.GetEmailBucket(r.Context(), userEmail); err == nil {
 					userEmails = bucket
 				}
@@ -175,11 +234,12 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 
 			// Check if any email in user's bucket is on the tunnel's allow-list.
 			// Creator is implicitly always allowed.
-			allowListWithCreator := append(tunnel.AllowedEmails, tunnel.CreatorEmail)
+			allowListWithCreator := append(append([]string(nil), tunnel.AllowedEmails...), tunnel.CreatorEmail)
 			allowed = isEmailBucketAllowed(userEmails, allowListWithCreator)
 		}
 
 		if !allowed {
+			session.reason = "allowlist_denied"
 			common.LogInfo("access denied - user not on allow-list",
 				"email", userEmail,
 				"bucket", userEmails,
@@ -214,7 +274,22 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 			clonedRequest.Header.Del(platformAuthHeader)
 			r = clonedRequest
 		}
-	} else {
+	} else if !grantAuthenticated {
+		// Attribute authenticated public traffic without requiring application bearer
+		// credentials to be tunn credentials.
+		email, header, capability, ok := p.getAuthFromTunnelBearer(r, tunnel)
+		if ok {
+			session.event.Caller = metering.CallerEmail(common.NormalizeEmail(email))
+			session.event.AuthMethod = "jwt"
+			if capability {
+				session.event.Caller = metering.TokenID(tunnel.accessTokenDigest())
+				session.event.AuthMethod = "endpoint_token"
+			}
+			r = strippedAuth(r, header)
+		} else if email, ok := p.getAuthFromCookie(r); ok {
+			session.event.Caller = metering.CallerEmail(common.NormalizeEmail(email))
+			session.event.AuthMethod = "cookie"
+		}
 		common.LogDebug("open tunnel - no allow-list", "tunnel_id", tunnelID)
 		if r.Header.Get("Tunn-Authorization") != "" {
 			clonedRequest := r.Clone(r.Context())
@@ -224,9 +299,17 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		}
 	}
 
+	if r.Header.Get("Tunn-Authorization") != "" {
+		r = strippedAuth(r, "Tunn-Authorization")
+	}
 	// Check quota before proxying
 	if tunnel.CreatorEmail != "" {
-		if !p.CheckQuota(r.Context(), tunnel.CreatorEmail, tunnel.Plan) {
+		quotaAccount := tunnel.AccountID
+		if quotaAccount == "" {
+			quotaAccount = tunnel.CreatorEmail
+		}
+		if !p.CheckQuota(r.Context(), quotaAccount, tunnel.Plan) {
+			session.reason = "account_quota"
 			common.LogInfo("quota exceeded, rejecting request",
 				"tunnel_id", tunnelID,
 				"creator", tunnel.CreatorEmail,
@@ -236,11 +319,22 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		}
 	}
 
+	if !session.admit(r.Context(), w, r) {
+		return
+	}
+	r = r.WithContext(context.WithValue(r.Context(), meterContextKey{}, session))
+	if p.meter != nil {
+		r.Body = &meterRequestBody{ReadCloser: r.Body, meter: session, ctx: r.Context()}
+	}
+	meterWriter.bodyMeter = p.meter != nil
+	defer func() { _ = r.Body.Close() }()
 	var proxyErr error
 	if tunnel.EndpointProtocol == "tcp" {
 		validPath := r.URL.Path == "" || r.URL.Path == common.TCPConnectPath
 		if r.Method != http.MethodConnect || !validPath || r.Header.Get(common.TCPConnectHeader) != common.TCPConnectValue {
 			w.Header().Set("Allow", http.MethodConnect)
+			meterWriter.bodyMeter = false
+			session.reason = "protocol_mismatch"
 			http.Error(w, "TCP endpoints require tunn connect", http.StatusMethodNotAllowed)
 			return
 		}
@@ -250,9 +344,11 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 	}
 
 	if proxyErr != nil {
+		meterWriter.bodyMeter = false
+		session.recordError(proxyErr, r.Context())
 		common.LogError("failed to proxy request", "error", proxyErr, "tunnel_id", tunnelID)
 		if !responseHasStarted(proxyErr) {
-			http.Error(w, "Failed to proxy request", http.StatusBadGateway)
+			writeIngressError(w, proxyErr)
 		}
 		return
 	}
@@ -334,6 +430,9 @@ func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, 
 		return fmt.Errorf("failed to send http request: %w", err)
 	}
 
+	if s := meterForRequest(r); s != nil {
+		s.event.Forwarded = true
+	}
 	common.LogDebug("sent http request to client",
 		"connection_id", connectionID,
 		"method", r.Method,
@@ -350,12 +449,21 @@ func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, 
 				"connection_id", connectionID,
 				"tunnel_id", tunnel.TunnelID,
 				"bytes", totalSize)
+			if meterForRequest(r) != nil {
+				return &ingressLimitError{decision: &meterpb.Decision{Reason: "bandwidth_rate", Status: 429, RequestsRemaining: -1, BytesRemaining: -1, RetryAfter: 1}}
+			}
 			http.Error(w, "Bandwidth rate limit exceeded", http.StatusTooManyRequests)
 			return nil // Return nil - we handled the error by sending 429
 		}
 
+		if err := checkMeteredResponse(r, int64(len(httpResp.Body))); err != nil {
+			return err
+		}
 		// Write response headers
 		for key, value := range httpResp.Headers {
+			if strings.HasPrefix(strings.ToLower(key), "tunn-") {
+				continue
+			}
 			w.Header().Set(key, value)
 		}
 
@@ -364,7 +472,7 @@ func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, 
 
 		// Write body
 		if _, err := w.Write(httpResp.Body); err != nil {
-			return fmt.Errorf("failed to write response body: %w", err)
+			return &responseStartedError{err: fmt.Errorf("failed to write response body: %w", err)}
 		}
 
 		common.LogDebug("proxied http response",
@@ -373,12 +481,16 @@ func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, 
 			"body_size", len(httpResp.Body))
 
 		// Record usage (request body + response body) using account ID
-		if tunnel.AccountID != "" {
+		if tunnel.AccountID != "" && meterForRequest(r) == nil {
 			p.RecordUsage(r.Context(), tunnel.AccountID, int64(totalSize))
 		}
 
 		return nil
 
+	case <-r.Context().Done():
+		return r.Context().Err()
+	case <-tunnel.Stream.Context().Done():
+		return fmt.Errorf("tunnel disconnected before buffered response")
 	case <-time.After(timeout):
 		return fmt.Errorf("timeout waiting for response after %v", timeout)
 	}

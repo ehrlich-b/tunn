@@ -136,6 +136,9 @@ func TestByteBudgetExactBoundaryPartialChunkAndShortWrite(t *testing.T) {
 		t.Fatalf("retry=%+v", d)
 	}
 	finish(t, s, e, 4) // three reserved egress bytes were never written
+	if replay := admit(t, s, e); replay.BytesRemaining != 10 || replay.Reason != "allowed" || !replay.Allowed {
+		t.Fatalf("admission replay lost original decision: %v", replay)
+	}
 	if out := export(t, s, "2026-10"); out.Usage[0].RequestBytes != 3 || out.Usage[0].ResponseBytes != 4 {
 		t.Fatal(out)
 	}
@@ -288,7 +291,7 @@ func TestBoundedRetentionPreservesCountersAndFailsClosed(t *testing.T) {
 		finish(t, s, e, 0)
 	}
 	out := export(t, s, "2026-10")
-	if len(out.Events) != 3 || out.Usage[0].AdmittedRequests != 5 {
+	if len(out.Events) != 3 || out.Usage[0].AdmittedRequests != 5 || !out.AuditTruncated || out.SchemaVersion != 1 || out.ByteUnit != "body_bytes" {
 		t.Fatal(out)
 	}
 	if d := admit(t, s, event(g, 6)); d.Allowed {
@@ -368,5 +371,23 @@ func TestOwnerScopedResolveExportAndNoPayloads(t *testing.T) {
 	}
 	if len(g.TokenSha256) != 0 {
 		t.Fatal("creation returned credential digest")
+	}
+}
+
+func TestRetentionLeapDayKeepsThirteenCalendarMonths(t *testing.T) {
+	s, db := fixture(t)
+	s.now = func() time.Time { return time.Date(2024, 2, 29, 12, 0, 0, 0, time.UTC) }
+	for _, month := range []string{"2023-01", "2023-02"} {
+		if _, err := db.Exec(`INSERT INTO meter_usage(owner,endpoint,caller,month) VALUES('old','api','anonymous',?)`, month); err != nil {
+			t.Fatal(err)
+		}
+	}
+	admit(t, s, event(nil, 1))
+	var oldest string
+	if err := db.QueryRow(`SELECT min(month) FROM meter_usage`).Scan(&oldest); err != nil {
+		t.Fatal(err)
+	}
+	if oldest != "2023-02" {
+		t.Fatalf("leap-day retention dropped a valid month: %s", oldest)
 	}
 }

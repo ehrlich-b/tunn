@@ -90,7 +90,7 @@ func (p *ProxyServer) writeTCPStream(
 
 	var responseBytes int64
 	defer func() {
-		if tunnel.AccountID != "" {
+		if tunnel.AccountID != "" && meterForRequest(r) == nil {
 			p.RecordUsage(r.Context(), tunnel.AccountID, requestBytes.Load()+responseBytes)
 		}
 	}()

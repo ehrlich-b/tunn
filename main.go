@@ -60,6 +60,9 @@ Usage:
   tunn unix [options] <path>      Publish a private Unix socket
   tunn connect [options] <name>   Open a remote TCP endpoint locally
   tunn token [--rotate] <name>   Print or rotate an endpoint access token
+  tunn usage <name>              Export caller usage and audit decisions
+  tunn grant create <name>       Issue a metered, expiring consumer token
+  tunn grant revoke <name> <id>  Revoke one consumer grant
 
 Examples:
   tunn 8080                              # https://abc123.tunn.to -> localhost:8080
@@ -112,6 +115,8 @@ Options:
 		runConnect(args[1:])
 	case "token":
 		runEndpointToken(args[1:])
+	case "usage", "grant":
+		runMetering(args[0], args[1:])
 	case "magic-link":
 		runMagicLink(args[1:])
 	case "help", "-h", "--help":

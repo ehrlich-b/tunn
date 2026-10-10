@@ -85,5 +85,5 @@ func (r *Remote) Export(ctx context.Context, in *pb.ExportRequest) (*pb.ExportRe
 	}
 	ctx, cancel := rpcContext(ctx)
 	defer cancel()
-	return c.Export(ctx, in)
+	return c.Export(ctx, in, grpc.MaxCallRecvMsgSize(128<<20))
 }

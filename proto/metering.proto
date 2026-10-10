@@ -50,6 +50,7 @@ message Event {
   bool finished = 15;
   bool forwarded = 16;
   int64 content_length = 17; // admission preflight only; no payload stored
+  Decision admission = 18; // immutable snapshot for idempotent admission replay
 }
 message Decision {
   bool allowed = 1;
@@ -84,4 +85,7 @@ message ExportRequest {
 message ExportResponse {
   repeated Usage usage = 1;
   repeated Event events = 2;
+  int32 schema_version = 3;
+  string byte_unit = 4;
+  bool audit_truncated = 5;
 }

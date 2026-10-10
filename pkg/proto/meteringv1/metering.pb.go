@@ -217,6 +217,7 @@ type Event struct {
 	Finished      bool                   `protobuf:"varint,15,opt,name=finished,proto3" json:"finished,omitempty"`
 	Forwarded     bool                   `protobuf:"varint,16,opt,name=forwarded,proto3" json:"forwarded,omitempty"`
 	ContentLength int64                  `protobuf:"varint,17,opt,name=content_length,json=contentLength,proto3" json:"content_length,omitempty"`
+	Admission     *Decision              `protobuf:"bytes,18,opt,name=admission,proto3" json:"admission,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -368,6 +369,13 @@ func (x *Event) GetContentLength() int64 {
 		return x.ContentLength
 	}
 	return 0
+}
+
+func (x *Event) GetAdmission() *Decision {
+	if x != nil {
+		return x.Admission
+	}
+	return nil
 }
 
 type Decision struct {
@@ -691,11 +699,14 @@ func (x *ExportRequest) GetMonth() string {
 }
 
 type ExportResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Usage         []*Usage               `protobuf:"bytes,1,rep,name=usage,proto3" json:"usage,omitempty"`
-	Events        []*Event               `protobuf:"bytes,2,rep,name=events,proto3" json:"events,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Usage          []*Usage               `protobuf:"bytes,1,rep,name=usage,proto3" json:"usage,omitempty"`
+	Events         []*Event               `protobuf:"bytes,2,rep,name=events,proto3" json:"events,omitempty"`
+	SchemaVersion  int32                  `protobuf:"varint,3,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
+	ByteUnit       string                 `protobuf:"bytes,4,opt,name=byte_unit,json=byteUnit,proto3" json:"byte_unit,omitempty"`
+	AuditTruncated bool                   `protobuf:"varint,5,opt,name=audit_truncated,json=auditTruncated,proto3" json:"audit_truncated,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *ExportResponse) Reset() {
@@ -742,6 +753,27 @@ func (x *ExportResponse) GetEvents() []*Event {
 	return nil
 }
 
+func (x *ExportResponse) GetSchemaVersion() int32 {
+	if x != nil {
+		return x.SchemaVersion
+	}
+	return 0
+}
+
+func (x *ExportResponse) GetByteUnit() string {
+	if x != nil {
+		return x.ByteUnit
+	}
+	return ""
+}
+
+func (x *ExportResponse) GetAuditTruncated() bool {
+	if x != nil {
+		return x.AuditTruncated
+	}
+	return false
+}
+
 var File_proto_metering_proto protoreflect.FileDescriptor
 
 const file_proto_metering_proto_rawDesc = "" +
@@ -764,7 +796,7 @@ const file_proto_metering_proto_rawDesc = "" +
 	"\x0eResolveRequest\x12\r\n" +
 	"\x05owner\x18\x01 \x01(\t\x12\x10\n" +
 	"\bendpoint\x18\x02 \x01(\t\x12\x14\n" +
-	"\ftoken_sha256\x18\x03 \x01(\f\"\xc8\x02\n" +
+	"\ftoken_sha256\x18\x03 \x01(\f\"\xef\x02\n" +
 	"\x05Event\x12\x12\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\t\x12\r\n" +
@@ -785,7 +817,8 @@ const file_proto_metering_proto_rawDesc = "" +
 	"\x0eresponse_bytes\x18\x0e \x01(\x03\x12\x10\n" +
 	"\bfinished\x18\x0f \x01(\b\x12\x11\n" +
 	"\tforwarded\x18\x10 \x01(\b\x12\x16\n" +
-	"\x0econtent_length\x18\x11 \x01(\x03\"\xb4\x01\n" +
+	"\x0econtent_length\x18\x11 \x01(\x03\x12%\n" +
+	"\tadmission\x18\x12 \x01(\v2\x12.metering.Decision\"\xb4\x01\n" +
 	"\bDecision\x12\x0f\n" +
 	"\aallowed\x18\x01 \x01(\b\x12\x0e\n" +
 	"\x06reason\x18\x02 \x01(\t\x12\x0e\n" +
@@ -812,10 +845,13 @@ const file_proto_metering_proto_rawDesc = "" +
 	"\rExportRequest\x12\r\n" +
 	"\x05owner\x18\x01 \x01(\t\x12\x10\n" +
 	"\bendpoint\x18\x02 \x01(\t\x12\r\n" +
-	"\x05month\x18\x03 \x01(\t\"Q\n" +
+	"\x05month\x18\x03 \x01(\t\"\x95\x01\n" +
 	"\x0eExportResponse\x12\x1e\n" +
 	"\x05usage\x18\x01 \x03(\v2\x0f.metering.Usage\x12\x1f\n" +
-	"\x06events\x18\x02 \x03(\v2\x0f.metering.Event2\xfe\x02\n" +
+	"\x06events\x18\x02 \x03(\v2\x0f.metering.Event\x12\x16\n" +
+	"\x0eschema_version\x18\x03 \x01(\x05\x12\x11\n" +
+	"\tbyte_unit\x18\x04 \x01(\t\x12\x17\n" +
+	"\x0faudit_truncated\x18\x05 \x01(\b2\xfe\x02\n" +
 	"\bMetering\x124\n" +
 	"\aResolve\x12\x18.metering.ResolveRequest\x1a\x0f.metering.Grant\x12/\n" +
 	"\vCreateGrant\x12\x0f.metering.Grant\x1a\x0f.metering.Grant\x126\n" +
@@ -850,27 +886,28 @@ var file_proto_metering_proto_goTypes = []any{
 	(*emptypb.Empty)(nil),  // 8: google.protobuf.Empty
 }
 var file_proto_metering_proto_depIdxs = []int32{
-	5, // 0: metering.ExportResponse.usage:type_name -> metering.Usage
-	2, // 1: metering.ExportResponse.events:type_name -> metering.Event
-	1, // 2: metering.Metering.Resolve:input_type -> metering.ResolveRequest
-	0, // 3: metering.Metering.CreateGrant:input_type -> metering.Grant
-	0, // 4: metering.Metering.RevokeGrant:input_type -> metering.Grant
-	2, // 5: metering.Metering.Admit:input_type -> metering.Event
-	4, // 6: metering.Metering.Charge:input_type -> metering.ChargeRequest
-	2, // 7: metering.Metering.Finish:input_type -> metering.Event
-	6, // 8: metering.Metering.Export:input_type -> metering.ExportRequest
-	0, // 9: metering.Metering.Resolve:output_type -> metering.Grant
-	0, // 10: metering.Metering.CreateGrant:output_type -> metering.Grant
-	8, // 11: metering.Metering.RevokeGrant:output_type -> google.protobuf.Empty
-	3, // 12: metering.Metering.Admit:output_type -> metering.Decision
-	3, // 13: metering.Metering.Charge:output_type -> metering.Decision
-	8, // 14: metering.Metering.Finish:output_type -> google.protobuf.Empty
-	7, // 15: metering.Metering.Export:output_type -> metering.ExportResponse
-	9, // [9:16] is the sub-list for method output_type
-	2, // [2:9] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	3,  // 0: metering.Event.admission:type_name -> metering.Decision
+	5,  // 1: metering.ExportResponse.usage:type_name -> metering.Usage
+	2,  // 2: metering.ExportResponse.events:type_name -> metering.Event
+	1,  // 3: metering.Metering.Resolve:input_type -> metering.ResolveRequest
+	0,  // 4: metering.Metering.CreateGrant:input_type -> metering.Grant
+	0,  // 5: metering.Metering.RevokeGrant:input_type -> metering.Grant
+	2,  // 6: metering.Metering.Admit:input_type -> metering.Event
+	4,  // 7: metering.Metering.Charge:input_type -> metering.ChargeRequest
+	2,  // 8: metering.Metering.Finish:input_type -> metering.Event
+	6,  // 9: metering.Metering.Export:input_type -> metering.ExportRequest
+	0,  // 10: metering.Metering.Resolve:output_type -> metering.Grant
+	0,  // 11: metering.Metering.CreateGrant:output_type -> metering.Grant
+	8,  // 12: metering.Metering.RevokeGrant:output_type -> google.protobuf.Empty
+	3,  // 13: metering.Metering.Admit:output_type -> metering.Decision
+	3,  // 14: metering.Metering.Charge:output_type -> metering.Decision
+	8,  // 15: metering.Metering.Finish:output_type -> google.protobuf.Empty
+	7,  // 16: metering.Metering.Export:output_type -> metering.ExportResponse
+	10, // [10:17] is the sub-list for method output_type
+	3,  // [3:10] is the sub-list for method input_type
+	3,  // [3:3] is the sub-list for extension type_name
+	3,  // [3:3] is the sub-list for extension extendee
+	0,  // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_proto_metering_proto_init() }

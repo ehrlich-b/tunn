@@ -263,14 +263,24 @@ func (s *Store) Admit(ctx context.Context, input *pb.Event) (*pb.Decision, error
 	err := s.transaction(ctx, func(tx *sql.Tx) error {
 		prior, err := readEvent(tx, e.RequestId)
 		if err == nil {
-			d = decision(prior)
+			if prior.Owner != e.Owner || prior.Endpoint != e.Endpoint || prior.Caller != e.Caller || prior.GrantId != e.GrantId {
+				return fmt.Errorf("request ID metadata mismatch")
+			}
+			if prior.Admission != nil {
+				d = proto.Clone(prior.Admission).(*pb.Decision)
+			} else {
+				d = decision(prior)
+			}
 			return nil
 		}
 		if !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
 		now := s.now().UTC()
-		e.StartedAt = now.UnixMilli()
+		if e.StartedAt <= 0 {
+			e.StartedAt = now.UnixMilli()
+		}
+		e.StartedAt = min(e.StartedAt, now.UnixMilli())
 		e.Month = now.Format("2006-01")
 		e.RequestBytes = 0
 		e.ResponseBytes = 0
@@ -279,7 +289,8 @@ func (s *Store) Admit(ctx context.Context, input *pb.Event) (*pb.Decision, error
 		e.DurationMs = 0
 		// Bounded rows, not merely a time-based retention promise. Never evict active
 		// events or current counters to make a depleted budget appear unused.
-		if _, err = tx.Exec(`DELETE FROM meter_usage WHERE month<?`, now.AddDate(0, -RetentionMonths+1, 0).Format("2006-01")); err != nil {
+		monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+		if _, err = tx.Exec(`DELETE FROM meter_usage WHERE month<?`, monthStart.AddDate(0, -RetentionMonths+1, 0).Format("2006-01")); err != nil {
 			return err
 		}
 		var count int
@@ -353,7 +364,11 @@ func (s *Store) Admit(ctx context.Context, input *pb.Event) (*pb.Decision, error
 		e.Allowed = d.Allowed
 		e.Reason = d.Reason
 		e.Status = d.Status
+		e.Admission = proto.Clone(d).(*pb.Decision)
 		e.Finished = !d.Allowed
+		if e.Finished {
+			e.DurationMs = max(0, now.UnixMilli()-e.StartedAt)
+		}
 		admitted := int64(0)
 		if d.Allowed {
 			admitted = 1
@@ -471,7 +486,7 @@ func (s *Store) Export(ctx context.Context, r *pb.ExportRequest) (*pb.ExportResp
 	if month, err := time.Parse("2006-01", r.Month); err != nil || month.Format("2006-01") != r.Month {
 		return nil, fmt.Errorf("month must be YYYY-MM")
 	}
-	out := &pb.ExportResponse{}
+	out := &pb.ExportResponse{SchemaVersion: 1, ByteUnit: "body_bytes"}
 	err := s.transaction(ctx, func(tx *sql.Tx) error {
 		rows, err := tx.Query(`SELECT caller,requests,admitted,request_bytes,response_bytes FROM meter_usage WHERE owner=? AND endpoint=? AND month=? ORDER BY caller`, r.Owner, r.Endpoint, r.Month)
 		if err != nil {
@@ -508,6 +523,11 @@ func (s *Store) Export(ctx context.Context, r *pb.ExportRequest) (*pb.ExportResp
 		}
 		return rows.Err()
 	})
+	var attempts int64
+	for _, u := range out.Usage {
+		attempts += u.Requests
+	}
+	out.AuditTruncated = attempts > int64(len(out.Events))
 	return out, err
 }
 

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -50,6 +52,10 @@ func (p *ProxyServer) proxyStreamingHTTPOverGRPC(w http.ResponseWriter, r *http.
 		return fmt.Errorf("failed to open streamed HTTP connection: %w", err)
 	}
 
+	if s := meterForRequest(r); s != nil {
+		s.event.Forwarded = true
+	}
+	defer func() { _ = r.Body.Close() }()
 	var requestBytes atomic.Int64
 	requestResult := make(chan requestBodyResult, 1)
 	go func() {
@@ -79,6 +85,17 @@ func (p *ProxyServer) proxyStreamingHTTPOverGRPC(w http.ResponseWriter, r *http.
 			}
 			if event.accept.HttpResponse.StatusCode < 100 || event.accept.HttpResponse.StatusCode > 599 {
 				return fmt.Errorf("local target returned invalid HTTP status %d", event.accept.HttpResponse.StatusCode)
+			}
+			var responseSize int64
+			if r.Method != http.MethodHead && event.accept.HttpResponse.StatusCode != 204 && event.accept.HttpResponse.StatusCode != 304 {
+				for key, value := range event.accept.HttpResponse.Headers {
+					if strings.EqualFold(key, "Content-Length") {
+						responseSize, _ = strconv.ParseInt(value, 10, 64)
+					}
+				}
+			}
+			if err := checkMeteredResponse(r, responseSize); err != nil {
+				return err
 			}
 			if err := p.writeStreamingHTTPResponse(w, r, tunnel, pending, event.accept.HttpResponse, &requestBytes, &responseBytes, requestResult, &requestFinished); err != nil {
 				return &responseStartedError{err: err}
@@ -151,7 +168,16 @@ func (p *ProxyServer) writeStreamingHTTPResponse(
 	requestFinished *bool,
 ) error {
 	for key, value := range head.Headers {
+		if strings.HasPrefix(strings.ToLower(key), "tunn-") {
+			continue
+		}
 		w.Header().Set(key, value)
+	}
+	if meterForRequest(r) != nil && r.Method != http.MethodHead && head.StatusCode != 204 && head.StatusCode != 304 {
+		// HTTP/1 trailers require chunked framing. The upstream length was already
+		// checked, but a concurrent upload/revocation may still terminate egress.
+		w.Header().Del("Content-Length")
+		w.Header().Add("Trailer", "Tunn-Limit-Reason")
 	}
 	w.WriteHeader(int(head.StatusCode))
 	if flusher, ok := w.(http.Flusher); ok {
@@ -159,7 +185,7 @@ func (p *ProxyServer) writeStreamingHTTPResponse(
 	}
 
 	defer func() {
-		if tunnel.AccountID != "" {
+		if tunnel.AccountID != "" && meterForRequest(r) == nil {
 			p.RecordUsage(r.Context(), tunnel.AccountID, requestBytes.Load()+*responseBytes)
 		}
 	}()

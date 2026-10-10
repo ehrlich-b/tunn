@@ -8,7 +8,7 @@ GO_FILES := $(wildcard *.go)
 DOCKER_IMAGE := $(APP_NAME):latest
 FLY_APP_NAME := $(APP_NAME)
 
-.PHONY: all build clean proto fmt tidy verify check vet lint test test-verbose test-mcp test-lifecycle-contract test-coverage test-race integration-test integration-test-smoke integration-test-ai integration-test-lifecycle docker docker-build docker-run cert-setup cert-renew cert-install-schedule fly-create fly-init fly-secrets fly-certs fly-deploy fly-logs fly-status analytics-hour analytics-day analytics-live help
+.PHONY: all build clean proto fmt tidy verify check vet lint test test-verbose test-mcp test-lifecycle-contract test-metering-contract test-coverage test-race integration-test integration-test-smoke integration-test-ai integration-test-lifecycle integration-test-metering docker docker-build docker-run cert-setup cert-renew cert-install-schedule fly-create fly-init fly-secrets fly-certs fly-deploy fly-logs fly-status analytics-hour analytics-day analytics-live help
 
 # Default target
 all: build
@@ -98,7 +98,7 @@ test-lifecycle-contract:
 # these tests do not bind TCP/UDP sockets or call hosted services.
 test-metering-contract:
 	go test -race -v -timeout=60s ./internal/metering
-	go test -race -v -timeout=60s -run '^TestMetering' . ./internal/host ./internal/client
+	go test -race -v -timeout=60s -run '^(TestMetering|TestProxyHTTPOverGRPC|TestLegacyClientKeepsBufferedHTTPPath|TestTunnelConnectionLimitRejectsPendingStream|TestHandleWebProxy|TestPublicTunnelStripsTunnAuthorization|TestGetAuthFromTunnelBearer|TestCheckJWT|TestAllowListCheck|TestEmailBucketAllowListCheck)' . ./internal/host ./internal/client
 
 test-coverage:
 	@echo "Running tests with coverage..."
@@ -130,6 +130,11 @@ integration-test-ai: build
 integration-test-lifecycle: build
 	@if [ ! -f "./certs/cert.pem" ]; then ./scripts/gen-test-certs.sh; fi
 	python3 ./scripts/integration-tests/lifecycle-test.py
+
+# Literal loopback addresses, local SQLite, and synthetic owner credentials only.
+integration-test-metering: build
+	@if [ ! -f "./certs/cert.pem" ]; then ./scripts/gen-test-certs.sh; fi
+	python3 ./scripts/integration-tests/metering-test.py
 
 # Docker targets
 docker: docker-build

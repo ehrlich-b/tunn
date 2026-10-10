@@ -89,7 +89,8 @@ type ProxyServer struct {
 	proxyStorage *storage.ProxyStorage
 
 	// Email sender (for magic link auth)
-	emailSender *EmailSender
+	emailSender interface{ SendMagicLink(string, string) error }
+	now         func() time.Time
 
 	// Graceful degradation (non-login nodes)
 	usageBuffer *UsageBuffer
@@ -230,11 +231,13 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 		storage:            storageImpl,
 		planMeter:          true,
 		proxyStorage:       proxyStorage,
-		emailSender:        emailSender,
 		isLoginNode:        cfg.LoginNode,
 		usageBuffer:        NewUsageBuffer(),
 		quotaCache:         NewQuotaCache(30 * time.Second),
 		deviceCodeRateByIP: make(map[string][]time.Time),
+	}
+	if emailSender != nil {
+		proxy.emailSender = emailSender
 	}
 
 	if localMeter != nil {
@@ -448,6 +451,9 @@ const blacklistDuration = 10 * time.Second
 // nodeSecretInterceptor creates a gRPC interceptor that verifies the x-node-secret header
 func nodeSecretInterceptor(secret string) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+		if secret == "" {
+			return nil, status.Error(codes.FailedPrecondition, "internal node authentication is not configured")
+		}
 		// Get peer IP from context
 		peerIP := getPeerIP(ctx)
 
@@ -782,6 +788,7 @@ func (p *ProxyServer) createHandler() http.Handler {
 	mux.HandleFunc("/api/grants", p.handleMeteringAPI)
 	mux.HandleFunc("/api/domains", p.handleDomainsAPI)
 	mux.HandleFunc("/api/domains/", p.handleDomainsAPI)
+	mux.HandleFunc("/api/reports", p.handleReportIntake)
 	mux.HandleFunc("/login", p.handleLoginPage)
 	mux.HandleFunc("/auth/device/authorize", p.handleDeviceAuthorize)
 
@@ -1123,7 +1130,7 @@ func (p *ProxyServer) CheckQuota(ctx context.Context, accountID string, _ string
 		return false
 	}
 	account, err := p.storage.GetAccount(ctx, accountID)
-	if err != nil || account == nil || account.ID == "" {
+	if err != nil || account == nil || account.ID == "" || account.OperationalState != "active" {
 		return false
 	}
 	return p.checkQuota(ctx, account.ID, account.Plan)

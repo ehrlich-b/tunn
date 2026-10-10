@@ -145,7 +145,28 @@ func initSchema(db *sql.DB) error {
 	CREATE INDEX IF NOT EXISTS idx_used_magic_tokens_expires_at ON used_magic_tokens(expires_at);
 	`
 	_, err := db.Exec(schema)
-	return err
+	if err != nil {
+		return err
+	}
+	return MigrateOperations(db)
+}
+
+// OpenLocal opens an explicitly selected database without process-global state.
+// Operators and disposable fixtures use this instead of the host's singleton.
+func OpenLocal(path string) (*sql.DB, error) {
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		return nil, err
+	}
+	db.SetMaxOpenConns(1)
+	if _, err = db.Exec("PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;"); err == nil {
+		err = initSchema(db)
+	}
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	return db, nil
 }
 
 // Close closes the database connection

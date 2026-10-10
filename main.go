@@ -67,6 +67,7 @@ Usage:
   tunn grant create <name>       Issue a metered, expiring consumer token
   tunn grant revoke <name> <id>  Revoke one consumer grant
   tunn domain add|verify|list|delete  Manage Pro custom domains
+  tunn admin --help             Local authenticated account and billing controls
 
 Examples:
   tunn 8080                              # https://abc123.tunn.to -> localhost:8080
@@ -105,6 +106,8 @@ Options:
 
 	// Route to subcommand or default serve behavior
 	switch args[0] {
+	case "admin":
+		runOperations(args[1:])
 	case "service", "hosts", "openclaw":
 		runHostCommand(args[0], args[1:])
 	case "login":

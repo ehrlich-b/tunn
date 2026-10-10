@@ -3,6 +3,9 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"fmt"
+	"github.com/ehrlich-b/tunn/internal/common"
+	"strings"
 	"sync"
 	"time"
 
@@ -51,6 +54,14 @@ func NewLocalStorage(db *sql.DB) *LocalStorage {
 		activeTunnels:     make(map[string]string),
 		magicLinkRequests: make(map[string][]time.Time),
 		now:               time.Now,
+	}
+	return s
+}
+
+func NewLocalStorageWithClock(db *sql.DB, now func() time.Time) *LocalStorage {
+	s := NewLocalStorage(db)
+	if now != nil {
+		s.now = now
 	}
 	return s
 }
@@ -182,6 +193,9 @@ func (s *LocalStorage) RegisterTunnel(ctx context.Context, tunnelID, accountID, 
 	}
 
 	accountID = acc.ID
+	if acc.OperationalState != "active" {
+		return &TunnelRegistration{Allowed: false, Reason: "account_suspended"}, nil
+	}
 
 	// Every node registers here, so reservation ownership is authoritative
 	// even when the ingress node has no local account database.
@@ -329,11 +343,32 @@ const (
 // Returns allowed=true if the request is within rate limits.
 // Also records the request if allowed.
 func (s *LocalStorage) CheckMagicLinkRateLimit(ctx context.Context, email string) (bool, int32, time.Time, error) {
+	if s.db == nil {
+		return false, 0, time.Time{}, ErrNotAvailable
+	}
+	if err := s.db.PingContext(ctx); err != nil {
+		return false, 0, time.Time{}, err
+	}
 	s.magicLinkRequestsMu.Lock()
 	defer s.magicLinkRequestsMu.Unlock()
 
 	now := s.currentTime()
 	windowStart := now.Add(-magicLinkRateWindow)
+	email = common.NormalizeEmail(email)
+	if len(email) > 254 || !strings.Contains(email, "@") {
+		return false, 0, now, fmt.Errorf("invalid email")
+	}
+	if s.magicLinkRequests == nil {
+		s.magicLinkRequests = make(map[string][]time.Time)
+	}
+	for key, requests := range s.magicLinkRequests {
+		if len(requests) == 0 || !requests[len(requests)-1].After(windowStart) {
+			delete(s.magicLinkRequests, key)
+		}
+	}
+	if _, exists := s.magicLinkRequests[email]; !exists && len(s.magicLinkRequests) >= 4096 {
+		return false, 0, now.Add(magicLinkRateWindow), nil
+	}
 
 	// Get existing requests and filter to current window
 	requests := s.magicLinkRequests[email]
@@ -388,10 +423,25 @@ func storeAccountToStorage(acc *store.Account) *Account {
 		}
 	}
 	return &Account{
-		ID:           acc.ID,
-		PrimaryEmail: acc.PrimaryEmail,
-		Plan:         acc.Plan,
-		CreatedAt:    acc.CreatedAt,
-		Emails:       emails,
+		OperationalState:   acc.OperationalState,
+		OperationalVersion: acc.OperationalVersion,
+		ID:                 acc.ID,
+		PrimaryEmail:       acc.PrimaryEmail,
+		Plan:               acc.Plan,
+		CreatedAt:          acc.CreatedAt,
+		Emails:             emails,
 	}
+}
+
+func (s *LocalStorage) LookupAccountStatus(ctx context.Context, id string) (*store.AccountStatus, error) {
+	return store.NewOperationsStore(s.db, nil).LookupAccountStatus(ctx, id)
+}
+func (s *LocalStorage) OperationsStore() *store.OperationsStore {
+	return store.NewOperationsStore(s.db, nil)
+}
+func (s *LocalStorage) ProcessBillingEvent(ctx context.Context, e store.BillingEvent) (*store.BillingResult, error) {
+	return s.OperationsStore().ProcessBillingEvent(ctx, e)
+}
+func (s *LocalStorage) IntakeReport(ctx context.Context, id, category, endpoint string) (*store.IncidentReport, error) {
+	return s.OperationsStore().IntakeReport(ctx, id, category, endpoint)
 }

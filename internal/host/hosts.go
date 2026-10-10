@@ -113,6 +113,10 @@ func (s *TunnelServer) HandleHosts(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(machines)
 		return
 	}
+	if a == nil || a.OperationalState != "active" {
+		http.Error(w, "account_suspended", http.StatusForbidden)
+		return
+	}
 	var manifest common.HostManifest
 	d := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16*1024))
 	d.DisallowUnknownFields()

@@ -2,6 +2,9 @@ package host
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"github.com/ehrlich-b/tunn/internal/store"
 	"time"
 
 	"github.com/ehrlich-b/tunn/internal/storage"
@@ -16,6 +19,42 @@ import (
 type LoginNodeDBServer struct {
 	internalv1.UnimplementedLoginNodeDBServer
 	storage *storage.LocalStorage
+}
+
+func (s *LoginNodeDBServer) ProcessBillingEvent(ctx context.Context, r *internalv1.ProcessBillingEventRequest) (*internalv1.ProcessBillingEventResponse, error) {
+	if len(r.EventJson) > 4096 {
+		return nil, status.Error(codes.InvalidArgument, "billing metadata too large")
+	}
+	var e store.BillingEvent
+	if err := json.Unmarshal(r.EventJson, &e); err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid billing metadata")
+	}
+	out, err := s.storage.ProcessBillingEvent(ctx, e)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "billing event not committed")
+	}
+	data, err := json.Marshal(out)
+	if err != nil {
+		return nil, err
+	}
+	return &internalv1.ProcessBillingEventResponse{ResultJson: data}, nil
+}
+func (s *LoginNodeDBServer) IntakeReport(ctx context.Context, r *internalv1.IntakeReportRequest) (*internalv1.IntakeReportResponse, error) {
+	out, err := s.storage.IntakeReport(ctx, r.AccountId, r.Category, r.Endpoint)
+	if err != nil {
+		if errors.Is(err, store.ErrReportRateLimited) {
+			return nil, status.Error(codes.ResourceExhausted, "report_rate_limited")
+		}
+		if errors.Is(err, store.ErrReportCapacity) {
+			return nil, status.Error(codes.ResourceExhausted, "report_capacity")
+		}
+		return nil, status.Error(codes.InvalidArgument, "report not accepted")
+	}
+	data, err := json.Marshal(out)
+	if err != nil {
+		return nil, err
+	}
+	return &internalv1.IntakeReportResponse{ReportJson: data}, nil
 }
 
 // NewLoginNodeDBServer creates a new LoginNodeDBServer with the given local storage.
@@ -213,11 +252,13 @@ func accountToProto(acc *storage.Account) *internalv1.AccountResponse {
 		}
 	}
 	return &internalv1.AccountResponse{
-		Found:        true,
-		Id:           acc.ID,
-		PrimaryEmail: acc.PrimaryEmail,
-		Plan:         acc.Plan,
-		CreatedAt:    acc.CreatedAt.Unix(),
-		Emails:       emails,
+		OperationalState:   acc.OperationalState,
+		OperationalVersion: acc.OperationalVersion,
+		Found:              true,
+		Id:                 acc.ID,
+		PrimaryEmail:       acc.PrimaryEmail,
+		Plan:               acc.Plan,
+		CreatedAt:          acc.CreatedAt.Unix(),
+		Emails:             emails,
 	}
 }

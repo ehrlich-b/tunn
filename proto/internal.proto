@@ -38,7 +38,12 @@ service LoginNodeDB {
 
   // Magic link rate limiting (per-email throttle)
   rpc CheckMagicLinkRateLimit(CheckMagicLinkRateLimitRequest) returns (CheckMagicLinkRateLimitResponse);
+
+  // Durable payment intake, authenticated by the existing internal node gate.
+  rpc ProcessBillingEvent(ProcessBillingEventRequest) returns (ProcessBillingEventResponse);
+  rpc IntakeReport(IntakeReportRequest) returns (IntakeReportResponse);
 }
+
 
 // Node information for login node discovery
 message NodeInfoRequest {}
@@ -111,6 +116,8 @@ message AccountResponse {
   string plan = 4;
   int64 created_at = 5;
   repeated AccountEmail emails = 6;
+  string operational_state = 7;
+  int64 operational_version = 8;
 }
 
 message AccountEmail {
@@ -195,3 +202,8 @@ message CheckMagicLinkRateLimitResponse {
   int32 remaining = 2;        // requests remaining in window
   int64 reset_at_unix = 3;    // when the rate limit resets
 }
+
+message ProcessBillingEventRequest { bytes event_json = 1; }
+message ProcessBillingEventResponse { bytes result_json = 1; }
+message IntakeReportRequest { string account_id = 1; string category = 2; string endpoint = 3; }
+message IntakeReportResponse { bytes report_json = 1; }

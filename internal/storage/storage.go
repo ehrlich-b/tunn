@@ -5,8 +5,15 @@ package storage
 import (
 	"context"
 	"errors"
+	"github.com/ehrlich-b/tunn/internal/store"
 	"time"
 )
+
+// AccountStatusLookup is the suspension hook shared with domain/active-stream
+// enforcement. Lookup errors must fail closed; callers resolve merged UUIDs.
+type AccountStatusLookup interface {
+	LookupAccountStatus(context.Context, string) (*store.AccountStatus, error)
+}
 
 // ErrNotAvailable is returned when storage is not available (login node down).
 var ErrNotAvailable = errors.New("storage not available")
@@ -64,11 +71,13 @@ type DeviceCode struct {
 
 // Account represents a user account (email bucket)
 type Account struct {
-	ID           string
-	PrimaryEmail string
-	Plan         string // "free" or "pro"
-	CreatedAt    time.Time
-	Emails       []AccountEmail
+	OperationalState   string
+	OperationalVersion int64
+	ID                 string
+	PrimaryEmail       string
+	Plan               string // "free" or "pro"
+	CreatedAt          time.Time
+	Emails             []AccountEmail
 }
 
 // AccountEmail represents an email in an account bucket

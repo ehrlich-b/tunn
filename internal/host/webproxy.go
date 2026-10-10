@@ -160,6 +160,14 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 	}
 	defer session.complete(r.Context(), meterWriter)
 	grantAuthenticated := false
+	// A known suspension rejects every credential path. Unresolved ownership
+	// still follows authentication and the existing fail-closed quota check.
+	if !tunnel.accountQuotaExempt && accountErr == nil && account != nil && account.OperationalState != "" && account.OperationalState != "active" {
+		session.reason = "account_suspended"
+		w.Header().Set("Tunn-Limit-Reason", session.reason)
+		http.Error(w, session.reason, 403)
+		return
+	}
 	if token, header := grantBearer(r); token != "" {
 		if p.meter == nil {
 			session.reason = "meter_unavailable"
@@ -327,6 +335,11 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 	}
 	// Check quota before proxying
 	if !tunnel.accountQuotaExempt && (tunnel.CreatorEmail != "" || tunnel.AccountID != "") {
+		if accountErr == nil && account != nil && account.OperationalState == "" {
+			session.reason = "account_unavailable"
+			http.Error(w, "Account status unavailable", 503)
+			return
+		}
 		if accountErr != nil || account == nil || !p.planMeter && !p.checkQuota(r.Context(), account.ID, account.Plan) {
 			session.reason = "account_quota"
 			common.LogInfo("quota exceeded, rejecting request",
@@ -341,6 +354,8 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 	if !session.admit(r.Context(), w, r) {
 		return
 	}
+	r, stopAccountWatch := p.watchAccountRequest(r, tunnel, account)
+	defer stopAccountWatch()
 	if p.meter != nil {
 		ctx, cancel := context.WithCancelCause(r.Context())
 		defer cancel(nil)

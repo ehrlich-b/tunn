@@ -853,6 +853,7 @@ type serveCommandOptions struct {
 	clientSecret        string
 	skipLocalTLSVerify  bool
 	inspect             bool
+	inspectBody         bool
 	bearer              bool
 	requireUpstreamAuth bool
 	webSocket           common.WebSocketOptions
@@ -869,7 +870,8 @@ func parseServeFlags(args []string) (*serveCommandOptions, error) {
 	fs.StringVar(&opts.tunnelKey, "tunnel-key", "", "tunnel creation authorization key")
 	fs.StringVar(&opts.clientSecret, "secret", "", "self-hosted authentication secret (or TUNN_SECRET)")
 	fs.BoolVar(&opts.skipLocalTLSVerify, "skip-local-tls-verify", false, "skip local HTTPS certificate verification")
-	fs.BoolVar(&opts.inspect, "inspect", false, "open a local request inspector")
+	fs.BoolVar(&opts.inspect, "inspect", false, "open a local metadata inspector")
+	fs.BoolVar(&opts.inspectBody, "inspect-body", false, "explicitly retain local request bodies up to 64 KiB; requires --inspect")
 	fs.BoolVar(&opts.bearer, "bearer", false, "enable private endpoint-token access for HTTP and WebSockets")
 	fs.BoolVar(&opts.requireUpstreamAuth, "require-upstream-auth", false, "require an upstream Authorization header after tunn authentication")
 	fs.DurationVar(&opts.webSocket.IdleTimeout, "ws-idle-timeout", opts.webSocket.IdleTimeout, "WebSocket inactivity timeout (0 disables)")
@@ -909,6 +911,9 @@ func parseServeFlags(args []string) (*serveCommandOptions, error) {
 	}
 	if len(targets) != 1 {
 		return nil, fmt.Errorf("provide one target: tunn [options] <port|host:port|url>")
+	}
+	if opts.inspectBody && !opts.inspect {
+		return nil, fmt.Errorf("--inspect-body requires --inspect")
 	}
 	opts.target = targets[0]
 	if *subdomain != "" {
@@ -1091,7 +1096,7 @@ func runServe(args []string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	if opts.inspect {
-		inspector := client.NewInspector(serveClient)
+		inspector := client.NewInspectorWithBodyCapture(serveClient, opts.inspectBody)
 		viewerURL, err := inspector.StartInspector(ctx)
 		if err != nil {
 			common.LogError("failed to start local inspector", "error", err)
@@ -1127,7 +1132,8 @@ Options:
   --ws-idle-timeout DURATION     WebSocket inactivity timeout (default 5m; 0 disables)
   --ws-keepalive DURATION        Ping interval (default 30s; 0 disables)
   --ws-max-message-size BYTES    Message limit across fragments (default 8388608)
-  --inspect                     Open a local HTTP request inspector
+  --inspect                     Open a local metadata inspector
+  --inspect-body                Retain local bodies up to 64 KiB (requires --inspect)
   --skip-local-tls-verify        Skip local HTTPS certificate verification
   --secret SECRET               Self-hosted publisher secret (or TUNN_SECRET)
   --tunnel-key KEY               Tunnel creation authorization key`)

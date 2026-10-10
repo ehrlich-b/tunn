@@ -10,7 +10,7 @@ import (
 )
 
 func (p *ProxyServer) proxyTCPOverGRPC(w http.ResponseWriter, r *http.Request, tunnel *TunnelConnection) error {
-	connectionID, err := generateConnectionID()
+	connectionID, err := requestConnectionID(r)
 	if err != nil {
 		return fmt.Errorf("failed to generate connection ID: %w", err)
 	}

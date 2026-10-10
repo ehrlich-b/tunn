@@ -19,6 +19,7 @@ all: build
 # Build the binary
 build:
 	@echo "Building $(BINARY_NAME)..."
+	@mkdir -p "$(dir $(BUILD_OUTPUT))"
 	go build -ldflags="-s -w" -o "$(BUILD_OUTPUT)" .
 
 BUILD_OUTPUT ?= $(BINARY_DIR)/$(BINARY_NAME)
@@ -438,3 +439,31 @@ help:
 	@echo "  make dev           - Run in development mode"
 	@echo "  make install       - Install binary to /usr/local/bin"
 	@echo "  make help          - Show this help message"
+
+# Bounded, offline inspector fixtures: the default mode never binds a listener.
+# Browser mode uses an installed Chrome with a disposable .scratch profile.
+INSPECT_MODE ?= offline
+.PHONY: test-inspect-contract test-inspect-offline test-inspect-loopback test-inspect-browser
+ifeq ($(INSPECT_MODE),offline)
+test-inspect-contract: test-inspect-offline
+else ifeq ($(INSPECT_MODE),loopback)
+test-inspect-contract: test-inspect-offline test-inspect-loopback
+else ifeq ($(INSPECT_MODE),browser)
+test-inspect-contract: test-inspect-offline test-inspect-browser
+else
+test-inspect-contract:
+	@echo "INSPECT_MODE must be offline, loopback, or browser"; exit 1
+endif
+
+test-inspect-offline:
+	go test -race -count=1 -timeout=30s -run '^TestInspectContract' ./internal/client ./internal/host
+	go test -count=1 -timeout=20s -run '^TestParseServeFlagsInspect' .
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/integration-tests/inspect-syntax.py internal/client/inspector.html
+
+test-inspect-loopback:
+	go test -race -count=1 -timeout=30s -run '^TestInspector' ./internal/client
+
+test-inspect-browser:
+	go test -count=1 -timeout=20s -run '^TestInspectBrowserFixture$$' ./internal/client -args -inspect-browser-fixture="$(CURDIR)/.scratch/inspect-browser.html"
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/integration-tests/inspect-syntax.py internal/client/inspector.html .scratch/inspect-browser.html
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/integration-tests/inspect-browser.py .scratch/inspect-browser.html

@@ -179,3 +179,13 @@ func TestServeWebSocketOptions(t *testing.T) {
 		}
 	}
 }
+
+func TestParseServeFlagsInspectBody(t *testing.T) {
+	opts, err := parseServeFlags([]string{"8080", "--inspect", "--inspect-body"})
+	if err != nil || !opts.inspectBody || !opts.inspect {
+		t.Fatalf("explicit body capture: %+v %v", opts, err)
+	}
+	if _, err := parseServeFlags([]string{"8080", "--inspect-body"}); err == nil {
+		t.Fatal("body capture without inspector accepted")
+	}
+}

@@ -37,11 +37,14 @@ type ingressMeter struct {
 	reason                                    string
 	proxy                                     *ProxyServer
 	accountID                                 string
+	observing                                 bool
+	observationOnce                           sync.Once
 }
 
 func newIngressMeter(p *ProxyServer, tunnel *TunnelConnection) *ingressMeter {
 	id, _ := generateConnectionID()
-	return &ingressMeter{backend: p.meter, proxy: p, accountID: tunnel.AccountID, event: &pb.Event{RequestId: id, Owner: tunnel.AccountID, Endpoint: tunnel.TunnelID, Caller: "anonymous", AuthMethod: "none", Allowed: true, Reason: "allowed", StartedAt: time.Now().UnixMilli()}}
+	p.operations.active.Add(1)
+	return &ingressMeter{backend: p.meter, proxy: p, observing: true, accountID: tunnel.AccountID, event: &pb.Event{RequestId: id, Owner: tunnel.AccountID, Endpoint: tunnel.TunnelID, Caller: "anonymous", AuthMethod: "none", Allowed: true, Reason: "allowed", StartedAt: time.Now().UnixMilli()}}
 }
 func (s *ingressMeter) recordError(err error, ctx context.Context) {
 	s.mu.Lock()
@@ -181,6 +184,14 @@ func (s *ingressMeter) watchEvery(ctx context.Context, cancel context.CancelCaus
 	}
 }
 func (s *ingressMeter) complete(ctx context.Context, w *meterResponseWriter) {
+	if s.observing {
+		s.observationOnce.Do(func() {
+			s.proxy.operations.active.Add(-1)
+			if !s.event.Forwarded && (w.status >= 400 || s.reason == "authentication_required") {
+				s.proxy.operations.denied.Add(1)
+			}
+		})
+	}
 	if s.backend == nil {
 		return
 	}
@@ -193,6 +204,9 @@ func (s *ingressMeter) complete(ctx context.Context, w *meterResponseWriter) {
 		// Authentication/owner quota failures are first-class decisions too.
 		// An unsuccessful meter RPC already fails closed and cannot fabricate an audit.
 		if s.reason == "meter_unavailable" {
+			if s.proxy != nil {
+				s.proxy.operations.drops.Add(1)
+			}
 			return
 		}
 		s.event.Allowed = false
@@ -202,6 +216,9 @@ func (s *ingressMeter) complete(ctx context.Context, w *meterResponseWriter) {
 			s.event.Reason = "denied"
 		}
 		if _, err := s.backend.Admit(ctx, s.event); err != nil {
+			if s.proxy != nil {
+				s.proxy.operations.drops.Add(1)
+			}
 			common.LogError("failed to audit ingress rejection", "request_id", s.event.RequestId, "error", err)
 		}
 		return
@@ -211,6 +228,9 @@ func (s *ingressMeter) complete(ctx context.Context, w *meterResponseWriter) {
 	}
 	_, err := s.backend.Finish(ctx, &pb.Event{RequestId: s.event.RequestId, Status: int32(w.status), Reason: s.reason, Forwarded: s.event.Forwarded, ResponseBytes: s.writtenBytes})
 	if err != nil {
+		if s.proxy != nil {
+			s.proxy.operations.drops.Add(1)
+		}
 		common.LogError("failed to finish ingress audit", "request_id", s.event.RequestId, "error", err)
 	}
 }
@@ -412,11 +432,14 @@ func (p *ProxyServer) handleMeteringAPI(w http.ResponseWriter, r *http.Request) 
 		}
 		out, err := p.meter.Export(r.Context(), export)
 		if err != nil {
+			p.operations.drops.Add(1)
 			http.Error(w, "Usage ledger unavailable", 503)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(out)
+		if err := json.NewEncoder(w).Encode(out); err != nil {
+			p.operations.drops.Add(1)
+		}
 	case parts[1] == "grants" && len(parts) == 2 && r.Method == http.MethodGet:
 		out, err := p.meter.ListGrants(r.Context(), &pb.ListGrantsRequest{Owner: owner, Endpoint: endpoint})
 		if err != nil {

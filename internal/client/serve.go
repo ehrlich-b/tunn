@@ -170,6 +170,7 @@ func (s *ServeClient) Run(ctx context.Context) error {
 
 		// Exponential backoff with cap
 		backoffAttempt++
+		s.Inspector.reconnected()
 	}
 }
 
@@ -277,7 +278,7 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 		return fmt.Errorf("failed to send registration: %w", err)
 	}
 
-	s.log(slog.LevelInfo, "registration sent", "tunnel_id", s.TunnelID, "target", s.TargetURL)
+	s.log(slog.LevelInfo, "registration sent", "tunnel_id", s.TunnelID, "protocol", s.registrationTarget())
 
 	// Wait for registration response
 	msg, err := stream.Recv()
@@ -510,18 +511,17 @@ func (s *ServeClient) handleHttpRequest(sender messageSender, httpReq *pb.HttpRe
 func (s *ServeClient) handleHTTPRequestContext(ctx context.Context, sender messageSender, httpReq *pb.HttpRequest) {
 	var capture *inspectionCapture
 	if s.Inspector != nil {
-		capture = s.Inspector.begin(httpReq.Method, httpReq.Path, httpReq.Headers)
+		capture = s.Inspector.beginConnection(httpReq.ConnectionId, "http", httpReq.Method, httpReq.Path, httpReq.Headers)
 		_, _ = capture.Write(httpReq.Body)
 		capture.complete()
 	}
-	status, responseBytes, failure := http.StatusBadGateway, int64(0), "failed to forward"
+	status, responseBytes, reason := http.StatusBadGateway, int64(0), "target_error"
 	if capture != nil {
-		defer func() { capture.finish(status, responseBytes, failure) }()
+		defer func() { capture.finishReason(status, responseBytes, reason) }()
 	}
 	s.log(slog.LevelDebug, "http request received",
 		"connection_id", httpReq.ConnectionId,
-		"method", httpReq.Method,
-		"path", httpReq.Path)
+		"method", httpReq.Method)
 
 	// Build the target URL. Protocol adapters can expose one stable public path
 	// while forwarding to a differently named local endpoint.
@@ -530,7 +530,7 @@ func (s *ServeClient) handleHTTPRequestContext(ctx context.Context, sender messa
 	// Create HTTP request
 	req, err := http.NewRequestWithContext(ctx, httpReq.Method, targetURL, bytes.NewReader(httpReq.Body))
 	if err != nil {
-		s.log(slog.LevelError, "failed to create http request", "error", err)
+		s.log(slog.LevelError, "failed to create http request", "connection_id", httpReq.ConnectionId)
 		s.sendErrorResponse(sender, httpReq.ConnectionId, http.StatusBadGateway, "Failed to create request")
 		return
 	}
@@ -542,6 +542,8 @@ func (s *ServeClient) handleHTTPRequestContext(ctx context.Context, sender messa
 	req.Host = req.Header.Get("Host")
 	req.Header.Del("Host")
 	if s.RequireUpstreamAuth && strings.TrimSpace(req.Header.Get("Authorization")) == "" {
+		status, reason = http.StatusUnauthorized, "auth_required"
+		s.Inspector.denied()
 		s.sendErrorResponse(sender, httpReq.ConnectionId, http.StatusUnauthorized, "Upstream Authorization required")
 		return
 	}
@@ -572,23 +574,30 @@ func (s *ServeClient) handleHTTPRequestContext(ctx context.Context, sender messa
 
 	resp, err := client.Do(req)
 	if err != nil {
-		s.log(slog.LevelError, "failed to make http request to target", "error", err, "target", targetURL)
+		s.log(slog.LevelError, "failed to make http request to target", "connection_id", httpReq.ConnectionId)
 		s.sendErrorResponse(sender, httpReq.ConnectionId, http.StatusBadGateway, "Failed to reach local target")
 		return
 	}
 	defer func() { _ = resp.Body.Close() }()
 	status = resp.StatusCode
-	failure = ""
+	reason = "complete"
+	if capture != nil && strings.HasPrefix(strings.ToLower(resp.Header.Get("Content-Type")), "text/event-stream") {
+		capture.setProtocol("sse")
+	}
 
 	// Read response body with size limit to prevent memory exhaustion
 	// Read one extra byte to detect if body exceeds limit
 	limitedBody, err := io.ReadAll(io.LimitReader(resp.Body, MaxResponseBodySize+1))
 	if err != nil {
-		s.log(slog.LevelError, "failed to read response body", "error", err)
+		status, reason = http.StatusBadGateway, "response_error"
+		responseBytes = int64(len(limitedBody))
+		s.log(slog.LevelError, "failed to read response body", "connection_id", httpReq.ConnectionId)
 		s.sendErrorResponse(sender, httpReq.ConnectionId, http.StatusBadGateway, "Failed to read response")
 		return
 	}
 	if int64(len(limitedBody)) > MaxResponseBodySize {
+		status, reason = http.StatusBadGateway, "response_limit"
+		responseBytes = int64(len(limitedBody))
 		s.log(slog.LevelError, "response body too large", "size", len(limitedBody), "max", MaxResponseBodySize)
 		s.sendErrorResponse(sender, httpReq.ConnectionId, http.StatusBadGateway, "Response too large")
 		return
@@ -617,6 +626,7 @@ func (s *ServeClient) handleHTTPRequestContext(ctx context.Context, sender messa
 	}
 
 	if err := sender.Send(msg); err != nil {
+		reason = "relay_error"
 		s.log(slog.LevelError, "failed to send http response", "error", err)
 		return
 	}

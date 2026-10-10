@@ -44,7 +44,9 @@ add a separate adapter for each one before the common HTTP/MCP path works well.
   See [the v1 usage contract](METERING.md); commercial reconciliation remains
   incomplete.
 - An opt-in, process-local inspector now shows forwarded HTTP requests and
-  replays complete small captures. It has no durable history or ingress-side
+  replays complete small HTTP captures after explicit reconstruction of unavailable
+  fields. Metadata is redacted by default; body capture requires `--inspect-body`.
+  It has no durable history or ingress-side
   record of requests rejected before they reach the publisher.
 - MCP authentication through tunn bearer tokens. Standards-based OAuth client
   onboarding and per-principal stdio process isolation remain incomplete.

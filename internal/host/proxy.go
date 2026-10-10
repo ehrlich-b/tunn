@@ -84,6 +84,7 @@ type ProxyServer struct {
 	planMeter      bool
 	domains        domains.Backend
 	domainRegistry *domains.Registry
+	operations     operationalCounters
 
 	// Proxy storage reference (non-login node only, to update connection on discovery)
 	proxyStorage *storage.ProxyStorage

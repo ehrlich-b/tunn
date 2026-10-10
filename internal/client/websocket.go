@@ -93,6 +93,18 @@ func sendUpstreamAuthRequired(sender messageSender, id string) {
 
 func (s *ServeClient) handleWebSocket(ctx context.Context, sender messageSender, open *pb.ConnectionOpen, input io.Reader) {
 	head, id := open.HttpRequest, open.ConnectionId
+	status, reason := 0, "target_error"
+	var capture *inspectionCapture
+	if s.Inspector != nil {
+		capture = s.Inspector.beginConnection(id, "websocket", head.Method, head.Path, head.Headers)
+		input = &inspectionReader{reader: input, capture: capture}
+		defer func() {
+			if ctx.Err() != nil {
+				reason = "canceled"
+			}
+			capture.finishReason(status, -1, reason)
+		}()
+	}
 	options := common.DefaultWebSocketOptions()
 	if s.WebSocket != nil {
 		options = *s.WebSocket
@@ -119,6 +131,8 @@ func (s *ServeClient) handleWebSocket(ctx context.Context, sender messageSender,
 		return
 	}
 	if s.RequireUpstreamAuth && strings.TrimSpace(request.Header.Get("Authorization")) == "" {
+		status, reason = http.StatusUnauthorized, "auth_required"
+		s.Inspector.denied()
 		sendUpstreamAuthRequired(sender, id)
 		return
 	}
@@ -164,12 +178,18 @@ func (s *ServeClient) handleWebSocket(ctx context.Context, sender messageSender,
 		return
 	}
 	defer func() { _ = response.Body.Close() }()
+	status = response.StatusCode
 	if response.StatusCode != http.StatusSwitchingProtocols {
 		if err := sendHTTPConnectionHead(sender, id, response.StatusCode, response.Header); err != nil {
 			return
 		}
 		n, err := io.Copy(webSocketTunnelWriter{sender, id}, io.LimitReader(response.Body, MaxResponseBodySize+1))
+		if capture != nil {
+			capture.response(int(n))
+		}
+		reason = "response_error"
 		if err == nil && n <= MaxResponseBodySize {
+			reason = "complete"
 			sendConnectionHalfClose(sender, id)
 		} else {
 			_ = sender.Send(&pb.TunnelMessage{Message: &pb.TunnelMessage_ConnectionClose{
@@ -202,10 +222,14 @@ func (s *ServeClient) handleWebSocket(ctx context.Context, sender messageSender,
 	if err := sendHTTPConnectionHead(sender, id, response.StatusCode, response.Header); err != nil {
 		return
 	}
-	s.runWebSocket(ctx, sender, id, input, webSocketUpstream{upstream, closeTarget}, options)
+	upstream = webSocketUpstream{upstream, closeTarget}
+	if capture != nil {
+		upstream = &inspectionDuplex{ReadWriteCloser: upstream, capture: capture}
+	}
+	reason = s.runWebSocket(ctx, sender, id, input, upstream, options)
 }
 
-func (s *ServeClient) runWebSocket(ctx context.Context, sender messageSender, id string, input io.Reader, upstream io.ReadWriteCloser, options common.WebSocketOptions) {
+func (s *ServeClient) runWebSocket(ctx context.Context, sender messageSender, id string, input io.Reader, upstream io.ReadWriteCloser, options common.WebSocketOptions) string {
 	var workers sync.WaitGroup
 	defer func() {
 		_ = upstream.Close()
@@ -287,7 +311,10 @@ func (s *ServeClient) runWebSocket(ctx context.Context, sender messageSender, id
 			failed(err)
 			if err != nil || incomingClosed {
 				sendConnectionHalfClose(sender, id)
-				return
+				if err != nil {
+					return webSocketTerminalReason(err)
+				}
+				return "peer_closed"
 			}
 			outgoingClosed = true
 			outgoing = nil
@@ -297,11 +324,11 @@ func (s *ServeClient) runWebSocket(ctx context.Context, sender messageSender, id
 		case err := <-incoming:
 			if err != nil {
 				failed(err)
-				return
+				return webSocketTerminalReason(err)
 			}
 			if outgoingClosed {
 				sendConnectionHalfClose(sender, id)
-				return
+				return "peer_closed"
 			}
 			incomingClosed = true
 			// Preserve the upstream's closing reply after a client close frame.
@@ -317,20 +344,44 @@ func (s *ServeClient) runWebSocket(ctx context.Context, sender messageSender, id
 			}
 			closeWithCode(1001)
 			sendConnectionHalfClose(sender, id)
-			return
+			return "idle_timeout"
 		case <-keepalive:
 			// Generated pings do not extend idle time; received frames (including
 			// pong) do. Both public and upstream legs stay active through proxies.
 			if err := toRemote.TryControl(9, []byte("tunn"), false); err != nil {
-				return
+				return "relay_error"
 			}
 			if err := toLocal.TryControl(9, []byte("tunn"), true); err != nil {
-				return
+				return "relay_error"
 			}
 		case <-closing:
-			return
+			return "close_timeout"
 		case <-ctx.Done():
-			return
+			return "canceled"
 		}
 	}
+}
+
+func webSocketTerminalReason(err error) string {
+	if errors.Is(err, common.ErrWebSocketMessageTooLarge) {
+		return "message_limit"
+	}
+	if errors.Is(err, common.ErrWebSocketProtocol) {
+		return "protocol_error"
+	}
+	if errors.Is(err, io.EOF) {
+		return "peer_closed"
+	}
+	return "stream_error"
+}
+
+type inspectionDuplex struct {
+	io.ReadWriteCloser
+	capture *inspectionCapture
+}
+
+func (r *inspectionDuplex) Read(p []byte) (int, error) {
+	n, err := r.ReadWriteCloser.Read(p)
+	r.capture.response(n)
+	return n, err
 }

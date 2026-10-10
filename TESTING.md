@@ -190,3 +190,23 @@ A sandbox that rejects TCP/UDP binds cannot run that E2E or the full `make check
 Keep those tests intact and run both commands on the coordinator host. The
 accounting definitions and commercial reconciliation limits are in
 [docs/METERING.md](docs/METERING.md).
+
+## Inspector contracts and browser journey
+
+```sh
+make -j1 test-inspect-contract                       # No listener; race fixtures
+make -j1 test-inspect-contract INSPECT_MODE=loopback # Actual local HTTP target
+make -j1 test-inspect-contract INSPECT_MODE=browser  # Actual Chrome UI, mocked API
+```
+
+The offline mode covers credential/header/cookie/query/body sentinels, 50-event
+eviction, the exact 64 KiB boundary, incomplete bodies, concurrent captures,
+original-target binding, explicit reconstruction, cancel, one-use/double-click
+admission, replay status/failure and export-drop counters. HTTP target dispatch
+uses `net.Pipe`, with no listener or external service. Loopback mode retains
+real listener tests and fails if listeners are denied. Browser mode uses the
+actual HTML/JS with generated redacted snapshots and a disposable Chrome profile
+under `.scratch`; browser absence or launch denial is not a passing skip. It
+checks inspect/select/replay/result/error, rendered sentinels, captured HTML as
+data, and unsupported SSE/WS/CONNECT/truncated states. It does not certify a
+hosted relay or phone browser. See [inspection.md](docs/inspection.md).

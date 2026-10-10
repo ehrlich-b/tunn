@@ -29,17 +29,18 @@ func TestInspectorCapturesAndReplaysToLocalTarget(t *testing.T) {
 	defer local.Close()
 
 	client := &ServeClient{TargetURL: local.URL}
-	inspector := NewInspector(client)
+	inspector := NewInspectorWithBodyCapture(client, true)
 	client.Inspector = inspector
 	client.handleHttpRequest(&mockEstablishTunnelClient{}, &pb.HttpRequest{
 		ConnectionId: "webhook-1", Method: http.MethodPost, Path: "/webhook?kind=test",
 		Headers: map[string]string{"X-Webhook-Test": "signed"}, Body: []byte(`{"event":"created"}`),
 	})
 	events := inspector.list()
-	if len(events) != 1 || events[0].Status != http.StatusAccepted || !events[0].Replayable || events[0].RequestBytes != int64(len(events[0].Body)) {
+	if len(events) != 1 || events[0].Status != http.StatusAccepted || !events[0].Reconstructable || events[0].Replayable || events[0].Headers["X-Webhook-Test"] != redacted || events[0].RequestBytes != int64(len(events[0].Body)) {
 		t.Fatalf("unexpected captured delivery: %+v", events)
 	}
-	if _, err := inspector.replay(context.Background(), events[0].ID); err != nil {
+	replayPath := "/webhook?kind=test"
+	if _, err := inspector.replay(context.Background(), events[0].ID, inspectionReplayInput{Action: inspectContractAction(t, inspector, events[0].ID), Path: &replayPath, Headers: map[string]string{"X-Webhook-Test": "signed"}}); err != nil {
 		t.Fatal(err)
 	}
 	mu.Lock()
@@ -54,7 +55,7 @@ func TestInspectorCapturesAndReplaysToLocalTarget(t *testing.T) {
 }
 
 func TestInspectorRejectsTruncatedReplay(t *testing.T) {
-	inspector := NewInspector(&ServeClient{TargetURL: "http://127.0.0.1:1"})
+	inspector := NewInspectorWithBodyCapture(&ServeClient{TargetURL: "http://127.0.0.1:1"}, true)
 	capture := inspector.begin(http.MethodPost, "/webhook", nil)
 	_, _ = capture.Write(bytes.Repeat([]byte("x"), inspectBodyLimit+1))
 	capture.complete()
@@ -63,7 +64,7 @@ func TestInspectorRejectsTruncatedReplay(t *testing.T) {
 	if !event.Truncated || event.Replayable || len(event.Body) != inspectBodyLimit {
 		t.Fatalf("truncation state: %+v", event)
 	}
-	if _, err := inspector.replay(context.Background(), event.ID); err == nil {
+	if _, err := inspector.replay(context.Background(), event.ID, inspectionReplayInput{Action: "invalid"}); err == nil {
 		t.Fatal("truncated request could be replayed")
 	}
 }
@@ -75,7 +76,7 @@ func TestInspectorStreamingCaptureAndReplayProtection(t *testing.T) {
 	}))
 	defer local.Close()
 	client := &ServeClient{TargetURL: local.URL}
-	inspector := NewInspector(client)
+	inspector := NewInspectorWithBodyCapture(client, true)
 	client.Inspector = inspector
 	client.handleStreamingHTTPRequest(context.Background(), &mockEstablishTunnelClient{}, &pb.ConnectionOpen{
 		ConnectionId: "stream-webhook", Protocol: "http", HttpRequest: &pb.HttpRequestHead{
@@ -98,7 +99,7 @@ func TestInspectorStreamingCaptureAndReplayProtection(t *testing.T) {
 }
 
 func TestInspectorHTTPRequiresExactHostAndReplayToken(t *testing.T) {
-	inspector := NewInspector(&ServeClient{TargetURL: "http://127.0.0.1:1"})
+	inspector := NewInspectorWithBodyCapture(&ServeClient{TargetURL: "http://127.0.0.1:1"}, true)
 	inspector.host = "127.0.0.1:4040"
 	inspector.token = "test-token"
 	capture := inspector.begin(http.MethodPost, "/hook", nil)

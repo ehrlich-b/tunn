@@ -290,7 +290,7 @@ func (b *Bridge) handlePOST(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := b.writeChild(body); err != nil {
-			writeBridgeError(w, http.StatusBadGateway, "local MCP process is unavailable")
+			writeBridgeError(w, http.StatusBadGateway, incoming.ID, "local MCP process is unavailable")
 			return
 		}
 		w.WriteHeader(http.StatusAccepted)
@@ -301,7 +301,7 @@ func (b *Bridge) handlePOST(w http.ResponseWriter, r *http.Request) {
 	defer b.requestMu.Unlock()
 	if modern {
 		if err := b.initializeChild(r.Context()); err != nil {
-			writeBridgeError(w, http.StatusBadGateway, "local MCP process could not initialize")
+			writeBridgeError(w, http.StatusBadGateway, incoming.ID, "local MCP process could not initialize")
 			return
 		}
 		if incoming.Method == "server/discover" {
@@ -317,7 +317,7 @@ func (b *Bridge) handlePOST(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := b.writeChild(body); err != nil {
-		writeBridgeError(w, http.StatusBadGateway, "local MCP process is unavailable")
+		writeBridgeError(w, http.StatusBadGateway, incoming.ID, "local MCP process is unavailable")
 		return
 	}
 
@@ -330,13 +330,13 @@ func (b *Bridge) handlePOST(w http.ResponseWriter, r *http.Request) {
 		select {
 		case output := <-b.outputs:
 			if output.err != nil {
-				writeBridgeError(w, http.StatusBadGateway, "local MCP process exited")
+				writeBridgeError(w, http.StatusBadGateway, incoming.ID, "local MCP process exited")
 				return
 			}
 
 			var outgoing envelope
 			if !json.Valid(output.message) || json.Unmarshal(output.message, &outgoing) != nil {
-				writeBridgeError(w, http.StatusBadGateway, "local MCP process wrote invalid JSON-RPC")
+				writeBridgeError(w, http.StatusBadGateway, incoming.ID, "local MCP process wrote invalid JSON-RPC")
 				return
 			}
 
@@ -374,14 +374,14 @@ func (b *Bridge) handlePOST(w http.ResponseWriter, r *http.Request) {
 			if outgoing.Method != "" {
 				eventBytes += len(output.message)
 				if eventBytes > MaxMessageSize {
-					writeBridgeError(w, http.StatusBadGateway, "local MCP notifications are too large")
+					writeBridgeError(w, http.StatusBadGateway, incoming.ID, "local MCP notifications are too large")
 					return
 				}
 				events = append(events, output.message)
 			}
 
 		case <-timer.C:
-			writeBridgeError(w, http.StatusGatewayTimeout, "local MCP request timed out")
+			writeBridgeError(w, http.StatusGatewayTimeout, incoming.ID, "local MCP request timed out")
 			return
 		case <-r.Context().Done():
 			return
@@ -504,11 +504,12 @@ func sameID(left, right json.RawMessage) bool {
 	return bytes.Equal(bytes.TrimSpace(left), bytes.TrimSpace(right))
 }
 
-func writeBridgeError(w http.ResponseWriter, status int, message string) {
+func writeBridgeError(w http.ResponseWriter, status int, id json.RawMessage, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"jsonrpc": "2.0",
+		"id":      id,
 		"error": map[string]any{
 			"code":    -32603,
 			"message": message,

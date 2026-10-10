@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -39,7 +40,7 @@ func sshSigner(t *testing.T) ssh.Signer {
 	}
 	return signer
 }
-func sshRelay(t *testing.T, known bool) (*ProxyServer, *ssh.Client, *sshfront.Server) {
+func sshRelay(t *testing.T, known bool) (*ProxyServer, *ssh.Client, func() *ssh.Client) {
 	t.Helper()
 	db, err := store.InitForTest()
 	if err != nil {
@@ -78,17 +79,20 @@ func sshRelay(t *testing.T, known bool) (*ProxyServer, *ssh.Client, *sshfront.Se
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	go func() { _ = server.Serve(ctx, l) }()
-	raw, err := l.Dial()
-	if err != nil {
-		t.Fatal(err)
+	dial := func() *ssh.Client {
+		raw, err := l.Dial()
+		if err != nil {
+			t.Fatal(err)
+		}
+		conn, channels, requests, err := ssh.NewClientConn(raw, l.Addr().String(), &ssh.ClientConfig{User: "tunn", Auth: []ssh.AuthMethod{ssh.PublicKeys(signer)}, HostKeyCallback: ssh.FixedHostKey(hostKey.PublicKey()), Timeout: 3 * time.Second})
+		if err != nil {
+			t.Fatal(err)
+		}
+		client := ssh.NewClient(conn, channels, requests)
+		t.Cleanup(func() { _ = client.Close() })
+		return client
 	}
-	conn, channels, requests, err := ssh.NewClientConn(raw, l.Addr().String(), &ssh.ClientConfig{User: "tunn", Auth: []ssh.AuthMethod{ssh.PublicKeys(signer)}, HostKeyCallback: ssh.FixedHostKey(hostKey.PublicKey()), Timeout: 3 * time.Second})
-	if err != nil {
-		t.Fatal(err)
-	}
-	client := ssh.NewClient(conn, channels, requests)
-	t.Cleanup(func() { _ = client.Close() })
-	return p, client, server
+	return p, dial(), dial
 }
 
 func sshForward(t *testing.T, c *ssh.Client, command string, handler http.Handler) (*ssh.Session, *bufio.Reader) {
@@ -330,4 +334,268 @@ func sshHTTPS(t *testing.T, handler http.Handler) (*http.Client, string) {
 	transport := &http.Transport{TLSClientConfig: &tls.Config{RootCAs: roots}, DialContext: func(context.Context, string, string) (net.Conn, error) { return l.Dial() }}
 	t.Cleanup(func() { transport.CloseIdleConnections(); _ = server.Close(); _ = l.Close() })
 	return &http.Client{Transport: transport, Timeout: 3 * time.Second}, "https://relay.test"
+}
+
+func sshOwnerCommand(t *testing.T, dial func() *ssh.Client, command string) []byte {
+	t.Helper()
+	c := dial()
+	s, err := c.NewSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := s.CombinedOutput(command)
+	if err != nil {
+		t.Fatalf("%s: %s (%v)", command, data, err)
+	}
+	return data
+}
+
+func TestSSHOwnerTokenInspectionAndReplay(t *testing.T) {
+	p, c, dial := sshRelay(t, true)
+	var requests atomic.Int32
+	_, out := sshForward(t, c, "--name ssh-owner --bearer --inspect", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		_, _ = io.Copy(io.Discard, r.Body)
+		_, _ = io.WriteString(w, "ok")
+	}))
+	_ = sshLine(t, out)
+	_ = sshLine(t, out)
+	oldToken := strings.TrimSpace(strings.TrimPrefix(sshLine(t, out), "Endpoint token: "))
+	request := func(token string) int {
+		r := httptest.NewRequest("POST", "https://ssh-owner.tunn.test/action", strings.NewReader("replay-body"))
+		r.Header.Set("Tunn-Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		p.handleWebProxy(w, r)
+		return w.Code
+	}
+	if status := request(oldToken); status != 200 {
+		t.Fatal(status)
+	}
+	newToken := strings.TrimSpace(string(sshOwnerCommand(t, dial, "token --rotate ssh-owner")))
+	if newToken == oldToken || !strings.HasPrefix(newToken, "tunn_ep_") {
+		t.Fatal("rotation did not issue a fresh token")
+	}
+	if status := request(oldToken); status != 401 {
+		t.Fatalf("old token still accepted: %d", status)
+	}
+	if status := request(newToken); status != 200 {
+		t.Fatal(status)
+	}
+	data := sshOwnerCommand(t, dial, "inspect ssh-owner")
+	var events []map[string]any
+	if err := json.Unmarshal(data, &events); err != nil || len(events) != 2 {
+		t.Fatalf("inspection=%s %v", data, err)
+	}
+	_ = sshOwnerCommand(t, dial, "replay ssh-owner 1")
+	if requests.Load() != 3 {
+		t.Fatalf("replay target requests=%d", requests.Load())
+	}
+	data = sshOwnerCommand(t, dial, "usage ssh-owner")
+	if !json.Valid(data) || !strings.Contains(string(data), "ssh-owner") {
+		t.Fatalf("usage=%s", data)
+	}
+}
+
+func TestSSHConsumerGrantsUseOrdinaryIngress(t *testing.T) {
+	p, c, dial := sshRelay(t, true)
+	_, out := sshForward(t, c, "--name ssh-grant", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Tunn-Authorization") != "" {
+			t.Error("grant credential reached target")
+		}
+		_, _ = io.WriteString(w, "allowed")
+	}))
+	_ = sshLine(t, out)
+	data := sshOwnerCommand(t, dial, "grant create ssh-grant --for visitor --expires 1h --monthly-requests 1")
+	var result struct {
+		Token string `json:"token"`
+		Grant struct {
+			ID string `json:"id"`
+		} `json:"grant"`
+	}
+	if err := json.Unmarshal(data, &result); err != nil || result.Token == "" || result.Grant.ID == "" {
+		t.Fatalf("grant=%s %v", data, err)
+	}
+	r := httptest.NewRequest("GET", "https://ssh-grant.tunn.test/", nil)
+	r.Header.Set("Tunn-Authorization", "Bearer "+result.Token)
+	w := httptest.NewRecorder()
+	p.handleWebProxy(w, r)
+	if w.Code != 200 || w.Body.String() != "allowed" {
+		t.Fatalf("grant ingress=%d %s", w.Code, w.Body.String())
+	}
+	w = httptest.NewRecorder()
+	p.handleWebProxy(w, r)
+	if w.Code != 429 {
+		t.Fatalf("grant budget=%d", w.Code)
+	}
+	_ = sshOwnerCommand(t, dial, "grant revoke ssh-grant "+result.Grant.ID)
+}
+
+func TestSSHRawForwardAndNamedConnectHalfClose(t *testing.T) {
+	p, c, _ := sshRelay(t, true)
+	l, err := c.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = l.Close() }()
+	go func() {
+		upstream, err := l.Accept()
+		if err != nil {
+			return
+		}
+		defer func() { _ = upstream.Close() }()
+		data, err := io.ReadAll(upstream)
+		if err == nil {
+			_, _ = io.WriteString(upstream, "echo:"+string(data))
+		}
+	}()
+	session, err := c.NewSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := session.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := session.Start("tcp --name ssh-raw"); err != nil {
+		t.Fatal(err)
+	}
+	if line := sshLine(t, bufio.NewReader(out)); line != "https://ssh-raw.tunn.test\n" {
+		t.Fatal(line)
+	}
+	stream, err := c.Dial("tcp", "ssh-raw:80")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = stream.Close() }()
+	_, err = io.WriteString(stream, "payload")
+	if err != nil {
+		t.Fatal(err)
+	}
+	half, ok := stream.(interface{ CloseWrite() error })
+	if !ok {
+		t.Fatal("SSH TCP stream does not support half-close")
+	}
+	if err := half.CloseWrite(); err != nil {
+		t.Fatal(err)
+	}
+	result := make(chan string, 1)
+	go func() {
+		data, err := io.ReadAll(stream)
+		if err != nil {
+			result <- err.Error()
+		} else {
+			result <- string(data)
+		}
+	}()
+	select {
+	case data := <-result:
+		if data != "echo:payload" {
+			t.Fatal(data)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("raw half-close did not return a response")
+	}
+	if tunnel, ok := p.tunnelServer.GetTunnel("ssh-raw"); !ok || tunnel.EndpointProtocol != "tcp" {
+		t.Fatal("not an ordinary raw tunnel")
+	}
+	if _, err := c.Dial("tcp", "127.0.0.1:22"); err == nil {
+		t.Fatal("SSH connect exposed host network")
+	}
+	_ = session.Signal(ssh.SIGINT)
+	_ = session.Wait()
+}
+
+func TestSSHStdioMCPNeedsNoLocalTunnelBinary(t *testing.T) {
+	p, c, _ := sshRelay(t, true)
+	session, err := c.NewSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	input, err := session.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rpc, err := session.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := session.StderrPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := session.Start("mcp --stdio --tools read_file --name ssh-mcp"); err != nil {
+		t.Fatal(err)
+	}
+	if line := sshLine(t, bufio.NewReader(info)); line != "https://ssh-mcp.tunn.test/mcp\n" {
+		t.Fatal(line)
+	}
+	var childToolCalls atomic.Int32
+	go func() {
+		scan := bufio.NewScanner(rpc)
+		for scan.Scan() {
+			var message map[string]any
+			if json.Unmarshal(scan.Bytes(), &message) != nil {
+				continue
+			}
+			if message["method"] == "tools/call" {
+				childToolCalls.Add(1)
+			}
+			if id, ok := message["id"]; ok {
+				response := map[string]any{"jsonrpc": "2.0", "id": id, "result": map[string]any{"protocolVersion": "2025-11-25", "capabilities": map[string]any{}, "serverInfo": map[string]any{"name": "stdio-fixture", "version": "1"}}}
+				_ = json.NewEncoder(input).Encode(response)
+			}
+		}
+	}()
+	owner, _ := p.generateJWT("owner@example.com")
+	r := httptest.NewRequest("POST", "https://ssh-mcp.tunn.test/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}`))
+	r.Header.Set("Authorization", "Bearer "+owner)
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	p.handleWebProxy(w, r)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "stdio-fixture") {
+		t.Fatalf("stdio MCP=%d %s", w.Code, w.Body.String())
+	}
+	streamSession := w.Header().Get("Mcp-Session-Id")
+	r = httptest.NewRequest("POST", "https://ssh-mcp.tunn.test/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"delete_file"}}`))
+	r.Header.Set("Authorization", "Bearer "+owner)
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("Mcp-Session-Id", streamSession)
+	w = httptest.NewRecorder()
+	p.handleWebProxy(w, r)
+	var denied struct {
+		Error struct {
+			Code int `json:"code"`
+		} `json:"error"`
+	}
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &denied) != nil || denied.Error.Code != -32001 || childToolCalls.Load() != 0 {
+		t.Fatalf("stdio tool policy=%d %s", w.Code, w.Body.String())
+	}
+	_ = session.Signal(ssh.SIGINT)
+	_ = session.Wait()
+}
+
+func TestSSHExpiryClosesForward(t *testing.T) {
+	p, c, _ := sshRelay(t, true)
+	session, out := sshForward(t, c, "--name ssh-short --expire 100ms", http.NotFoundHandler())
+	_ = sshLine(t, out)
+	done := make(chan error, 1)
+	go func() { done <- session.Wait() }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("expiry did not close the session")
+	}
+	deadline := time.Now().Add(time.Second)
+	for {
+		if _, ok := p.tunnelServer.GetTunnel("ssh-short"); !ok {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("expired tunnel remains online")
+		}
+		time.Sleep(time.Millisecond)
+	}
 }

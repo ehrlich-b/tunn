@@ -91,8 +91,9 @@ type ServeClient struct {
 	InitialDelay      time.Duration // Initial delay for exponential backoff (default: 1s)
 
 	// HTTP client settings
-	HTTPTimeout         time.Duration // Timeout for HTTP requests to local target (default: 30s)
-	Inspector           *Inspector    // Optional local, short-lived HTTP request inspector
+	HTTPTransport       http.RoundTripper // Optional in-process upstream for an embedded front door
+	HTTPTimeout         time.Duration     // Timeout for HTTP requests to local target (default: 30s)
+	Inspector           *Inspector        // Optional local, short-lived HTTP request inspector
 	WebSocket           *common.WebSocketOptions
 	RequireUpstreamAuth bool // Require an application Authorization header after tunn auth is stripped
 }

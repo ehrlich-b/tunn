@@ -163,14 +163,10 @@ func parseMCPFlags(args []string) (*mcpCommandOptions, error) {
 
 	fs := flag.NewFlagSet("mcp", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	idFlag := fs.String("id", "", "tunnel ID (blank -> random)")
-	nameFlag := fs.String("name", "", "endpoint name (alias for --id)")
-	subdomainFlag := fs.String("subdomain", "", "reserved subdomain (alias for --id)")
-	allowFlag := fs.String("allow", "", "comma-separated list of emails allowed to access the endpoint")
-	publicFlag := fs.Bool("public", false, "allow unauthenticated internet access")
-	keyFlag := fs.String("tunnel-key", "", "tunnel creation authorization key")
-	secretFlag := fs.String("secret", "", "client secret for auth (or set TUNN_SECRET)")
-	toolsFlag := fs.String("tools", "", "comma-separated exact tool allow-list")
+	shared := new(cliopts.Serve)
+	cliopts.PublicationFlags(fs, shared)
+	var allowedTools []string
+	cliopts.MCPToolFlag(fs, &allowedTools)
 
 	flagArgs := args
 	if separator != -1 {
@@ -186,33 +182,12 @@ func parseMCPFlags(args []string) (*mcpCommandOptions, error) {
 		return nil, fmt.Errorf("provide one MCP HTTP URL, or use -- before a stdio command")
 	}
 
-	tunnelID := *idFlag
-	if *nameFlag != "" {
-		tunnelID = *nameFlag
-	}
-	if *subdomainFlag != "" {
-		tunnelID = *subdomainFlag
-	}
-
-	var allowedEmails []string
-	if *allowFlag != "" {
-		for _, email := range strings.Split(*allowFlag, ",") {
-			if normalized := strings.TrimSpace(email); normalized != "" {
-				allowedEmails = append(allowedEmails, normalized)
-			}
-		}
-	}
-	if *publicFlag && len(allowedEmails) > 0 {
+	tunnelID, allowedEmails := shared.Name, shared.AllowedEmails
+	if shared.Public && len(allowedEmails) > 0 {
 		return nil, fmt.Errorf("--public and --allow cannot be used together")
 	}
-	var allowedTools []string
-	for _, tool := range strings.Split(*toolsFlag, ",") {
-		if normalized := strings.TrimSpace(tool); normalized != "" {
-			allowedTools = append(allowedTools, normalized)
-		}
-	}
 
-	clientSecret := *secretFlag
+	clientSecret := shared.Secret
 	if clientSecret == "" {
 		clientSecret = os.Getenv("TUNN_SECRET")
 	}
@@ -220,9 +195,9 @@ func parseMCPFlags(args []string) (*mcpCommandOptions, error) {
 	opts := &mcpCommandOptions{
 		tunnelID:      tunnelID,
 		allowedEmails: allowedEmails,
-		tunnelKey:     *keyFlag,
+		tunnelKey:     shared.TunnelKey,
 		clientSecret:  clientSecret,
-		public:        *publicFlag,
+		public:        shared.Public,
 		allowedTools:  allowedTools,
 	}
 	if separator == -1 {
@@ -512,12 +487,8 @@ func parseUnixFlags(args []string) (*tcpCommandOptions, error) {
 func parseRawPublisherFlags(command string, args []string, normalize func(string) (string, error)) (*tcpCommandOptions, error) {
 	fs := flag.NewFlagSet(command, flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	idFlag := fs.String("id", "", "endpoint name")
-	nameFlag := fs.String("name", "", "endpoint name (alias for --id)")
-	allowFlag := fs.String("allow", "", "comma-separated list of allowed emails")
-	publicFlag := fs.Bool("public", false, "allow unauthenticated access")
-	keyFlag := fs.String("tunnel-key", "", "tunnel creation authorization key")
-	secretFlag := fs.String("secret", "", "self-hosted client authentication secret")
+	shared := new(cliopts.Serve)
+	cliopts.PublicationFlags(fs, shared)
 	asFlag := fs.String("as", "raw", "adapter: raw or http (Unix sockets)")
 	if err := fs.Parse(args); err != nil {
 		return nil, err
@@ -530,29 +501,21 @@ func parseRawPublisherFlags(command string, args []string, normalize func(string
 		return nil, err
 	}
 
-	var allowedEmails []string
-	for _, email := range strings.Split(*allowFlag, ",") {
-		if normalized := strings.TrimSpace(email); normalized != "" {
-			allowedEmails = append(allowedEmails, normalized)
-		}
-	}
-	if *publicFlag && len(allowedEmails) > 0 {
+	allowedEmails, tunnelID := shared.AllowedEmails, shared.Name
+	if shared.Public && len(allowedEmails) > 0 {
 		return nil, fmt.Errorf("--public and --allow cannot be used together")
 	}
-	tunnelID := *idFlag
-	if *nameFlag != "" {
-		tunnelID = *nameFlag
-	}
-	clientSecret := *secretFlag
+
+	clientSecret := shared.Secret
 	if clientSecret == "" {
 		clientSecret = os.Getenv("TUNN_SECRET")
 	}
 	return &tcpCommandOptions{
 		tunnelID:      tunnelID,
 		allowedEmails: allowedEmails,
-		tunnelKey:     *keyFlag,
+		tunnelKey:     shared.TunnelKey,
 		clientSecret:  clientSecret,
-		public:        *publicFlag,
+		public:        shared.Public,
 		target:        target,
 		adapter:       strings.ToLower(strings.TrimSpace(*asFlag)),
 	}, nil
@@ -1063,7 +1026,7 @@ func runServe(args []string) {
 		cancel()
 	}()
 
-	if err := serveClient.Run(ctx); err != nil && err != context.Canceled {
+	if err := serveClient.Run(ctx); err != nil && err != context.Canceled && err != context.DeadlineExceeded {
 		common.LogError("tunnel error", "error", err)
 		os.Exit(1)
 	}

@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"net"
@@ -164,6 +165,31 @@ func (p *ProxyServer) sshCommand(ctx context.Context, id sshfront.Identity, args
 		}
 		fmt.Fprintf(out, "ssh -N -p 443 -L 127.0.0.1:15432:%s:80 %s\n", args[1], p.Domain)
 		return nil
+	case "service":
+		return sshfront.ServicePlan(args[1:], in, p.Domain, out)
+	case "openclaw":
+		fs := flag.NewFlagSet("openclaw", flag.ContinueOnError)
+		fs.SetOutput(io.Discard)
+		name := fs.String("name", "home-openclaw", "endpoint name")
+		gateway := fs.String("gateway", "http://127.0.0.1:18789", "local gateway URL")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if fs.NArg() != 0 {
+			return fmt.Errorf("openclaw --name NAME --gateway URL")
+		}
+		if !hostmode.ValidName(*name) {
+			return fmt.Errorf("invalid endpoint name")
+		}
+		// Local gateway probing is done by the SSH forward, never by dialing the
+		// relay's loopback network in response to a remote command.
+		fmt.Fprintf(out, "Preview URL: https://%s.%s\nExpose the gateway with: ssh -T -p 443 -R0:localhost:18789 %s -- --name %s --bearer --require-upstream-auth --qr\nAuthenticate to tunn and approve the device in OpenClaw; keep gateway authentication enabled.\n", *name, p.Domain, p.Domain, *name)
+		return hostmode.OpenClaw(ctx, hostmode.OpenClawOptions{Name: *name, Domain: p.Domain, Gateway: *gateway, Probe: func(context.Context, string) error { return fmt.Errorf("probe through a local SSH forward") }, RenderQR: func(ctx context.Context, u string, w io.Writer, _ string) error {
+			if p.sshServer == nil {
+				return fmt.Errorf("SSH disabled")
+			}
+			return hostmode.RenderQR(ctx, u, out, "")
+		}}, io.Discard)
 	case "usage", "grant":
 		opts, err := cliopts.ParseMetering(args[0], args[1:], time.Now())
 		if err != nil {
@@ -233,24 +259,43 @@ func (p *ProxyServer) sshConnect(ctx context.Context, id sshfront.Identity, name
 		return nil, err
 	}
 	local, remote := net.Pipe()
+	input, output := io.Pipe()
+	connection := &sshConnectConn{Conn: local, input: input, output: output}
 	ready := make(chan error, 1)
-	r := httptest.NewRequest(http.MethodConnect, "https://"+name+"."+p.Domain+common.TCPConnectPath, io.NopCloser(remote)).WithContext(ctx)
+	r := httptest.NewRequest(http.MethodConnect, "https://"+name+"."+p.Domain+common.TCPConnectPath, input).WithContext(ctx)
+	r.Host = name + "." + p.Domain
+	r.URL.Path = common.TCPConnectPath
+	r.RemoteAddr = net.JoinHostPort(id.IP, "1")
 	r.ContentLength = -1
 	r.Header.Set("Authorization", "Bearer "+token)
 	r.Header.Set(common.TCPConnectHeader, common.TCPConnectValue)
 	w := &sshConnectWriter{headers: make(http.Header), writer: remote, ready: ready}
-	go func() { defer func() { _ = remote.Close() }(); p.handleWebProxy(w, r) }()
+	go func() { defer func() { _ = input.Close(); _ = remote.Close() }(); p.handleWebProxy(w, r) }()
 	select {
 	case err := <-ready:
 		if err != nil {
-			_ = local.Close()
+			_ = connection.Close()
 			return nil, err
 		}
-		return local, nil
+		return connection, nil
 	case <-ctx.Done():
-		_ = local.Close()
+		_ = connection.Close()
 		return nil, ctx.Err()
 	}
+}
+
+type sshConnectConn struct {
+	net.Conn
+	input  *io.PipeReader
+	output *io.PipeWriter
+}
+
+func (c *sshConnectConn) Write(p []byte) (int, error) { return c.output.Write(p) }
+func (c *sshConnectConn) CloseWrite() error           { return c.output.Close() }
+func (c *sshConnectConn) Close() error {
+	_ = c.output.Close()
+	_ = c.input.Close()
+	return c.Conn.Close()
 }
 
 type sshConnectWriter struct {

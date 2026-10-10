@@ -4,9 +4,14 @@ package sshfront
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -15,6 +20,7 @@ import (
 	"github.com/ehrlich-b/tunn/internal/client"
 	"github.com/ehrlich-b/tunn/internal/cliopts"
 	"github.com/ehrlich-b/tunn/internal/common"
+	"github.com/ehrlich-b/tunn/internal/mcpbridge"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/time/rate"
@@ -46,13 +52,15 @@ type Server struct {
 	handshake map[string]*budget
 	port      atomic.Uint32
 	tokens    map[string]string
+	endpoints map[string]*forward
+	sessions  chan struct{}
 }
 
 func New(cfg Config) (*Server, error) {
 	if cfg.HostKey == nil || cfg.Establish == nil || cfg.Resolve == nil {
 		return nil, fmt.Errorf("SSH host key, identity resolver and tunnel callback required")
 	}
-	s := &Server{cfg: cfg, budgets: map[string]*budget{}, handshake: map[string]*budget{}, tokens: map[string]string{}}
+	s := &Server{cfg: cfg, budgets: map[string]*budget{}, handshake: map[string]*budget{}, tokens: map[string]string{}, endpoints: map[string]*forward{}, sessions: make(chan struct{}, 128)}
 	s.port.Store(1023)
 	return s, nil
 }
@@ -136,6 +144,8 @@ func (s *Server) charge(id Identity, n int) bool {
 }
 
 func (s *Server) Serve(ctx context.Context, l net.Listener) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	defer func() { _ = l.Close() }()
 	go func() { <-ctx.Done(); _ = l.Close() }()
 	for {
@@ -151,6 +161,12 @@ func (s *Server) Serve(ctx context.Context, l net.Listener) error {
 }
 func (s *Server) ServeConn(parent context.Context, raw net.Conn) {
 	defer func() { _ = raw.Close() }()
+	select {
+	case s.sessions <- struct{}{}:
+		defer func() { <-s.sessions }()
+	default:
+		return
+	}
 	ip, _, err := net.SplitHostPort(raw.RemoteAddr().String())
 	if err != nil {
 		ip = raw.RemoteAddr().String()
@@ -219,13 +235,14 @@ type forwardSpec struct {
 	Port    uint32
 }
 type forward struct {
-	spec    forwardSpec
-	cancel  context.CancelFunc
-	done    chan struct{}
-	name    string
-	adapter *client.ServeClient
-	digest  []byte
-	token   string
+	spec      forwardSpec
+	cancel    context.CancelFunc
+	done      chan struct{}
+	name      string
+	adapter   *client.ServeClient
+	inspector *client.Inspector
+	digest    []byte
+	token     string
 }
 type connection struct {
 	sessionDone chan struct{}
@@ -239,11 +256,13 @@ type connection struct {
 	forwards    map[forwardSpec]*forward
 	options     *cliopts.Serve
 	protocol    string
+	kind        string
 	output      *sessionOutput
+	bridge      *mcpbridge.Bridge
 }
 type sessionOutput struct {
 	mu      sync.Mutex
-	channel ssh.Channel
+	channel io.Writer
 }
 
 func (o *sessionOutput) Write(p []byte) (int, error) {
@@ -369,13 +388,17 @@ func (c *connection) session(ch ssh.Channel, requests <-chan *ssh.Request) {
 	}
 }
 
-func (c *connection) run(args []string, in io.Reader) error {
+func (c *connection) run(args []string, in ssh.Channel) error {
 	for len(args) > 0 && args[0] == "--" {
 		args = args[1:]
 	}
 	if len(args) > 0 && (args[0] == "help" || args[0] == "--help" || args[0] == "-h") {
-		fmt.Fprintln(c.output, "SSH API: ssh -T -p 443 -R0:localhost:8080 tunn.to -- [serve|tcp|unix|mcp] [flags]\nCommands: help, keys add/list/remove, login --email EMAIL, hosts, usage, grant, token\nLocal commands (service, openclaw) require a local process; use help COMMAND for details.")
-		cliopts.Usage(c.output)
+		fmt.Fprintln(c.output, "SSH API: ssh -T -p 443 -R0:localhost:8080 tunn.to -- [serve|tcp|unix|mcp] [flags]\nCommands: help, keys add/list/remove, login --email EMAIL, hosts, usage, grant, token, inspect, replay, connect\nLocal plans: service install/uninstall/status/run; openclaw preview.\nMCP: mcp --stdio bridges JSON-RPC on stdin/stdout; --tools restricts tools.")
+		if len(args) > 1 && (args[1] == "grant" || args[1] == "usage") {
+			fmt.Fprint(c.output, cliopts.MeteringUsage)
+		} else {
+			cliopts.Usage(c.output)
+		}
 		return nil
 	}
 	email, err := c.server.cfg.Resolve(c.ctx, c.id.Fingerprint)
@@ -384,15 +407,20 @@ func (c *connection) run(args []string, in io.Reader) error {
 	}
 	c.id.Email = email
 	protocol := "http"
+	kind := "serve"
 	if len(args) > 0 {
 		switch args[0] {
 		case "serve":
 			args = args[1:]
 		case "tcp", "unix":
+			kind = args[0]
 			protocol = "tcp"
 			args = args[1:]
 		case "mcp":
+			kind = "mcp"
 			args = args[1:]
+		case "inspect", "replay":
+			return c.server.inspection(c.ctx, c.id, args, c.output)
 		case "token":
 			return c.server.token(c.ctx, c.id, args[1:], c.output)
 		case "keys", "login", "hosts", "usage", "grant", "service", "openclaw", "connect", "magic-link":
@@ -406,12 +434,18 @@ func (c *connection) run(args []string, in io.Reader) error {
 	if err != nil {
 		return err
 	}
-	opts, err := cliopts.ParseServe(append(userArgs, args...), false)
+	opts, err := cliopts.ParseSSHPublication(append(userArgs, args...), kind)
 	if err != nil {
 		return err
 	}
 	if opts.Secret != "" || opts.TunnelKey != "" {
 		return fmt.Errorf("SSH authenticates with your public key; do not send secrets in commands")
+	}
+	if opts.Target != "" {
+		u, e := url.Parse(opts.Target)
+		if e != nil || u.Host == "" || u.User != nil || u.Fragment != "" || u.Scheme != "http" && u.Scheme != "https" || protocol == "tcp" {
+			return fmt.Errorf("--target must be an HTTP(S) URL without credentials")
+		}
 	}
 	if c.id.Email == "" {
 		if opts.Public || len(opts.AllowedEmails) == 0 {
@@ -426,9 +460,25 @@ func (c *connection) run(args []string, in io.Reader) error {
 	if protocol == "tcp" && opts.Public {
 		return fmt.Errorf("raw endpoints must be private")
 	}
+	if kind == "unix" && opts.Adapter == "http" {
+		protocol = "http"
+		if opts.Public {
+			return fmt.Errorf("HTTP-over-Unix endpoints cannot be public")
+		}
+	}
 	c.mu.Lock()
+	if opts.Stdio {
+		if len(c.forwards) != 0 {
+			c.mu.Unlock()
+			return fmt.Errorf("mcp --stdio uses stdin/stdout; omit -R")
+		}
+		c.output = &sessionOutput{channel: in.Stderr()}
+		c.bridge = mcpbridge.FromStreams(c.ctx, in, &stdioOutput{Channel: in, cancel: c.cancel}, mcpbridge.Options{AllowedTools: opts.Tools})
+		c.forwards[forwardSpec{Address: "localhost", Port: 80}] = &forward{spec: forwardSpec{Address: "localhost", Port: 80}}
+	}
 	c.options = opts
 	c.protocol = protocol
+	c.kind = kind
 	if len(c.forwards) == 0 {
 		c.mu.Unlock()
 		return fmt.Errorf("supply an OpenSSH remote forward: -R0:localhost:8080")
@@ -445,6 +495,13 @@ func (c *connection) run(args []string, in io.Reader) error {
 	c.mu.Unlock()
 	if err != nil {
 		return err
+	}
+	if opts.Stdio {
+		select {
+		case <-c.ctx.Done():
+		case <-c.bridge.Done():
+		}
+		return nil
 	}
 	// stdin delivers Ctrl-C in non-PTY sessions too. A closed stdin (-n) keeps
 	// the tunnel alive until the SSH connection, a signal, or expiry closes it.
@@ -544,7 +601,11 @@ func (c *connection) start(f *forward) error {
 		}
 		return fmt.Errorf("invalid relay registration reply")
 	}
-	fmt.Fprintf(c.output, "%s\nAccess: %s\n", r.PublicUrl, strings.Join(o.AllowedEmails, ", "))
+	publicURL := r.PublicUrl
+	if c.kind == "mcp" {
+		publicURL += "/mcp"
+	}
+	fmt.Fprintf(c.output, "%s\nAccess: %s\n", publicURL, strings.Join(o.AllowedEmails, ", "))
 	if o.Public {
 		fmt.Fprintln(c.output, "Access: public")
 	}
@@ -560,11 +621,16 @@ func (c *connection) start(f *forward) error {
 	if o.QR {
 		if c.server.cfg.RenderQR == nil {
 			fmt.Fprintln(c.output, "QR unavailable: install qrencode on the relay")
-		} else if err := c.server.cfg.RenderQR(ctx, r.PublicUrl, c.output); err != nil {
+		} else if err := c.server.cfg.RenderQR(ctx, publicURL, c.output); err != nil {
 			fmt.Fprintln(c.output, err)
 		}
 	}
 	messages.Observe = func(m *pb.TunnelMessage) {
+		if o.Stdio {
+			if data := m.GetConnectionData(); data != nil && !c.server.charge(id, len(data.Data)) {
+				cancel()
+			}
+		}
 		if open := m.GetConnectionOpen(); open != nil && open.HttpRequest != nil {
 			fmt.Fprintf(c.output, "%s %s\n", open.HttpRequest.Method, terminalText(open.HttpRequest.Path))
 		}
@@ -573,6 +639,19 @@ func (c *connection) start(f *forward) error {
 		}
 	}
 	adapter := &client.ServeClient{TargetURL: "http://ssh-forward", EndpointProtocol: c.protocol, RequireUpstreamAuth: o.RequireUpstreamAuth, SkipLocalTLSVerify: o.SkipLocalTLSVerify, WebSocket: &o.WebSocket}
+	if o.Target != "" {
+		adapter.TargetURL = o.Target
+	}
+	if c.bridge != nil || c.kind == "mcp" {
+		u, _ := url.Parse(adapter.TargetURL)
+		adapter.TargetURL = u.Scheme + "://" + u.Host
+		adapter.PublicPath = "/mcp"
+		adapter.UpstreamPath = u.Path
+		adapter.UpstreamRawQuery = u.RawQuery
+		if adapter.UpstreamPath == "" {
+			adapter.UpstreamPath = "/mcp"
+		}
+	}
 	if c.protocol == "tcp" {
 		adapter.TargetURL = "ssh-forward:80"
 	}
@@ -611,12 +690,23 @@ func (c *connection) start(f *forward) error {
 		}
 	}
 	f.adapter = adapter
+	if o.Stdio {
+		adapter.HTTPTransport = handlerTransport{handler: c.bridge}
+	}
+	if o.Inspect {
+		f.inspector = client.NewInspector(adapter)
+		adapter.Inspector = f.inspector
+	}
+	c.server.mu.Lock()
+	c.server.endpoints[name] = f
+	c.server.mu.Unlock()
 	go func() { _ = adapter.ServeMessages(ctx, messages); cancel() }()
 	go func() {
 		<-ctx.Done()
 		cancel()
 		c.server.mu.Lock()
 		delete(c.server.tokens, name)
+		delete(c.server.endpoints, name)
 		c.server.mu.Unlock()
 		c.mu.Lock()
 		if c.forwards[f.spec] == f {
@@ -629,6 +719,67 @@ func (c *connection) start(f *forward) error {
 		}
 	}()
 	return nil
+}
+
+type stdioOutput struct {
+	ssh.Channel
+	mu     sync.Mutex
+	timer  *time.Timer
+	cancel context.CancelFunc
+}
+
+func (s *stdioOutput) SetWriteDeadline(t time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.timer != nil {
+		s.timer.Stop()
+	}
+	if !t.IsZero() {
+		s.timer = time.AfterFunc(max(time.Until(t), 0), func() { _ = s.Channel.Close(); s.cancel() })
+	}
+	return nil
+}
+
+func (s *stdioOutput) Close() error {
+	_ = s.SetWriteDeadline(time.Time{})
+	return s.Channel.CloseWrite()
+}
+
+type handlerTransport struct{ handler http.Handler }
+
+func (t handlerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	w := httptest.NewRecorder()
+	t.handler.ServeHTTP(w, r)
+	return w.Result(), nil
+}
+func (s *Server) inspection(ctx context.Context, id Identity, args []string, out io.Writer) error {
+	if len(args) < 2 || len(args) > 3 || args[0] == "inspect" && len(args) != 2 || args[0] == "replay" && len(args) != 3 {
+		return fmt.Errorf("inspect NAME | replay NAME DELIVERY_ID")
+	}
+	if s.cfg.RotateToken == nil {
+		return fmt.Errorf("owner interface unavailable")
+	}
+	if err := s.cfg.RotateToken(ctx, id, args[1], nil); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	f := s.endpoints[args[1]]
+	s.mu.Unlock()
+	if f == nil || f.inspector == nil {
+		return fmt.Errorf("endpoint was not started with --inspect")
+	}
+	if args[0] == "inspect" {
+		return json.NewEncoder(out).Encode(f.inspector.Events())
+	}
+	n, err := strconv.ParseUint(args[2], 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid delivery ID")
+	}
+	event, err := f.inspector.Replay(ctx, n)
+	if err != nil {
+		return err
+	}
+	return json.NewEncoder(out).Encode(event)
 }
 
 func (s *Server) token(ctx context.Context, id Identity, args []string, out io.Writer) error {

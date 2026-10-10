@@ -1,5 +1,8 @@
 # tunn
 
+The [SSH API](docs/ssh-api.md) exposes local services with OpenSSH, including
+private sharing, key linking, metered grants, TCP forwarding and stdio MCP.
+
 Share localhost like a Google Doc.
 
 ```bash

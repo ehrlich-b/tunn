@@ -207,12 +207,19 @@ func (i *Inspector) replay(ctx context.Context, id uint64) (InspectionEvent, err
 			return (&net.Dialer{}).DialContext(ctx, "unix", address)
 		}
 	}
+	if i.target.DialContext != nil {
+		transport.DialContext = i.target.DialContext
+	}
 	defer transport.CloseIdleConnections()
 	timeout := i.target.HTTPTimeout
 	if timeout == 0 {
 		timeout = 30 * time.Second
 	}
-	client := &http.Client{Transport: transport, Timeout: timeout, CheckRedirect: func(*http.Request, []*http.Request) error {
+	var roundTripper http.RoundTripper = transport
+	if i.target.HTTPTransport != nil {
+		roundTripper = i.target.HTTPTransport
+	}
+	client := &http.Client{Transport: roundTripper, Timeout: timeout, CheckRedirect: func(*http.Request, []*http.Request) error {
 		return http.ErrUseLastResponse
 	}}
 	replayed := original
@@ -312,3 +319,11 @@ try{const res=await fetch('/api/events/'+e.id+'/replay',{method:'POST',headers:{
 if(!res.ok)alert(await res.text())}finally{replaying=false;await refresh()}};box.append(button)}
 refresh();setInterval(refresh,2000);
 </script></html>`
+
+// Events returns the bounded delivery history to an embedded owner interface.
+func (i *Inspector) Events() []InspectionEvent { return i.list() }
+
+// Replay repeats a complete captured delivery through the original adapter.
+func (i *Inspector) Replay(ctx context.Context, id uint64) (InspectionEvent, error) {
+	return i.replay(ctx, id)
+}

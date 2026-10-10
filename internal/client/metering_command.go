@@ -7,10 +7,11 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/ehrlich-b/tunn/internal/cliopts"
-	pb "github.com/ehrlich-b/tunn/pkg/proto/meteringv1"
 	"io"
 	"net/url"
+
+	"github.com/ehrlich-b/tunn/internal/cliopts"
+	pb "github.com/ehrlich-b/tunn/pkg/proto/meteringv1"
 )
 
 func ExecuteMetering(ctx context.Context, o *cliopts.Metering, c *ManagementClient, out io.Writer) error {

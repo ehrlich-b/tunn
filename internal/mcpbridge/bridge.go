@@ -55,6 +55,7 @@ type Bridge struct {
 	requestTimeout time.Duration
 	allowedTools   map[string]bool
 	closeOnce      sync.Once
+	streamContext  context.Context
 }
 
 // Options controls local MCP policy. An empty AllowedTools list permits every
@@ -174,8 +175,10 @@ func (b *Bridge) URL() string {
 func (b *Bridge) Close(ctx context.Context) error {
 	var closeErr error
 	b.closeOnce.Do(func() {
-		if err := b.httpServer.Shutdown(ctx); err != nil {
-			closeErr = err
+		if b.httpServer != nil {
+			if err := b.httpServer.Shutdown(ctx); err != nil {
+				closeErr = err
+			}
 		}
 		_ = b.stdin.Close()
 		b.cancel()
@@ -192,6 +195,10 @@ func (b *Bridge) Close(ctx context.Context) error {
 }
 
 func (b *Bridge) readChild(stdout io.Reader) {
+	ctx := context.Background()
+	if b.streamContext != nil {
+		ctx = b.streamContext
+	}
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 64*1024), MaxMessageSize)
 	for scanner.Scan() {
@@ -200,14 +207,21 @@ func (b *Bridge) readChild(stdout io.Reader) {
 			continue
 		}
 		copyOfMessage := append([]byte(nil), message...)
-		b.outputs <- childOutput{message: copyOfMessage}
+		select {
+		case b.outputs <- childOutput{message: copyOfMessage}:
+		case <-ctx.Done():
+			return
+		}
 	}
 
 	err := scanner.Err()
 	if err == nil {
 		err = io.EOF
 	}
-	b.outputs <- childOutput{err: err}
+	select {
+	case b.outputs <- childOutput{err: err}:
+	case <-ctx.Done():
+	}
 }
 
 // ServeHTTP translates Streamable HTTP POSTs into newline-delimited stdio
@@ -607,4 +621,18 @@ func writeToolDenied(w http.ResponseWriter, id json.RawMessage) {
 		idText = string(id)
 	}
 	_, _ = fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%s,"error":{"code":-32001,"message":"tool denied by local tunn policy"}}`, idText)
+}
+
+// FromStreams exposes a caller-owned stdio stream using the same MCP policy.
+// No child process or socket is created, and remote input is never executable.
+func FromStreams(parent context.Context, input io.Reader, output io.WriteCloser, options Options) *Bridge {
+	ctx, cancel := context.WithCancel(parent)
+	tools := make(map[string]bool)
+	for _, tool := range options.AllowedTools {
+		tools[tool] = true
+	}
+	b := &Bridge{cancel: cancel, stdin: output, outputs: make(chan childOutput, 1), done: make(chan struct{}), requestTimeout: defaultRequestTimeout, allowedTools: tools, streamContext: ctx}
+	go func() { b.readChild(input); close(b.done) }()
+	go func() { <-ctx.Done(); _ = output.Close() }()
+	return b
 }

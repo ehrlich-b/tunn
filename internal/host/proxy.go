@@ -522,13 +522,15 @@ func (p *ProxyServer) Run(ctx context.Context) error {
 	// Create the HTTP handler (will be used by both servers)
 	handler := p.createHandler()
 	if p.sshServer != nil && p.config.SSHAddr != "" {
+		wg.Add(1)
 		go func() {
+			defer wg.Done()
 			l, err := net.Listen("tcp", p.config.SSHAddr)
 			if err == nil {
 				err = p.sshServer.Serve(ctx, l)
 			}
 			if err != nil {
-				common.LogError("SSH listener failed", "error", err)
+				errChan <- fmt.Errorf("SSH listener error: %w", err)
 			}
 		}()
 	}

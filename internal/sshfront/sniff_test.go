@@ -2,8 +2,14 @@ package sshfront
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
 	"github.com/ehrlich-b/tunn/internal/testnet"
+	"golang.org/x/crypto/ssh"
 	"io"
+	"math/big"
 	"net"
 	"testing"
 	"time"
@@ -58,5 +64,87 @@ func TestSniffSSHAndTLS(t *testing.T) {
 	cancel()
 	if _, err := shared.Accept(); err == nil {
 		t.Fatal("closed listener accepted")
+	}
+}
+
+func TestSniffRealSSHAndTLSHandshakesOnOneListener(t *testing.T) {
+	public, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostKey, err := ssh.NewSignerFromKey(private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := New(Config{HostKey: hostKey, Resolve: func(context.Context, string) (string, error) { return "", nil }, Establish: func(context.Context, Identity, *Stream) error { return nil }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	l := testnet.NewListener()
+	shared := Share(ctx, l, s.ServeConn)
+	defer func() { _ = shared.Close() }()
+	raw, err := l.Dial()
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, channels, requests, err := ssh.NewClientConn(raw, "memory:443", &ssh.ClientConfig{User: "tunn", Auth: []ssh.AuthMethod{ssh.PublicKeys(hostKey)}, HostKeyCallback: ssh.FixedHostKey(hostKey.PublicKey())})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := ssh.NewClient(conn, channels, requests)
+	defer func() { _ = c.Close() }()
+	session, err := c.NewSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, err := session.CombinedOutput("help")
+	if err != nil || len(output) == 0 {
+		t.Fatalf("shared SSH=%s %v", output, err)
+	}
+	template := &x509.Certificate{SerialNumber: big.NewInt(1), DNSNames: []string{"memory.test"}, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour), KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, public, private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool := x509.NewCertPool()
+	pool.AddCert(root)
+	tlsListener := tls.NewListener(shared, &tls.Config{Certificates: []tls.Certificate{{Certificate: [][]byte{der}, PrivateKey: private}}})
+	done := make(chan error, 1)
+	go func() {
+		c, err := tlsListener.Accept()
+		if err != nil {
+			done <- err
+			return
+		}
+		defer func() { _ = c.Close() }()
+		data := make([]byte, 4)
+		_, err = io.ReadFull(c, data)
+		if err == nil {
+			_, err = c.Write(data)
+		}
+		done <- err
+	}()
+	raw, err = l.Dial()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tlsClient := tls.Client(raw, &tls.Config{ServerName: "memory.test", RootCAs: pool})
+	defer func() { _ = tlsClient.Close() }()
+	_ = tlsClient.SetDeadline(time.Now().Add(3 * time.Second))
+	if _, err := tlsClient.Write([]byte("ping")); err != nil {
+		t.Fatal(err)
+	}
+	data := make([]byte, 4)
+	if _, err := io.ReadFull(tlsClient, data); err != nil || string(data) != "ping" {
+		t.Fatalf("shared TLS=%s %v", data, err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
 	}
 }

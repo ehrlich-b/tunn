@@ -296,7 +296,9 @@ tunn grant create work-tools \
   --for agent@example.com \
   --expires 1h --rate 60 \
   --monthly-requests 1000 --monthly-bytes 1000000
-tunn usage work-tools --month 2026-10
+tunn grant list work-tools
+tunn usage --tunnel work-tools --since 24h
+tunn usage
 tunn grant revoke work-tools <grant-id>
 ```
 

@@ -36,7 +36,7 @@ func TestMeteringCLIParsesBudgetsAndFlagPositions(t *testing.T) {
 }
 func TestMeteringCLIRejectsInvalidLimits(t *testing.T) {
 	now := time.Now()
-	for _, args := range [][]string{{}, {"list", "api"}, {"create"}, {"create", "../api"}, {"create", "api", "--expires=0s"}, {"create", "api", "--expires=-1h"}, {"create", "api", "--expires=10000h"}, {"create", "api", "--monthly-requests", "-1"}, {"create", "api", "--monthly-bytes=-1"}, {"create", "api", "--rate=-1"}, {"create", "api", "--rate"}, {"create", "api", "--unknown=1"}, {"revoke", "api", "../secret"}} {
+	for _, args := range [][]string{{}, {"unknown", "api"}, {"list", "../api"}, {"create"}, {"create", "../api"}, {"create", "api", "--expires=0s"}, {"create", "api", "--expires=-1h"}, {"create", "api", "--expires=10000h"}, {"create", "api", "--monthly-requests", "-1"}, {"create", "api", "--monthly-bytes=-1"}, {"create", "api", "--rate=-1"}, {"create", "api", "--rate"}, {"create", "api", "--unknown=1"}, {"revoke", "api", "../secret"}} {
 		if _, err := parseMeteringOptions("grant", args, now); err == nil {
 			t.Fatalf("accepted %v", args)
 		}
@@ -46,5 +46,32 @@ func TestMeteringCLIRejectsInvalidLimits(t *testing.T) {
 	}
 	if _, err := parseMeteringOptions("usage", []string{"--help"}, now); !errors.Is(err, flag.ErrHelp) {
 		t.Fatal(err)
+	}
+}
+
+func TestMeteringCLICorrectedUsageAndGrantList(t *testing.T) {
+	now := time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
+	for _, test := range []struct {
+		args                   []string
+		endpoint, since, month string
+	}{{nil, "", "", "2026-10"}, {[]string{"--since", "24h"}, "", "24h", ""}, {[]string{"--tunnel=api", "--since=1h"}, "api", "1h", ""}, {[]string{"--since", "2h", "--tunnel", "api"}, "api", "2h", ""}} {
+		o, err := parseMeteringOptions("usage", test.args, now)
+		if err != nil {
+			t.Fatalf("%v: %v", test.args, err)
+		}
+		if o.endpoint != test.endpoint || o.since != test.since || o.month != test.month {
+			t.Fatalf("options=%+v", o)
+		}
+	}
+	for _, args := range [][]string{{"--tunnel="}, {"--tunnel=../api"}, {"--tunnel=api", "other"}, {"--since="}, {"--since=-1h"}, {"--since=0s"}, {"--since=1ns"}, {"--since=bad"}, {"--since=1h", "--month=2026-10"}, {"api", "extra"}} {
+		if _, err := parseMeteringOptions("usage", args, now); err == nil {
+			t.Fatalf("accepted %v", args)
+		}
+	}
+	for _, args := range [][]string{{"list"}, {"list", "api"}} {
+		o, err := parseMeteringOptions("grant", args, now)
+		if err != nil || o.action != "list" {
+			t.Fatalf("%v: %v %v", args, o, err)
+		}
 	}
 }

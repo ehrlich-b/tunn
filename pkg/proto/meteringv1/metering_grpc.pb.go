@@ -22,6 +22,7 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	Metering_Resolve_FullMethodName     = "/metering.Metering/Resolve"
 	Metering_CreateGrant_FullMethodName = "/metering.Metering/CreateGrant"
+	Metering_ListGrants_FullMethodName  = "/metering.Metering/ListGrants"
 	Metering_RevokeGrant_FullMethodName = "/metering.Metering/RevokeGrant"
 	Metering_Admit_FullMethodName       = "/metering.Metering/Admit"
 	Metering_Charge_FullMethodName      = "/metering.Metering/Charge"
@@ -35,6 +36,7 @@ const (
 type MeteringClient interface {
 	Resolve(ctx context.Context, in *ResolveRequest, opts ...grpc.CallOption) (*Grant, error)
 	CreateGrant(ctx context.Context, in *Grant, opts ...grpc.CallOption) (*Grant, error)
+	ListGrants(ctx context.Context, in *ListGrantsRequest, opts ...grpc.CallOption) (*ListGrantsResponse, error)
 	RevokeGrant(ctx context.Context, in *Grant, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	Admit(ctx context.Context, in *Event, opts ...grpc.CallOption) (*Decision, error)
 	Charge(ctx context.Context, in *ChargeRequest, opts ...grpc.CallOption) (*Decision, error)
@@ -64,6 +66,16 @@ func (c *meteringClient) CreateGrant(ctx context.Context, in *Grant, opts ...grp
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(Grant)
 	err := c.cc.Invoke(ctx, Metering_CreateGrant_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *meteringClient) ListGrants(ctx context.Context, in *ListGrantsRequest, opts ...grpc.CallOption) (*ListGrantsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListGrantsResponse)
+	err := c.cc.Invoke(ctx, Metering_ListGrants_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -126,6 +138,7 @@ func (c *meteringClient) Export(ctx context.Context, in *ExportRequest, opts ...
 type MeteringServer interface {
 	Resolve(context.Context, *ResolveRequest) (*Grant, error)
 	CreateGrant(context.Context, *Grant) (*Grant, error)
+	ListGrants(context.Context, *ListGrantsRequest) (*ListGrantsResponse, error)
 	RevokeGrant(context.Context, *Grant) (*emptypb.Empty, error)
 	Admit(context.Context, *Event) (*Decision, error)
 	Charge(context.Context, *ChargeRequest) (*Decision, error)
@@ -146,6 +159,9 @@ func (UnimplementedMeteringServer) Resolve(context.Context, *ResolveRequest) (*G
 }
 func (UnimplementedMeteringServer) CreateGrant(context.Context, *Grant) (*Grant, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateGrant not implemented")
+}
+func (UnimplementedMeteringServer) ListGrants(context.Context, *ListGrantsRequest) (*ListGrantsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListGrants not implemented")
 }
 func (UnimplementedMeteringServer) RevokeGrant(context.Context, *Grant) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method RevokeGrant not implemented")
@@ -215,6 +231,24 @@ func _Metering_CreateGrant_Handler(srv interface{}, ctx context.Context, dec fun
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(MeteringServer).CreateGrant(ctx, req.(*Grant))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Metering_ListGrants_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListGrantsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MeteringServer).ListGrants(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Metering_ListGrants_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MeteringServer).ListGrants(ctx, req.(*ListGrantsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -323,6 +357,10 @@ var Metering_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CreateGrant",
 			Handler:    _Metering_CreateGrant_Handler,
+		},
+		{
+			MethodName: "ListGrants",
+			Handler:    _Metering_ListGrants_Handler,
 		},
 		{
 			MethodName: "RevokeGrant",

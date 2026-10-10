@@ -116,7 +116,7 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 			return nil, fmt.Errorf("failed to initialize database: %w", err)
 		}
 		localStorage = storage.NewLocalStorage(db)
-		localMeter, err = metering.New(db)
+		localMeter, err = metering.New(db, metering.WithOwnerBudgets(cfg.OwnerMonthlyRequests, cfg.OwnerMonthlyBytes))
 		if err != nil {
 			return nil, fmt.Errorf("initialize ingress meter: %w", err)
 		}
@@ -722,6 +722,8 @@ func (p *ProxyServer) createHandler() http.Handler {
 	mux.HandleFunc("/api/device/code", p.handleDeviceCode)
 	mux.HandleFunc("/api/device/token", p.handleDeviceToken)
 	mux.HandleFunc("/api/endpoints/", p.handleMeteringAPI)
+	mux.HandleFunc("/api/usage", p.handleMeteringAPI)
+	mux.HandleFunc("/api/grants", p.handleMeteringAPI)
 	mux.HandleFunc("/login", p.handleLoginPage)
 	mux.HandleFunc("/auth/device/authorize", p.handleDeviceAuthorize)
 

@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -411,15 +412,109 @@ func TestMeteringOwnerAPI(t *testing.T) {
 	if rec := call("DELETE", path+"/"+created.Id, ownerJWT, nil); rec.Code != 204 {
 		t.Fatal(rec.Code)
 	}
+	for _, path := range []string{"/api/grants", "/api/endpoints/api/grants"} {
+		rec := call("GET", path, ownerJWT, nil)
+		var listed meterpb.ListGrantsResponse
+		if rec.Code != 200 || json.Unmarshal(rec.Body.Bytes(), &listed) != nil || len(listed.Grants) != 1 || !listed.Grants[0].Revoked || len(listed.Grants[0].TokenSha256) != 0 {
+			t.Fatalf("list=%d %s", rec.Code, rec.Body.String())
+		}
+		if rec := call("GET", path, relayJWT(t, p, "stranger@example.com"), nil); rec.Code != 200 || strings.Contains(rec.Body.String(), created.Id) {
+			t.Fatalf("owner isolation=%d %s", rec.Code, rec.Body.String())
+		}
+	}
 	if rec := call("GET", "/api/endpoints/api/usage?month=invalid", ownerJWT, nil); rec.Code != 400 {
 		t.Fatal(rec.Code)
 	}
 	if rec := call("GET", "/api/endpoints/api/usage", ownerJWT, nil); rec.Code != 200 {
 		t.Fatal(rec.Code)
 	}
+	for _, path := range []string{"/api/usage?since=bad", "/api/usage?since=0s", "/api/usage?since=1h&month=2026-10", "/api/usage?tunnel=../api"} {
+		if rec := call("GET", path, ownerJWT, nil); rec.Code != 400 && rec.Code != 404 {
+			t.Fatalf("accepted %s: %d", path, rec.Code)
+		}
+	}
+	p.createHandler().ServeHTTP(httptest.NewRecorder(), relayRequest(relayJWT(t, p, "alice@example.com"), "abc"))
+	for _, path := range []string{"/api/usage", "/api/usage?tunnel=api&since=1h", "/api/endpoints/api/usage?since=1h"} {
+		rec := call("GET", path, ownerJWT, nil)
+		var usage meterpb.ExportResponse
+		if rec.Code != 200 || json.Unmarshal(rec.Body.Bytes(), &usage) != nil || usage.OwnerUsage == nil || usage.OwnerUsage.TotalBytes != 5 || usage.OwnerUsage.Requests != 1 {
+			t.Fatalf("usage %s=%d %s", path, rec.Code, rec.Body.String())
+		}
+		if rec := call("GET", path, "", nil); rec.Code != 401 {
+			t.Fatalf("unauthenticated usage=%d", rec.Code)
+		}
+	}
 	resolved, err := ledger.Resolve(context.Background(), &meterpb.ResolveRequest{Owner: created.Owner, Endpoint: created.Endpoint, TokenSha256: digest[:]})
 	if err != nil || !resolved.Revoked {
 		t.Fatalf("grant=%v %v", resolved, err)
+	}
+}
+
+func TestMeteringOwnerCapsEnforceOnBothHTTPPaths(t *testing.T) {
+	for _, streaming := range []bool{false, true} {
+		t.Run(fmt.Sprintf("streaming=%v", streaming), func(t *testing.T) {
+			p, _, _, stream := meteringRelay(t, streaming, "response")
+			// Apply a shared cap to this fixture's ingress ledger.
+			local := p.storage.(*meteringFixtureStorage)
+			db, err := store.InitForTest()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = db.Close() }()
+			ledger, err := metering.New(db, metering.WithOwnerBudgets(1, 12))
+			if err != nil {
+				t.Fatal(err)
+			}
+			p.meter = ledger
+			jwt := relayJWT(t, p, "alice@example.com")
+			rec := httptest.NewRecorder()
+			p.createHandler().ServeHTTP(rec, relayRequest(jwt, "data"))
+			if rec.Code != 200 || rec.Body.String() != "response" || rec.Header().Get("Tunn-Requests-Remaining") != "0" {
+				t.Fatalf("admitted=%d %s %v", rec.Code, rec.Body.String(), rec.Header())
+			}
+			messageCount := func() int {
+				stream.mu.Lock()
+				defer stream.mu.Unlock()
+				return len(stream.sentMsgs)
+			}
+			before := messageCount()
+			rec = httptest.NewRecorder()
+			p.createHandler().ServeHTTP(rec, relayRequest(jwt, "data"))
+			if rec.Code != 429 || rec.Header().Get("Tunn-Limit-Reason") != "owner_request_budget" || messageCount() != before || local.usage["owner-account"] != 12 {
+				t.Fatalf("denied=%d %v account=%d", rec.Code, rec.Header(), local.usage["owner-account"])
+			}
+		})
+	}
+}
+
+func TestMeteringKnownResponseReportsTighterOwnerBudget(t *testing.T) {
+	p, tunnel, _, _ := meteringRelay(t, false, "")
+	db, err := store.InitForTest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	ledger, err := metering.New(db, metering.WithOwnerBudgets(0, 5))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.meter = ledger
+	g, token := relayGrant(t, ledger, 10, 100)
+	session := newIngressMeter(p, tunnel)
+	session.event.Caller, session.event.GrantId = "grant:"+g.Id, g.Id
+	rec := httptest.NewRecorder()
+	if !session.admit(context.Background(), rec, relayRequest(token, "a")) {
+		t.Fatal(rec.Body.String())
+	}
+	if _, err := session.charge(context.Background(), true, 1); err != nil {
+		t.Fatal(err)
+	}
+	var limit *ingressLimitError
+	if err := session.checkResponse(context.Background(), 5); !errors.As(err, &limit) || limit.decision.Reason != "owner_byte_budget" || limit.decision.Status != 429 || limit.decision.BytesRemaining != 4 {
+		t.Fatalf("response preflight=%v", err)
+	}
+	if out := relayExport(t, ledger); out.OwnerUsage.RequestBytes != 1 || out.OwnerUsage.ResponseBytes != 0 {
+		t.Fatalf("response preflight reserved rejected bytes: %v", out)
 	}
 }
 func TestMeteringAuthorityFailureClosesIngress(t *testing.T) {

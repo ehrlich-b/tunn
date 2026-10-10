@@ -7,6 +7,7 @@ import "google/protobuf/empty.proto";
 service Metering {
   rpc Resolve(ResolveRequest) returns (Grant);
   rpc CreateGrant(Grant) returns (Grant);
+  rpc ListGrants(ListGrantsRequest) returns (ListGrantsResponse);
   rpc RevokeGrant(Grant) returns (google.protobuf.Empty);
   rpc Admit(Event) returns (Decision);
   // Cumulative byte counts make repeated internal RPCs idempotent.
@@ -31,6 +32,13 @@ message ResolveRequest {
   string owner = 1;
   string endpoint = 2;
   bytes token_sha256 = 3;
+}
+message ListGrantsRequest {
+  string owner = 1;
+  string endpoint = 2; // empty selects all of the owner's endpoints
+}
+message ListGrantsResponse {
+  repeated Grant grants = 1; // credential digests are never exported
 }
 message Event {
   string request_id = 1;
@@ -61,6 +69,7 @@ message Decision {
   int64 bytes_remaining = 6;
   int64 request_bytes = 7;
   int64 response_bytes = 8;
+  string byte_budget_reason = 9; // source of the tighter remaining byte budget
 }
 message ChargeRequest {
   string request_id = 1;
@@ -76,11 +85,14 @@ message Usage {
   int64 admitted_requests = 6;
   int64 request_bytes = 7;
   int64 response_bytes = 8;
+  int64 total_bytes = 9; // request + response body bytes
 }
 message ExportRequest {
   string owner = 1;
   string endpoint = 2;
   string month = 3;
+  int64 since = 4; // Unix milliseconds; mutually exclusive with month
+  int64 until = 5; // exclusive window end, Unix milliseconds
 }
 message ExportResponse {
   repeated Usage usage = 1;
@@ -88,4 +100,8 @@ message ExportResponse {
   int32 schema_version = 3;
   string byte_unit = 4;
   bool audit_truncated = 5;
+  Usage owner_usage = 6; // totals across the selected endpoints and callers
+  int64 since = 7;
+  int64 until = 8;
+  bool usage_truncated = 9; // time-window counters may lack evicted events
 }

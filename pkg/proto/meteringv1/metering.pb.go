@@ -198,6 +198,102 @@ func (x *ResolveRequest) GetTokenSha256() []byte {
 	return nil
 }
 
+type ListGrantsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Owner         string                 `protobuf:"bytes,1,opt,name=owner,proto3" json:"owner,omitempty"`
+	Endpoint      string                 `protobuf:"bytes,2,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListGrantsRequest) Reset() {
+	*x = ListGrantsRequest{}
+	mi := &file_proto_metering_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListGrantsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListGrantsRequest) ProtoMessage() {}
+
+func (x *ListGrantsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_metering_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListGrantsRequest.ProtoReflect.Descriptor instead.
+func (*ListGrantsRequest) Descriptor() ([]byte, []int) {
+	return file_proto_metering_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *ListGrantsRequest) GetOwner() string {
+	if x != nil {
+		return x.Owner
+	}
+	return ""
+}
+
+func (x *ListGrantsRequest) GetEndpoint() string {
+	if x != nil {
+		return x.Endpoint
+	}
+	return ""
+}
+
+type ListGrantsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Grants        []*Grant               `protobuf:"bytes,1,rep,name=grants,proto3" json:"grants,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListGrantsResponse) Reset() {
+	*x = ListGrantsResponse{}
+	mi := &file_proto_metering_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListGrantsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListGrantsResponse) ProtoMessage() {}
+
+func (x *ListGrantsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_metering_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListGrantsResponse.ProtoReflect.Descriptor instead.
+func (*ListGrantsResponse) Descriptor() ([]byte, []int) {
+	return file_proto_metering_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ListGrantsResponse) GetGrants() []*Grant {
+	if x != nil {
+		return x.Grants
+	}
+	return nil
+}
+
 type Event struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
@@ -224,7 +320,7 @@ type Event struct {
 
 func (x *Event) Reset() {
 	*x = Event{}
-	mi := &file_proto_metering_proto_msgTypes[2]
+	mi := &file_proto_metering_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -236,7 +332,7 @@ func (x *Event) String() string {
 func (*Event) ProtoMessage() {}
 
 func (x *Event) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_metering_proto_msgTypes[2]
+	mi := &file_proto_metering_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -249,7 +345,7 @@ func (x *Event) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Event.ProtoReflect.Descriptor instead.
 func (*Event) Descriptor() ([]byte, []int) {
-	return file_proto_metering_proto_rawDescGZIP(), []int{2}
+	return file_proto_metering_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *Event) GetRequestId() string {
@@ -388,13 +484,14 @@ type Decision struct {
 	BytesRemaining    int64                  `protobuf:"varint,6,opt,name=bytes_remaining,json=bytesRemaining,proto3" json:"bytes_remaining,omitempty"`
 	RequestBytes      int64                  `protobuf:"varint,7,opt,name=request_bytes,json=requestBytes,proto3" json:"request_bytes,omitempty"`
 	ResponseBytes     int64                  `protobuf:"varint,8,opt,name=response_bytes,json=responseBytes,proto3" json:"response_bytes,omitempty"`
+	ByteBudgetReason  string                 `protobuf:"bytes,9,opt,name=byte_budget_reason,json=byteBudgetReason,proto3" json:"byte_budget_reason,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
 
 func (x *Decision) Reset() {
 	*x = Decision{}
-	mi := &file_proto_metering_proto_msgTypes[3]
+	mi := &file_proto_metering_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -406,7 +503,7 @@ func (x *Decision) String() string {
 func (*Decision) ProtoMessage() {}
 
 func (x *Decision) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_metering_proto_msgTypes[3]
+	mi := &file_proto_metering_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -419,7 +516,7 @@ func (x *Decision) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Decision.ProtoReflect.Descriptor instead.
 func (*Decision) Descriptor() ([]byte, []int) {
-	return file_proto_metering_proto_rawDescGZIP(), []int{3}
+	return file_proto_metering_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *Decision) GetAllowed() bool {
@@ -478,6 +575,13 @@ func (x *Decision) GetResponseBytes() int64 {
 	return 0
 }
 
+func (x *Decision) GetByteBudgetReason() string {
+	if x != nil {
+		return x.ByteBudgetReason
+	}
+	return ""
+}
+
 type ChargeRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
@@ -489,7 +593,7 @@ type ChargeRequest struct {
 
 func (x *ChargeRequest) Reset() {
 	*x = ChargeRequest{}
-	mi := &file_proto_metering_proto_msgTypes[4]
+	mi := &file_proto_metering_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -501,7 +605,7 @@ func (x *ChargeRequest) String() string {
 func (*ChargeRequest) ProtoMessage() {}
 
 func (x *ChargeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_metering_proto_msgTypes[4]
+	mi := &file_proto_metering_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -514,7 +618,7 @@ func (x *ChargeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ChargeRequest.ProtoReflect.Descriptor instead.
 func (*ChargeRequest) Descriptor() ([]byte, []int) {
-	return file_proto_metering_proto_rawDescGZIP(), []int{4}
+	return file_proto_metering_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *ChargeRequest) GetRequestId() string {
@@ -548,13 +652,14 @@ type Usage struct {
 	AdmittedRequests int64                  `protobuf:"varint,6,opt,name=admitted_requests,json=admittedRequests,proto3" json:"admitted_requests,omitempty"`
 	RequestBytes     int64                  `protobuf:"varint,7,opt,name=request_bytes,json=requestBytes,proto3" json:"request_bytes,omitempty"`
 	ResponseBytes    int64                  `protobuf:"varint,8,opt,name=response_bytes,json=responseBytes,proto3" json:"response_bytes,omitempty"`
+	TotalBytes       int64                  `protobuf:"varint,9,opt,name=total_bytes,json=totalBytes,proto3" json:"total_bytes,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
 
 func (x *Usage) Reset() {
 	*x = Usage{}
-	mi := &file_proto_metering_proto_msgTypes[5]
+	mi := &file_proto_metering_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -566,7 +671,7 @@ func (x *Usage) String() string {
 func (*Usage) ProtoMessage() {}
 
 func (x *Usage) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_metering_proto_msgTypes[5]
+	mi := &file_proto_metering_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -579,7 +684,7 @@ func (x *Usage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Usage.ProtoReflect.Descriptor instead.
 func (*Usage) Descriptor() ([]byte, []int) {
-	return file_proto_metering_proto_rawDescGZIP(), []int{5}
+	return file_proto_metering_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *Usage) GetOwner() string {
@@ -638,18 +743,27 @@ func (x *Usage) GetResponseBytes() int64 {
 	return 0
 }
 
+func (x *Usage) GetTotalBytes() int64 {
+	if x != nil {
+		return x.TotalBytes
+	}
+	return 0
+}
+
 type ExportRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Owner         string                 `protobuf:"bytes,1,opt,name=owner,proto3" json:"owner,omitempty"`
 	Endpoint      string                 `protobuf:"bytes,2,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
 	Month         string                 `protobuf:"bytes,3,opt,name=month,proto3" json:"month,omitempty"`
+	Since         int64                  `protobuf:"varint,4,opt,name=since,proto3" json:"since,omitempty"`
+	Until         int64                  `protobuf:"varint,5,opt,name=until,proto3" json:"until,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ExportRequest) Reset() {
 	*x = ExportRequest{}
-	mi := &file_proto_metering_proto_msgTypes[6]
+	mi := &file_proto_metering_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -661,7 +775,7 @@ func (x *ExportRequest) String() string {
 func (*ExportRequest) ProtoMessage() {}
 
 func (x *ExportRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_metering_proto_msgTypes[6]
+	mi := &file_proto_metering_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -674,7 +788,7 @@ func (x *ExportRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExportRequest.ProtoReflect.Descriptor instead.
 func (*ExportRequest) Descriptor() ([]byte, []int) {
-	return file_proto_metering_proto_rawDescGZIP(), []int{6}
+	return file_proto_metering_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ExportRequest) GetOwner() string {
@@ -698,6 +812,20 @@ func (x *ExportRequest) GetMonth() string {
 	return ""
 }
 
+func (x *ExportRequest) GetSince() int64 {
+	if x != nil {
+		return x.Since
+	}
+	return 0
+}
+
+func (x *ExportRequest) GetUntil() int64 {
+	if x != nil {
+		return x.Until
+	}
+	return 0
+}
+
 type ExportResponse struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	Usage          []*Usage               `protobuf:"bytes,1,rep,name=usage,proto3" json:"usage,omitempty"`
@@ -705,13 +833,17 @@ type ExportResponse struct {
 	SchemaVersion  int32                  `protobuf:"varint,3,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
 	ByteUnit       string                 `protobuf:"bytes,4,opt,name=byte_unit,json=byteUnit,proto3" json:"byte_unit,omitempty"`
 	AuditTruncated bool                   `protobuf:"varint,5,opt,name=audit_truncated,json=auditTruncated,proto3" json:"audit_truncated,omitempty"`
+	OwnerUsage     *Usage                 `protobuf:"bytes,6,opt,name=owner_usage,json=ownerUsage,proto3" json:"owner_usage,omitempty"`
+	Since          int64                  `protobuf:"varint,7,opt,name=since,proto3" json:"since,omitempty"`
+	Until          int64                  `protobuf:"varint,8,opt,name=until,proto3" json:"until,omitempty"`
+	UsageTruncated bool                   `protobuf:"varint,9,opt,name=usage_truncated,json=usageTruncated,proto3" json:"usage_truncated,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
 
 func (x *ExportResponse) Reset() {
 	*x = ExportResponse{}
-	mi := &file_proto_metering_proto_msgTypes[7]
+	mi := &file_proto_metering_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -723,7 +855,7 @@ func (x *ExportResponse) String() string {
 func (*ExportResponse) ProtoMessage() {}
 
 func (x *ExportResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_metering_proto_msgTypes[7]
+	mi := &file_proto_metering_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -736,7 +868,7 @@ func (x *ExportResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExportResponse.ProtoReflect.Descriptor instead.
 func (*ExportResponse) Descriptor() ([]byte, []int) {
-	return file_proto_metering_proto_rawDescGZIP(), []int{7}
+	return file_proto_metering_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ExportResponse) GetUsage() []*Usage {
@@ -774,6 +906,34 @@ func (x *ExportResponse) GetAuditTruncated() bool {
 	return false
 }
 
+func (x *ExportResponse) GetOwnerUsage() *Usage {
+	if x != nil {
+		return x.OwnerUsage
+	}
+	return nil
+}
+
+func (x *ExportResponse) GetSince() int64 {
+	if x != nil {
+		return x.Since
+	}
+	return 0
+}
+
+func (x *ExportResponse) GetUntil() int64 {
+	if x != nil {
+		return x.Until
+	}
+	return 0
+}
+
+func (x *ExportResponse) GetUsageTruncated() bool {
+	if x != nil {
+		return x.UsageTruncated
+	}
+	return false
+}
+
 var File_proto_metering_proto protoreflect.FileDescriptor
 
 const file_proto_metering_proto_rawDesc = "" +
@@ -796,7 +956,12 @@ const file_proto_metering_proto_rawDesc = "" +
 	"\x0eResolveRequest\x12\r\n" +
 	"\x05owner\x18\x01 \x01(\t\x12\x10\n" +
 	"\bendpoint\x18\x02 \x01(\t\x12\x14\n" +
-	"\ftoken_sha256\x18\x03 \x01(\f\"\xef\x02\n" +
+	"\ftoken_sha256\x18\x03 \x01(\f\"4\n" +
+	"\x11ListGrantsRequest\x12\r\n" +
+	"\x05owner\x18\x01 \x01(\t\x12\x10\n" +
+	"\bendpoint\x18\x02 \x01(\t\"5\n" +
+	"\x12ListGrantsResponse\x12\x1f\n" +
+	"\x06grants\x18\x01 \x03(\v2\x0f.metering.Grant\"\xef\x02\n" +
 	"\x05Event\x12\x12\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\t\x12\r\n" +
@@ -818,7 +983,7 @@ const file_proto_metering_proto_rawDesc = "" +
 	"\bfinished\x18\x0f \x01(\b\x12\x11\n" +
 	"\tforwarded\x18\x10 \x01(\b\x12\x16\n" +
 	"\x0econtent_length\x18\x11 \x01(\x03\x12%\n" +
-	"\tadmission\x18\x12 \x01(\v2\x12.metering.Decision\"\xb4\x01\n" +
+	"\tadmission\x18\x12 \x01(\v2\x12.metering.Decision\"\xd0\x01\n" +
 	"\bDecision\x12\x0f\n" +
 	"\aallowed\x18\x01 \x01(\b\x12\x0e\n" +
 	"\x06reason\x18\x02 \x01(\t\x12\x0e\n" +
@@ -827,12 +992,13 @@ const file_proto_metering_proto_rawDesc = "" +
 	"\x12requests_remaining\x18\x05 \x01(\x03\x12\x17\n" +
 	"\x0fbytes_remaining\x18\x06 \x01(\x03\x12\x15\n" +
 	"\rrequest_bytes\x18\a \x01(\x03\x12\x16\n" +
-	"\x0eresponse_bytes\x18\b \x01(\x03\"R\n" +
+	"\x0eresponse_bytes\x18\b \x01(\x03\x12\x1a\n" +
+	"\x12byte_budget_reason\x18\t \x01(\t\"R\n" +
 	"\rChargeRequest\x12\x12\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\t\x12\x15\n" +
 	"\rrequest_bytes\x18\x02 \x01(\x03\x12\x16\n" +
-	"\x0eresponse_bytes\x18\x03 \x01(\x03\"\xa3\x01\n" +
+	"\x0eresponse_bytes\x18\x03 \x01(\x03\"\xb8\x01\n" +
 	"\x05Usage\x12\r\n" +
 	"\x05owner\x18\x01 \x01(\t\x12\x10\n" +
 	"\bendpoint\x18\x02 \x01(\t\x12\x0e\n" +
@@ -841,20 +1007,29 @@ const file_proto_metering_proto_rawDesc = "" +
 	"\brequests\x18\x05 \x01(\x03\x12\x19\n" +
 	"\x11admitted_requests\x18\x06 \x01(\x03\x12\x15\n" +
 	"\rrequest_bytes\x18\a \x01(\x03\x12\x16\n" +
-	"\x0eresponse_bytes\x18\b \x01(\x03\"?\n" +
+	"\x0eresponse_bytes\x18\b \x01(\x03\x12\x13\n" +
+	"\vtotal_bytes\x18\t \x01(\x03\"]\n" +
 	"\rExportRequest\x12\r\n" +
 	"\x05owner\x18\x01 \x01(\t\x12\x10\n" +
 	"\bendpoint\x18\x02 \x01(\t\x12\r\n" +
-	"\x05month\x18\x03 \x01(\t\"\x95\x01\n" +
+	"\x05month\x18\x03 \x01(\t\x12\r\n" +
+	"\x05since\x18\x04 \x01(\x03\x12\r\n" +
+	"\x05until\x18\x05 \x01(\x03\"\xf2\x01\n" +
 	"\x0eExportResponse\x12\x1e\n" +
 	"\x05usage\x18\x01 \x03(\v2\x0f.metering.Usage\x12\x1f\n" +
 	"\x06events\x18\x02 \x03(\v2\x0f.metering.Event\x12\x16\n" +
 	"\x0eschema_version\x18\x03 \x01(\x05\x12\x11\n" +
 	"\tbyte_unit\x18\x04 \x01(\t\x12\x17\n" +
-	"\x0faudit_truncated\x18\x05 \x01(\b2\xfe\x02\n" +
+	"\x0faudit_truncated\x18\x05 \x01(\b\x12$\n" +
+	"\vowner_usage\x18\x06 \x01(\v2\x0f.metering.Usage\x12\r\n" +
+	"\x05since\x18\a \x01(\x03\x12\r\n" +
+	"\x05until\x18\b \x01(\x03\x12\x17\n" +
+	"\x0fusage_truncated\x18\t \x01(\b2\xc7\x03\n" +
 	"\bMetering\x124\n" +
 	"\aResolve\x12\x18.metering.ResolveRequest\x1a\x0f.metering.Grant\x12/\n" +
-	"\vCreateGrant\x12\x0f.metering.Grant\x1a\x0f.metering.Grant\x126\n" +
+	"\vCreateGrant\x12\x0f.metering.Grant\x1a\x0f.metering.Grant\x12G\n" +
+	"\n" +
+	"ListGrants\x12\x1b.metering.ListGrantsRequest\x1a\x1c.metering.ListGrantsResponse\x126\n" +
 	"\vRevokeGrant\x12\x0f.metering.Grant\x1a\x16.google.protobuf.Empty\x12,\n" +
 	"\x05Admit\x12\x0f.metering.Event\x1a\x12.metering.Decision\x125\n" +
 	"\x06Charge\x12\x17.metering.ChargeRequest\x1a\x12.metering.Decision\x121\n" +
@@ -873,41 +1048,47 @@ func file_proto_metering_proto_rawDescGZIP() []byte {
 	return file_proto_metering_proto_rawDescData
 }
 
-var file_proto_metering_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_proto_metering_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
 var file_proto_metering_proto_goTypes = []any{
-	(*Grant)(nil),          // 0: metering.Grant
-	(*ResolveRequest)(nil), // 1: metering.ResolveRequest
-	(*Event)(nil),          // 2: metering.Event
-	(*Decision)(nil),       // 3: metering.Decision
-	(*ChargeRequest)(nil),  // 4: metering.ChargeRequest
-	(*Usage)(nil),          // 5: metering.Usage
-	(*ExportRequest)(nil),  // 6: metering.ExportRequest
-	(*ExportResponse)(nil), // 7: metering.ExportResponse
-	(*emptypb.Empty)(nil),  // 8: google.protobuf.Empty
+	(*Grant)(nil),              // 0: metering.Grant
+	(*ResolveRequest)(nil),     // 1: metering.ResolveRequest
+	(*ListGrantsRequest)(nil),  // 2: metering.ListGrantsRequest
+	(*ListGrantsResponse)(nil), // 3: metering.ListGrantsResponse
+	(*Event)(nil),              // 4: metering.Event
+	(*Decision)(nil),           // 5: metering.Decision
+	(*ChargeRequest)(nil),      // 6: metering.ChargeRequest
+	(*Usage)(nil),              // 7: metering.Usage
+	(*ExportRequest)(nil),      // 8: metering.ExportRequest
+	(*ExportResponse)(nil),     // 9: metering.ExportResponse
+	(*emptypb.Empty)(nil),      // 10: google.protobuf.Empty
 }
 var file_proto_metering_proto_depIdxs = []int32{
-	3,  // 0: metering.Event.admission:type_name -> metering.Decision
-	5,  // 1: metering.ExportResponse.usage:type_name -> metering.Usage
-	2,  // 2: metering.ExportResponse.events:type_name -> metering.Event
-	1,  // 3: metering.Metering.Resolve:input_type -> metering.ResolveRequest
-	0,  // 4: metering.Metering.CreateGrant:input_type -> metering.Grant
-	0,  // 5: metering.Metering.RevokeGrant:input_type -> metering.Grant
-	2,  // 6: metering.Metering.Admit:input_type -> metering.Event
-	4,  // 7: metering.Metering.Charge:input_type -> metering.ChargeRequest
-	2,  // 8: metering.Metering.Finish:input_type -> metering.Event
-	6,  // 9: metering.Metering.Export:input_type -> metering.ExportRequest
-	0,  // 10: metering.Metering.Resolve:output_type -> metering.Grant
-	0,  // 11: metering.Metering.CreateGrant:output_type -> metering.Grant
-	8,  // 12: metering.Metering.RevokeGrant:output_type -> google.protobuf.Empty
-	3,  // 13: metering.Metering.Admit:output_type -> metering.Decision
-	3,  // 14: metering.Metering.Charge:output_type -> metering.Decision
-	8,  // 15: metering.Metering.Finish:output_type -> google.protobuf.Empty
-	7,  // 16: metering.Metering.Export:output_type -> metering.ExportResponse
-	10, // [10:17] is the sub-list for method output_type
-	3,  // [3:10] is the sub-list for method input_type
-	3,  // [3:3] is the sub-list for extension type_name
-	3,  // [3:3] is the sub-list for extension extendee
-	0,  // [0:3] is the sub-list for field type_name
+	0,  // 0: metering.ListGrantsResponse.grants:type_name -> metering.Grant
+	5,  // 1: metering.Event.admission:type_name -> metering.Decision
+	7,  // 2: metering.ExportResponse.usage:type_name -> metering.Usage
+	4,  // 3: metering.ExportResponse.events:type_name -> metering.Event
+	7,  // 4: metering.ExportResponse.owner_usage:type_name -> metering.Usage
+	1,  // 5: metering.Metering.Resolve:input_type -> metering.ResolveRequest
+	0,  // 6: metering.Metering.CreateGrant:input_type -> metering.Grant
+	2,  // 7: metering.Metering.ListGrants:input_type -> metering.ListGrantsRequest
+	0,  // 8: metering.Metering.RevokeGrant:input_type -> metering.Grant
+	4,  // 9: metering.Metering.Admit:input_type -> metering.Event
+	6,  // 10: metering.Metering.Charge:input_type -> metering.ChargeRequest
+	4,  // 11: metering.Metering.Finish:input_type -> metering.Event
+	8,  // 12: metering.Metering.Export:input_type -> metering.ExportRequest
+	0,  // 13: metering.Metering.Resolve:output_type -> metering.Grant
+	0,  // 14: metering.Metering.CreateGrant:output_type -> metering.Grant
+	3,  // 15: metering.Metering.ListGrants:output_type -> metering.ListGrantsResponse
+	10, // 16: metering.Metering.RevokeGrant:output_type -> google.protobuf.Empty
+	5,  // 17: metering.Metering.Admit:output_type -> metering.Decision
+	5,  // 18: metering.Metering.Charge:output_type -> metering.Decision
+	10, // 19: metering.Metering.Finish:output_type -> google.protobuf.Empty
+	9,  // 20: metering.Metering.Export:output_type -> metering.ExportResponse
+	13, // [13:21] is the sub-list for method output_type
+	5,  // [5:13] is the sub-list for method input_type
+	5,  // [5:5] is the sub-list for extension type_name
+	5,  // [5:5] is the sub-list for extension extendee
+	0,  // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_proto_metering_proto_init() }
@@ -921,7 +1102,7 @@ func file_proto_metering_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_metering_proto_rawDesc), len(file_proto_metering_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   8,
+			NumMessages:   10,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -60,7 +60,9 @@ Give each consumer of a private HTTP endpoint a separate token and budget:
 tunn serve --id=api --allow=owner@example.com 8080
 tunn grant create api --for=agent@example.com --expires=1h \
   --rate=60 --monthly-requests=1000 --monthly-bytes=1000000
-tunn usage api --month=2026-10
+tunn grant list api
+tunn usage --tunnel api --since 24h
+tunn usage # current month across all your tunnels, including owner byte totals
 tunn grant revoke api <grant-id>
 ```
 
@@ -68,6 +70,8 @@ Create prints the consumer token once; only its digest reaches the relay.
 Consumers send `Tunn-Authorization: Bearer <token>`. Request/byte exhaustion
 returns `429`; expiry and revocation return `403`. The durable ledger records
 caller usage and rejected ingress decisions across buffered and streamed HTTP.
+Optional shared monthly owner caps support an entry tier of about $12/year;
+per-user request and byte totals let us check that target against Fly.io costs.
 See [the usage contract](docs/METERING.md) for units, retention, streaming limit
 trailers, local/self-hosted CLI options, and the boundary between metering and
 billable usage.

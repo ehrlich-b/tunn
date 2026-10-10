@@ -98,6 +98,7 @@ test-lifecycle-contract:
 # these tests do not bind TCP/UDP sockets or call hosted services.
 test-metering-contract:
 	go test -race -v -timeout=60s ./internal/metering
+	go test -race -v -timeout=60s ./internal/config
 	go test -race -v -timeout=60s -run '^(TestMetering|TestProxyHTTPOverGRPC|TestLegacyClientKeepsBufferedHTTPPath|TestTunnelConnectionLimitRejectsPendingStream|TestHandleWebProxy|TestPublicTunnelStripsTunnAuthorization|TestGetAuthFromTunnelBearer|TestCheckJWT|TestAllowListCheck|TestEmailBucketAllowListCheck)' . ./internal/host ./internal/client
 
 test-coverage:

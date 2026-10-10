@@ -391,3 +391,208 @@ func TestRetentionLeapDayKeepsThirteenCalendarMonths(t *testing.T) {
 		t.Fatalf("leap-day retention dropped a valid month: %s", oldest)
 	}
 }
+
+func TestOwnerBudgetsShareAllCallersAndTunnels(t *testing.T) {
+	s, db := fixture(t)
+	s.ownerRequests, s.ownerBytes = 2, 10
+	g := newGrant(t, s, 100, 100, 0)
+	first := event(g, 1)
+	if d := admit(t, s, first); !d.Allowed || d.RequestsRemaining != 1 || d.BytesRemaining != 10 {
+		t.Fatal(d)
+	}
+	charge(t, s, first.RequestId, 2, 3)
+	finish(t, s, first, 3)
+	second := event(nil, 2)
+	second.Endpoint, second.Caller = "another", "email:alice@example.com"
+	if d := admit(t, s, second); !d.Allowed || d.RequestsRemaining != 0 || d.BytesRemaining != 5 {
+		t.Fatal(d)
+	}
+	if d := charge(t, s, second.RequestId, 2, 5); d.Allowed || d.Reason != "owner_byte_budget" || d.Status != 429 || d.RequestBytes != 2 || d.ResponseBytes != 3 || d.BytesRemaining != 0 {
+		t.Fatal(d)
+	}
+	// A short write releases the reservation back to the shared owner budget.
+	finish(t, s, second, 1)
+	third := event(nil, 3)
+	if d := admit(t, s, third); d.Allowed || d.Reason != "owner_request_budget" || d.RequestsRemaining != 0 || d.BytesRemaining != 2 {
+		t.Fatal(d)
+	}
+	// Durable rollups, rather than retained audit events, enforce owner limits.
+	if _, err := db.Exec(`DELETE FROM meter_events`); err != nil {
+		t.Fatal(err)
+	}
+	restarted, err := New(db, WithOwnerBudgets(2, 10))
+	if err != nil {
+		t.Fatal(err)
+	}
+	restarted.now = s.now
+	if d := admit(t, restarted, event(nil, 4)); d.Allowed || d.Reason != "owner_request_budget" {
+		t.Fatal(d)
+	}
+	other := event(nil, 5)
+	other.Owner = "other@example.com"
+	if d := admit(t, restarted, other); !d.Allowed || d.BytesRemaining != 10 || d.RequestsRemaining != 1 {
+		t.Fatal(d)
+	}
+	// Revocation still produces 403 even after the owner's cap is exhausted.
+	if _, err := restarted.RevokeGrant(context.Background(), g); err != nil {
+		t.Fatal(err)
+	}
+	if d := admit(t, restarted, event(g, 6)); d.Allowed || d.Status != 403 || d.Reason != "grant_revoked" {
+		t.Fatal(d)
+	}
+	restarted.now = func() time.Time { return testNow.AddDate(0, 1, 0) }
+	if d := admit(t, restarted, event(nil, 7)); !d.Allowed || d.BytesRemaining != 10 || d.RequestsRemaining != 1 {
+		t.Fatal(d)
+	}
+}
+
+func TestOwnerBudgetsConcurrentAdmissionsAndBytes(t *testing.T) {
+	for _, kind := range []string{"requests", "bytes"} {
+		t.Run(kind, func(t *testing.T) {
+			s, _ := fixture(t)
+			if kind == "requests" {
+				s.ownerRequests = 3
+			} else {
+				s.ownerBytes = 10
+			}
+			var wg sync.WaitGroup
+			var mu sync.Mutex
+			var admitted, charged int64
+			for i := 1; i <= 20; i++ {
+				wg.Add(1)
+				go func(n int) {
+					defer wg.Done()
+					e := event(nil, n)
+					e.Endpoint = fmt.Sprintf("api-%d", n)
+					d, err := s.Admit(context.Background(), e)
+					if err != nil {
+						t.Error(err)
+						return
+					}
+					if d.Allowed {
+						mu.Lock()
+						admitted++
+						mu.Unlock()
+						if kind == "bytes" {
+							d, err = s.Charge(context.Background(), &pb.ChargeRequest{RequestId: e.RequestId, ResponseBytes: 3})
+							if err != nil {
+								t.Error(err)
+								return
+							}
+							mu.Lock()
+							charged += d.ResponseBytes
+							mu.Unlock()
+						}
+					}
+				}(i)
+			}
+			wg.Wait()
+			if kind == "requests" && admitted != 3 || kind == "bytes" && charged != 10 {
+				t.Fatalf("admissions=%d bytes=%d", admitted, charged)
+			}
+		})
+	}
+}
+
+func TestOwnerByteAdmissionPreflight(t *testing.T) {
+	s, _ := fixture(t)
+	s.ownerBytes = 5
+	e := event(nil, 1)
+	e.ContentLength = 6
+	if d := admit(t, s, e); d.Allowed || d.Reason != "owner_byte_budget" || d.BytesRemaining != 5 {
+		t.Fatal(d)
+	}
+	e = event(nil, 2)
+	e.ContentLength = 5
+	if d := admit(t, s, e); !d.Allowed {
+		t.Fatal(d)
+	}
+	if d := charge(t, s, e.RequestId, 5, 0); !d.Allowed || d.BytesRemaining != 0 {
+		t.Fatal(d)
+	}
+	finish(t, s, e, 0)
+	if d := admit(t, s, event(nil, 3)); d.Allowed || d.Reason != "owner_byte_budget" {
+		t.Fatal(d)
+	}
+}
+
+func TestUsageWindowOwnerTotalsAndRetention(t *testing.T) {
+	s, _ := fixture(t)
+	// Window crosses a UTC month and selects admissions, including denials.
+	start := time.Date(2026, 10, 1, 0, 30, 0, 0, time.UTC)
+	for i, offset := range []time.Duration{-2 * time.Hour, -time.Hour, -15 * time.Minute, 0} {
+		s.now = func() time.Time { return start.Add(offset) }
+		e := event(nil, i+1)
+		if i == 2 {
+			e.Endpoint, e.Caller = "another", "email:alice@example.com"
+		}
+		if i == 3 {
+			e.Allowed, e.Reason, e.Status = false, "not_allowed", 403
+		}
+		admit(t, s, e)
+		if e.Allowed {
+			charge(t, s, e.RequestId, 2, 3)
+			finish(t, s, e, 3)
+		}
+	}
+	s.now = func() time.Time { return start.Add(time.Hour) }
+	r := &pb.ExportRequest{Owner: "owner@example.com", Since: start.Add(-time.Hour).UnixMilli(), Until: start.Add(time.Hour).UnixMilli()}
+	out, err := s.Export(context.Background(), r)
+	if err != nil || out.OwnerUsage.Requests != 3 || out.OwnerUsage.AdmittedRequests != 2 || out.OwnerUsage.TotalBytes != 10 || len(out.Usage) != 3 || out.UsageTruncated || out.AuditTruncated {
+		t.Fatalf("window=%v %v", out, err)
+	}
+	r.Endpoint = "api"
+	out, err = s.Export(context.Background(), r)
+	if err != nil || out.OwnerUsage.Requests != 2 || out.OwnerUsage.TotalBytes != 5 {
+		t.Fatalf("filtered=%v %v", out, err)
+	}
+	r.Owner = "stranger@example.com"
+	out, err = s.Export(context.Background(), r)
+	if err != nil || len(out.Usage) != 0 || len(out.Events) != 0 || out.OwnerUsage.TotalBytes != 0 {
+		t.Fatalf("owner isolation=%v %v", out, err)
+	}
+	// Eviction keeps monthly totals intact and flags window counts as incomplete.
+	s.maxEvents = 1
+	e := event(nil, 5)
+	admit(t, s, e)
+	finish(t, s, e, 0)
+	r.Owner, r.Endpoint = "owner@example.com", ""
+	out, err = s.Export(context.Background(), r)
+	if err != nil || !out.AuditTruncated || !out.UsageTruncated || out.OwnerUsage.TotalBytes != 0 {
+		t.Fatalf("truncated=%v %v", out, err)
+	}
+	out, err = s.Export(context.Background(), &pb.ExportRequest{Owner: r.Owner, Month: "2026-10"})
+	if err != nil || out.OwnerUsage.TotalBytes != 5 || out.OwnerUsage.Requests != 3 || !out.AuditTruncated || out.UsageTruncated {
+		t.Fatalf("monthly=%v %v", out, err)
+	}
+}
+
+func TestListGrantsOwnerIsolationAndDurability(t *testing.T) {
+	s, db := fixture(t)
+	g := newGrant(t, s, 10, 20, 30)
+	if _, err := s.RevokeGrant(context.Background(), g); err != nil {
+		t.Fatal(err)
+	}
+	restarted, err := New(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, endpoint := range []string{"", "api", "other"} {
+		out, err := restarted.ListGrants(context.Background(), &pb.ListGrantsRequest{Owner: g.Owner, Endpoint: endpoint})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if endpoint == "other" {
+			if len(out.Grants) != 0 {
+				t.Fatal(out)
+			}
+			continue
+		}
+		if len(out.Grants) != 1 || out.Grants[0].Id != g.Id || !out.Grants[0].Revoked || len(out.Grants[0].TokenSha256) > 0 || out.Grants[0].MonthlyRequests != 10 || out.Grants[0].MonthlyBytes != 20 || out.Grants[0].RequestsPerMinute != 30 {
+			t.Fatal(out)
+		}
+	}
+	if out, err := restarted.ListGrants(context.Background(), &pb.ListGrantsRequest{Owner: "stranger@example.com"}); err != nil || len(out.Grants) != 0 {
+		t.Fatalf("owner isolation=%v %v", out, err)
+	}
+}

@@ -76,3 +76,20 @@ func TestMeteringManagementClientHandlesBadResponses(t *testing.T) {
 		})
 	}
 }
+
+func TestMeteringManagementClientOwnerUsageAndGrantList(t *testing.T) {
+	for _, operation := range []string{"usage?since=24h", "grants"} {
+		c := &ManagementClient{ServerURL: "http://127.0.0.1:8443", OwnerToken: "owner-jwt", HTTPClient: &http.Client{Transport: meteringTransportFunc(func(r *http.Request) (*http.Response, error) {
+			if r.URL.String() != "http://127.0.0.1:8443/api/"+operation || r.Header.Get("Authorization") != "Bearer owner-jwt" {
+				t.Fatalf("request=%v", r)
+			}
+			return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{}`)), Request: r}, nil
+		})}}
+		if _, err := c.Call(context.Background(), "GET", "", operation, nil); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := c.Call(context.Background(), "POST", "", "grants", nil); err == nil {
+			t.Fatal("accepted endpoint-free write")
+		}
+	}
+}

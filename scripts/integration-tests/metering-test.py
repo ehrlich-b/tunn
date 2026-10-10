@@ -157,6 +157,10 @@ class Fixture:
         caller = "grant:" + grant["grant"]["id"]
         rows = [row for row in output.get("usage", []) if row["caller"] == caller]
         require(len(rows) == 1, "grant has no unique usage row")
+        window = json.loads(self.cli("usage", "--tunnel", "api", "--since", "1h"))
+        window_rows = [row for row in window.get("usage", []) if row["caller"] == caller]
+        require(not window.get("usage_truncated") and window_rows == rows,
+                "duration usage disagrees with durable monthly usage")
         return rows[0]
 
     def run(self):
@@ -205,6 +209,17 @@ class Fixture:
         row = self.usage(durable)
         require((row["requests"], row["admitted_requests"], row["request_bytes"], row["response_bytes"]) == (3, 2, 8, 12),
                 "usage ledger did not survive restart")
+        listed = json.loads(self.cli("grant", "list", "api"))
+        by_id = {grant["id"]: grant for grant in listed.get("grants", [])}
+        require(second["grant"]["id"] in by_id and by_id[second["grant"]["id"]].get("revoked"),
+                "grant listing lost durable revocation")
+        require(all("token_sha256" not in grant for grant in by_id.values()),
+                "grant listing exposed credential digests")
+        owner_usage = json.loads(self.cli("usage"))
+        totals = owner_usage["owner_usage"]
+        require(totals["owner"] == OWNER and totals["total_bytes"] == sum(
+            row.get("request_bytes", 0) + row.get("response_bytes", 0)
+            for row in owner_usage.get("usage", [])), "per-user byte totals disagree")
         # Keep both rate requests in the same fixed UTC minute.
         if time.time() % 60 > 57:
             time.sleep(60 - time.time() % 60 + 0.1)

@@ -196,8 +196,15 @@ Short writes reconcile reserved bytes, while interrupted reservations remain
 conservative and are labeled after restart. Account bandwidth quotas still
 apply, using the creator's account ID and one account update per metered call.
 
-`tunn usage <endpoint> --month YYYY-MM` exports retained audit events and durable
-monthly rollups. See [the v1 usage contract](METERING.md) for exact units, hard
+`tunn grant list [<endpoint>]` returns owner-scoped grant metadata without
+credentials. `tunn usage [--tunnel NAME] [--since DURATION]` exports retained
+audit events and caller rollups, plus owner totals across the selected tunnels.
+Without `--since`, it uses durable current-month counters; duration reports
+flag potentially missing audit events. Optional login-node settings
+`TUNN_OWNER_MONTHLY_REQUESTS` and `TUNN_OWNER_MONTHLY_BYTES` enforce shared HTTP
+caps per owner email across all callers/tunnels. These controls support Bryan's
+about-$12/year entry-tier target and per-user Fly.io egress cost checks.
+See [the v1 usage contract](METERING.md) for exact units, hard
 retention/capacity bounds, owner API authentication, and local test commands.
 These are operational usage counters; commercial billing still requires failure
 and routing reconciliation.

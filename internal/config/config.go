@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 )
 
 // Environment represents the deployment environment
@@ -72,8 +73,10 @@ type Config struct {
 	// Login node configuration
 	// Login node owns SQLite and handles all DB operations
 	// Other nodes proxy DB operations to it
-	LoginNode bool
-	DBPath    string // Path to SQLite database (login node only)
+	LoginNode            bool
+	DBPath               string // Path to SQLite database (login node only)
+	OwnerMonthlyRequests int64  // optional shared HTTP admission cap per owner
+	OwnerMonthlyBytes    int64  // optional shared HTTP body-byte cap per owner
 }
 
 // LoadConfig loads configuration based on environment
@@ -91,6 +94,16 @@ func LoadConfig() (*Config, error) {
 		cfg.loadProdConfig()
 	default:
 		return nil, fmt.Errorf("unknown environment: %s", env)
+	}
+	for _, budget := range []struct {
+		name  string
+		value *int64
+	}{{"TUNN_OWNER_MONTHLY_REQUESTS", &cfg.OwnerMonthlyRequests}, {"TUNN_OWNER_MONTHLY_BYTES", &cfg.OwnerMonthlyBytes}} {
+		value, err := strconv.ParseInt(getEnvOrDefault(budget.name, "0"), 10, 64)
+		if err != nil || value < 0 {
+			return nil, fmt.Errorf("%s must be a nonnegative integer", budget.name)
+		}
+		*budget.value = value
 	}
 
 	return cfg, nil

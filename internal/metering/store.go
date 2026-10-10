@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -32,6 +33,7 @@ var ErrCapacity = errors.New("metering storage capacity reached")
 type Backend interface {
 	Resolve(context.Context, *pb.ResolveRequest) (*pb.Grant, error)
 	CreateGrant(context.Context, *pb.Grant) (*pb.Grant, error)
+	ListGrants(context.Context, *pb.ListGrantsRequest) (*pb.ListGrantsResponse, error)
 	RevokeGrant(context.Context, *pb.Grant) (*emptypb.Empty, error)
 	Admit(context.Context, *pb.Event) (*pb.Decision, error)
 	Charge(context.Context, *pb.ChargeRequest) (*pb.Decision, error)
@@ -46,9 +48,25 @@ type Store struct {
 	now func() time.Time
 	// Fixed hard caps, reduced in retention tests.
 	maxEvents, maxUsage, maxGrants int
+	ownerRequests, ownerBytes      int64
 }
 
-func New(db *sql.DB) (*Store, error) {
+type Option func(*Store)
+
+// WithOwnerBudgets caps all HTTP callers and endpoints belonging to an owner.
+// Zero means unlimited; the login node applies these limits atomically.
+func WithOwnerBudgets(requests, bytes int64) Option {
+	return func(s *Store) { s.ownerRequests, s.ownerBytes = requests, bytes }
+}
+
+func New(db *sql.DB, options ...Option) (*Store, error) {
+	s := &Store{db: db, now: time.Now, maxEvents: MaxEvents, maxUsage: MaxUsageRows, maxGrants: MaxGrants}
+	for _, option := range options {
+		option(s)
+	}
+	if s.ownerRequests < 0 || s.ownerBytes < 0 {
+		return nil, fmt.Errorf("owner budgets must be nonnegative")
+	}
 	// SQLite transactions must share one connection, including in-memory fixtures.
 	db.SetMaxOpenConns(1)
 	_, err := db.Exec(`
@@ -68,7 +86,6 @@ func New(db *sql.DB) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Store{db: db, now: time.Now, maxEvents: MaxEvents, maxUsage: MaxUsageRows, maxGrants: MaxGrants}
 	// A crash cannot erase charges already committed. Mark incomplete audit records
 	// explicitly; do not invent a completed delivery or replay the application call.
 	rows, err := db.Query(`SELECT data FROM meter_events WHERE finished=0`)
@@ -182,6 +199,30 @@ func grant(tx *sql.Tx, id string) (*pb.Grant, error) {
 	err = json.Unmarshal(data, g)
 	return g, err
 }
+func (s *Store) ListGrants(ctx context.Context, r *pb.ListGrantsRequest) (*pb.ListGrantsResponse, error) {
+	if r.Owner == "" {
+		return nil, fmt.Errorf("owner required")
+	}
+	out := &pb.ListGrantsResponse{}
+	rows, err := s.db.QueryContext(ctx, `SELECT data FROM meter_grants WHERE owner=? AND (?='' OR endpoint=?) ORDER BY endpoint,id`, r.Owner, r.Endpoint, r.Endpoint)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var data []byte
+		if err := rows.Scan(&data); err != nil {
+			return nil, err
+		}
+		g := new(pb.Grant)
+		if err := json.Unmarshal(data, g); err != nil {
+			return nil, err
+		}
+		g.TokenSha256 = nil
+		out.Grants = append(out.Grants, g)
+	}
+	return out, rows.Err()
+}
 func (s *Store) RevokeGrant(ctx context.Context, r *pb.Grant) (*emptypb.Empty, error) {
 	err := s.transaction(ctx, func(tx *sql.Tx) error {
 		g, err := grant(tx, r.Id)
@@ -247,11 +288,41 @@ func checkGrant(g *pb.Grant, e *pb.Event, d *pb.Decision, now time.Time) {
 }
 func remaining(g *pb.Grant, u *pb.Usage, d *pb.Decision) {
 	if g.MonthlyRequests > 0 {
-		d.RequestsRemaining = max(0, g.MonthlyRequests-u.AdmittedRequests)
+		d.RequestsRemaining = tighterLimit(d.RequestsRemaining, max(0, g.MonthlyRequests-u.AdmittedRequests))
 	}
 	if g.MonthlyBytes > 0 {
-		d.BytesRemaining = max(0, g.MonthlyBytes-u.RequestBytes-u.ResponseBytes)
+		available := max(0, g.MonthlyBytes-u.RequestBytes-u.ResponseBytes)
+		if d.BytesRemaining < 0 || available <= d.BytesRemaining {
+			d.ByteBudgetReason = "byte_budget"
+		}
+		d.BytesRemaining = tighterLimit(d.BytesRemaining, available)
 	}
+}
+func tighterLimit(a, b int64) int64 {
+	if a < 0 {
+		return b
+	}
+	return min(a, b)
+}
+func (s *Store) ownerRemaining(tx *sql.Tx, e *pb.Event, d *pb.Decision) error {
+	if e.Owner == "" || s.ownerRequests == 0 && s.ownerBytes == 0 {
+		return nil
+	}
+	var requests, bytes int64
+	if err := tx.QueryRow(`SELECT coalesce(sum(admitted),0),coalesce(sum(request_bytes+response_bytes),0) FROM meter_usage WHERE owner=? AND month=?`, e.Owner, e.Month).Scan(&requests, &bytes); err != nil {
+		return err
+	}
+	if s.ownerRequests > 0 {
+		d.RequestsRemaining = tighterLimit(d.RequestsRemaining, max(0, s.ownerRequests-requests))
+	}
+	if s.ownerBytes > 0 {
+		available := max(0, s.ownerBytes-bytes)
+		if d.BytesRemaining < 0 || available < d.BytesRemaining {
+			d.ByteBudgetReason = "owner_byte_budget"
+		}
+		d.BytesRemaining = tighterLimit(d.BytesRemaining, available)
+	}
+	return nil
 }
 
 func (s *Store) Admit(ctx context.Context, input *pb.Event) (*pb.Decision, error) {
@@ -322,8 +393,9 @@ func (s *Store) Admit(ctx context.Context, input *pb.Event) (*pb.Decision, error
 			}
 		}
 		d = decision(e)
+		var g *pb.Grant
 		if e.Allowed && e.GrantId != "" {
-			g, err := grant(tx, e.GrantId)
+			g, err = grant(tx, e.GrantId)
 			if errors.Is(err, sql.ErrNoRows) {
 				deny(d, "invalid_grant", 403)
 			} else if err != nil {
@@ -339,27 +411,40 @@ func (s *Store) Admit(ctx context.Context, input *pb.Event) (*pb.Decision, error
 					deny(d, "byte_budget", 429)
 					d.RetryAfter = secondsToMonth(now)
 				}
-				var minute, count int64
-				if err = tx.QueryRow(`SELECT rate_minute,rate_count FROM meter_grants WHERE id=?`, g.Id).Scan(&minute, &count); err != nil {
+			}
+		}
+		if err := s.ownerRemaining(tx, e, d); err != nil {
+			return err
+		}
+		if d.Allowed && d.RequestsRemaining == 0 {
+			deny(d, "owner_request_budget", 429)
+			d.RetryAfter = secondsToMonth(now)
+		}
+		if d.Allowed && d.BytesRemaining >= 0 && (d.BytesRemaining == 0 || e.ContentLength > d.BytesRemaining) {
+			deny(d, "owner_byte_budget", 429)
+			d.RetryAfter = secondsToMonth(now)
+		}
+		if d.Allowed && g != nil {
+			var minute, count int64
+			if err = tx.QueryRow(`SELECT rate_minute,rate_count FROM meter_grants WHERE id=?`, g.Id).Scan(&minute, &count); err != nil {
+				return err
+			}
+			thisMinute := now.Unix() / 60
+			if minute != thisMinute {
+				count = 0
+			}
+			if g.RequestsPerMinute > 0 && count >= g.RequestsPerMinute {
+				deny(d, "request_rate", 429)
+				d.RetryAfter = 60 - now.Unix()%60
+			}
+			if d.Allowed {
+				if _, err = tx.Exec(`UPDATE meter_grants SET rate_minute=?,rate_count=? WHERE id=?`, thisMinute, count+1, g.Id); err != nil {
 					return err
 				}
-				thisMinute := now.Unix() / 60
-				if minute != thisMinute {
-					count = 0
-				}
-				if d.Allowed && g.RequestsPerMinute > 0 && count >= g.RequestsPerMinute {
-					deny(d, "request_rate", 429)
-					d.RetryAfter = 60 - now.Unix()%60
-				}
-				if d.Allowed {
-					if _, err = tx.Exec(`UPDATE meter_grants SET rate_minute=?,rate_count=? WHERE id=?`, thisMinute, count+1, g.Id); err != nil {
-						return err
-					}
-					if d.RequestsRemaining > 0 {
-						d.RequestsRemaining--
-					}
-				}
 			}
+		}
+		if d.Allowed && d.RequestsRemaining > 0 {
+			d.RequestsRemaining--
 		}
 		e.Allowed = d.Allowed
 		e.Reason = d.Reason
@@ -416,20 +501,22 @@ func (s *Store) Charge(ctx context.Context, r *pb.ChargeRequest) (*pb.Decision, 
 				return err
 			}
 			remaining(g, u, d)
-			if !d.Allowed {
-				reqDelta = 0
-				respDelta = 0
-			} else if d.BytesRemaining >= 0 {
-				available := d.BytesRemaining
-				reqDelta = min(reqDelta, available)
-				available -= reqDelta
-				respDelta = min(respDelta, available)
-				if reqDelta+e.RequestBytes < r.RequestBytes || respDelta+e.ResponseBytes < r.ResponseBytes {
-					deny(d, "byte_budget", 429)
-					d.RetryAfter = secondsToMonth(s.now().UTC())
-				}
-				d.BytesRemaining -= reqDelta + respDelta
+		}
+		if err := s.ownerRemaining(tx, e, d); err != nil {
+			return err
+		}
+		if !d.Allowed {
+			reqDelta, respDelta = 0, 0
+		} else if d.BytesRemaining >= 0 {
+			available := d.BytesRemaining
+			reqDelta = min(reqDelta, available)
+			available -= reqDelta
+			respDelta = min(respDelta, available)
+			if reqDelta+e.RequestBytes < r.RequestBytes || respDelta+e.ResponseBytes < r.ResponseBytes {
+				deny(d, d.ByteBudgetReason, 429)
+				d.RetryAfter = secondsToMonth(s.now().UTC())
 			}
+			d.BytesRemaining -= reqDelta + respDelta
 		}
 		e.RequestBytes += reqDelta
 		e.ResponseBytes += respDelta
@@ -480,36 +567,58 @@ func (s *Store) Finish(ctx context.Context, r *pb.Event) (*emptypb.Empty, error)
 	return &emptypb.Empty{}, err
 }
 func (s *Store) Export(ctx context.Context, r *pb.ExportRequest) (*pb.ExportResponse, error) {
-	if r.Owner == "" || r.Endpoint == "" {
-		return nil, fmt.Errorf("owner and endpoint required")
+	if r.Owner == "" {
+		return nil, fmt.Errorf("owner required")
 	}
-	if month, err := time.Parse("2006-01", r.Month); err != nil || month.Format("2006-01") != r.Month {
+	now := s.now().UTC()
+	window := r.Since != 0 || r.Until != 0
+	month := r.Month
+	if !window && month == "" {
+		month = now.Format("2006-01")
+	}
+	firstMonth, lastMonth := month, month
+	if window {
+		if month != "" || r.Since <= 0 || r.Until <= r.Since || r.Until > now.UnixMilli() {
+			return nil, fmt.Errorf("invalid usage time window")
+		}
+		firstMonth = time.UnixMilli(r.Since).UTC().Format("2006-01")
+		lastMonth = time.UnixMilli(r.Until - 1).UTC().Format("2006-01")
+	} else if parsed, err := time.Parse("2006-01", month); err != nil || parsed.Format("2006-01") != month {
 		return nil, fmt.Errorf("month must be YYYY-MM")
 	}
-	out := &pb.ExportResponse{SchemaVersion: 1, ByteUnit: "body_bytes"}
+	out := &pb.ExportResponse{SchemaVersion: 1, ByteUnit: "body_bytes", OwnerUsage: &pb.Usage{Owner: r.Owner}}
+	if window {
+		out.Since, out.Until = r.Since, r.Until
+	}
 	err := s.transaction(ctx, func(tx *sql.Tx) error {
-		rows, err := tx.Query(`SELECT caller,requests,admitted,request_bytes,response_bytes FROM meter_usage WHERE owner=? AND endpoint=? AND month=? ORDER BY caller`, r.Owner, r.Endpoint, r.Month)
+		rows, err := tx.Query(`SELECT endpoint,caller,month,requests,admitted,request_bytes,response_bytes FROM meter_usage WHERE owner=? AND (?='' OR endpoint=?) AND month>=? AND month<=? ORDER BY endpoint,caller,month`, r.Owner, r.Endpoint, r.Endpoint, firstMonth, lastMonth)
 		if err != nil {
 			return err
 		}
+		var attempts int64
 		for rows.Next() {
-			u := &pb.Usage{Owner: r.Owner, Endpoint: r.Endpoint, Month: r.Month}
-			if err = rows.Scan(&u.Caller, &u.Requests, &u.AdmittedRequests, &u.RequestBytes, &u.ResponseBytes); err != nil {
+			u := &pb.Usage{Owner: r.Owner}
+			if err = rows.Scan(&u.Endpoint, &u.Caller, &u.Month, &u.Requests, &u.AdmittedRequests, &u.RequestBytes, &u.ResponseBytes); err != nil {
 				_ = rows.Close()
 				return err
 			}
-			out.Usage = append(out.Usage, u)
+			attempts += u.Requests
+			if !window {
+				out.Usage = append(out.Usage, u)
+			}
 		}
 		err = rows.Err()
 		_ = rows.Close()
 		if err != nil {
 			return err
 		}
-		rows, err = tx.Query(`SELECT data FROM meter_events WHERE owner=? AND endpoint=? AND month=? ORDER BY rowid`, r.Owner, r.Endpoint, r.Month)
+		rows, err = tx.Query(`SELECT data FROM meter_events WHERE owner=? AND (?='' OR endpoint=?) AND month>=? AND month<=? ORDER BY rowid`, r.Owner, r.Endpoint, r.Endpoint, firstMonth, lastMonth)
 		if err != nil {
 			return err
 		}
 		defer func() { _ = rows.Close() }()
+		var retained int64
+		groups := make(map[string]*pb.Usage)
 		for rows.Next() {
 			var data []byte
 			if err = rows.Scan(&data); err != nil {
@@ -519,15 +628,49 @@ func (s *Store) Export(ctx context.Context, r *pb.ExportRequest) (*pb.ExportResp
 			if err = json.Unmarshal(data, e); err != nil {
 				return err
 			}
+			retained++
+			if window && (e.StartedAt < r.Since || e.StartedAt >= r.Until) {
+				continue
+			}
 			out.Events = append(out.Events, e)
+			if window {
+				key := e.Endpoint + "\x00" + e.Caller + "\x00" + e.Month
+				u := groups[key]
+				if u == nil {
+					u = &pb.Usage{Owner: r.Owner, Endpoint: e.Endpoint, Caller: e.Caller, Month: e.Month}
+					groups[key] = u
+				}
+				u.Requests++
+				if e.Allowed {
+					u.AdmittedRequests++
+				}
+				u.RequestBytes += e.RequestBytes
+				u.ResponseBytes += e.ResponseBytes
+			}
+		}
+		out.AuditTruncated = attempts > retained
+		if window {
+			monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+			out.UsageTruncated = out.AuditTruncated || firstMonth < monthStart.AddDate(0, -RetentionMonths+1, 0).Format("2006-01")
+			keys := make([]string, 0, len(groups))
+			for key := range groups {
+				keys = append(keys, key)
+			}
+			sort.Strings(keys)
+			for _, key := range keys {
+				out.Usage = append(out.Usage, groups[key])
+			}
 		}
 		return rows.Err()
 	})
-	var attempts int64
 	for _, u := range out.Usage {
-		attempts += u.Requests
+		u.TotalBytes = u.RequestBytes + u.ResponseBytes
+		out.OwnerUsage.Requests += u.Requests
+		out.OwnerUsage.AdmittedRequests += u.AdmittedRequests
+		out.OwnerUsage.RequestBytes += u.RequestBytes
+		out.OwnerUsage.ResponseBytes += u.ResponseBytes
+		out.OwnerUsage.TotalBytes += u.TotalBytes
 	}
-	out.AuditTruncated = attempts > int64(len(out.Events))
 	return out, err
 }
 

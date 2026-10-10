@@ -98,6 +98,15 @@ func TestMeteringInternalAuthoritySharesBudgetsAcrossRelays(t *testing.T) {
 	if _, err := first.RevokeGrant(ctx, g); err != nil {
 		t.Fatal(err)
 	}
+	listed, err := second.ListGrants(ctx, &pb.ListGrantsRequest{Owner: g.Owner})
+	if err != nil || len(listed.Grants) != 1 || !listed.Grants[0].Revoked || len(listed.Grants[0].TokenSha256) != 0 {
+		t.Fatalf("list=%v %v", listed, err)
+	}
+	windowEnd := time.Now()
+	out, err = second.Export(ctx, &pb.ExportRequest{Owner: g.Owner, Since: windowEnd.Add(-time.Hour).UnixMilli(), Until: windowEnd.UnixMilli()})
+	if err != nil || out.OwnerUsage == nil || out.OwnerUsage.TotalBytes != 10 || out.OwnerUsage.AdmittedRequests != 2 {
+		t.Fatalf("window=%v %v", out, err)
+	}
 	// Invalid credentials deliberately trigger the production IP blacklist; test
 	// this after legitimate calls and clear only this fixture address on cleanup.
 	t.Cleanup(func() { ipBlacklist.Lock(); delete(ipBlacklist.entries, "bufconn"); ipBlacklist.Unlock() })

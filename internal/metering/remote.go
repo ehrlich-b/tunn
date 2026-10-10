@@ -51,6 +51,15 @@ func (r *Remote) RevokeGrant(ctx context.Context, in *pb.Grant) (*emptypb.Empty,
 	defer cancel()
 	return c.RevokeGrant(ctx, in)
 }
+func (r *Remote) ListGrants(ctx context.Context, in *pb.ListGrantsRequest) (*pb.ListGrantsResponse, error) {
+	c, err := r.client()
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := rpcContext(ctx)
+	defer cancel()
+	return c.ListGrants(ctx, in)
+}
 func (r *Remote) Admit(ctx context.Context, in *pb.Event) (*pb.Decision, error) {
 	c, err := r.client()
 	if err != nil {

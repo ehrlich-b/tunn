@@ -1,6 +1,6 @@
 # Commercial thesis: private capabilities for cloud agents
 
-Date: 2026-09-22
+Date: 2026-10-10
 
 ## Buyer and job
 
@@ -58,28 +58,45 @@ slice; reliable webhook delivery would require its own queue and retry design.
 
 ## Pricing experiment
 
-Keep individual development use free. Offer a paid team pilot for centrally
-managed grants, policy, and audit at **$100–$500 per team per month**, quoted
-as a willingness-to-pay experiment rather than a published price. Ask for a
-payment commitment before building a large admin console. Charge for the
-operational value of controlling agent access and accounting for each consumer.
-Account bandwidth limits still protect tunn's own costs and abuse exposure.
+Keep a free path for individual development. Bryan's entry paid-tier target is
+**about $12/year**, with monthly bandwidth and request caps: a no-brainer purchase
+intended to be strictly cheaper than a VPS and easier than a VPN. Choose the
+included units from measured per-user usage and Fly.io egress economics before
+publishing an allowance. An annual price does not make the monthly cap annual.
+
+Centrally managed team grants, policy, retention, audit, and support could be a
+separate higher tier. The earlier $100–$500/team/month pilot idea is a secondary
+willingness-to-pay hypothesis, not the entry price. Ask for payment commitments
+before building a large admin console. Account bandwidth limits and shared
+owner request/body-byte caps protect tunn's costs and abuse exposure.
 
 ## Usage-based tier experiment
 
 The [HTTP metering/grant prototype](METERING.md) supplies per-consumer admitted
-requests and body bytes as possible included units for usage-based tiers.
-Personal development can stay easy to try; a managed team tier can sell durable
-retention, central grants, support, and predictable consumer spend caps, with
-additional request/byte allowances tested against actual customer needs.
-No new prices, invoices, or Stripe writes are part of this prototype.
+requests and body bytes, plus `owner_usage` totals across tunnels and callers.
+Use `tunn usage` for durable monthly per-user totals and `--tunnel` / `--since`
+for diagnosis. Duration reports explicitly flag missing retained events; use
+monthly rollups when calculating entry-tier costs. Optional login-node settings
+`TUNN_OWNER_MONTHLY_REQUESTS` and `TUNN_OWNER_MONTHLY_BYTES` atomically enforce
+shared HTTP ceilings, in addition to individual grant budgets. This policy is
+per owner email; merging account aliases and provisioning tier-specific caps
+remain work for a paid launch.
+
+At about $12/year the monthly gross budget is about $1/user. Compare both body
+directions against applicable Fly.io invoice rates: request bodies are relay
+egress toward publishers, and response bodies are relay egress toward callers.
+Then account for framing, node hops, fixed hosting/storage, payment fees, and
+support before choosing included GB and admitted requests. The request cap also
+limits work from many small calls. Provider invoices must validate the estimate;
+body counts alone do not prove a margin. No allowance, invoice, or Stripe change
+is part of this prototype.
 
 Keep denied decisions out of proposed request charges. Decide how failed
 admissions, short writes, and conservative crash reservations reconcile before
 calling counters billable. Test real multi-node routing and authority failures
-before charging for these units. The existing $100–$500 team pilot is still a
-payment-commitment experiment; usage meters support that commercial bet but do
-not prove demand or a price point.
+before charging for these units. The about-$12/year entry tier is Bryan's pricing
+input, with a higher team tier still an experiment; usage meters support the
+commercial bet but do not prove demand or a sustainable cap.
 
 ## Falsifiers
 

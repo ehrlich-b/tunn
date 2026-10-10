@@ -93,10 +93,13 @@ would be billable. Existing account bandwidth quotas still work.
 
 ### 3. Grant metered access to a local endpoint
 
-**Implementation status:** `tunn grant create/revoke` and `tunn usage` now provide
+**Implementation status:** `tunn grant create|list|revoke` and
+`tunn usage [--tunnel NAME] [--since DURATION]` now provide
 the HTTP CLI slice. Separate credentials have expiry, revocation, a fixed UTC
 minute request limit, monthly admitted-request/body-byte budgets, and remaining
 usage headers. Tests cover two independent consumers and quota boundaries.
+Optional monthly owner caps apply across tunnels and callers, and usage exports
+include owner request/byte totals for checking entry-tier economics.
 MCP HTTP shares the ingress accounting; OAuth and tool/application permissions
 remain separate work. Loopback E2E verifies the CLI/relay/publisher lifecycle
 when run in an environment that permits sockets.
@@ -129,7 +132,11 @@ without taking down the service.
 
 ### 5. Test willingness to pay
 
-Dogfood all three workflows first. Then put a paid team pilot in front of
+Dogfood all three workflows first. Bryan's entry paid-tier target is about
+**$12/year**, with monthly bandwidth and request caps: a no-brainer purchase
+intended to be strictly cheaper than a VPS and easier than a VPN. Use per-user
+usage exports to choose sustainable allowances against Fly.io egress and fixed
+costs. Then put a paid team pilot in front of
 teams already trying to connect hosted agents to private capabilities or
 operate webhooks. The chargeable thing is managed grants, reliable policy,
 shared audit/retention, and support. Personal inspection and simple tunnels

@@ -13,7 +13,9 @@ the management CLI uses the owner's `tunn login` credential.
 tunn serve --id=api --allow=owner@example.com 8080
 tunn grant create api --for=agent@example.com --expires=1h \
   --rate=60 --monthly-requests=1000 --monthly-bytes=1000000
-tunn usage api --month=2026-10
+tunn grant list api
+tunn usage --tunnel api --since 24h
+tunn usage
 tunn grant revoke api <grant-id>
 ```
 
@@ -22,6 +24,9 @@ generates the random credential locally and uploads only its SHA-256 digest.
 Keep the printed token as a secret; the relay cannot recover it. The `--for`
 value is an owner label, not proof that the bearer is that email address.
 Each grant has its own stable caller ID, quota, expiry, and revocation state.
+`grant list [<endpoint>]` shows retained grants, including expiry, limits, and
+revocation, even when the endpoint is offline. It never returns tokens or their
+digests; omit the endpoint to list all of the owner's grants.
 The existing shared `tunn token` credential remains a separate access path.
 
 Consumers send `Tunn-Authorization: Bearer <token>`, preserving their application's
@@ -40,6 +45,19 @@ budgets reset for new requests at the beginning of each UTC calendar month.
 A stream stays in its admission month. An admitted request consumes one request
 even if the publisher fails or the caller disconnects. Application retries are
 new ingress requests and consume new units.
+
+The login node can also enforce shared monthly HTTP caps with
+`TUNN_OWNER_MONTHLY_REQUESTS` and `TUNN_OWNER_MONTHLY_BYTES`. Both default to zero
+(unlimited); invalid or negative values fail configuration loading. These caps
+apply to every known owner's tunnels and callers together, including anonymous
+traffic and shared endpoint tokens, so creating another grant cannot multiply
+the allowance. They use durable monthly rollups and atomic byte reservations;
+remaining headers report the tighter owner/grant allowance. Exhaustion returns
+`429` with `owner_request_budget` or `owner_byte_budget`. Existing account-level
+bandwidth limits still apply. This prototype policy is uniform per normalized
+owner email, covers HTTP only, and does not merge verified email aliases or
+select budgets by subscription plan; account identity reconciliation and paid
+plan provisioning remain separate work.
 
 Expired/revoked/wrong-endpoint grants return `403`. Exhausted request or byte
 budgets and request-rate limits return `429`. Responses include
@@ -91,6 +109,26 @@ fields; omitted counters mean zero. Units are:
 | `admitted_requests` | Allowed ingress admissions; the grant's monthly request units |
 | `request_bytes` | Authorized body bytes read at ingress, including accepted prefixes of incomplete/failed requests |
 | `response_bytes` | Body bytes accepted by the caller-facing HTTP writer; excludes relay error bodies |
+| `total_bytes` | `request_bytes + response_bytes` |
+
+`tunn usage [--tunnel NAME] [--since DURATION]` defaults to the current UTC month
+across all tunnels owned by the authenticated user. `owner_usage` totals the
+selected rows across callers and endpoints, including admitted requests and
+bytes per owner. `--tunnel` filters both detail rows and that total. The old
+positional endpoint and `--month YYYY-MM` remain supported; `--month` and
+`--since` cannot be combined.
+
+`--since` accepts a positive Go duration of at least 1 millisecond, such as `1h`
+or `168h`. It selects events by admission start in `[since, until)`, returning
+both boundaries as Unix milliseconds, and can cross UTC months. Since monthly
+rollups cannot reconstruct part of a month, duration counts come from retained
+events. `usage_truncated: true` flags potentially incomplete counts when events
+in overlapping months were evicted or the window predates rollup retention.
+Do not use an incomplete duration report to set a tier allowance. Monthly
+reports retain complete rollup totals within the retained months even when
+`audit_truncated` is true. Long-running requests remain in their admission
+window/month; these are request-attributed body counts, not transfer-time
+network telemetry.
 
 Headers, TLS/gRPC framing, and connection overhead are excluded. A successful
 write is not proof that the consumer received or processed the body. Egress
@@ -129,8 +167,11 @@ size reflects a high-water mark. Back up the database and export periods before
 retention removes details.
 
 The owner API is `POST /api/endpoints/<name>/grants`,
+`GET /api/endpoints/<name>/grants`, `GET /api/grants`,
 `DELETE /api/endpoints/<name>/grants/<id>`, and
-`GET /api/endpoints/<name>/usage?month=YYYY-MM`. It accepts owner JWT bearer auth,
+`GET /api/usage[?tunnel=<name>&since=<duration>]`.
+`GET /api/endpoints/<name>/usage` supports `month=YYYY-MM` or `since=<duration>`.
+It accepts owner JWT bearer auth,
 not consumer grants or cookie-based writes. Creating a grant requires the live
 publisher's owner identity; revocation and exports also work while offline.
 Other owners receive no matching grant/usage records. `--server` selects a
@@ -154,11 +195,27 @@ local processes, uses literal loopback IPs, and creates disposable SQLite state
 under `.scratch`. Socket-restricted sandboxes cannot run the E2E/full suite;
 that is not a reason to skip or weaken those tests.
 
-Usage-based tiers can package included admitted requests and body bytes, with
-per-consumer hard budgets as spend controls and retention/grant management as
-paid operational value. The counters are candidate packaging units, not
-billable usage or a payment system. Before charging, reconcile real node routing,
+Bryan's entry paid-tier target is **about $12/year** (about $1/month), with a
+monthly request and bandwidth cap. The intended purchase should be a no-brainer,
+strictly cheaper than a VPS and easier than a VPN. No allowance sizes or payment
+integration are chosen here. Shared owner caps enforce an experimental ceiling;
+per-grant budgets divide that ceiling among consumers.
+
+Export `tunn usage` per user/month and compare `owner_usage.request_bytes` and
+`owner_usage.response_bytes` with actual Fly.io egress invoices. Request bodies
+also leave the relay toward the publisher; response bodies leave toward the
+caller. A first body-only estimate is
+`(request_bytes * publisher_egress_rate + response_bytes * caller_egress_rate) / 1e9`,
+where rates are dollars per decimal GB from the applicable Fly invoice/region.
+Add framing, cluster hops, fixed hosting/storage, payment fees, and support
+before choosing a cap that fits about $1 of monthly gross revenue. These meters
+exclude network overhead and are not a substitute for provider billing data.
+No current Fly rate or sustainable allowance is asserted by this prototype.
+
+The counters are candidate packaging units, not billable usage or a payment
+system. Before charging, reconcile real node routing,
 authority failures, crashes, retries, and consumer receipts; define treatment
-of failed admissions and conservative crash reservations. The existing team
-pilot price remains a willingness-to-pay hypothesis, not a price implied by
-these meters. See [the commercial thesis](COMMERCIAL-THESIS.md).
+of failed admissions and conservative crash reservations, and unify verified
+owner aliases into billing accounts. Team controls can be a separate higher
+tier; the entry-tier target is the pricing input for this metering experiment.
+See [the commercial thesis](COMMERCIAL-THESIS.md).

@@ -137,7 +137,10 @@ func (s *ingressMeter) checkResponse(ctx context.Context, size int64) error {
 	if d.Allowed && size > 0 && d.BytesRemaining >= 0 && size > d.BytesRemaining {
 		d.Allowed = false
 		d.Status = 429
-		d.Reason = "byte_budget"
+		d.Reason = d.ByteBudgetReason
+		if d.Reason == "" { // compatibility with an older metering authority
+			d.Reason = "byte_budget"
+		}
 		d.RetryAfter = 1
 	}
 	if !d.Allowed {
@@ -282,7 +285,12 @@ func checkMeteredResponse(r *http.Request, size int64) error {
 func (p *ProxyServer) handleMeteringAPI(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/endpoints/"), "/")
-	if len(parts) < 2 || len(parts) > 3 || !isValidDNSLabel(parts[0]) {
+	if r.URL.Path == "/api/usage" {
+		parts = []string{r.URL.Query().Get("tunnel"), "usage"}
+	} else if r.URL.Path == "/api/grants" && r.Method == http.MethodGet {
+		parts = []string{r.URL.Query().Get("tunnel"), "grants"}
+	}
+	if len(parts) < 2 || len(parts) > 3 || parts[0] != "" && !isValidDNSLabel(parts[0]) || parts[0] == "" && r.URL.Path != "/api/usage" && r.URL.Path != "/api/grants" {
 		http.NotFound(w, r)
 		return
 	}
@@ -301,14 +309,34 @@ func (p *ProxyServer) handleMeteringAPI(w http.ResponseWriter, r *http.Request) 
 	switch {
 	case parts[1] == "usage" && len(parts) == 2 && r.Method == http.MethodGet:
 		month := r.URL.Query().Get("month")
-		if month == "" {
-			month = time.Now().UTC().Format("2006-01")
+		export := &pb.ExportRequest{Owner: owner, Endpoint: endpoint, Month: month}
+		if since, exists := r.URL.Query()["since"]; exists {
+			duration, err := time.ParseDuration(since[0])
+			now := time.Now().UTC()
+			if err != nil || duration < time.Millisecond || now.Add(-duration).UnixMilli() <= 0 || r.URL.Query().Has("month") {
+				http.Error(w, "since must be a positive duration and cannot be combined with month", 400)
+				return
+			}
+			export.Since, export.Until = now.Add(-duration).UnixMilli(), now.UnixMilli()
+		} else {
+			if month == "" {
+				month = time.Now().UTC().Format("2006-01")
+			}
+			if parsed, err := time.Parse("2006-01", month); err != nil || parsed.Format("2006-01") != month {
+				http.Error(w, "month must be YYYY-MM", 400)
+				return
+			}
+			export.Month = month
 		}
-		if parsed, err := time.Parse("2006-01", month); err != nil || parsed.Format("2006-01") != month {
-			http.Error(w, "month must be YYYY-MM", 400)
+		out, err := p.meter.Export(r.Context(), export)
+		if err != nil {
+			http.Error(w, "Usage ledger unavailable", 503)
 			return
 		}
-		out, err := p.meter.Export(r.Context(), &pb.ExportRequest{Owner: owner, Endpoint: endpoint, Month: month})
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(out)
+	case parts[1] == "grants" && len(parts) == 2 && r.Method == http.MethodGet:
+		out, err := p.meter.ListGrants(r.Context(), &pb.ListGrantsRequest{Owner: owner, Endpoint: endpoint})
 		if err != nil {
 			http.Error(w, "Usage ledger unavailable", 503)
 			return

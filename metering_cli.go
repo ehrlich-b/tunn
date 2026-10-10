@@ -23,18 +23,21 @@ import (
 )
 
 type meteringOptions struct {
-	action, endpoint, grantID, server, ownerFile, month, consumer string
-	expires                                                       time.Time
-	rate, requests, bytes                                         int64
-	insecure                                                      bool
+	action, endpoint, grantID, server, ownerFile, month, consumer, since string
+	expires                                                              time.Time
+	rate, requests, bytes                                                int64
+	insecure                                                             bool
 }
 
 const meteringUsage = `Usage:
-  tunn usage <endpoint> [--month YYYY-MM] [--server host:port]
+  tunn usage [--tunnel NAME] [--since DURATION]
   tunn grant create <endpoint> [--for email] [--expires 1h]
        [--rate requests-per-minute] [--monthly-requests N] [--monthly-bytes N]
   tunn grant revoke <endpoint> <grant-id>
+  tunn grant list [<endpoint>]
 Owner API options: --server, --owner-token-file, --insecure
+Usage defaults to the current UTC month across all of the owner's tunnels.
+The positional usage endpoint and --month YYYY-MM remain supported.
 Zero budgets mean unlimited. Create prints JSON containing the grant and its
 one-time consumer token; only the token's SHA-256 digest reaches the relay.
 `
@@ -50,9 +53,11 @@ func parseMeteringOptions(command string, args []string, now time.Time) (*meteri
 		}
 		o.action = args[0]
 		args = args[1:]
-		if o.action != "create" && o.action != "revoke" {
-			return nil, fmt.Errorf("grant action must be create or revoke")
+		if o.action != "create" && o.action != "list" && o.action != "revoke" {
+			return nil, fmt.Errorf("grant action must be create, list or revoke")
 		}
+	} else if command != "usage" {
+		return nil, fmt.Errorf("unknown metering command")
 	}
 	fs := flag.NewFlagSet(command, flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -68,7 +73,9 @@ func parseMeteringOptions(command string, args []string, now time.Time) (*meteri
 		fs.Int64Var(&o.requests, "monthly-requests", 0, "monthly admitted request budget")
 		fs.Int64Var(&o.bytes, "monthly-bytes", 0, "monthly request + response body byte budget")
 	case "usage":
-		fs.StringVar(&o.month, "month", now.UTC().Format("2006-01"), "UTC admission month")
+		fs.StringVar(&o.endpoint, "tunnel", "", "filter by tunnel name")
+		fs.StringVar(&o.since, "since", "", "usage since a positive duration ago (for example 24h)")
+		fs.StringVar(&o.month, "month", "", "UTC admission month")
 	}
 	// Permit flags before or after endpoint names, with both --flag=value and
 	// --flag value. Values starting with '-' still belong to their flag.
@@ -103,15 +110,35 @@ func parseMeteringOptions(command string, args []string, now time.Time) (*meteri
 	if err := fs.Parse(flags); err != nil {
 		return nil, err
 	}
+	var sinceSet, monthSet, tunnelSet bool
+	fs.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "since":
+			sinceSet = true
+		case "month":
+			monthSet = true
+		case "tunnel":
+			tunnelSet = true
+		}
+	})
+	if tunnelSet && o.endpoint == "" {
+		return nil, fmt.Errorf("invalid endpoint name")
+	}
 	want := 1
 	if o.action == "revoke" {
 		want = 2
 	}
-	if len(positionals) != want {
+	optional := o.action == "usage" || o.action == "list"
+	if len(positionals) != want && (!optional || len(positionals) != 0) {
 		return nil, fmt.Errorf("endpoint%s required", map[bool]string{true: " and grant ID", false: ""}[want == 2])
 	}
-	o.endpoint = positionals[0]
-	if !validCLIEndpoint(o.endpoint) {
+	if len(positionals) > 0 {
+		if o.endpoint != "" {
+			return nil, fmt.Errorf("use either --tunnel or a positional endpoint")
+		}
+		o.endpoint = positionals[0]
+	}
+	if (!optional || o.endpoint != "") && !validCLIEndpoint(o.endpoint) {
 		return nil, fmt.Errorf("invalid endpoint name")
 	}
 	if want == 2 {
@@ -135,8 +162,18 @@ func parseMeteringOptions(command string, args []string, now time.Time) (*meteri
 		}
 	}
 	if o.action == "usage" {
-		if m, err := time.Parse("2006-01", o.month); err != nil || m.Format("2006-01") != o.month {
-			return nil, fmt.Errorf("month must be YYYY-MM")
+		if sinceSet {
+			duration, err := time.ParseDuration(o.since)
+			if err != nil || duration < time.Millisecond || now.Add(-duration).UnixMilli() <= 0 || monthSet {
+				return nil, fmt.Errorf("since must be a positive duration and cannot be combined with month")
+			}
+		} else if o.month == "" {
+			o.month = now.UTC().Format("2006-01")
+		}
+		if o.month != "" || monthSet {
+			if m, err := time.Parse("2006-01", o.month); err != nil || m.Format("2006-01") != o.month {
+				return nil, fmt.Errorf("month must be YYYY-MM")
+			}
 		}
 	}
 	return o, nil
@@ -196,7 +233,18 @@ func executeMetering(command string, args []string, out io.Writer) error {
 	defer cancel()
 	switch o.action {
 	case "usage":
-		data, err := c.Call(ctx, "GET", o.endpoint, "usage?month="+url.QueryEscape(o.month), nil)
+		query := "month=" + url.QueryEscape(o.month)
+		if o.since != "" {
+			query = "since=" + url.QueryEscape(o.since)
+		}
+		data, err := c.Call(ctx, "GET", o.endpoint, "usage?"+query, nil)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintln(out, string(data))
+		return err
+	case "list":
+		data, err := c.Call(ctx, "GET", o.endpoint, "grants", nil)
 		if err != nil {
 			return err
 		}

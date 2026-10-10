@@ -250,12 +250,14 @@ h1 {
   </div>
 
   <div class="card">
-    <div class="card-title">Usage This Month</div>
+    <div class="card-title">Usage This Month (UTC)</div>
     <div class="card-row" style="display: block;">
       <div class="usage-bar">
         <div class="usage-fill {{if gt .UsagePercent 90}}warning{{end}}" style="width: {{.UsagePercent}}%;"></div>
       </div>
-      <div class="usage-text">{{.UsageFormatted}} of {{.QuotaFormatted}} used</div>
+      {{if .UsageAvailable}}<div class="usage-text">{{.UsageFormatted}} of {{.QuotaFormatted}} used across all tunnels, including active connections.</div>
+      <div class="usage-text">{{.RequestsUsed}} of {{.RequestsLimit}} requests admitted.</div>
+      {{else}}<div class="usage-text">Usage temporarily unavailable.</div>{{end}}
     </div>
   </div>
 

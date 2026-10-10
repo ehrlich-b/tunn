@@ -3,6 +3,9 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"fmt"
+	"github.com/ehrlich-b/tunn/internal/common"
+	"strings"
 	"sync"
 	"time"
 
@@ -14,16 +17,12 @@ import (
 type LocalStorage struct {
 	deviceCodes *store.DeviceCodeStore
 	accounts    *store.AccountStore
+	db          *sql.DB
 
 	// Active tunnels tracked in memory
 	// Maps tunnel_id -> account_id
 	activeTunnels   map[string]string
 	activeTunnelsMu sync.RWMutex
-
-	// Magic link JTI tracking (replay protection)
-	// Maps jti -> expiry time
-	usedJTIs   map[string]time.Time
-	usedJTIsMu sync.RWMutex
 
 	// Magic link rate limiting
 	// Maps email -> list of request times
@@ -51,37 +50,26 @@ func NewLocalStorage(db *sql.DB) *LocalStorage {
 	s := &LocalStorage{
 		deviceCodes:       store.NewDeviceCodeStore(db),
 		accounts:          store.NewAccountStore(db),
+		db:                db,
 		activeTunnels:     make(map[string]string),
-		usedJTIs:          make(map[string]time.Time),
 		magicLinkRequests: make(map[string][]time.Time),
 		now:               time.Now,
 	}
-	// Start cleanup goroutine for expired JTIs
-	go s.cleanupExpiredJTIs()
 	return s
 }
 
-// cleanupExpiredJTIs periodically removes expired JTIs from memory.
-// Each pass runs in cleanupExpiredJTIsOnce, which in-package tests call
-// directly to make past-TTL expiry deterministic against the injected clock.
-func (s *LocalStorage) cleanupExpiredJTIs() {
-	ticker := time.NewTicker(1 * time.Minute)
-	defer ticker.Stop()
-	for range ticker.C {
-		s.cleanupExpiredJTIsOnce()
+func NewLocalStorageWithClock(db *sql.DB, now func() time.Time) *LocalStorage {
+	s := NewLocalStorage(db)
+	if now != nil {
+		s.now = now
 	}
+	return s
 }
 
-// cleanupExpiredJTIsOnce removes expired JTIs from memory in a single pass.
-func (s *LocalStorage) cleanupExpiredJTIsOnce() {
-	now := s.currentTime()
-	s.usedJTIsMu.Lock()
-	defer s.usedJTIsMu.Unlock()
-	for jti, expiry := range s.usedJTIs {
-		if now.After(expiry) {
-			delete(s.usedJTIs, jti)
-		}
-	}
+// cleanupExpiredJTIsOnce removes expired replay records using the same clock as redemption.
+func (s *LocalStorage) cleanupExpiredJTIsOnce() error {
+	_, err := s.db.Exec("DELETE FROM used_magic_tokens WHERE expires_at <= ?", s.currentTime().Unix())
+	return err
 }
 
 // Available returns true since local storage is always available on login node.
@@ -199,6 +187,25 @@ func (s *LocalStorage) GetMonthlyUsage(ctx context.Context, accountID string) (i
 func (s *LocalStorage) RegisterTunnel(ctx context.Context, tunnelID, accountID, nodeAddress string) (*TunnelRegistration, error) {
 	s.activeTunnelsMu.Lock()
 	defer s.activeTunnelsMu.Unlock()
+	acc, err := s.accounts.GetByID(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	accountID = acc.ID
+	if acc.OperationalState != "active" {
+		return &TunnelRegistration{Allowed: false, Reason: "account_suspended"}, nil
+	}
+
+	// Every node registers here, so reservation ownership is authoritative
+	// even when the ingress node has no local account database.
+	owner, err := s.accounts.GetSubdomainOwner(tunnelID)
+	if err != nil {
+		return nil, err
+	}
+	if owner != "" && owner != accountID {
+		return &TunnelRegistration{Allowed: false, Reason: "subdomain is reserved by another user"}, nil
+	}
 
 	// Check if tunnel ID already exists (cross-node duplicate check)
 	if _, exists := s.activeTunnels[tunnelID]; exists {
@@ -209,18 +216,28 @@ func (s *LocalStorage) RegisterTunnel(ctx context.Context, tunnelID, accountID, 
 	}
 
 	// Count current tunnels for this account
-	count := int32(0)
-	for _, accID := range s.activeTunnels {
-		if accID == accountID {
-			count++
-		}
+	count, err := s.canonicalTunnelCount(accountID)
+	if err != nil {
+		return nil, err
 	}
 
 	// Get account plan to determine limit
 	maxAllowed := int32(FreeTunnelLimit)
-	acc, err := s.accounts.GetByID(accountID)
-	if err == nil && acc.Plan == "pro" {
+	if acc.Plan == "pro" {
 		maxAllowed = ProTunnelLimit
+	}
+
+	// Preserve Pro auto-claiming on replicas as well as the login node.
+	// A full reservation allowance still permits an unreserved active name.
+	if owner == "" && acc.Plan == "pro" {
+		_ = s.accounts.ReserveSubdomain(accountID, tunnelID)
+		owner, err = s.accounts.GetSubdomainOwner(tunnelID)
+		if err != nil {
+			return nil, err
+		}
+		if owner != "" && owner != accountID {
+			return &TunnelRegistration{Allowed: false, Reason: "subdomain is reserved by another user"}, nil
+		}
 	}
 
 	// Check if limit exceeded
@@ -256,9 +273,38 @@ func (s *LocalStorage) GetTunnelCount(ctx context.Context, accountID string) (in
 	s.activeTunnelsMu.RLock()
 	defer s.activeTunnelsMu.RUnlock()
 
-	count := int32(0)
-	for _, accID := range s.activeTunnels {
-		if accID == accountID {
+	if account, err := s.accounts.GetByID(accountID); err == nil {
+		accountID = account.ID
+	} else if err != sql.ErrNoRows {
+		return 0, err
+	}
+	count, err := s.canonicalTunnelCount(accountID)
+	if err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+// Caller holds activeTunnelsMu. Live registrations can retain an absorbed UUID
+// even when the account merge happened through a different AccountStore handle.
+func (s *LocalStorage) canonicalTunnelCount(accountID string) (int32, error) {
+	var count int32
+	resolved := make(map[string]string)
+	for _, id := range s.activeTunnels {
+		canonical := id
+		if id != accountID {
+			var ok bool
+			canonical, ok = resolved[id]
+			if !ok {
+				account, err := s.accounts.GetByID(id)
+				if err != nil {
+					return 0, err
+				}
+				canonical = account.ID
+				resolved[id] = canonical
+			}
+		}
+		if canonical == accountID {
 			count++
 		}
 	}
@@ -269,15 +315,22 @@ func (s *LocalStorage) GetTunnelCount(ctx context.Context, accountID string) (in
 // Returns wasUnused=true if token was unused and is now marked.
 // Returns wasUnused=false if token was already used (replay attempt).
 func (s *LocalStorage) MarkMagicTokenUsed(ctx context.Context, jti string, expiry time.Time) (bool, error) {
-	s.usedJTIsMu.Lock()
-	defer s.usedJTIsMu.Unlock()
-
-	if _, exists := s.usedJTIs[jti]; exists {
+	if jti == "" || expiry.Unix() <= s.currentTime().Unix() {
 		return false, nil
 	}
-
-	s.usedJTIs[jti] = expiry
-	return true, nil
+	if _, err := s.db.ExecContext(ctx, "DELETE FROM used_magic_tokens WHERE expires_at <= ?", s.currentTime().Unix()); err != nil {
+		return false, err
+	}
+	result, err := s.db.ExecContext(ctx, `
+		INSERT INTO used_magic_tokens (jti, expires_at)
+		SELECT ?, ? WHERE ? > ?
+		ON CONFLICT(jti) DO NOTHING
+	`, jti, expiry.Unix(), expiry.Unix(), s.currentTime().Unix())
+	if err != nil {
+		return false, err
+	}
+	rows, err := result.RowsAffected()
+	return rows == 1, err
 }
 
 // Magic link rate limiting constants
@@ -290,11 +343,32 @@ const (
 // Returns allowed=true if the request is within rate limits.
 // Also records the request if allowed.
 func (s *LocalStorage) CheckMagicLinkRateLimit(ctx context.Context, email string) (bool, int32, time.Time, error) {
+	if s.db == nil {
+		return false, 0, time.Time{}, ErrNotAvailable
+	}
+	if err := s.db.PingContext(ctx); err != nil {
+		return false, 0, time.Time{}, err
+	}
 	s.magicLinkRequestsMu.Lock()
 	defer s.magicLinkRequestsMu.Unlock()
 
 	now := s.currentTime()
 	windowStart := now.Add(-magicLinkRateWindow)
+	email = common.NormalizeEmail(email)
+	if len(email) > 254 || !strings.Contains(email, "@") {
+		return false, 0, now, fmt.Errorf("invalid email")
+	}
+	if s.magicLinkRequests == nil {
+		s.magicLinkRequests = make(map[string][]time.Time)
+	}
+	for key, requests := range s.magicLinkRequests {
+		if len(requests) == 0 || !requests[len(requests)-1].After(windowStart) {
+			delete(s.magicLinkRequests, key)
+		}
+	}
+	if _, exists := s.magicLinkRequests[email]; !exists && len(s.magicLinkRequests) >= 4096 {
+		return false, 0, now.Add(magicLinkRateWindow), nil
+	}
 
 	// Get existing requests and filter to current window
 	requests := s.magicLinkRequests[email]
@@ -349,10 +423,25 @@ func storeAccountToStorage(acc *store.Account) *Account {
 		}
 	}
 	return &Account{
-		ID:           acc.ID,
-		PrimaryEmail: acc.PrimaryEmail,
-		Plan:         acc.Plan,
-		CreatedAt:    acc.CreatedAt,
-		Emails:       emails,
+		OperationalState:   acc.OperationalState,
+		OperationalVersion: acc.OperationalVersion,
+		ID:                 acc.ID,
+		PrimaryEmail:       acc.PrimaryEmail,
+		Plan:               acc.Plan,
+		CreatedAt:          acc.CreatedAt,
+		Emails:             emails,
 	}
+}
+
+func (s *LocalStorage) LookupAccountStatus(ctx context.Context, id string) (*store.AccountStatus, error) {
+	return store.NewOperationsStore(s.db, nil).LookupAccountStatus(ctx, id)
+}
+func (s *LocalStorage) OperationsStore() *store.OperationsStore {
+	return store.NewOperationsStore(s.db, nil)
+}
+func (s *LocalStorage) ProcessBillingEvent(ctx context.Context, e store.BillingEvent) (*store.BillingResult, error) {
+	return s.OperationsStore().ProcessBillingEvent(ctx, e)
+}
+func (s *LocalStorage) IntakeReport(ctx context.Context, id, category, endpoint string) (*store.IncidentReport, error) {
+	return s.OperationsStore().IntakeReport(ctx, id, category, endpoint)
 }

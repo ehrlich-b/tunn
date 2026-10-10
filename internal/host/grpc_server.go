@@ -1,7 +1,9 @@
 package host
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
 	"fmt"
 	"io"
@@ -16,45 +18,13 @@ import (
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
 	"github.com/golang-jwt/jwt/v4"
 	"golang.org/x/time/rate"
+	"google.golang.org/grpc/metadata"
 )
 
-// reservedSubdomains are blocked to prevent phishing and squatting
-var reservedSubdomains = map[string]bool{
-	// Infrastructure
-	"www": true, "api": true, "app": true, "admin": true, "auth": true,
-	"login": true, "static": true, "cdn": true, "assets": true, "images": true,
-	"mail": true, "smtp": true, "pop": true, "imap": true, "mx": true,
-	"ns": true, "ns1": true, "ns2": true, "dns": true,
-	"ftp": true, "sftp": true, "ssh": true, "vpn": true,
-	"dev": true, "staging": true, "prod": true, "test": true, "beta": true,
-	"status": true, "health": true, "metrics": true, "monitor": true,
+// Keep registration and custom-domain binding on the same name policy.
+var reservedSubdomains = common.ReservedTunnelNames
 
-	// Common phishing targets
-	"google": true, "gmail": true, "youtube": true,
-	"facebook": true, "instagram": true, "whatsapp": true, "meta": true,
-	"apple": true, "icloud": true, "itunes": true,
-	"microsoft": true, "outlook": true, "office": true, "azure": true,
-	"amazon": true, "aws": true, "prime": true,
-	"paypal": true, "venmo": true, "cashapp": true, "stripe": true,
-	"chase": true, "bankofamerica": true, "wellsfargo": true, "citi": true,
-	"netflix": true, "spotify": true, "hulu": true, "disney": true,
-	"twitter": true, "x": true, "linkedin": true, "tiktok": true,
-	"github": true, "gitlab": true, "bitbucket": true,
-	"slack": true, "zoom": true, "teams": true, "discord": true,
-	"dropbox": true, "box": true, "drive": true,
-
-	// Security-sensitive
-	"secure": true, "security": true, "account": true, "accounts": true,
-	"billing": true, "payment": true, "pay": true, "checkout": true,
-	"verify": true, "verification": true, "confirm": true, "reset": true,
-	"password": true, "signin": true, "signup": true, "register": true,
-	"support": true, "help": true, "helpdesk": true,
-}
-
-// isReservedSubdomain checks if a tunnel ID is reserved
-func isReservedSubdomain(tunnelID string) bool {
-	return reservedSubdomains[strings.ToLower(tunnelID)]
-}
+func isReservedSubdomain(tunnelID string) bool { return common.IsReservedTunnelName(tunnelID) }
 
 // isValidDNSLabel checks if a tunnel ID is a valid DNS label per RFC 1123.
 // Must be 1-63 chars, contain only lowercase letters, digits, hyphens,
@@ -66,20 +36,20 @@ func isValidDNSLabel(tunnelID string) bool {
 
 	// Must start with alphanumeric
 	first := tunnelID[0]
-	if !((first >= 'a' && first <= 'z') || (first >= '0' && first <= '9')) {
+	if (first < 'a' || first > 'z') && (first < '0' || first > '9') {
 		return false
 	}
 
 	// Must end with alphanumeric
 	last := tunnelID[len(tunnelID)-1]
-	if !((last >= 'a' && last <= 'z') || (last >= '0' && last <= '9')) {
+	if (last < 'a' || last > 'z') && (last < '0' || last > '9') {
 		return false
 	}
 
 	// Middle chars can be alphanumeric or hyphen
 	for i := 1; i < len(tunnelID)-1; i++ {
 		c := tunnelID[i]
-		if !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-') {
+		if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '-' {
 			return false
 		}
 	}
@@ -91,6 +61,7 @@ func isValidDNSLabel(tunnelID string) bool {
 type TunnelServer struct {
 	pb.UnimplementedTunnelServiceServer
 
+	hosts      *store.HostStore
 	mu         sync.RWMutex
 	tunnels    map[string]*TunnelConnection
 	cfg        *config.Config
@@ -103,24 +74,61 @@ type TunnelServer struct {
 
 // TunnelConnection represents an active tunnel connection
 type TunnelConnection struct {
-	TunnelID      string
-	TargetURL     string
-	Stream        pb.TunnelService_EstablishTunnelServer
-	Connected     time.Time
-	CreatorEmail  string
-	AccountID     string   // Account ID for usage tracking (from storage)
-	AllowedEmails []string // Includes creator_email + any additional allowed emails
-	Plan          string   // "free" or "pro" - cached for quota checks
+	HostID             string
+	TunnelID           string
+	TargetURL          string
+	Stream             pb.TunnelService_EstablishTunnelServer
+	Connected          time.Time
+	CreatorEmail       string
+	AccountID          string // Account ID for usage tracking (from storage)
+	anonymousSSH       bool
+	accountQuotaExempt bool     // Explicit self-hosted authentication without an account
+	AllowedEmails      []string // Includes creator_email + any additional allowed emails
+	AccessTokenSHA256  []byte   // Endpoint-scoped bearer digest; plaintext never reaches the relay
+	Capabilities       map[string]bool
+	EndpointProtocol   string
+	Plan               string // Registration plan; ingress resolves the current plan.
 
 	// Bandwidth rate limiter (token bucket)
-	rateLimiter *rate.Limiter
+	rateLimiter   *rate.Limiter
+	rateMu        sync.RWMutex
+	bandwidthPlan string
 
 	// Stream send mutex - gRPC streams are NOT thread-safe for concurrent Send()
 	streamMu sync.Mutex
+	authMu   sync.RWMutex
 
 	// HTTP request tracking
 	pendingMu       sync.RWMutex
 	pendingRequests map[string]chan *pb.HttpResponse
+	pendingStreams  map[string]*pendingConnection
+}
+
+// Supports reports whether the connected client advertised a data-plane
+// capability during registration.
+func (t *TunnelConnection) Supports(capability string) bool {
+	return t.Capabilities[capability]
+}
+
+func (t *TunnelConnection) accessTokenDigest() []byte {
+	t.authMu.RLock()
+	defer t.authMu.RUnlock()
+	return append([]byte(nil), t.AccessTokenSHA256...)
+}
+
+func (t *TunnelConnection) updateAccessTokenDigest(digest []byte) {
+	t.authMu.Lock()
+	t.AccessTokenSHA256 = append(t.AccessTokenSHA256[:0], digest...)
+	t.authMu.Unlock()
+	// Revocation includes upgraded sockets using the previous capability.
+	// Cookie-authenticated sockets have no capability digest.
+	t.pendingMu.RLock()
+	defer t.pendingMu.RUnlock()
+	for _, pending := range t.pendingStreams {
+		if len(pending.accessDigest) > 0 && !bytes.Equal(pending.accessDigest, digest) {
+			pending.stop()
+		}
+	}
 }
 
 // SendMessage sends a message on the stream in a thread-safe manner.
@@ -133,10 +141,29 @@ func (t *TunnelConnection) SendMessage(msg *pb.TunnelMessage) error {
 // CheckRateLimit checks if the specified number of bytes can be sent.
 // Returns true if allowed, false if rate limited.
 func (t *TunnelConnection) CheckRateLimit(bytes int) bool {
+	t.rateMu.RLock()
+	defer t.rateMu.RUnlock()
 	if t.rateLimiter == nil {
 		return true // No rate limiter configured
 	}
 	return t.rateLimiter.AllowN(time.Now(), bytes)
+}
+
+// Update the existing bucket instead of resetting its consumed allowance.
+func (t *TunnelConnection) updateBandwidthPlan(plan string) {
+	if t.anonymousSSH {
+		plan = "ssh-anonymous"
+	}
+	t.rateMu.Lock()
+	defer t.rateMu.Unlock()
+	if t.rateLimiter == nil || t.bandwidthPlan == plan {
+		return
+	}
+	limits := newRateLimiter(plan)
+	now := time.Now()
+	t.rateLimiter.SetLimitAt(now, limits.Limit())
+	t.rateLimiter.SetBurstAt(now, limits.Burst())
+	t.bandwidthPlan = plan
 }
 
 // newRateLimiter creates a rate limiter for the given plan.
@@ -144,6 +171,8 @@ func (t *TunnelConnection) CheckRateLimit(bytes int) bool {
 func newRateLimiter(plan string) *rate.Limiter {
 	var mbps int
 	switch plan {
+	case "ssh-anonymous":
+		mbps = 1
 	case "pro":
 		mbps = ProBandwidthMbps
 	default:
@@ -188,6 +217,16 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		return fmt.Errorf("expected RegisterClient message, got %T", msg.Message)
 	}
 
+	hostID := ""
+	if md, ok := metadata.FromIncomingContext(stream.Context()); ok {
+		if ids := md.Get("tunn-host-id"); len(ids) > 0 {
+			hostID = ids[0]
+		}
+	}
+	if hostID != "" && (!s.cfg.HostModeEnabled || s.hosts == nil) {
+		_ = stream.Send(&pb.TunnelMessage{Message: &pb.TunnelMessage_RegisterResponse{RegisterResponse: &pb.RegisterResponse{Success: false, ErrorMessage: "host mode is disabled on this relay"}}})
+		return fmt.Errorf("host mode is disabled")
+	}
 	tunnelID := strings.ToLower(regClient.TunnelId) // Normalize to lowercase
 	targetURL := regClient.TargetUrl
 
@@ -202,7 +241,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 				},
 			},
 		}
-		stream.Send(respMsg)
+		_ = stream.Send(respMsg)
 		return fmt.Errorf("invalid tunnel ID: %s", tunnelID)
 	}
 
@@ -217,24 +256,81 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 				},
 			},
 		}
-		stream.Send(respMsg)
+		_ = stream.Send(respMsg)
 		return fmt.Errorf("reserved subdomain: %s", tunnelID)
+	}
+
+	if size := len(regClient.AccessTokenSha256); size != 0 && size != sha256.Size {
+		common.LogError("rejected invalid endpoint token digest", "tunnel_id", tunnelID, "size", size)
+		respMsg := &pb.TunnelMessage{
+			Message: &pb.TunnelMessage_RegisterResponse{
+				RegisterResponse: &pb.RegisterResponse{
+					Success:      false,
+					ErrorMessage: "Invalid endpoint access token digest.",
+				},
+			},
+		}
+		_ = stream.Send(respMsg)
+		return fmt.Errorf("invalid endpoint token digest for tunnel %s", tunnelID)
+	}
+	endpointProtocol := regClient.EndpointProtocol
+	if endpointProtocol == "" {
+		endpointProtocol = "http"
+	}
+	if endpointProtocol != "http" && endpointProtocol != "tcp" {
+		_ = stream.Send(&pb.TunnelMessage{
+			Message: &pb.TunnelMessage_RegisterResponse{
+				RegisterResponse: &pb.RegisterResponse{
+					Success:      false,
+					ErrorMessage: "Unsupported endpoint protocol.",
+				},
+			},
+		})
+		return fmt.Errorf("unsupported endpoint protocol %q", endpointProtocol)
+	}
+	if endpointProtocol == "tcp" && !stringSliceContains(regClient.Capabilities, common.CapabilityConnectionStreamV1) {
+		_ = stream.Send(&pb.TunnelMessage{
+			Message: &pb.TunnelMessage_RegisterResponse{
+				RegisterResponse: &pb.RegisterResponse{
+					Success:      false,
+					ErrorMessage: "TCP endpoints require connection-stream-v1 support.",
+				},
+			},
+		})
+		return fmt.Errorf("TCP client does not support connection streams")
 	}
 
 	common.LogInfo("client registering", "tunnel_id", tunnelID, "target", targetURL)
 
 	var creatorEmail string
 	var allowedEmails []string
+	var requiresAccount bool
+	var configuredUser bool
 
-	// Skip auth in public mode
-	if s.cfg.PublicMode {
+	sshIdentity, viaSSH := stream.Context().Value(sshPublisherContextKey{}).(sshPublisher)
+	// Only the in-process SSH adapter can attach this verified identity.
+	if viaSSH {
+		creatorEmail = sshIdentity.email
+		allowedEmails = regClient.AllowedEmails
+		requiresAccount = true
+		if sshIdentity.anonymous && len(allowedEmails) == 0 {
+			return rejectTunnelRegistration(stream, "Anonymous SSH requires an allow-list.")
+		}
+	} else if s.cfg.PublicMode {
 		common.LogInfo("public mode - skipping auth", "tunnel_id", tunnelID)
 		creatorEmail = "public@tunn.local"
-		allowedEmails = []string{"public@tunn.local"}
+		// PublicMode controls publisher authentication for local/self-hosted
+		// development. It must not silently turn every published endpoint into
+		// an allow-listed endpoint: an empty client allow-list means visitors can
+		// reach it anonymously, while an explicit allow-list is still preserved.
+		allowedEmails = regClient.AllowedEmails
 	} else if s.cfg.ClientSecret != "" && regClient.AuthToken == s.cfg.ClientSecret {
 		// Client secret auth (self-hosters - master key)
 		common.LogInfo("client secret auth - bypassing OAuth", "tunnel_id", tunnelID)
 		creatorEmail = regClient.CreatorEmail
+		if hostID != "" {
+			creatorEmail = "client@local"
+		}
 		if creatorEmail == "" {
 			creatorEmail = "client@local"
 		}
@@ -244,6 +340,8 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		common.LogInfo("user token auth", "tunnel_id", tunnelID, "email", email)
 		creatorEmail = email
 		allowedEmails = regClient.AllowedEmails
+		configuredUser = true
+		requiresAccount = s.storage != nil
 	} else {
 		// Validate tunnel_key (authorization to create tunnels)
 		if regClient.TunnelKey != s.cfg.WellKnownKey {
@@ -256,7 +354,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 					},
 				},
 			}
-			stream.Send(respMsg)
+			_ = stream.Send(respMsg)
 			return fmt.Errorf("invalid tunnel key for tunnel %s", tunnelID)
 		}
 
@@ -272,7 +370,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 					},
 				},
 			}
-			stream.Send(respMsg)
+			_ = stream.Send(respMsg)
 			return fmt.Errorf("no authentication provided for tunnel %s", tunnelID)
 		}
 
@@ -287,79 +385,93 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 					},
 				},
 			}
-			stream.Send(respMsg)
+			_ = stream.Send(respMsg)
 			return fmt.Errorf("JWT validation failed for tunnel %s: %w", tunnelID, err)
 		}
 		creatorEmail = extractedEmail
 		allowedEmails = regClient.AllowedEmails
+		requiresAccount = true
 
 		common.LogInfo("tunnel registration", "tunnel_id", tunnelID, "creator", creatorEmail, "allowed", allowedEmails)
 	}
 
-	// Check subdomain reservations (if account store is available)
-	if s.accounts != nil && !s.cfg.PublicMode {
-		ownerAccountID, err := s.accounts.GetSubdomainOwner(tunnelID)
-		if err != nil {
-			common.LogError("failed to check subdomain owner", "tunnel_id", tunnelID, "error", err)
-		} else if ownerAccountID != "" {
-			// Subdomain is reserved - check if this user owns it
-			userAccount, err := s.accounts.GetByEmail(creatorEmail)
-			if err != nil || userAccount == nil || userAccount.ID != ownerAccountID {
-				common.LogError("subdomain reserved by another user", "tunnel_id", tunnelID, "creator", creatorEmail)
-				respMsg := &pb.TunnelMessage{
-					Message: &pb.TunnelMessage_RegisterResponse{
-						RegisterResponse: &pb.RegisterResponse{
-							Success:      false,
-							ErrorMessage: fmt.Sprintf("Subdomain '%s' is reserved by another user.", tunnelID),
-						},
-					},
-				}
-				stream.Send(respMsg)
-				return fmt.Errorf("subdomain %s is reserved by another user", tunnelID)
-			}
-			common.LogInfo("using reserved subdomain", "tunnel_id", tunnelID, "creator", creatorEmail)
-		} else {
-			// Subdomain is not reserved - try to claim it if user is Pro
-			userAccount, err := s.accounts.GetByEmail(creatorEmail)
-			if err == nil && userAccount != nil && userAccount.Plan == "pro" {
-				// Try to reserve the subdomain for this user
-				if err := s.accounts.ReserveSubdomain(userAccount.ID, tunnelID); err == nil {
-					common.LogInfo("auto-claimed subdomain for Pro user", "tunnel_id", tunnelID, "creator", creatorEmail)
-				}
-				// If reservation fails (e.g., max limit), just continue without reserving
-			}
+	// Resolve hosted publishers through shared storage; unknown ownership fails closed.
+	plan := "free"
+	var accountID string
+	if requiresAccount {
+		if s.storage == nil || !s.storage.Available() {
+			return rejectTunnelRegistration(stream, "Account service temporarily unavailable.")
+		}
+		account, err := s.storage.GetAccountByEmail(stream.Context(), creatorEmail)
+		if err == nil && account == nil && configuredUser {
+			account, err = s.storage.FindOrCreateByEmails(stream.Context(), []string{creatorEmail}, "configured-user")
+		}
+		if err != nil || account == nil || account.ID == "" {
+			return rejectTunnelRegistration(stream, "Account could not be verified. Run 'tunn login' again.")
+		}
+		plan = account.Plan
+		accountID = account.ID
+		if account.OperationalState != "active" {
+			return rejectTunnelRegistration(stream, "Account suspended or status unavailable.")
 		}
 	}
 
-	// Look up plan and accountID for quota enforcement (default to "free" if lookup fails)
-	plan := "free"
-	var accountID string
-	if s.storage != nil && s.storage.Available() && creatorEmail != "" {
-		// Cross-node: use storage interface (proxies to login node if needed)
-		if account, err := s.storage.GetAccountByEmail(stream.Context(), creatorEmail); err == nil && account != nil {
-			plan = account.Plan
-			accountID = account.ID
+	if hostID != "" {
+		account, err := s.hostAccount(regClient.AuthToken, false)
+		kind := targetURL
+		if kind == "unix-http" {
+			kind = "unix"
 		}
-	} else if s.accounts != nil && creatorEmail != "" {
-		// Local fallback: direct account store access
-		if account, err := s.accounts.GetByEmail(creatorEmail); err == nil && account != nil {
-			plan = account.Plan
-			accountID = account.ID
+		expectedProtocol := "http"
+		if targetURL == "tcp" || targetURL == "unix" {
+			expectedProtocol = "tcp"
+		}
+		if err == nil && account != nil {
+			if account.OperationalState != "active" {
+				return rejectTunnelRegistration(stream, "Account suspended or status unavailable.")
+			}
+			accountID, plan = account.ID, account.Plan
+			err = s.hosts.CheckEndpoint(accountID, hostID, tunnelID, kind)
+			if endpointProtocol != expectedProtocol {
+				err = fmt.Errorf("host endpoint protocol mismatch")
+			}
+		} else if err == nil {
+			err = fmt.Errorf("host must be registered before publishing")
+		}
+		if err != nil || len(allowedEmails) == 0 {
+			_ = stream.Send(&pb.TunnelMessage{Message: &pb.TunnelMessage_RegisterResponse{RegisterResponse: &pb.RegisterResponse{Success: false, ErrorMessage: "private host endpoint does not match its reservation"}}})
+			return fmt.Errorf("invalid host registration")
 		}
 	}
 
 	// Create tunnel connection
+	capabilities := make(map[string]bool, len(regClient.Capabilities))
+	for _, capability := range regClient.Capabilities {
+		capabilities[capability] = true
+	}
+	bandwidthPlan := plan
+	if viaSSH && sshIdentity.anonymous {
+		bandwidthPlan = "ssh-anonymous"
+	}
 	conn := &TunnelConnection{
-		TunnelID:        tunnelID,
-		TargetURL:       targetURL,
-		Stream:          stream,
-		Connected:       time.Now(),
-		CreatorEmail:    creatorEmail,
-		AccountID:       accountID,
-		AllowedEmails:   allowedEmails,
-		Plan:            plan,
-		rateLimiter:     newRateLimiter(plan),
-		pendingRequests: make(map[string]chan *pb.HttpResponse),
+		anonymousSSH:       viaSSH && sshIdentity.anonymous,
+		HostID:             hostID,
+		TunnelID:           tunnelID,
+		TargetURL:          targetURL,
+		Stream:             stream,
+		Connected:          time.Now(),
+		CreatorEmail:       creatorEmail,
+		AccountID:          accountID,
+		accountQuotaExempt: !requiresAccount && hostID == "",
+		AllowedEmails:      allowedEmails,
+		AccessTokenSHA256:  append([]byte(nil), regClient.AccessTokenSha256...),
+		Capabilities:       capabilities,
+		EndpointProtocol:   endpointProtocol,
+		Plan:               plan,
+		rateLimiter:        newRateLimiter(bandwidthPlan),
+		bandwidthPlan:      bandwidthPlan,
+		pendingRequests:    make(map[string]chan *pb.HttpResponse),
+		pendingStreams:     make(map[string]*pendingConnection),
 	}
 
 	// Check if tunnel exists locally first
@@ -374,19 +486,19 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 				},
 			},
 		}
-		stream.Send(respMsg)
+		_ = stream.Send(respMsg)
 		return fmt.Errorf("tunnel ID %s already registered", tunnelID)
 	}
 	s.mu.Unlock()
 
 	// Register tunnel and check limits (cross-node if available)
 	var registeredWithStorage bool
-	if s.storage != nil && s.storage.Available() && accountID != "" {
+	if s.storage != nil && accountID != "" {
 		// Cross-node: register with login node (includes duplicate and limit checks)
 		reg, err := s.storage.RegisterTunnel(stream.Context(), tunnelID, accountID, s.cfg.Domain)
 		if err != nil {
 			common.LogError("failed to register tunnel with login node", "tunnel_id", tunnelID, "error", err)
-			// Fall back to local check
+			return rejectTunnelRegistration(stream, "Tunnel ownership could not be verified. Please try again later.")
 		} else if !reg.Allowed {
 			respMsg := &pb.TunnelMessage{
 				Message: &pb.TunnelMessage_RegisterResponse{
@@ -396,7 +508,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 					},
 				},
 			}
-			stream.Send(respMsg)
+			_ = stream.Send(respMsg)
 			common.LogInfo("tunnel registration denied", "tunnel_id", tunnelID, "reason", reg.Reason)
 			return fmt.Errorf("tunnel registration denied: %s", reg.Reason)
 		} else {
@@ -423,7 +535,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 					},
 				},
 			}
-			stream.Send(respMsg)
+			_ = stream.Send(respMsg)
 			common.LogInfo("tunnel limit reached", "email", creatorEmail, "count", currentCount, "max", maxTunnels)
 			return fmt.Errorf("tunnel limit reached for %s", creatorEmail)
 		}
@@ -436,7 +548,9 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		s.mu.Unlock()
 		// Unregister from storage if we registered
 		if registeredWithStorage && s.storage != nil {
-			s.storage.UnregisterTunnel(stream.Context(), tunnelID)
+			if err := s.storage.UnregisterTunnel(stream.Context(), tunnelID); err != nil {
+				common.LogError("failed to unregister duplicate tunnel", "tunnel_id", tunnelID, "error", err)
+			}
 		}
 		respMsg := &pb.TunnelMessage{
 			Message: &pb.TunnelMessage_RegisterResponse{
@@ -446,14 +560,35 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 				},
 			},
 		}
-		stream.Send(respMsg)
+		_ = stream.Send(respMsg)
 		return fmt.Errorf("tunnel ID %s already registered (race)", tunnelID)
 	}
+	// Recheck durable ownership while holding the same lock used by host
+	// reservation. This closes the race between ephemeral admission and reserve.
+	if s.accounts != nil && !s.cfg.PublicMode {
+		owner, err := s.accounts.GetSubdomainOwner(tunnelID)
+		if err != nil || (owner != "" && owner != accountID) {
+			s.mu.Unlock()
+			if registeredWithStorage {
+				_ = s.storage.UnregisterTunnel(context.Background(), tunnelID)
+			}
+			_ = stream.Send(&pb.TunnelMessage{Message: &pb.TunnelMessage_RegisterResponse{RegisterResponse: &pb.RegisterResponse{Success: false, ErrorMessage: "name reservation could not be verified"}}})
+			return fmt.Errorf("name reservation could not be verified")
+		}
+	}
+	// The tunnel becomes visible before the registration reply reaches the
+	// publisher. Hold its send lock so an incoming request cannot overtake
+	// RegisterResponse on the same gRPC stream.
+	conn.streamMu.Lock()
 	s.tunnels[tunnelID] = conn
 	s.mu.Unlock()
 
+	s.hostSeen(conn)
+
 	// Cleanup on disconnect
 	defer func() {
+		s.hostSeen(conn)
+		conn.closePendingConnections()
 		s.mu.Lock()
 		delete(s.tunnels, tunnelID)
 		s.mu.Unlock()
@@ -473,13 +608,16 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 	respMsg := &pb.TunnelMessage{
 		Message: &pb.TunnelMessage_RegisterResponse{
 			RegisterResponse: &pb.RegisterResponse{
-				Success:   true,
-				PublicUrl: publicURL,
+				Success:      true,
+				PublicUrl:    publicURL,
+				Capabilities: []string{common.CapabilityHTTPStreamV1, common.CapabilityConnectionStreamV1, common.CapabilityWebSocketV1},
 			},
 		},
 	}
 
-	if err := stream.Send(respMsg); err != nil {
+	err = stream.Send(respMsg)
+	conn.streamMu.Unlock()
+	if err != nil {
 		return fmt.Errorf("failed to send registration response: %w", err)
 	}
 
@@ -526,14 +664,37 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 					"connection_id", m.HttpResponse.ConnectionId)
 			}
 
+		case *pb.TunnelMessage_ConnectionAccept,
+			*pb.TunnelMessage_ConnectionData,
+			*pb.TunnelMessage_ConnectionHalfClose,
+			*pb.TunnelMessage_ConnectionClose:
+			conn.routeConnectionMessage(msg)
+
+		case *pb.TunnelMessage_UpdateAccessToken:
+			if len(m.UpdateAccessToken.AccessTokenSha256) != sha256.Size {
+				return fmt.Errorf("invalid rotated endpoint token digest")
+			}
+			conn.updateAccessTokenDigest(m.UpdateAccessToken.AccessTokenSha256)
+			common.LogInfo("endpoint access token rotated", "tunnel_id", tunnelID)
+
 		default:
 			common.LogInfo("unexpected message type", "type", fmt.Sprintf("%T", m))
 		}
 	}
 }
 
+func stringSliceContains(values []string, wanted string) bool {
+	for _, value := range values {
+		if value == wanted {
+			return true
+		}
+	}
+	return false
+}
+
 // handleHealthCheck responds to health check pings
 func (s *TunnelServer) handleHealthCheck(conn *TunnelConnection, hc *pb.HealthCheck) {
+	s.hostSeen(conn)
 	response := &pb.TunnelMessage{
 		Message: &pb.TunnelMessage_HealthCheckResponse{
 			HealthCheckResponse: &pb.HealthCheckResponse{
@@ -634,10 +795,13 @@ func (s *TunnelServer) validateJWTAndExtractEmail(tokenString string) (string, e
 	}
 
 	// Extract email
-	email, ok := claims["email"].(string)
-	if !ok || email == "" {
-		return "", fmt.Errorf("email claim not found or empty in JWT")
-	}
+	return identityEmail(claims)
+}
 
-	return email, nil
+// rejectTunnelRegistration sends a failed reply before terminating the stream.
+func rejectTunnelRegistration(stream pb.TunnelService_EstablishTunnelServer, reason string) error {
+	_ = stream.Send(&pb.TunnelMessage{Message: &pb.TunnelMessage_RegisterResponse{
+		RegisterResponse: &pb.RegisterResponse{Success: false, ErrorMessage: reason},
+	}})
+	return fmt.Errorf("tunnel registration denied: %s", reason)
 }

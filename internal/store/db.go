@@ -101,6 +101,14 @@ func initSchema(db *sql.DB) error {
 	);
 	CREATE INDEX IF NOT EXISTS idx_accounts_primary_email ON accounts(primary_email);
 
+	-- Keep live publishers and delayed accounting tied to the surviving UUID.
+	CREATE TABLE IF NOT EXISTS account_merges (
+		old_id TEXT PRIMARY KEY,
+		account_id TEXT NOT NULL,
+		FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+	);
+	CREATE INDEX IF NOT EXISTS idx_account_merges_account_id ON account_merges(account_id);
+
 	-- Account emails (many-to-one with accounts)
 	CREATE TABLE IF NOT EXISTS account_emails (
 		account_id TEXT NOT NULL,
@@ -128,9 +136,37 @@ func initSchema(db *sql.DB) error {
 		FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
 	);
 	CREATE INDEX IF NOT EXISTS idx_reserved_subdomains_account_id ON reserved_subdomains(account_id);
+
+	-- Consumed magic links survive login-node restarts until token expiry.
+	CREATE TABLE IF NOT EXISTS used_magic_tokens (
+		jti TEXT PRIMARY KEY,
+		expires_at INTEGER NOT NULL
+	);
+	CREATE INDEX IF NOT EXISTS idx_used_magic_tokens_expires_at ON used_magic_tokens(expires_at);
 	`
 	_, err := db.Exec(schema)
-	return err
+	if err != nil {
+		return err
+	}
+	return MigrateOperations(db)
+}
+
+// OpenLocal opens an explicitly selected database without process-global state.
+// Operators and disposable fixtures use this instead of the host's singleton.
+func OpenLocal(path string) (*sql.DB, error) {
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		return nil, err
+	}
+	db.SetMaxOpenConns(1)
+	if _, err = db.Exec("PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;"); err == nil {
+		err = initSchema(db)
+	}
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	return db, nil
 }
 
 // Close closes the database connection

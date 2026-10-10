@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"strings"
@@ -12,11 +13,13 @@ import (
 
 // Account represents a user account (email bucket)
 type Account struct {
-	ID           string
-	PrimaryEmail string
-	Plan         string // "free" or "pro"
-	CreatedAt    time.Time
-	Emails       []AccountEmail
+	OperationalState   string
+	OperationalVersion int64
+	ID                 string
+	PrimaryEmail       string
+	Plan               string // "free" or "pro"
+	CreatedAt          time.Time
+	Emails             []AccountEmail
 }
 
 // AccountEmail represents an email in an account bucket
@@ -65,7 +68,7 @@ func (s *AccountStore) FindOrCreateByEmails(emails []string, verifiedVia string)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var accounts []*Account
 	for rows.Next() {
@@ -112,10 +115,13 @@ func (s *AccountStore) FindOrCreateByEmails(emails []string, verifiedVia string)
 	// Add any new emails to the account
 	for _, email := range emails {
 		// Try to insert, ignore if already exists
-		s.db.Exec(
+		_, err := s.db.Exec(
 			"INSERT OR IGNORE INTO account_emails (account_id, email, verified_via, added_at) VALUES (?, ?, ?, ?)",
 			account.ID, email, verifiedVia, time.Now().Unix(),
 		)
+		if err != nil {
+			return nil, fmt.Errorf("add account email: %w", err)
+		}
 	}
 
 	// Load all emails for the account
@@ -124,6 +130,9 @@ func (s *AccountStore) FindOrCreateByEmails(emails []string, verifiedVia string)
 		return nil, err
 	}
 
+	if err = s.loadOperationalState(account); err != nil {
+		return nil, err
+	}
 	return account, nil
 }
 
@@ -151,6 +160,9 @@ func (s *AccountStore) GetByEmail(email string) (*Account, error) {
 		return nil, err
 	}
 
+	if err = s.loadOperationalState(&account); err != nil {
+		return nil, err
+	}
 	return &account, nil
 }
 
@@ -174,7 +186,7 @@ func (s *AccountStore) GetEmailBucket(email string) ([]string, error) {
 
 // UpdatePlan updates an account's plan
 func (s *AccountStore) UpdatePlan(accountID, plan string) error {
-	_, err := s.db.Exec("UPDATE accounts SET plan = ? WHERE id = ?", plan, accountID)
+	_, err := s.db.Exec("UPDATE accounts SET plan = ? WHERE id = COALESCE((SELECT account_id FROM account_merges WHERE old_id = ?), ?)", plan, accountID, accountID)
 	return err
 }
 
@@ -192,24 +204,68 @@ func (s *AccountStore) mergeAccounts(accounts []*Account) (*Account, error) {
 		}
 	}
 
-	// Move all emails from other accounts to the primary account
+	// Move account-owned endpoints and reservations with the verified email
+	// bucket. Without this, a later multi-email login would orphan stable names.
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var hostTables int
+	if err := tx.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='host_machines'").Scan(&hostTables); err != nil {
+		return nil, err
+	}
 	for _, acc := range accounts {
-		if acc.ID != primary.ID {
-			// Update emails to point to primary account
-			_, err := s.db.Exec(
-				"UPDATE account_emails SET account_id = ? WHERE account_id = ?",
-				primary.ID, acc.ID,
-			)
-			if err != nil {
+		if acc.ID == primary.ID {
+			continue
+		}
+		if _, err := tx.Exec("UPDATE account_emails SET account_id = ? WHERE account_id = ?", primary.ID, acc.ID); err != nil {
+			return nil, err
+		}
+		if _, err := tx.Exec("UPDATE reserved_subdomains SET account_id = ? WHERE account_id = ?", primary.ID, acc.ID); err != nil {
+			return nil, err
+		}
+		if hostTables != 0 {
+			if _, err := tx.Exec(`INSERT INTO host_machines(account_id, machine, last_seen)
+SELECT ?, machine, last_seen FROM host_machines WHERE account_id=?
+ON CONFLICT(account_id, machine) DO UPDATE SET last_seen=MAX(host_machines.last_seen, excluded.last_seen)`, primary.ID, acc.ID); err != nil {
 				return nil, err
 			}
-
-			// Delete the merged account
-			_, err = s.db.Exec("DELETE FROM accounts WHERE id = ?", acc.ID)
-			if err != nil {
+			if _, err := tx.Exec("UPDATE host_endpoints SET account_id=? WHERE account_id=?", primary.ID, acc.ID); err != nil {
+				return nil, err
+			}
+			if _, err := tx.Exec("DELETE FROM host_machines WHERE account_id=?", acc.ID); err != nil {
 				return nil, err
 			}
 		}
+		var domainTables int
+		if err := tx.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='custom_domains'").Scan(&domainTables); err != nil {
+			return nil, err
+		}
+		if domainTables != 0 {
+			if _, err := tx.Exec("UPDATE custom_domains SET owner=? WHERE owner=?", primary.ID, acc.ID); err != nil {
+				return nil, err
+			}
+		}
+		if err := mergeAccountAccounting(tx, acc.ID, primary.ID); err != nil {
+			return nil, err
+		}
+		if err := mergeAccountOperations(tx, acc.ID, primary.ID); err != nil {
+			return nil, err
+		}
+		// Flatten prior merges so every obsolete UUID resolves in one lookup.
+		if _, err := tx.Exec("UPDATE account_merges SET account_id=? WHERE account_id=?", primary.ID, acc.ID); err != nil {
+			return nil, err
+		}
+		if _, err := tx.Exec("INSERT INTO account_merges(old_id,account_id) VALUES(?,?)", acc.ID, primary.ID); err != nil {
+			return nil, err
+		}
+		if _, err := tx.Exec("DELETE FROM accounts WHERE id=?", acc.ID); err != nil {
+			return nil, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
 	}
 
 	return primary, nil
@@ -224,7 +280,7 @@ func (s *AccountStore) getAccountEmails(accountID string) ([]AccountEmail, error
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var emails []AccountEmail
 	for rows.Next() {
@@ -256,10 +312,18 @@ type ReservedSubdomain struct {
 // - Subdomain is already reserved by another account
 func (s *AccountStore) ReserveSubdomain(accountID, subdomain string) error {
 	subdomain = strings.ToLower(strings.TrimSpace(subdomain))
+	status, err := NewOperationsStore(s.db, nil).LookupAccountStatus(context.Background(), accountID)
+	if err != nil {
+		return err
+	}
+	if status.State != "active" {
+		return ErrSuspended
+	}
+	accountID = status.AccountID
 
 	// Check if account is Pro
 	var plan string
-	err := s.db.QueryRow("SELECT plan FROM accounts WHERE id = ?", accountID).Scan(&plan)
+	err = s.db.QueryRow("SELECT plan FROM accounts WHERE id = ?", accountID).Scan(&plan)
 	if err != nil {
 		return err
 	}
@@ -322,7 +386,7 @@ func (s *AccountStore) GetReservedSubdomains(accountID string) ([]ReservedSubdom
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var subdomains []ReservedSubdomain
 	for rows.Next() {
@@ -358,28 +422,38 @@ func (s *AccountStore) ReleaseSubdomain(accountID, subdomain string) error {
 
 // RecordUsage adds bytes to an account's monthly usage
 func (s *AccountStore) RecordUsage(accountID string, bytes int64) error {
-	month := time.Now().Format("2006-01")
+	month := time.Now().UTC().Format("2006-01")
 
-	_, err := s.db.Exec(`
+	result, err := s.db.Exec(`
 		INSERT INTO account_usage (account_id, month, bytes_used)
-		VALUES (?, ?, ?)
-		ON CONFLICT(account_id, month) DO UPDATE SET bytes_used = bytes_used + ?
-	`, accountID, month, bytes, bytes)
-	return err
+		SELECT id, ?, ? FROM accounts
+		WHERE id = COALESCE((SELECT account_id FROM account_merges WHERE old_id = ?), ?)
+		ON CONFLICT(account_id, month) DO UPDATE SET bytes_used = bytes_used + excluded.bytes_used
+	`, month, bytes, accountID, accountID)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 // GetMonthlyUsage returns the bytes used by an account in the current month
 func (s *AccountStore) GetMonthlyUsage(accountID string) (int64, error) {
-	month := time.Now().Format("2006-01")
+	month := time.Now().UTC().Format("2006-01")
 
 	var bytesUsed int64
 	err := s.db.QueryRow(
-		"SELECT bytes_used FROM account_usage WHERE account_id = ? AND month = ?",
-		accountID, month,
+		`SELECT COALESCE(u.bytes_used, 0)
+		 FROM accounts a LEFT JOIN account_usage u ON u.account_id = a.id AND u.month = ?
+		 WHERE a.id = COALESCE((SELECT account_id FROM account_merges WHERE old_id = ?), ?)`,
+		month, accountID, accountID,
 	).Scan(&bytesUsed)
-	if err == sql.ErrNoRows {
-		return 0, nil
-	}
 	if err != nil {
 		return 0, err
 	}
@@ -394,8 +468,8 @@ func (s *AccountStore) GetByID(accountID string) (*Account, error) {
 	err := s.db.QueryRow(`
 		SELECT id, primary_email, plan, created_at
 		FROM accounts
-		WHERE id = ?
-	`, accountID).Scan(&account.ID, &account.PrimaryEmail, &account.Plan, &createdAtUnix)
+		WHERE id = COALESCE((SELECT account_id FROM account_merges WHERE old_id = ?), ?)
+	`, accountID, accountID).Scan(&account.ID, &account.PrimaryEmail, &account.Plan, &createdAtUnix)
 	if err != nil {
 		return nil, err
 	}
@@ -406,5 +480,17 @@ func (s *AccountStore) GetByID(accountID string) (*Account, error) {
 		return nil, err
 	}
 
+	if err = s.loadOperationalState(&account); err != nil {
+		return nil, err
+	}
 	return &account, nil
+}
+
+func (s *AccountStore) loadOperationalState(account *Account) error {
+	status, err := NewOperationsStore(s.db, nil).LookupAccountStatus(context.Background(), account.ID)
+	if err != nil {
+		return err
+	}
+	account.OperationalState, account.OperationalVersion = status.State, status.Version
+	return nil
 }

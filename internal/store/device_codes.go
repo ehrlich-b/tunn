@@ -141,14 +141,14 @@ func (s *DeviceCodeStore) Authorize(deviceCode, email string) bool {
 
 // Delete removes a device code
 func (s *DeviceCodeStore) Delete(deviceCode string) {
-	s.db.Exec("DELETE FROM device_codes WHERE code = ?", deviceCode)
+	_, _ = s.db.Exec("DELETE FROM device_codes WHERE code = ?", deviceCode)
 }
 
 // cleanup periodically removes expired codes
 func (s *DeviceCodeStore) cleanup() {
 	ticker := time.NewTicker(1 * time.Minute)
 	for range ticker.C {
-		s.db.Exec("DELETE FROM device_codes WHERE expires_at < ?", time.Now().Unix())
+		_, _ = s.db.Exec("DELETE FROM device_codes WHERE expires_at < ?", time.Now().Unix())
 	}
 }
 

@@ -3,15 +3,20 @@ package host
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"io"
+	"net/http"
 	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/ehrlich-b/tunn/internal/config"
+	"github.com/ehrlich-b/tunn/internal/storage"
 	internalv1 "github.com/ehrlich-b/tunn/pkg/proto/internalv1"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
+	"github.com/golang-jwt/jwt/v4"
 	"google.golang.org/grpc/metadata"
 )
 
@@ -20,6 +25,67 @@ func webproxyTestConfig() *config.Config {
 		WellKnownKey: "test-key",
 		Domain:       "tunn.to",
 		JWTSecret:    "test-jwt-secret",
+	}
+}
+
+func TestCookieAuthenticatedRequestDoesNotForwardPlatformCredentials(t *testing.T) {
+	for _, authorization := range []string{"upstream", "account", "endpoint"} {
+		t.Run(authorization, func(t *testing.T) {
+			cfg := webproxyTestConfig()
+			stream := &mockWebProxyStream{}
+			endpointToken := "tunn_ep_synthetic-cookie-test"
+			digest := sha256.Sum256([]byte(endpointToken))
+			tunnel := &TunnelConnection{
+				TunnelID: "dashboard", Stream: stream,
+				AllowedEmails:     []string{"alice@example.com"},
+				AccessTokenSHA256: digest[:],
+				pendingRequests:   make(map[string]chan *pb.HttpResponse),
+			}
+			server := NewTunnelServer(cfg, nil, nil, nil)
+			server.tunnels[tunnel.TunnelID] = tunnel
+			proxy := &ProxyServer{Domain: cfg.Domain, config: cfg, tunnelServer: server, storage: storage.NewProxyStorage()}
+			accountToken, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+				"email": "alice@example.com", "exp": time.Now().Add(time.Hour).Unix(),
+			}).SignedString([]byte(cfg.JWTSecret))
+			if err != nil {
+				t.Fatal(err)
+			}
+			request := httptest.NewRequest(http.MethodGet, "https://dashboard.tunn.to/", nil)
+			request.AddCookie(&http.Cookie{Name: authCookieName, Value: accountToken})
+			request.AddCookie(&http.Cookie{Name: "tunn_session", Value: "synthetic-session"})
+			request.AddCookie(&http.Cookie{Name: "app_session", Value: "keep"})
+			request.Header.Set("Tunn-Authorization", "Bearer "+endpointToken)
+			switch authorization {
+			case "upstream":
+				request.Header.Set("Authorization", "Bearer upstream-app-token")
+			case "account":
+				request.Header.Set("Authorization", "Bearer "+accountToken)
+			case "endpoint":
+				request.Header.Set("Authorization", "Bearer "+endpointToken)
+			}
+			respondToForwardedRequest(t, stream, tunnel)
+			recorder := httptest.NewRecorder()
+			proxy.handleWebProxy(recorder, request)
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("cookie-authenticated request status = %d", recorder.Code)
+			}
+			stream.mu.Lock()
+			headers := stream.sentMsgs[0].GetHttpRequest().Headers
+			stream.mu.Unlock()
+			if headers["Cookie"] != "app_session=keep" || headers["Tunn-Authorization"] != "" {
+				t.Fatalf("platform credentials leaked: %v", headers)
+			}
+			want := ""
+			if authorization == "upstream" {
+				want = "Bearer upstream-app-token"
+			}
+			if headers["Authorization"] != want {
+				t.Fatal("Authorization was not correctly classified")
+			}
+			if request.Header.Get("Tunn-Authorization") == "" || len(request.Cookies()) != 3 {
+				t.Fatal("sanitizing credentials mutated the caller's request")
+			}
+		})
 	}
 }
 
@@ -521,4 +587,220 @@ func TestHandleWebProxyTunnelNotFound(t *testing.T) {
 	if !bytes.Contains(rec.Body.Bytes(), []byte("Tunnel not found")) {
 		t.Errorf("Expected 'Tunnel not found' in body, got: %s", rec.Body.String())
 	}
+}
+
+func TestHandleWebProxyMCPBearerAuth(t *testing.T) {
+	cfg := webproxyTestConfig()
+	stream := &mockWebProxyStream{sentMsgs: make([]*pb.TunnelMessage, 0)}
+	endpointToken := "tunn_ep_endpoint-only-token"
+	digest := sha256.Sum256([]byte(endpointToken))
+	tunnel := &TunnelConnection{
+		TunnelID:          "tools",
+		TargetURL:         "http://127.0.0.1:12345",
+		Stream:            stream,
+		AllowedEmails:     []string{"alice@example.com"},
+		AccessTokenSHA256: digest[:],
+		pendingRequests:   make(map[string]chan *pb.HttpResponse),
+	}
+	tunnelServer := NewTunnelServer(cfg, nil, nil, nil)
+	tunnelServer.tunnels[tunnel.TunnelID] = tunnel
+	proxy := &ProxyServer{
+		Domain:       cfg.Domain,
+		config:       cfg,
+		tunnelServer: tunnelServer,
+		storage:      storage.NewProxyStorage(),
+		nodeClients:  make(map[string]internalv1.InternalServiceClient),
+		tunnelCache:  make(map[string]string),
+	}
+
+	respondToForwardedRequest(t, stream, tunnel)
+	req := httptest.NewRequest(http.MethodPost, "https://tools.tunn.to/mcp", bytes.NewReader([]byte(`{"jsonrpc":"2.0"}`)))
+	req.Host = "tools.tunn.to"
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Tunn-Authorization", "Bearer "+endpointToken)
+	req.Header.Set("Authorization", "Bearer upstream-token")
+	rec := httptest.NewRecorder()
+
+	proxy.handleWebProxy(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("MCP bearer request status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+	forwarded := stream.sentMsgs[0].GetHttpRequest()
+	if _, exists := forwarded.Headers["Tunn-Authorization"]; exists {
+		t.Fatal("tunn account credential was forwarded to the local MCP process")
+	}
+	if got := forwarded.Headers["Authorization"]; got != "Bearer upstream-token" {
+		t.Fatalf("upstream Authorization = %q, want it preserved", got)
+	}
+}
+
+func TestHandleWebProxyMCPRequiresBearer(t *testing.T) {
+	cfg := webproxyTestConfig()
+	stream := &mockWebProxyStream{sentMsgs: make([]*pb.TunnelMessage, 0)}
+	tunnelServer := NewTunnelServer(cfg, nil, nil, nil)
+	tunnelServer.tunnels["tools"] = &TunnelConnection{
+		TunnelID:        "tools",
+		Stream:          stream,
+		AllowedEmails:   []string{"alice@example.com"},
+		pendingRequests: make(map[string]chan *pb.HttpResponse),
+	}
+	proxy := &ProxyServer{
+		Domain:       cfg.Domain,
+		config:       cfg,
+		tunnelServer: tunnelServer,
+		storage:      storage.NewProxyStorage(),
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "https://tools.tunn.to/mcp", nil)
+	req.Host = "tools.tunn.to"
+	rec := httptest.NewRecorder()
+	proxy.handleWebProxy(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated MCP status = %d, want 401", rec.Code)
+	}
+	if got := rec.Header().Get("WWW-Authenticate"); got == "" {
+		t.Fatal("unauthenticated MCP response has no bearer challenge")
+	}
+	stream.mu.Lock()
+	forwardedCount := len(stream.sentMsgs)
+	stream.mu.Unlock()
+	if forwardedCount != 0 {
+		t.Fatal("unauthenticated MCP request reached the tunnel client")
+	}
+}
+
+func TestPublicTunnelStripsTunnAuthorization(t *testing.T) {
+	cfg := webproxyTestConfig()
+	stream := &mockWebProxyStream{}
+	tunnel := &TunnelConnection{
+		TunnelID:        "public-api",
+		Stream:          stream,
+		pendingRequests: make(map[string]chan *pb.HttpResponse),
+	}
+	tunnelServer := NewTunnelServer(cfg, nil, nil, nil)
+	tunnelServer.tunnels[tunnel.TunnelID] = tunnel
+	proxy := &ProxyServer{
+		Domain:       cfg.Domain,
+		config:       cfg,
+		tunnelServer: tunnelServer,
+		storage:      storage.NewProxyStorage(),
+	}
+
+	respondToForwardedRequest(t, stream, tunnel)
+	request := httptest.NewRequest(http.MethodGet, "https://public-api.tunn.to/test", nil)
+	request.Host = "public-api.tunn.to"
+	request.Header.Set("Tunn-Authorization", "Bearer must-not-leak")
+	request.Header.Set("Authorization", "Bearer upstream-token")
+	recorder := httptest.NewRecorder()
+	proxy.handleWebProxy(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("public request status = %d", recorder.Code)
+	}
+	stream.mu.Lock()
+	forwarded := stream.sentMsgs[0].GetHttpRequest()
+	stream.mu.Unlock()
+	if forwarded.Headers["Tunn-Authorization"] != "" {
+		t.Fatal("Tunn-Authorization leaked through public endpoint")
+	}
+	if forwarded.Headers["Authorization"] != "Bearer upstream-token" {
+		t.Fatal("upstream Authorization was stripped")
+	}
+}
+
+func TestHandleWebProxyTCPRequiresBearer(t *testing.T) {
+	cfg := webproxyTestConfig()
+	stream := &mockWebProxyStream{}
+	tunnelServer := NewTunnelServer(cfg, nil, nil, nil)
+	tunnelServer.tunnels["database"] = &TunnelConnection{
+		TunnelID:         "database",
+		Stream:           stream,
+		EndpointProtocol: "tcp",
+		AllowedEmails:    []string{"alice@example.com"},
+	}
+	proxy := &ProxyServer{
+		Domain:       cfg.Domain,
+		config:       cfg,
+		tunnelServer: tunnelServer,
+		storage:      storage.NewProxyStorage(),
+	}
+
+	request := httptest.NewRequest(http.MethodConnect, "https://database.tunn.to", nil)
+	request.Host = "database.tunn.to"
+	request.Header.Set(common.TCPConnectHeader, common.TCPConnectValue)
+	recorder := httptest.NewRecorder()
+	proxy.handleWebProxy(recorder, request)
+
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated TCP status = %d, want 401", recorder.Code)
+	}
+	if recorder.Header().Get("WWW-Authenticate") == "" {
+		t.Fatal("TCP auth failure has no bearer challenge")
+	}
+}
+
+func TestHandleWebProxyTCPRejectsOrdinaryHTTP(t *testing.T) {
+	cfg := webproxyTestConfig()
+	stream := &mockWebProxyStream{}
+	endpointToken := "tunn_ep_tcp-endpoint-token"
+	digest := sha256.Sum256([]byte(endpointToken))
+	tunnelServer := NewTunnelServer(cfg, nil, nil, nil)
+	tunnelServer.tunnels["database"] = &TunnelConnection{
+		TunnelID:          "database",
+		Stream:            stream,
+		EndpointProtocol:  "tcp",
+		AllowedEmails:     []string{"alice@example.com"},
+		AccessTokenSHA256: digest[:],
+	}
+	proxy := &ProxyServer{
+		Domain:       cfg.Domain,
+		config:       cfg,
+		tunnelServer: tunnelServer,
+		storage:      storage.NewProxyStorage(),
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "https://database.tunn.to/", nil)
+	request.Host = "database.tunn.to"
+	request.Header.Set("Tunn-Authorization", "Bearer "+endpointToken)
+	recorder := httptest.NewRecorder()
+	proxy.handleWebProxy(recorder, request)
+
+	if recorder.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("ordinary HTTP status = %d, want 405", recorder.Code)
+	}
+	stream.mu.Lock()
+	forwarded := len(stream.sentMsgs)
+	stream.mu.Unlock()
+	if forwarded != 0 {
+		t.Fatal("ordinary HTTP reached TCP target")
+	}
+}
+
+func respondToForwardedRequest(t *testing.T, stream *mockWebProxyStream, tunnel *TunnelConnection) {
+	t.Helper()
+	go func() {
+		deadline := time.Now().Add(time.Second)
+		for time.Now().Before(deadline) {
+			stream.mu.Lock()
+			if len(stream.sentMsgs) > 0 {
+				httpReq := stream.sentMsgs[0].GetHttpRequest()
+				stream.mu.Unlock()
+				if httpReq != nil {
+					tunnel.pendingMu.RLock()
+					response := tunnel.pendingRequests[httpReq.ConnectionId]
+					tunnel.pendingMu.RUnlock()
+					if response != nil {
+						response <- &pb.HttpResponse{ConnectionId: httpReq.ConnectionId, StatusCode: http.StatusOK}
+						return
+					}
+				}
+			} else {
+				stream.mu.Unlock()
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}()
 }

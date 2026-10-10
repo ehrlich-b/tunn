@@ -3,6 +3,7 @@ package host
 import (
 	"encoding/json"
 	"fmt"
+	"html"
 	"net/http"
 	"net/url"
 	"strings"
@@ -23,6 +24,9 @@ const (
 func (p *ProxyServer) handleDeviceCode(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !p.requireAuthOrigin(w, r, true) {
 		return
 	}
 
@@ -90,14 +94,14 @@ func (p *ProxyServer) handleDeviceToken(w http.ResponseWriter, r *http.Request) 
 	if deviceCode == "" {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "missing_code"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "missing_code"})
 		return
 	}
 
 	if !p.storage.Available() {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(map[string]string{"error": "service_unavailable"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "service_unavailable"})
 		return
 	}
 
@@ -106,20 +110,20 @@ func (p *ProxyServer) handleDeviceToken(w http.ResponseWriter, r *http.Request) 
 		common.LogError("failed to get device code", "error", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "internal_error"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "internal_error"})
 		return
 	}
 	if code == nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "expired_token"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "expired_token"})
 		return
 	}
 
 	if !code.Authorized {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{"error": "authorization_pending"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "authorization_pending"})
 		return
 	}
 
@@ -186,10 +190,16 @@ func (p *ProxyServer) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 // showDeviceAuthorizePage shows the "Authorize this device?" confirmation page
 func (p *ProxyServer) showDeviceAuthorizePage(w http.ResponseWriter, r *http.Request, userCode string) {
 	email := p.getAuthEmail(r)
+	csrfToken, err := p.createCSRFToken(r, "/auth/device/authorize")
+	if err != nil {
+		http.Error(w, "Failed to create confirmation", http.StatusInternalServerError)
+		return
+	}
 
+	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "text/html")
 	writePageStart(w, "tunn - Authorize Device")
-	fmt.Fprintf(w, `
+	_, _ = fmt.Fprintf(w, `
 <h1 class="page-title">Authorize Device</h1>
 <p class="page-subtitle">A device is requesting access to your account.</p>
 <div class="device-info">
@@ -198,10 +208,11 @@ func (p *ProxyServer) showDeviceAuthorizePage(w http.ResponseWriter, r *http.Req
 </div>
 <form method="POST" action="/auth/device/authorize">
 <input type="hidden" name="code" value="%s">
+<input type="hidden" name="csrf_token" value="%s">
 <button type="submit" class="btn btn-github">Authorize</button>
 </form>
 <p style="margin-top: 1rem;"><a href="/">Cancel</a></p>
-`, userCode, email, userCode)
+`, html.EscapeString(userCode), html.EscapeString(email), html.EscapeString(userCode), html.EscapeString(csrfToken))
 	writePageEnd(w)
 }
 
@@ -209,6 +220,9 @@ func (p *ProxyServer) showDeviceAuthorizePage(w http.ResponseWriter, r *http.Req
 func (p *ProxyServer) handleDeviceAuthorize(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !p.requireCSRFToken(w, r, "/auth/device/authorize") {
 		return
 	}
 
@@ -236,7 +250,7 @@ func (p *ProxyServer) handleDeviceAuthorize(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if _, err := p.storage.AuthorizeDeviceCode(r.Context(), deviceCode.Code, email); err != nil {
+	if authorized, err := p.storage.AuthorizeDeviceCode(r.Context(), deviceCode.Code, email); err != nil || !authorized {
 		common.LogError("failed to authorize device code", "error", err)
 		http.Error(w, "Failed to authorize device", http.StatusInternalServerError)
 		return
@@ -252,6 +266,7 @@ func (p *ProxyServer) handleDeviceAuthorize(w http.ResponseWriter, r *http.Reque
 func (p *ProxyServer) generateJWT(email string) (string, error) {
 	claims := jwt.MapClaims{
 		"email": email,
+		"type":  "access",
 		"sub":   email,
 		"iss":   "tunn",
 		"iat":   time.Now().Unix(),
@@ -269,8 +284,22 @@ func (p *ProxyServer) checkDeviceCodeRateLimit(ip string) bool {
 	p.deviceCodeRateMu.Lock()
 	defer p.deviceCodeRateMu.Unlock()
 
-	now := time.Now()
+	now := p.currentTime()
 	windowStart := now.Add(-deviceCodeRateWindow)
+	if len(ip) > 128 {
+		return false
+	}
+	if p.deviceCodeRateByIP == nil {
+		p.deviceCodeRateByIP = make(map[string][]time.Time)
+	}
+	for key, requests := range p.deviceCodeRateByIP {
+		if len(requests) == 0 || !requests[len(requests)-1].After(windowStart) {
+			delete(p.deviceCodeRateByIP, key)
+		}
+	}
+	if _, exists := p.deviceCodeRateByIP[ip]; !exists && len(p.deviceCodeRateByIP) >= 4096 {
+		return false
+	}
 
 	// Get existing requests and filter to current window
 	requests := p.deviceCodeRateByIP[ip]

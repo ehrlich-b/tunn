@@ -6,7 +6,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
+	"net/mail"
+	"net/url"
 	"strings"
 	"time"
 
@@ -20,6 +24,9 @@ func (p *ProxyServer) handleMagicLinkRequest(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	if !p.requireAuthOrigin(w, r, false) {
+		return
+	}
 
 	// Check if email sender is configured
 	if p.emailSender == nil {
@@ -31,32 +38,52 @@ func (p *ProxyServer) handleMagicLinkRequest(w http.ResponseWriter, r *http.Requ
 	var req struct {
 		Email string `json:"email"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	email := strings.ToLower(strings.TrimSpace(req.Email))
-	if email == "" || !strings.Contains(email, "@") {
+	email := common.NormalizeEmail(strings.TrimSpace(req.Email))
+	parsed, parseErr := mail.ParseAddress(email)
+	if len(email) > 254 || parseErr != nil || parsed.Address != email || strings.ContainsAny(email, "\r\n") {
 		http.Error(w, "Invalid email address", http.StatusBadRequest)
+		return
+	}
+	var extra any
+	if decoder.Decode(&extra) != io.EOF {
+		http.Error(w, "Expected one request", 400)
+		return
+	}
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		ip = r.RemoteAddr
+	}
+	if !p.checkDeviceCodeRateLimit(ip) {
+		http.Error(w, "Too many requests", 429)
 		return
 	}
 
 	// Check rate limit via login node
-	if p.storage.Available() {
+	if p.storage != nil && p.storage.Available() {
 		allowed, _, _, err := p.storage.CheckMagicLinkRateLimit(r.Context(), email)
 		if err != nil {
 			common.LogError("failed to check magic link rate limit", "email", email, "error", err)
-			// Fail open on error - allow the request but log it
+			http.Error(w, "Login rate limiter unavailable", 503)
+			return
 		} else if !allowed {
 			common.LogInfo("magic link rate limited", "email", email)
 			http.Error(w, "Too many requests. Please try again in a few minutes.", http.StatusTooManyRequests)
 			return
 		}
+	} else {
+		http.Error(w, "Login service unavailable", 503)
+		return
 	}
 
 	// Generate magic link JWT (5 minute expiry)
-	token, err := p.generateMagicLinkToken(email)
+	token, err := p.generateMagicLinkTokenForReturnTo(email, p.sanitizeReturnTo(r.URL.Query().Get("return_to")))
 	if err != nil {
 		common.LogError("failed to generate magic link token", "error", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -68,8 +95,12 @@ func (p *ProxyServer) handleMagicLinkRequest(w http.ResponseWriter, r *http.Requ
 
 	// Check for device code in URL params (for CLI login flow)
 	deviceUserCode := r.URL.Query().Get("device_user_code")
+	if len(deviceUserCode) > 64 {
+		http.Error(w, "Invalid device code", 400)
+		return
+	}
 	if deviceUserCode != "" {
-		magicLinkURL += "&device_code=" + deviceUserCode
+		magicLinkURL += "&device_code=" + url.QueryEscape(deviceUserCode)
 	}
 
 	// Send email
@@ -82,7 +113,7 @@ func (p *ProxyServer) handleMagicLinkRequest(w http.ResponseWriter, r *http.Requ
 	common.LogInfo("sent magic link", "email", email)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
+	_ = json.NewEncoder(w).Encode(map[string]string{
 		"message": "Check your email for a login link",
 	})
 }
@@ -132,11 +163,24 @@ func (p *ProxyServer) handleMagicLinkVerify(w http.ResponseWriter, r *http.Reque
 	}
 
 	// Redirect to account page
+	verified, err := jwt.Parse(tokenString, func(*jwt.Token) (any, error) { return p.getJWTSigningKey(), nil }, jwt.WithValidMethods([]string{"HS256"}))
+	if err == nil && verified.Valid {
+		if claims, ok := verified.Claims.(jwt.MapClaims); ok {
+			if returnTo, ok := claims["return_to"].(string); ok && returnTo != "" && returnTo != "/" {
+				http.Redirect(w, r, p.sanitizeReturnTo(returnTo), http.StatusFound)
+				return
+			}
+		}
+	}
 	http.Redirect(w, r, "/account", http.StatusFound)
 }
 
 // generateMagicLinkToken creates a JWT for magic link authentication
 func (p *ProxyServer) generateMagicLinkToken(email string) (string, error) {
+	return p.generateMagicLinkTokenForReturnTo(email, "")
+}
+
+func (p *ProxyServer) generateMagicLinkTokenForReturnTo(email, returnTo string) (string, error) {
 	// Generate unique token ID to prevent replay attacks
 	jtiBytes := make([]byte, 16)
 	if _, err := rand.Read(jtiBytes); err != nil {
@@ -150,6 +194,9 @@ func (p *ProxyServer) generateMagicLinkToken(email string) (string, error) {
 		"jti":   jti,
 		"iat":   time.Now().Unix(),
 		"exp":   time.Now().Add(5 * time.Minute).Unix(),
+	}
+	if returnTo != "" {
+		claims["return_to"] = p.sanitizeReturnTo(returnTo)
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)

@@ -1,23 +1,63 @@
 app = "tunn"
-primary_region = "ewr"
-kill_signal = "SIGINT"
-kill_timeout = 5
+primary_region = "iad"
 
 [build]
-  dockerfile = "Dockerfile"
 
 [env]
-  PORT = "443"
-  TOKEN = "super_secret"
+  TUNN_ENV = "prod"
+  TUNN_DOMAIN = "tunn.to"
+  TUNN_LOGIN_NODE = "true"
+  TUNN_ADDR = "0.0.0.0:443"
+  TUNN_HTTP3_ADDR = "fly-global-services:443"
+  TUNN_PUBLIC_ADDR = "tunn.to:443"
+  TUNN_CERT_FILE = "/app/certs/fullchain.pem"
+  TUNN_KEY_FILE = "/app/certs/privkey.pem"
+  TUNN_SMTP_HOST = "smtp.resend.com"
+  TUNN_SMTP_PORT = "587"
+  TUNN_SMTP_FROM = "noreply@tunn.to"
+  # Enable custom domains only after configuring the key/contact secrets and
+  # wildcard A/AAAA DNS described in docs/CUSTOM-DOMAINS.md.
+  # TUNN_CUSTOM_DOMAINS = "true"
+  # TUNN_HTTP01_ADDR = "0.0.0.0:80"
 
 [[services]]
-  protocol = "tcp"
   internal_port = 443
+  protocol = "tcp"
+  auto_stop_machines = false
+  auto_start_machines = true
+
+  # No handlers = TCP passthrough, tunn handles TLS
+  [[services.ports]]
+    port = 443
+
+  [services.concurrency]
+    hard_limit = 250
+    soft_limit = 200
+    type = "connections"
+
+[[services]]
+  internal_port = 443
+  protocol = "udp"
+  auto_stop_machines = false
+  auto_start_machines = true
 
   [[services.ports]]
     port = 443
 
-  [[services.tcp_checks]]
-    interval = "10s"
-    timeout = "2s"
-    grace_period = "1s"
+# Required when TUNN_CUSTOM_DOMAINS=true: HTTP-01 on every relay.
+# TCP passthrough preserves Host; do not enable force_https on this service.
+# [[services]]
+#   internal_port = 80
+#   protocol = "tcp"
+#   auto_stop_machines = false
+#   auto_start_machines = true
+#   [[services.ports]]
+#     port = 80
+
+[mounts]
+  source = "tunn_data"
+  destination = "/data"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

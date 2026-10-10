@@ -35,9 +35,8 @@ func (c *fixedClock) Advance(d time.Duration) {
 }
 
 // newTestStorage builds a LocalStorage backed by an in-memory SQLite DB with an
-// optional injected clock. Unlike NewLocalStorage it does not start the
-// background cleanup goroutine; expiry is driven deterministically via
-// cleanupExpiredJTIsOnce instead.
+// optional injected clock. Expiry is driven deterministically via
+// cleanupExpiredJTIsOnce.
 func newTestStorage(t *testing.T, clock *fixedClock) *LocalStorage {
 	t.Helper()
 	db, err := store.InitForTest()
@@ -45,18 +44,42 @@ func newTestStorage(t *testing.T, clock *fixedClock) *LocalStorage {
 		t.Fatalf("store.InitForTest: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
+	// SQLite :memory: databases belong to one connection, including concurrent redemptions.
+	db.SetMaxOpenConns(1)
 
 	s := &LocalStorage{
 		deviceCodes:       store.NewDeviceCodeStore(db),
 		accounts:          store.NewAccountStore(db),
 		activeTunnels:     make(map[string]string),
-		usedJTIs:          make(map[string]time.Time),
+		db:                db,
 		magicLinkRequests: make(map[string][]time.Time),
 	}
 	if clock != nil {
 		s.now = clock.Now
 	}
 	return s
+}
+
+func TestMagicTokenPersistenceWithInjectedClock(t *testing.T) {
+	clock := newFixedClock(time.Unix(1_700_000_000, 0))
+	first := newTestStorage(t, clock)
+	second := NewLocalStorage(first.db)
+	second.now = clock.Now
+	ctx := context.Background()
+	expiry := clock.Now().Add(5 * time.Minute)
+	if unused, err := first.MarkMagicTokenUsed(ctx, "persistent-jti", expiry); err != nil || !unused {
+		t.Fatalf("first redemption: unused=%v err=%v", unused, err)
+	}
+	if unused, err := second.MarkMagicTokenUsed(ctx, "persistent-jti", expiry); err != nil || unused {
+		t.Fatalf("recreated storage accepted replay: unused=%v err=%v", unused, err)
+	}
+	clock.Advance(5 * time.Minute)
+	if unused, err := second.MarkMagicTokenUsed(ctx, "expired-new-jti", expiry); err != nil || unused {
+		t.Fatalf("expired claim accepted: unused=%v err=%v", unused, err)
+	}
+	if unused, err := second.MarkMagicTokenUsed(ctx, "persistent-jti", clock.Now().Add(time.Minute)); err != nil || !unused {
+		t.Fatalf("expired record was not purged: unused=%v err=%v", unused, err)
+	}
 }
 
 // TestMagicTokenLifecycle covers the issue -> redeem -> replay lifecycle of a
@@ -132,7 +155,9 @@ func TestMagicTokenExpiry(t *testing.T) {
 
 	// Advance past the first token's TTL and run the periodic cleanup pass.
 	clock.Advance(ttl + time.Second)
-	s.cleanupExpiredJTIsOnce()
+	if err := s.cleanupExpiredJTIsOnce(); err != nil {
+		t.Fatalf("cleanup expired replay records: %v", err)
+	}
 
 	// The token past its TTL is no longer tracked: its stale replay-protection
 	// state has expired, so a freshly issued token using the same jti is usable.

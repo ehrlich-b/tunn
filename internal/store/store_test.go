@@ -11,7 +11,7 @@ func TestDeviceCodeStore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to init test db: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	store := NewDeviceCodeStore(db)
 
@@ -76,7 +76,7 @@ func TestAccountStore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to init test db: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	store := NewAccountStore(db)
 
@@ -144,7 +144,7 @@ func TestAccountMerge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to init test db: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	store := NewAccountStore(db)
 
@@ -164,7 +164,9 @@ func TestAccountMerge(t *testing.T) {
 	}
 
 	// Update account2 to pro
-	store.UpdatePlan(account2.ID, "pro")
+	if err := store.UpdatePlan(account2.ID, "pro"); err != nil {
+		t.Fatal(err)
+	}
 
 	// Now "link" both emails via GitHub OAuth - should merge
 	merged, err := store.FindOrCreateByEmails([]string{"bob@personal.com", "bob@work.com"}, "github")
@@ -212,12 +214,14 @@ bob@example.com:
 	if err != nil {
 		t.Fatalf("failed to create temp file: %v", err)
 	}
-	defer os.Remove(tmpFile.Name())
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
 
 	if _, err := tmpFile.WriteString(content); err != nil {
 		t.Fatalf("failed to write temp file: %v", err)
 	}
-	tmpFile.Close()
+	if err := tmpFile.Close(); err != nil {
+		t.Fatal(err)
+	}
 
 	// Load the user store
 	store, err := NewUserStore(tmpFile.Name())
@@ -268,7 +272,7 @@ func TestDeviceCodeExpiration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to init test db: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Insert an already expired code directly
 	_, err = db.Exec(
@@ -298,7 +302,7 @@ func TestSubdomainReservation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to init test db: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	store := NewAccountStore(db)
 
@@ -365,7 +369,7 @@ func TestSubdomainReservationLimits(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to init test db: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	store := NewAccountStore(db)
 
@@ -398,7 +402,7 @@ func TestSubdomainReservationFreePlan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to init test db: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	store := NewAccountStore(db)
 
@@ -420,7 +424,7 @@ func TestSubdomainReservationConflict(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to init test db: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	store := NewAccountStore(db)
 

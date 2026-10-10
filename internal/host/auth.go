@@ -2,6 +2,8 @@ package host
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -13,6 +15,8 @@ import (
 	"time"
 
 	"github.com/ehrlich-b/tunn/internal/common"
+	"github.com/ehrlich-b/tunn/internal/metering"
+	meterpb "github.com/ehrlich-b/tunn/pkg/proto/meteringv1"
 	"github.com/golang-jwt/jwt/v4"
 )
 
@@ -33,6 +37,7 @@ func (p *ProxyServer) setAuthCookie(w http.ResponseWriter, email string) error {
 	// Create JWT claims
 	claims := jwt.MapClaims{
 		"email": email,
+		"type":  "session",
 		"iat":   time.Now().Unix(),
 		"exp":   time.Now().Add(authCookieLifetime).Unix(),
 	}
@@ -61,6 +66,9 @@ func (p *ProxyServer) setAuthCookie(w http.ResponseWriter, email string) error {
 
 // getAuthFromCookie reads and validates the JWT auth cookie, returning the email if valid
 func (p *ProxyServer) getAuthFromCookie(r *http.Request) (string, bool) {
+	if !p.visitorJWTConfigured() {
+		return "", false
+	}
 	cookie, err := r.Cookie(authCookieName)
 	if err != nil {
 		return "", false
@@ -82,8 +90,8 @@ func (p *ProxyServer) getAuthFromCookie(r *http.Request) (string, bool) {
 		return "", false
 	}
 
-	email, ok := claims["email"].(string)
-	if !ok || email == "" {
+	email, err := identityEmail(claims)
+	if err != nil {
 		return "", false
 	}
 
@@ -121,6 +129,7 @@ func (p *ProxyServer) createOAuthState(returnTo, deviceUserCode string) (string,
 
 	claims := jwt.MapClaims{
 		"state":            state,
+		"type":             "oauth_state",
 		"return_to":        returnTo,
 		"device_user_code": deviceUserCode,
 		"exp":              time.Now().Add(10 * time.Minute).Unix(), // Short-lived
@@ -146,10 +155,16 @@ func (p *ProxyServer) parseOAuthState(stateToken string) (*OAuthState, error) {
 	if !ok {
 		return nil, fmt.Errorf("invalid claims")
 	}
+	if claims["type"] != "oauth_state" {
+		return nil, fmt.Errorf("invalid state token purpose")
+	}
 
 	state := &OAuthState{}
 	if s, ok := claims["state"].(string); ok {
 		state.State = s
+	}
+	if state.State == "" {
+		return nil, fmt.Errorf("missing browser state")
 	}
 	if r, ok := claims["return_to"].(string); ok {
 		state.ReturnTo = r
@@ -171,6 +186,63 @@ func (p *ProxyServer) isAuthenticated(r *http.Request) bool {
 func (p *ProxyServer) getAuthEmail(r *http.Request) string {
 	email, _ := p.getAuthFromCookie(r)
 	return email
+}
+
+// getAuthFromTunnelBearer validates machine-to-machine identity for a tunnel
+// request. Tunn-Authorization is preferred so Authorization can remain owned
+// by the upstream application. Authorization is accepted for MCP clients that
+// only support the standard bearer header.
+//
+// The returned header name must be stripped before proxying: it contains a
+// tunn account credential, not an upstream credential.
+func (p *ProxyServer) getAuthFromTunnelBearer(r *http.Request, tunnel *TunnelConnection) (email, headerName string, capability, ok bool) {
+	for _, name := range []string{"Tunn-Authorization", "Authorization"} {
+		authHeader := strings.TrimSpace(r.Header.Get(name))
+		parts := strings.Fields(authHeader)
+		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+			continue
+		}
+
+		accessTokenDigest := tunnel.accessTokenDigest()
+		if len(accessTokenDigest) == sha256.Size {
+			digest := sha256.Sum256([]byte(parts[1]))
+			if subtle.ConstantTimeCompare(digest[:], accessTokenDigest) == 1 {
+				return tunnel.CreatorEmail, name, true, true
+			}
+		}
+
+		// A self-hosted public endpoint may use only a publisher secret. Its
+		// application's bearer JWT is not a platform credential, and must not
+		// trigger the operator's missing-signing-key panic during attribution.
+		if !p.visitorJWTConfigured() {
+			continue
+		}
+		token, err := jwt.Parse(parts[1], func(token *jwt.Token) (interface{}, error) {
+			if _, validMethod := token.Method.(*jwt.SigningMethodHMAC); !validMethod {
+				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+			}
+			return p.getJWTSigningKey(), nil
+		})
+		if err != nil || !token.Valid {
+			continue
+		}
+
+		claims, validClaims := token.Claims.(jwt.MapClaims)
+		if !validClaims {
+			continue
+		}
+		email, err := identityEmail(claims)
+		if err != nil {
+			continue
+		}
+		return common.NormalizeEmail(email), name, false, true
+	}
+
+	return "", "", false, false
+}
+
+func (p *ProxyServer) visitorJWTConfigured() bool {
+	return p.config != nil && (p.config.JWTSecret != "" || p.config.IsDev())
 }
 
 // sanitizeReturnTo validates and sanitizes a return_to URL parameter.
@@ -226,33 +298,33 @@ func (p *ProxyServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 	writePageStart(w, "tunn - Login")
 
 	if tunnelID != "" {
-		fmt.Fprint(w, `<h1 class="page-title">Sign in to access tunnel</h1>
+		_, _ = fmt.Fprint(w, `<h1 class="page-title">Sign in to access tunnel</h1>
 <p class="page-subtitle">This tunnel requires authentication.</p>
 <div id="message"></div>`)
 	} else {
-		fmt.Fprint(w, `<h1 class="page-title">Sign in to tunn</h1>
+		_, _ = fmt.Fprint(w, `<h1 class="page-title">Sign in to tunn</h1>
 <p class="page-subtitle">Access your tunnels and account settings.</p>
 <div id="message"></div>`)
 	}
 
 	// Show OAuth button (GitHub in prod, Mock OIDC in dev)
 	if hasGitHub {
-		fmt.Fprintf(w, `<a href="/auth/github?%s" class="btn btn-github">Continue with GitHub</a>`, oauthParams)
+		_, _ = fmt.Fprintf(w, `<a href="/auth/github?%s" class="btn btn-github">Continue with GitHub</a>`, oauthParams)
 	} else if hasMockOIDC {
-		fmt.Fprintf(w, `<a href="/auth/mock?%s" class="btn btn-github">Continue with Mock Login</a>`, oauthParams)
+		_, _ = fmt.Fprintf(w, `<a href="/auth/mock?%s" class="btn btn-github">Continue with Mock Login</a>`, oauthParams)
 	}
 
 	if hasOAuth && hasEmail {
-		fmt.Fprint(w, `<div class="divider"><span>or</span></div>`)
+		_, _ = fmt.Fprint(w, `<div class="divider"><span>or</span></div>`)
 	}
 
 	if hasEmail {
 		// Pass device_user_code as URL param to magic link endpoint
-		magicURL := "/auth/magic"
+		magicURL := "/auth/magic?" + url.Values{"return_to": {returnTo}}.Encode()
 		if deviceUserCode != "" {
-			magicURL += "?device_user_code=" + url.QueryEscape(deviceUserCode)
+			magicURL += "&device_user_code=" + url.QueryEscape(deviceUserCode)
 		}
-		fmt.Fprintf(w, `
+		_, _ = fmt.Fprintf(w, `
 <form id="email-form">
 <input type="email" name="email" placeholder="you@example.com" required>
 <button type="submit" class="btn btn-secondary">Continue with Email</button>
@@ -293,7 +365,7 @@ document.getElementById('email-form').addEventListener('submit', async (e) => {
 	}
 
 	if !hasOAuth && !hasEmail {
-		fmt.Fprint(w, `<p>No login methods configured. Contact your administrator.</p>`)
+		_, _ = fmt.Fprint(w, `<p>No login methods configured. Contact your administrator.</p>`)
 	}
 
 	writePageEnd(w)
@@ -321,6 +393,7 @@ func (p *ProxyServer) handleGitHubLogin(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Build GitHub authorization URL
+	setOAuthCookie(w, stateToken, 600)
 	authURL := fmt.Sprintf("%s?client_id=%s&redirect_uri=%s&scope=%s&state=%s",
 		githubAuthorizeURL,
 		url.QueryEscape(p.config.GitHubClientID),
@@ -350,6 +423,9 @@ func (p *ProxyServer) handleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get authorization code
+	if !requireOAuthBrowser(w, r, stateToken) {
+		return
+	}
 	code := r.URL.Query().Get("code")
 	if code == "" {
 		common.LogError("missing authorization code")
@@ -432,7 +508,7 @@ func (p *ProxyServer) exchangeGitHubCode(code string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("token request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -476,7 +552,7 @@ func (p *ProxyServer) getGitHubEmails(accessToken string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("email request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -536,6 +612,7 @@ func (p *ProxyServer) handleMockLogin(w http.ResponseWriter, r *http.Request) {
 		p.config.MockOIDCIssuer,
 		url.QueryEscape(p.getCallbackURL()),
 		stateToken)
+	setOAuthCookie(w, stateToken, 600)
 
 	common.LogInfo("redirecting to mock OIDC", "url", authURL)
 	http.Redirect(w, r, authURL, http.StatusFound)
@@ -549,6 +626,9 @@ func (p *ProxyServer) handleMockCallback(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		common.LogError("invalid state parameter", "error", err)
 		http.Error(w, "Invalid state parameter", http.StatusBadRequest)
+		return
+	}
+	if !requireOAuthBrowser(w, r, stateToken) {
 		return
 	}
 
@@ -669,7 +749,7 @@ func (p *ProxyServer) CheckJWT(next http.Handler) http.Handler {
 		// Check for Bearer token
 		const bearerPrefix = "Bearer "
 		if !strings.HasPrefix(authHeader, bearerPrefix) {
-			common.LogError("invalid authorization header format", "header", authHeader)
+			common.LogError("invalid authorization header format", "path", r.URL.Path)
 			http.Error(w, "Invalid Authorization header format", http.StatusUnauthorized)
 			return
 		}
@@ -708,8 +788,8 @@ func (p *ProxyServer) CheckJWT(next http.Handler) http.Handler {
 		}
 
 		// Extract user email from claims
-		email, ok := claims["email"].(string)
-		if !ok || email == "" {
+		email, err := identityEmail(claims)
+		if err != nil {
 			common.LogError("missing email claim in JWT")
 			http.Error(w, "Invalid token: missing email", http.StatusUnauthorized)
 			return
@@ -744,8 +824,32 @@ func (p *ProxyServer) getJWTSigningKey() []byte {
 	panic("FATAL: JWT_SECRET environment variable is required in production")
 }
 
-// handleLogout clears the auth cookie and redirects to home
+// handleLogout requires explicit confirmation before clearing the auth cookie.
 func (p *ProxyServer) handleLogout(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		if !p.isAuthenticated(r) {
+			http.Redirect(w, r, "/", http.StatusFound)
+			return
+		}
+		token, err := p.createCSRFToken(r, "/auth/logout")
+		if err != nil {
+			http.Error(w, "Failed to create confirmation", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html")
+		w.Header().Set("Cache-Control", "no-store")
+		writePageStart(w, "tunn - Logout")
+		_, _ = fmt.Fprintf(w, `<h1 class="page-title">Log out of tunn?</h1><form method="POST" action="/auth/logout"><input type="hidden" name="csrf_token" value="%s"><button type="submit" class="btn btn-secondary">Logout</button></form>`, token)
+		writePageEnd(w)
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !p.requireCSRFToken(w, r, "/auth/logout") {
+		return
+	}
 	p.clearAuthCookie(w)
 	http.Redirect(w, r, "/", http.StatusFound)
 }
@@ -759,6 +863,9 @@ type AccountPageData struct {
 	UsagePercent             int
 	UsageFormatted           string
 	QuotaFormatted           string
+	RequestsUsed             int64
+	RequestsLimit            int64
+	UsageAvailable           bool
 	StripeCheckoutURLMonthly string
 	StripeCheckoutURLYearly  string
 	StripeBillingPortalURL   string
@@ -777,20 +884,34 @@ func (p *ProxyServer) handleAccount(w http.ResponseWriter, r *http.Request) {
 	// Get account info
 	plan := "free"
 	var usageBytes int64 = 0
+	var requestsUsed int64
+	usageAvailable := false
 
-	if p.storage.Available() {
+	if p.storage != nil && p.storage.Available() {
 		// Try to get account info
 		if account, err := p.storage.GetAccountByEmail(r.Context(), email); err == nil && account != nil {
 			plan = account.Plan
-			// Get usage (by account ID, not email)
-			if usage, err := p.storage.GetMonthlyUsage(r.Context(), account.ID); err == nil {
-				usageBytes = usage
+			// Include bytes charged by active streams, across every transport.
+			if p.meter != nil {
+				if usage, err := p.meter.Export(r.Context(), &meterpb.ExportRequest{Owner: account.ID, Month: time.Now().UTC().Format("2006-01")}); err == nil && usage.OwnerUsage != nil {
+					usageBytes, requestsUsed, usageAvailable = usage.OwnerUsage.TotalBytes, usage.OwnerUsage.AdmittedRequests, true
+				}
 			}
 		}
 	}
 
 	// Calculate percentage (quota defined in limits.go)
 	quotaBytes := GetQuotaBytes(plan)
+	requestsLimit := metering.FreeMonthlyRequests
+	if plan == "pro" {
+		requestsLimit = metering.ProMonthlyRequests
+	}
+	if p.config.OwnerMonthlyRequests > 0 {
+		requestsLimit = min(requestsLimit, p.config.OwnerMonthlyRequests)
+	}
+	if p.config.OwnerMonthlyBytes > 0 {
+		quotaBytes = min(quotaBytes, p.config.OwnerMonthlyBytes)
+	}
 	usagePercent := 0
 	if quotaBytes > 0 {
 		usagePercent = int((usageBytes * 100) / quotaBytes)
@@ -833,7 +954,8 @@ func (p *ProxyServer) handleAccount(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := AccountPageData{
-		Email:                    email,
+		Email:        email,
+		RequestsUsed: requestsUsed, RequestsLimit: requestsLimit, UsageAvailable: usageAvailable,
 		Plan:                     plan,
 		UsageBytes:               usageBytes,
 		QuotaBytes:               quotaBytes,

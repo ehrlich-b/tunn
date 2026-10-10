@@ -5,10 +5,12 @@ import (
 	"crypto/subtle"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/base64"
 	"fmt"
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -26,18 +28,25 @@ import (
 
 	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/ehrlich-b/tunn/internal/config"
+	"github.com/ehrlich-b/tunn/internal/domains"
+	"github.com/ehrlich-b/tunn/internal/metering"
 	"github.com/ehrlich-b/tunn/internal/mockoidc"
+	"github.com/ehrlich-b/tunn/internal/sshfront"
 	"github.com/ehrlich-b/tunn/internal/storage"
 	"github.com/ehrlich-b/tunn/internal/store"
+	domainpb "github.com/ehrlich-b/tunn/pkg/proto/domainv1"
 	internalv1 "github.com/ehrlich-b/tunn/pkg/proto/internalv1"
+	meterpb "github.com/ehrlich-b/tunn/pkg/proto/meteringv1"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
 )
 
 // ProxyServer is the new V1 dual-listener proxy server
 type ProxyServer struct {
-	Domain   string
-	CertFile string
-	KeyFile  string
+	sshServer *sshfront.Server
+	sshKeys   *sshfront.Registry
+	Domain    string
+	CertFile  string
+	KeyFile   string
 
 	// HTTP/2 (TCP) listener address
 	HTTP2Addr string
@@ -64,22 +73,30 @@ type ProxyServer struct {
 	PublicAddr string
 
 	// Login node discovery (for non-login nodes)
-	loginNodeConn   *grpc.ClientConn
-	loginNodeClient internalv1.InternalServiceClient
-	loginNodeMu     sync.RWMutex
-	isLoginNode     bool
+	loginNodeConn     *grpc.ClientConn
+	loginNodeClient   internalv1.InternalServiceClient
+	loginNodeMu       sync.RWMutex
+	loginNodeHTTPAddr string
+	isLoginNode       bool
 
 	// Mock OIDC server (dev only)
 	mockOIDC *mockoidc.Server
 
 	// Unified storage interface (local for login node, proxy for others)
-	storage storage.Storage
+	storage        storage.Storage
+	meter          metering.Backend
+	planMeter      bool
+	domains        domains.Backend
+	domainRegistry *domains.Registry
+	operations     operationalCounters
+	mcpOAuth       *mcpOAuthStore
 
 	// Proxy storage reference (non-login node only, to update connection on discovery)
 	proxyStorage *storage.ProxyStorage
 
 	// Email sender (for magic link auth)
-	emailSender *EmailSender
+	emailSender interface{ SendMagicLink(string, string) error }
+	now         func() time.Time
 
 	// Graceful degradation (non-login nodes)
 	usageBuffer *UsageBuffer
@@ -92,6 +109,9 @@ type ProxyServer struct {
 
 // NewProxyServer creates a new dual-listener proxy server
 func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
+	if cfg.HostModeEnabled && (!cfg.LoginNode || cfg.PublicMode || cfg.NodeAddresses != "" || cfg.FlyAppName != "") {
+		return nil, fmt.Errorf("host mode requires one authenticated, standalone login relay")
+	}
 	// SECURITY: Require NodeSecret when multi-node mode is enabled
 	// Multi-node can be configured via NODE_ADDRESSES (static) or FLY_APP_NAME (DNS discovery)
 	isMultiNode := cfg.NodeAddresses != "" || cfg.FlyAppName != ""
@@ -103,6 +123,8 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 	var proxyStorage *storage.ProxyStorage
 	var storageImpl storage.Storage
 	var localStorage *storage.LocalStorage
+	var localMeter *metering.Store
+	var localOAuth *mcpOAuthStore
 
 	if cfg.LoginNode {
 		// Login node: initialize SQLite and local storage
@@ -111,7 +133,15 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 			return nil, fmt.Errorf("failed to initialize database: %w", err)
 		}
 		localStorage = storage.NewLocalStorage(db)
+		localMeter, err = metering.New(db, metering.WithAccountPlans(), metering.WithOwnerBudgets(cfg.OwnerMonthlyRequests, cfg.OwnerMonthlyBytes))
+		if err != nil {
+			return nil, fmt.Errorf("initialize ingress meter: %w", err)
+		}
 		storageImpl = localStorage
+		localOAuth, err = newMCPOAuthStore(db)
+		if err != nil {
+			return nil, fmt.Errorf("initialize MCP authorization: %w", err)
+		}
 		common.LogInfo("login node initialized", "db_path", cfg.DBPath)
 	} else {
 		// Non-login node: use proxy storage (connection set later during discovery)
@@ -161,6 +191,11 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 		}),
 	)
 	tunnelServer := NewTunnelServer(cfg, userTokens, accounts, storageImpl)
+	if cfg.HostModeEnabled {
+		if err := tunnelServer.EnableHostMode(store.DB()); err != nil {
+			return nil, err
+		}
+	}
 	pb.RegisterTunnelServiceServer(grpcServer, tunnelServer)
 
 	// Create gRPC server for internal node-to-node communication
@@ -179,6 +214,7 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 	if localStorage != nil {
 		loginNodeDBServer := NewLoginNodeDBServer(localStorage)
 		internalv1.RegisterLoginNodeDBServer(internalGRPCServer, loginNodeDBServer)
+		meterpb.RegisterMeteringServer(internalGRPCServer, localMeter)
 		common.LogInfo("registered LoginNodeDB gRPC service")
 	}
 
@@ -204,12 +240,59 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 		config:             cfg,
 		PublicAddr:         cfg.PublicAddr,
 		storage:            storageImpl,
+		planMeter:          true,
+		mcpOAuth:           localOAuth,
 		proxyStorage:       proxyStorage,
-		emailSender:        emailSender,
 		isLoginNode:        cfg.LoginNode,
 		usageBuffer:        NewUsageBuffer(),
 		quotaCache:         NewQuotaCache(30 * time.Second),
 		deviceCodeRateByIP: make(map[string][]time.Time),
+	}
+	if emailSender != nil {
+		proxy.emailSender = emailSender
+	}
+
+	if localMeter != nil {
+		proxy.meter = localMeter
+	} else {
+		proxy.meter = &metering.Remote{Connection: func() *grpc.ClientConn {
+			proxy.loginNodeMu.RLock()
+			defer proxy.loginNodeMu.RUnlock()
+			return proxy.loginNodeConn
+		}}
+	}
+
+	if cfg.CustomDomainsEnabled {
+		if cfg.LoginNode {
+			key, err := base64.StdEncoding.DecodeString(cfg.DomainKeySecret)
+			if err != nil || len(key) != 32 {
+				return nil, fmt.Errorf("TUNN_DOMAIN_KEY_SECRET must be a base64-encoded 32-byte key")
+			}
+			registry, err := domains.New(store.DB(), cfg.Domain, key, nil, nil)
+			if err != nil {
+				return nil, err
+			}
+			if err := registry.ConfigureACME(cfg.ACMEDirectory, cfg.ACMEEmail, nil); err != nil {
+				return nil, err
+			}
+			proxy.domains, proxy.domainRegistry = registry, registry
+			domainpb.RegisterDomainsServer(internalGRPCServer, registry)
+		} else {
+			proxy.domains = &domains.Remote{Connection: func() *grpc.ClientConn {
+				proxy.loginNodeMu.RLock()
+				defer proxy.loginNodeMu.RUnlock()
+				return proxy.loginNodeConn
+			}}
+		}
+		proxy.tlsConfig.GetCertificate = proxy.domainCertificate(cert)
+	}
+	if cfg.SSHHostKeyFile != "" {
+		if !cfg.LoginNode {
+			return nil, fmt.Errorf("SSH requires the login node for durable key ownership; route raw SSH traffic there")
+		}
+		if err := proxy.enableSSH(store.DB()); err != nil {
+			return nil, err
+		}
 	}
 
 	// Discover and connect to other nodes in the mesh
@@ -269,7 +352,7 @@ func createInternalClient(addr string, cfg *config.Config) (*grpc.ClientConn, er
 	}
 	// Otherwise use system CA pool (tunn.to uses Let's Encrypt, which is trusted)
 
-	return grpc.Dial(addr,
+	return grpc.NewClient("passthrough:///"+addr,
 		grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)),
 		grpc.WithPerRPCCredentials(&nodeSecretCreds{secret: cfg.NodeSecret}),
 	)
@@ -388,6 +471,9 @@ const blacklistDuration = 10 * time.Second
 // nodeSecretInterceptor creates a gRPC interceptor that verifies the x-node-secret header
 func nodeSecretInterceptor(secret string) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+		if secret == "" {
+			return nil, status.Error(codes.FailedPrecondition, "internal node authentication is not configured")
+		}
 		// Get peer IP from context
 		peerIP := getPeerIP(ctx)
 
@@ -465,7 +551,7 @@ func getPeerIP(ctx context.Context) string {
 // Run starts both HTTP/2 and HTTP/3 listeners
 func (p *ProxyServer) Run(ctx context.Context) error {
 	var wg sync.WaitGroup
-	errChan := make(chan error, 4)
+	errChan := make(chan error, 5)
 
 	// Start mock OIDC server in dev mode
 	if p.mockOIDC != nil {
@@ -481,6 +567,32 @@ func (p *ProxyServer) Run(ctx context.Context) error {
 
 	// Create the HTTP handler (will be used by both servers)
 	handler := p.createHandler()
+	if p.sshServer != nil && p.config.SSHAddr != "" {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			l, err := net.Listen("tcp", p.config.SSHAddr)
+			if err == nil {
+				err = p.sshServer.Serve(ctx, l)
+			}
+			if err != nil {
+				errChan <- fmt.Errorf("SSH listener error: %w", err)
+			}
+		}()
+	}
+
+	if p.domains != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := p.startHTTP01Server(ctx); err != nil {
+				errChan <- fmt.Errorf("HTTP-01 server error: %w", err)
+			}
+		}()
+		if p.domainRegistry != nil {
+			go p.domainRegistry.Run(ctx)
+		}
+	}
 
 	// Start HTTP/2 (TCP) server
 	wg.Add(1)
@@ -532,7 +644,7 @@ func (p *ProxyServer) Run(ctx context.Context) error {
 		// Shutdown mock OIDC server if running
 		if p.mockOIDC != nil {
 			common.LogInfo("shutting down mock OIDC server")
-			p.mockOIDC.Shutdown()
+			_ = p.mockOIDC.Shutdown()
 		}
 
 		// Shutdown internal gRPC server
@@ -560,7 +672,9 @@ func (p *ProxyServer) startHTTP2Server(ctx context.Context, handler http.Handler
 	}
 
 	// Enable HTTP/2
-	http2.ConfigureServer(srv, &http2.Server{})
+	if err := http2.ConfigureServer(srv, &http2.Server{}); err != nil {
+		return fmt.Errorf("configure HTTP/2 server: %w", err)
+	}
 
 	common.LogInfo("starting HTTP/2 server", "addr", p.HTTP2Addr)
 
@@ -568,6 +682,9 @@ func (p *ProxyServer) startHTTP2Server(ctx context.Context, handler http.Handler
 	ln, err := net.Listen("tcp4", p.HTTP2Addr)
 	if err != nil {
 		return fmt.Errorf("failed to listen on %s: %w", p.HTTP2Addr, err)
+	}
+	if p.sshServer != nil {
+		ln = sshfront.Share(ctx, ln, p.sshServer.ServeConn)
 	}
 	tlsLn := tls.NewListener(ln, p.tlsConfig)
 
@@ -577,7 +694,9 @@ func (p *ProxyServer) startHTTP2Server(ctx context.Context, handler http.Handler
 		common.LogInfo("shutting down HTTP/2 server")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
-		srv.Shutdown(shutdownCtx)
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			_ = srv.Close()
+		}
 	}()
 
 	if err := srv.Serve(tlsLn); err != nil && err != http.ErrServerClosed {
@@ -601,7 +720,7 @@ func (p *ProxyServer) startHTTP3Server(ctx context.Context, handler http.Handler
 	go func() {
 		<-ctx.Done()
 		common.LogInfo("shutting down HTTP/3 server")
-		srv.Close()
+		_ = srv.Close()
 	}()
 
 	if err := srv.ListenAndServeTLS(p.CertFile, p.KeyFile); err != nil && err != http.ErrServerClosed {
@@ -638,7 +757,8 @@ func (p *ProxyServer) createHTTP2Router(httpHandler http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Check if this is a gRPC request by examining the Content-Type header
 		contentType := r.Header.Get("Content-Type")
-		if strings.HasPrefix(contentType, "application/grpc") {
+		platformRPC := net.ParseIP(requestHostname(r.Host)) != nil || !p.customerHost(r.Host) && extractTunnelID(requestHostname(r.Host), p.Domain) == ""
+		if strings.HasPrefix(contentType, "application/grpc") && platformRPC {
 			// Route to gRPC server
 			common.LogDebug("routing to gRPC", "path", r.URL.Path, "content-type", contentType)
 			p.grpcServer.ServeHTTP(w, r)
@@ -646,8 +766,27 @@ func (p *ProxyServer) createHTTP2Router(httpHandler http.Handler) http.Handler {
 		}
 
 		// Otherwise, route to HTTP handler
+		p.advertiseHTTP3(w, r)
 		httpHandler.ServeHTTP(w, r)
 	})
+}
+
+// advertiseHTTP3 makes the QUIC listener discoverable to clients that first
+// reach the service over HTTPS/TCP. The configured UDP port must also be
+// exposed by the deployment platform.
+func (p *ProxyServer) advertiseHTTP3(w http.ResponseWriter, r *http.Request) {
+	if r.TLS == nil || r.Method == http.MethodConnect {
+		return
+	}
+	_, portText, err := net.SplitHostPort(p.HTTP3Addr)
+	if err != nil {
+		return
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil || port < 1 || port > 65535 {
+		return
+	}
+	w.Header().Set("Alt-Svc", fmt.Sprintf(`h3=":%d"; ma=3600`, port))
 }
 
 // createHandler creates the HTTP handler for both servers
@@ -657,7 +796,7 @@ func (p *ProxyServer) createHandler() http.Handler {
 	// Health check endpoint (no auth required)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, "ok")
+		_, _ = fmt.Fprint(w, "ok")
 	})
 
 	// Install script endpoint
@@ -674,10 +813,24 @@ func (p *ProxyServer) createHandler() http.Handler {
 
 	// Account page (requires auth)
 	mux.HandleFunc("/account", p.handleAccount)
+	mux.HandleFunc("/account/mcp", p.handleMCPOAuth)
+	mux.HandleFunc("/api/mcp/clients", p.handleMCPOAuth)
+	mux.HandleFunc("/.well-known/oauth-authorization-server", p.handleMCPOAuth)
+	mux.HandleFunc("/oauth/", p.handleMCPOAuth)
+
+	mux.HandleFunc("/api/hosts", p.handleHosts)
+	mux.HandleFunc("/api/ssh/keys", p.handleSSHKeys)
+	mux.HandleFunc("/auth/ssh-key", p.handleSSHKeyLink)
 
 	// Device code flow for CLI login
 	mux.HandleFunc("/api/device/code", p.handleDeviceCode)
 	mux.HandleFunc("/api/device/token", p.handleDeviceToken)
+	mux.HandleFunc("/api/endpoints/", p.handleMeteringAPI)
+	mux.HandleFunc("/api/usage", p.handleMeteringAPI)
+	mux.HandleFunc("/api/grants", p.handleMeteringAPI)
+	mux.HandleFunc("/api/domains", p.handleDomainsAPI)
+	mux.HandleFunc("/api/domains/", p.handleDomainsAPI)
+	mux.HandleFunc("/api/reports", p.handleReportIntake)
 	mux.HandleFunc("/login", p.handleLoginPage)
 	mux.HandleFunc("/auth/device/authorize", p.handleDeviceAuthorize)
 
@@ -687,7 +840,32 @@ func (p *ProxyServer) createHandler() http.Handler {
 	// Main handler - check if this is apex domain or a tunnel subdomain
 	mux.HandleFunc("/", p.handleWebProxy)
 
-	return mux
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Publishers own every path on their tunnel origin. Serving platform
+		// forms there would let their scripts read session-bound CSRF tokens.
+		if p.customerHost(r.Host) || extractTunnelID(requestHostname(r.Host), p.Domain) != "" {
+			if !p.customerHost(r.Host) && (r.URL.Path == "/.well-known/oauth-protected-resource/mcp" || r.URL.Path == "/.well-known/oauth-protected-resource") {
+				p.handleMCPResourceMetadata(w, r, extractTunnelID(requestHostname(r.Host), p.Domain))
+				return
+			}
+			p.handleWebProxy(w, r)
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/auth/") || r.URL.Path == "/login" || r.URL.Path == "/account" || strings.HasPrefix(r.URL.Path, "/api/device/") {
+			if !p.isPlatformHost(r.Host) {
+				http.Error(w, "Invalid authentication host", http.StatusForbidden)
+				return
+			}
+		}
+		// HTTP/2 CONNECT is authority-form and arrives without a URL path. An
+		// empty path does not match ServeMux's "/" pattern, so raw tunnel
+		// connections must enter the subdomain router before mux dispatch.
+		if r.Method == http.MethodConnect {
+			p.handleWebProxy(w, r)
+			return
+		}
+		mux.ServeHTTP(w, r)
+	})
 }
 
 // handleInstallScript serves the install script for curl | sh installation
@@ -696,7 +874,7 @@ func (p *ProxyServer) handleInstallScript(w http.ResponseWriter, r *http.Request
 	ip := extractClientIP(r)
 	common.LogInfo("install script download", "ip", ip, "ua", ua)
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	fmt.Fprint(w, installScript)
+	_, _ = fmt.Fprint(w, installScript)
 }
 
 // installScript is the embedded install.sh content
@@ -813,11 +991,12 @@ func (p *ProxyServer) findAndConnectLoginNode() bool {
 
 			// Close existing connection if any
 			if p.loginNodeConn != nil {
-				p.loginNodeConn.Close()
+				_ = p.loginNodeConn.Close()
 			}
 
 			p.loginNodeConn = conn
 			p.loginNodeClient = internalv1.NewInternalServiceClient(conn)
+			p.loginNodeHTTPAddr = resp.NodeId
 
 			// Update proxy storage connection (for non-login nodes)
 			if p.proxyStorage != nil {
@@ -992,29 +1171,49 @@ func (p *ProxyServer) flushUsageBuffer(ctx context.Context) {
 }
 
 // CheckQuota checks if an account is within its usage quota.
-// Uses cached values with stale fallback when login node is unavailable.
-// Returns true if allowed (under quota or unknown), false if over quota.
-func (p *ProxyServer) CheckQuota(ctx context.Context, accountID string, plan string) bool {
+// Unknown identities, storage failures, and unavailable usage data fail closed.
+func (p *ProxyServer) CheckQuota(ctx context.Context, accountID string, _ string) bool {
+	if accountID == "" || p.storage == nil || !p.storage.Available() {
+		return false
+	}
+	account, err := p.storage.GetAccount(ctx, accountID)
+	if err != nil || account == nil || account.ID == "" || account.OperationalState != "active" {
+		return false
+	}
+	return p.checkQuota(ctx, account.ID, account.Plan)
+}
+
+// The caller supplies a freshly resolved account, never a tunnel's plan snapshot.
+func (p *ProxyServer) checkQuota(ctx context.Context, accountID, plan string) bool {
 	// Get quota limit based on plan (defined in limits.go)
 	quotaBytes := GetQuotaBytes(plan)
-
-	// Try to get fresh usage data
-	if p.storage.Available() {
-		usage, err := p.storage.GetMonthlyUsage(ctx, accountID)
-		if err == nil {
-			p.quotaCache.Set(accountID, usage)
-			return usage < quotaBytes
+	// Read buffered usage before the storage query: a concurrent flush may
+	// already appear in the database, but cannot make prior usage disappear.
+	var pending int64
+	if p.usageBuffer != nil {
+		for id, bytes := range p.usageBuffer.Snapshot() {
+			if id != accountID {
+				account, err := p.storage.GetAccount(ctx, id)
+				if err != nil {
+					return false
+				}
+				if account == nil || account.ID != accountID {
+					continue
+				}
+			}
+			if bytes < 0 || pending > quotaBytes-bytes {
+				return false
+			}
+			pending += bytes
 		}
-		common.LogError("failed to get usage, checking cache", "account_id", accountID, "error", err)
 	}
-
-	// Fall back to cache
-	if cached, ok := p.quotaCache.Get(accountID); ok {
-		return cached < quotaBytes
+	usage, err := p.storage.GetMonthlyUsage(ctx, accountID)
+	if err != nil {
+		common.LogError("failed to verify quota, rejecting traffic", "account_id", accountID, "error", err)
+		return false
 	}
-
-	// No data available - fail open (allow traffic)
-	// This is intentional: we'd rather allow some traffic than block paying customers
-	common.LogDebug("no quota data available, allowing traffic", "account_id", accountID)
-	return true
+	if p.quotaCache != nil {
+		p.quotaCache.Set(accountID, usage)
+	}
+	return usage >= 0 && pending >= 0 && usage < quotaBytes && pending < quotaBytes-usage
 }

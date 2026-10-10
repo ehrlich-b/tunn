@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 )
 
 // Environment represents the deployment environment
@@ -24,6 +25,10 @@ type Config struct {
 	HTTP2Addr string // HTTP/2 (TCP) listener address
 	HTTP3Addr string // HTTP/3 (QUIC) listener address
 
+	// SSH front door (opt-in, login nodes own the key registry).
+	SSHHostKeyFile string
+	SSHAddr        string // optional separate raw SSH listener, for example :22
+
 	// Internal gRPC configuration
 	InternalGRPCPort string
 	NodeAddresses    string // Comma-separated list of other node addresses (fallback)
@@ -41,6 +46,9 @@ type Config struct {
 
 	// Public mode (testing only - disables all auth)
 	PublicMode bool
+
+	// Experimental persistent machine registry (single login relay only).
+	HostModeEnabled bool
 
 	// GitHub OAuth configuration
 	GitHubClientID     string
@@ -67,13 +75,20 @@ type Config struct {
 
 	// Client configuration
 	ServerAddr string
-	Insecure bool
+	Insecure   bool
 
 	// Login node configuration
 	// Login node owns SQLite and handles all DB operations
 	// Other nodes proxy DB operations to it
-	LoginNode bool
-	DBPath    string // Path to SQLite database (login node only)
+	LoginNode            bool
+	DBPath               string // Path to SQLite database (login node only)
+	OwnerMonthlyRequests int64  // optional tighter shared transport admission cap per owner
+	OwnerMonthlyBytes    int64  // optional tighter shared transport byte cap per owner
+	CustomDomainsEnabled bool
+	HTTP01Addr           string
+	ACMEDirectory        string
+	ACMEEmail            string
+	DomainKeySecret      string // base64-encoded AES-256 key; login node only
 }
 
 // LoadConfig loads configuration based on environment
@@ -84,6 +99,10 @@ func LoadConfig() (*Config, error) {
 		Environment: env,
 	}
 
+	cfg.HostModeEnabled = os.Getenv("TUNN_HOST_MODE") == "true"
+	cfg.SSHHostKeyFile = os.Getenv("TUNN_SSH_HOST_KEY_FILE")
+	cfg.SSHAddr = os.Getenv("TUNN_SSH_ADDR")
+
 	switch env {
 	case EnvDev:
 		cfg.loadDevConfig()
@@ -92,7 +111,22 @@ func LoadConfig() (*Config, error) {
 	default:
 		return nil, fmt.Errorf("unknown environment: %s", env)
 	}
+	for _, budget := range []struct {
+		name  string
+		value *int64
+	}{{"TUNN_OWNER_MONTHLY_REQUESTS", &cfg.OwnerMonthlyRequests}, {"TUNN_OWNER_MONTHLY_BYTES", &cfg.OwnerMonthlyBytes}} {
+		value, err := strconv.ParseInt(getEnvOrDefault(budget.name, "0"), 10, 64)
+		if err != nil || value < 0 {
+			return nil, fmt.Errorf("%s must be a nonnegative integer", budget.name)
+		}
+		*budget.value = value
+	}
 
+	cfg.CustomDomainsEnabled = os.Getenv("TUNN_CUSTOM_DOMAINS") == "true"
+	cfg.HTTP01Addr = getEnvOrDefault("TUNN_HTTP01_ADDR", ":80")
+	cfg.ACMEDirectory = getEnvOrDefault("TUNN_ACME_DIRECTORY", "https://acme-v02.api.letsencrypt.org/directory")
+	cfg.ACMEEmail = os.Getenv("TUNN_ACME_EMAIL")
+	cfg.DomainKeySecret = os.Getenv("TUNN_DOMAIN_KEY_SECRET")
 	return cfg, nil
 }
 

@@ -1,9 +1,12 @@
 package client
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -27,6 +30,22 @@ func TestServeClientBasic(t *testing.T) {
 
 	if client.TargetURL != "http://localhost:8000" {
 		t.Errorf("Expected target URL http://localhost:8000, got %s", client.TargetURL)
+	}
+}
+
+func TestRegistrationTargetIsRedacted(t *testing.T) {
+	tests := []struct {
+		client *ServeClient
+		want   string
+	}{
+		{client: &ServeClient{TargetURL: "http://secret.internal:8080"}, want: "http"},
+		{client: &ServeClient{TargetURL: "http://127.0.0.1:1234", PublicPath: "/mcp"}, want: "mcp"},
+		{client: &ServeClient{TargetURL: "database.private:5432", EndpointProtocol: "tcp"}, want: "tcp"},
+	}
+	for _, test := range tests {
+		if got := test.client.registrationTarget(); got != test.want {
+			t.Errorf("registration target = %q, want %q", got, test.want)
+		}
 	}
 }
 
@@ -55,7 +74,7 @@ func TestSendHealthChecks(t *testing.T) {
 						},
 					},
 				}
-				stream.Send(msg)
+				_ = stream.Send(msg)
 			}
 		}
 	}()
@@ -91,7 +110,7 @@ func TestHandleHttpRequest(t *testing.T) {
 		w.Header().Set("X-Test-Header", "test-value")
 		w.Header().Set("Content-Type", "text/plain")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("Hello from local server"))
+		_, _ = w.Write([]byte("Hello from local server"))
 	}))
 	defer localServer.Close()
 
@@ -143,6 +162,121 @@ func TestHandleHttpRequest(t *testing.T) {
 	}
 }
 
+func TestHandleHttpRequestRewritesAdapterPath(t *testing.T) {
+	var receivedURI string
+	localServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedURI = r.URL.RequestURI()
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer localServer.Close()
+
+	client := &ServeClient{
+		TargetURL:        localServer.URL,
+		PublicPath:       "/mcp",
+		UpstreamPath:     "/internal/agent",
+		UpstreamRawQuery: "tenant=one",
+	}
+	stream := &mockEstablishTunnelClient{}
+	client.handleHttpRequest(stream, &pb.HttpRequest{
+		ConnectionId: "rewrite-1",
+		Method:       http.MethodPost,
+		Path:         "/mcp?request=two",
+	})
+
+	if receivedURI != "/internal/agent?tenant=one&request=two" {
+		t.Fatalf("upstream URI = %q", receivedURI)
+	}
+	if got := stream.getSentMsg(0).GetHttpResponse().StatusCode; got != http.StatusNoContent {
+		t.Fatalf("status = %d", got)
+	}
+}
+
+func TestInboundConnectionStreamsHTTP(t *testing.T) {
+	requestBody := "first-second"
+	localServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read request: %v", err)
+			return
+		}
+		if string(body) != requestBody {
+			t.Errorf("request body = %q", body)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("event: one\n\n"))
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		_, _ = w.Write([]byte("event: two\n\n"))
+	}))
+	defer localServer.Close()
+
+	serveClient := &ServeClient{TargetURL: localServer.URL}
+	sender := &mockEstablishTunnelClient{}
+	manager := newInboundConnectionManager()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	manager.open(ctx, serveClient, sender, &pb.ConnectionOpen{
+		ConnectionId: "stream-1",
+		Protocol:     "http",
+		HttpRequest: &pb.HttpRequestHead{
+			Method:  http.MethodPost,
+			Path:    "/mcp",
+			Headers: map[string]string{"Content-Type": "application/json"},
+		},
+	})
+	manager.write("stream-1", []byte("first-"))
+	manager.write("stream-1", []byte("second"))
+	manager.halfClose("stream-1")
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		var responseBody bytes.Buffer
+		accepted := false
+		halfClosed := false
+		sender.mu.Lock()
+		for _, message := range sender.sentMsgs {
+			if accept := message.GetConnectionAccept(); accept != nil {
+				accepted = accept.Success && accept.HttpResponse.StatusCode == http.StatusOK
+			}
+			if data := message.GetConnectionData(); data != nil {
+				responseBody.Write(data.Data)
+			}
+			if message.GetConnectionHalfClose() != nil {
+				halfClosed = true
+			}
+		}
+		sender.mu.Unlock()
+		if accepted && halfClosed {
+			if responseBody.String() != "event: one\n\nevent: two\n\n" {
+				t.Fatalf("response body = %q", responseBody.String())
+			}
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("streaming client did not complete response")
+}
+
+func TestInboundConnectionLimitRejectsOpen(t *testing.T) {
+	manager := newInboundConnectionManagerWithLimit(1)
+	manager.slots <- struct{}{}
+	sender := &mockEstablishTunnelClient{}
+	manager.open(context.Background(), &ServeClient{}, sender, &pb.ConnectionOpen{
+		ConnectionId: "over-limit",
+		Protocol:     "http",
+		HttpRequest:  &pb.HttpRequestHead{Method: http.MethodGet, Path: "/"},
+	})
+	if sender.getSentCount() != 1 {
+		t.Fatalf("connection-limit responses = %d", sender.getSentCount())
+	}
+	response := sender.getSentMsg(0).GetConnectionAccept()
+	if response == nil || response.Success || !strings.Contains(response.ErrorMessage, "limit") {
+		t.Fatalf("connection-limit response = %#v", response)
+	}
+}
+
 func TestHandleHttpRequestMultiValueHeaders(t *testing.T) {
 	// Start a mock local server that returns multiple Set-Cookie headers
 	localServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -151,7 +285,7 @@ func TestHandleHttpRequestMultiValueHeaders(t *testing.T) {
 		w.Header().Add("Set-Cookie", "cookie2=value2")
 		w.Header().Set("Content-Type", "text/plain")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+		_, _ = w.Write([]byte("OK"))
 	}))
 	defer localServer.Close()
 
@@ -238,7 +372,7 @@ func TestHandleHttpRequestConcurrent(t *testing.T) {
 	localServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Echo the path back to verify correct routing
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(r.URL.Path))
+		_, _ = w.Write([]byte(r.URL.Path))
 	}))
 	defer localServer.Close()
 
@@ -396,7 +530,7 @@ func TestHandleHttpRequestTimeout(t *testing.T) {
 		// Sleep longer than the client timeout
 		time.Sleep(200 * time.Millisecond)
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("Too late"))
+		_, _ = w.Write([]byte("Too late"))
 	}))
 	defer localServer.Close()
 
@@ -444,7 +578,7 @@ func TestProcessMessagesHttpRequest(t *testing.T) {
 	// Start a mock local server
 	localServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("response from local"))
+		_, _ = w.Write([]byte("response from local"))
 	}))
 	defer localServer.Close()
 

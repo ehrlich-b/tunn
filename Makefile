@@ -3,12 +3,15 @@
 # Variables
 APP_NAME := tunn
 BINARY_NAME := tunn
+BUILD_DIR ?= bin
+BINARY_DIR ?= $(BUILD_DIR)
+GO_TEST_FLAGS ?=
 GO_BUILD_ENV := CGO_ENABLED=0 GOOS=linux GOARCH=amd64
 GO_FILES := $(wildcard *.go)
 DOCKER_IMAGE := $(APP_NAME):latest
 FLY_APP_NAME := $(APP_NAME)
 
-.PHONY: all build clean proto fmt tidy verify check test test-verbose test-coverage test-race integration-test integration-test-smoke docker docker-build docker-run cert-setup cert-renew fly-create fly-init fly-secrets fly-certs fly-deploy fly-logs fly-status analytics-hour analytics-day analytics-live help
+.PHONY: all build clean proto fmt tidy verify check vet lint test test-ai-hosts test-ai-hosts-security test-verbose test-mcp test-websocket test-websocket-memory test-websocket-unit test-lifecycle-contract test-metering-contract test-domains-contract test-coverage test-race integration-test integration-test-smoke integration-test-ai integration-test-lifecycle integration-test-metering docker docker-build docker-run cert-setup cert-renew cert-install-schedule fly-create fly-init fly-secrets fly-certs fly-deploy fly-logs fly-status analytics-hour analytics-day analytics-live help test-install-recovery
 
 # Default target
 all: build
@@ -16,13 +19,35 @@ all: build
 # Build the binary
 build:
 	@echo "Building $(BINARY_NAME)..."
-	go build -ldflags="-s -w" -o ./bin/$(BINARY_NAME) .
+	@mkdir -p "$(dir $(BUILD_OUTPUT))"
+	go build -ldflags="-s -w" -o "$(BUILD_OUTPUT)" .
+
+BUILD_OUTPUT ?= $(BINARY_DIR)/$(BINARY_NAME)
+
+.PHONY: proto-internal test-account-operations
+proto-internal:
+	protoc --go_out=. --go-grpc_out=. --go_opt=module=github.com/ehrlich-b/tunn --go-grpc_opt=module=github.com/ehrlich-b/tunn proto/internal.proto
+
+test-account-operations:
+	go test -race -v -count=1 -parallel=2 -timeout=120s -run '^TestAccountOperations' ./internal/store ./internal/storage ./internal/metering ./internal/host .
+
+# The coordinator must supply the pinned domains commit after integration.
+# A missing pin or unmerged domains head is a failed promotion gate.
+.PHONY: test-account-operations-combined
+test-account-operations-combined:
+	@test -n "$$TUNN_DOMAINS_HEAD" || { echo "REQUIRED: set TUNN_DOMAINS_HEAD to the integrated domains commit"; exit 1; }
+	@test "$$(git rev-parse --verify "$$TUNN_DOMAINS_HEAD^{commit}")" = "$$TUNN_DOMAINS_HEAD" || { echo "REQUIRED: provide the full immutable domains commit SHA"; exit 1; }
+	git merge-base --is-ancestor "$$TUNN_DOMAINS_HEAD" HEAD
+	go test -race -count=1 -parallel=2 -timeout=180s -run '^TestAccountOperationsCombinedLifecycle$$' ./internal/host
+	$(MAKE) -j1 test-account-operations test-metering-contract
 
 # Generate protobuf and gRPC code
 proto:
 	@echo "Generating protobuf code..."
 	protoc --go_out=. --go-grpc_out=. proto/tunnel.proto
 	protoc --go_out=. --go-grpc_out=. proto/internal.proto
+	protoc --go_out=. --go-grpc_out=. --go_opt=module=github.com/ehrlich-b/tunn --go-grpc_opt=module=github.com/ehrlich-b/tunn proto/metering.proto
+	protoc --go_out=. --go-grpc_out=. --go_opt=module=github.com/ehrlich-b/tunn --go-grpc_opt=module=github.com/ehrlich-b/tunn proto/domains.proto
 	@mkdir -p pkg/proto/tunnelv1 pkg/proto/internalv1
 	@if [ -d github.com ]; then \
 		mv github.com/ehrlich-b/tunn/pkg/proto/tunnelv1/*.pb.go pkg/proto/tunnelv1/ 2>/dev/null || true; \
@@ -49,6 +74,25 @@ verify: fmt test
 check: fmt tidy test-race
 	@echo "All checks passed!"
 
+vet:
+	go vet ./...
+
+# Offline checks for the AI-host kit; no sockets, hosted relay, or credentials.
+test-ai-hosts:
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s deploy/ai-hosts -p 'test_*.py'
+	bash -n deploy/ai-hosts/wsl-run.sh
+
+# Explicitly rooted artifact/service/TLS/SQLite fixtures; never native activation.
+test-install-recovery: build
+	go test $(GO_TEST_FLAGS) -count=1 -timeout=90s -run '^(TestConfig|TestService.*|TestHostRuntimePrivateCredentialFixtures|TestHostRuntimeConfiguredCredentialRootSurvivesRestart|TestHostRuntimeTokensSurviveRestart)$$' ./internal/hostmode
+	PYTHONDONTWRITEBYTECODE=1 TUNN_TEST_BINARY="$(abspath $(BINARY_DIR)/$(BINARY_NAME))" python3 -m unittest discover -s deploy/install -p 'test_*.py'
+
+test-ai-hosts-security:
+	go test -run '^(TestLogin|TestGetTokenPath|TestSaveAndLoadToken|TestLoadTokenNotFound|TestSaveTokenCreatesDirectory|TestCookieAuthenticatedRequestDoesNotForwardPlatformCredentials|TestMalformedAuthorizationIsNotLogged|TestHandleWebProxy|TestPublicTunnelStripsTunnAuthorization|TestProxyHTTPOverGRPC|TestSaveAndLoadEndpointToken|TestRotateEndpointTokenReplacesFile|TestWatchEndpointTokenSendsDigestOnly)' ./internal/client ./internal/host
+
+lint:
+	golangci-lint run
+
 # Build for different platforms
 build-all: build-linux build-mac build-windows
 
@@ -71,6 +115,19 @@ clean:
 	rm -rf ./bin
 
 # Testing targets
+.PHONY: test-hostmode test-hostmode-loopback test-hostmode-compile
+test-hostmode:
+	go test $(GO_TEST_FLAGS) -race -timeout=90s -run '^(TestConfig|TestService.*|TestBoundedLogs|TestReconnectBackoffBounds|TestHostStore.*|TestHostAPI.*|TestHostStream.*|TestHostModeGate.*|TestHostHealth.*|TestHostClient.*|TestHostCLI.*|TestHostRuntime.*|TestOpenClaw.*)$$' ./internal/hostmode ./internal/client ./internal/store ./internal/host .
+	go test $(GO_TEST_FLAGS) -race -timeout=60s ./internal/store ./internal/config ./internal/common
+
+# Real TLS/gRPC, private HTTP/MCP/TCP/Unix, readiness, reconnect and shutdown.
+# Requires loopback and Unix sockets; never skips when listeners are denied.
+test-hostmode-loopback:
+	go test $(GO_TEST_FLAGS) -race -count=1 -timeout=90s -run '^TestLoopbackHostMode$$' ./internal/host
+
+test-hostmode-compile:
+	go test $(GO_TEST_FLAGS) -run '^$$' ./...
+
 test:
 	@echo "Running tests..."
 	go test ./...
@@ -78,6 +135,63 @@ test:
 test-verbose:
 	@echo "Running tests with verbose output..."
 	go test -v ./...
+
+test-mcp:
+	@echo "Running MCP bridge tests..."
+	go test -v -timeout=20s ./internal/mcpbridge
+
+# Full loopback TLS relay, publisher, WebSocket fixture, and frame regressions.
+test-websocket:
+	go test -race -v -count=1 -timeout=90s -run 'TestWebSocket|TestServeWebSocket|TestForwardedHTTP' . ./internal/common ./internal/client ./internal/host
+
+test-websocket-unit:
+	go test -race -count=1 -timeout=20s -run 'TestServeWebSocket|TestWebSocketFrames|TestWebSocketFrame|TestWebSocketFragmented|TestForwardedHTTP|TestProxyHTTPOverGRPC|TestHandleWebProxy|TestPublicTunnel|TestGetAuthFromTunnelBearer|TestAllowList|TestEmailBucket' . ./internal/common ./internal/host
+
+WS_TESTS ?= TestWebSocket
+test-websocket-memory:
+	go test -race -v -count=1 -timeout=90s -run '$(WS_TESTS)' ./internal/host -args -websocket-memory
+
+# In-process lifecycle regressions also run in sandboxes without loopback.
+test-lifecycle-contract:
+	go test -race -v -timeout=20s -run '^(TestNormalizeEmail|TestBridgeLifecycle)' ./internal/common ./internal/mcpbridge
+
+# Memory TLS/gRPC lifecycle fixtures, plus a genuinely separate Go importer.
+# No registry resolution: dependencies must already exist in the offline cache.
+.PHONY: test-sdk-unit test-sdk-contract test-sdk-consumer
+test-sdk-unit:
+	GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go test -race -count=1 -timeout=45s ./sdk
+
+test-sdk-consumer:
+	mkdir -p .scratch/sdk-consumer
+	cp sdk/testdata/consumer/*.go .scratch/sdk-consumer/
+	printf 'module tunn-sdk-consumer\n\ngo 1.25.0\n\nrequire github.com/ehrlich-b/tunn v0.0.0\n\nreplace github.com/ehrlich-b/tunn => ../..\n' > .scratch/sdk-consumer/go.mod
+	cp go.sum .scratch/sdk-consumer/go.sum
+	cd .scratch/sdk-consumer && GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go test -mod=mod -race -count=1 -timeout=20s ./...
+	GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go test ./examples/sdk-handler ./examples/sdk-origin
+
+# Acceptance includes the actual relay/auth/HTTP/WS loopback stack. Never
+# skip or substitute the unit target when TCP listeners are unavailable.
+test-sdk-contract: test-sdk-unit test-sdk-consumer
+	GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go test -race -count=1 -v -timeout=90s -run '^TestSDK' ./internal/host
+
+.PHONY: run-sdk-handler run-sdk-origin
+run-sdk-handler:
+	go run ./examples/sdk-handler
+
+run-sdk-origin:
+	go run ./examples/sdk-origin
+
+# Durable store, buffered/streamed relay fixtures, owner CLI and internal RPCs;
+# these tests do not bind TCP/UDP sockets or call hosted services.
+test-metering-contract:
+	go test -race -v -timeout=60s ./internal/metering
+	go test -race -v -timeout=60s ./internal/config
+	go test -race -v -timeout=60s -run '^(TestMetering|TestMeterIdle|TestAccountPlan|TestAccountUsageView|TestBufferedResponseReserves|TestWebSocketFrames|TestWebSocketBoundary|TestTransportTCP|TestConnectReports|TestProxyHTTPOverGRPC|TestLegacyClientKeepsBufferedHTTPPath|TestTunnelConnectionLimitRejectsPendingStream|TestHandleWebProxy|TestPublicTunnelStripsTunnAuthorization|TestGetAuthFromTunnelBearer|TestCheckJWT|TestAllowListCheck|TestEmailBucketAllowListCheck)' . ./internal/host ./internal/client
+
+# Fake DNS/ACME, memory TLS/gRPC, owner API/client and CLI parsing; no sockets.
+test-domains-contract:
+	go test -race -timeout=60s ./internal/domains
+	go test -race -timeout=60s -run '^(TestDomain|TestParseDomain)' . ./internal/host ./internal/client
 
 test-coverage:
 	@echo "Running tests with coverage..."
@@ -87,7 +201,7 @@ test-coverage:
 
 test-race:
 	@echo "Running tests with race detection..."
-	go test -race ./...
+	go test $(GO_TEST_FLAGS) -race ./...
 
 # Integration tests (require build + certs)
 integration-test: build
@@ -99,6 +213,21 @@ integration-test-smoke: build
 	@echo "Running smoke test..."
 	@if [ ! -f "./certs/cert.pem" ]; then ./scripts/gen-test-certs.sh; fi
 	./scripts/integration-tests/smoke-test.sh
+
+integration-test-ai: build
+	@echo "Running AI ingress end-to-end test..."
+	@if [ ! -f "./certs/cert.pem" ]; then ./scripts/gen-test-certs.sh; fi
+	./scripts/integration-tests/ai-ingress-test.sh
+
+# Authenticated local MCP lifecycle; no DNS, browser, or hosted services needed.
+integration-test-lifecycle: build
+	@if [ ! -f "./certs/cert.pem" ]; then ./scripts/gen-test-certs.sh; fi
+	python3 ./scripts/integration-tests/lifecycle-test.py
+
+# Literal loopback addresses, local SQLite, and synthetic owner credentials only.
+integration-test-metering: build
+	@if [ ! -f "./certs/cert.pem" ]; then ./scripts/gen-test-certs.sh; fi
+	python3 ./scripts/integration-tests/metering-test.py
 
 # Docker targets
 docker: docker-build
@@ -120,6 +249,13 @@ cert-renew:
 	@echo "Renewing SSL certificates..."
 	./renew-certs.sh
 
+cert-install-schedule:
+	@mkdir -p "$(HOME)/Library/LaunchAgents" "$(HOME)/.config/tunn"
+	@install -m 600 scripts/com.ehrlich.tunn-cert-renewal.plist "$(HOME)/Library/LaunchAgents/com.ehrlich.tunn-cert-renewal.plist"
+	@launchctl bootout "gui/$$(id -u)/com.ehrlich.tunn-cert-renewal" >/dev/null 2>&1 || true
+	@launchctl bootstrap "gui/$$(id -u)" "$(HOME)/Library/LaunchAgents/com.ehrlich.tunn-cert-renewal.plist"
+	@echo "Installed daily certificate renewal check."
+
 # Create certs directory structure
 certs-dir:
 	@echo "Creating certificates directory..."
@@ -133,7 +269,8 @@ certs-dir:
 #   3. make fly-deploy    (deploy)
 #
 # Subsequent deploys: make fly-deploy
-# Cert renewal (every 90 days): make fly-certs && make fly-deploy
+# Certificate renewal: make cert-renew (DNS, Fly secret update, restart, and
+# live verification are handled as one operation).
 
 fly-create:
 	@echo "Creating Fly.io application..."
@@ -181,19 +318,7 @@ fly-secrets:
 	@echo "Secrets set! Now run: make fly-deploy"
 
 fly-certs:
-	@echo "Updating TLS certs..."
-	@if ! sudo test -f "/etc/letsencrypt/live/tunn.to/fullchain.pem"; then \
-		echo "ERROR: Certs not found. Run: sudo certbot renew"; \
-		exit 1; \
-	fi
-	@sudo cat /etc/letsencrypt/live/tunn.to/fullchain.pem | base64 | tr -d '\n' > /tmp/cert.b64
-	@sudo cat /etc/letsencrypt/live/tunn.to/privkey.pem | base64 | tr -d '\n' > /tmp/key.b64
-	fly secrets set \
-		TUNN_CERT_DATA="$$(cat /tmp/cert.b64)" \
-		TUNN_KEY_DATA="$$(cat /tmp/key.b64)" \
-		-a $(FLY_APP_NAME)
-	@rm -f /tmp/cert.b64 /tmp/key.b64
-	@echo "Certs updated! Run: make fly-deploy"
+	@$(MAKE) cert-renew
 
 fly-deploy:
 	@echo "Deploying to Fly.io..."
@@ -235,7 +360,7 @@ dev:
 # Install local build to /usr/local/bin (requires sudo)
 install: build
 	@echo "Installing $(BINARY_NAME) to /usr/local/bin..."
-	sudo cp $(BINARY_NAME) /usr/local/bin/
+	sudo cp "$(BINARY_DIR)/$(BINARY_NAME)" /usr/local/bin/
 
 # Analytics - count events from logs (bots vs humans separated)
 analytics-hour:
@@ -294,7 +419,7 @@ help:
 	@echo "  make fly-create    - Create Fly app and allocate IPs"
 	@echo "  make fly-init      - Generate and set JWT secret"
 	@echo "  make fly-secrets   - Set GitHub and SMTP secrets (interactive)"
-	@echo "  make fly-certs     - Set TLS certs from certbot"
+	@echo "  make fly-certs     - Renew and deploy TLS certificate (alias of cert-renew)"
 	@echo "  make fly-deploy    - Deploy to Fly.io"
 	@echo ""
 	@echo "Fly.io Maintenance:"
@@ -314,3 +439,36 @@ help:
 	@echo "  make dev           - Run in development mode"
 	@echo "  make install       - Install binary to /usr/local/bin"
 	@echo "  make help          - Show this help message"
+
+# Bounded, offline inspector fixtures: the default mode never binds a listener.
+# Browser mode uses an installed Chrome with a disposable .scratch profile.
+INSPECT_MODE ?= offline
+.PHONY: test-inspect-contract test-inspect-offline test-inspect-loopback test-inspect-browser
+ifeq ($(INSPECT_MODE),offline)
+test-inspect-contract: test-inspect-offline
+else ifeq ($(INSPECT_MODE),loopback)
+test-inspect-contract: test-inspect-offline test-inspect-loopback
+else ifeq ($(INSPECT_MODE),browser)
+test-inspect-contract: test-inspect-offline test-inspect-browser
+else
+test-inspect-contract:
+	@echo "INSPECT_MODE must be offline, loopback, or browser"; exit 1
+endif
+
+test-inspect-offline:
+	go test -race -count=1 -timeout=30s -run '^TestInspectContract' ./internal/client ./internal/host
+	go test -count=1 -timeout=20s -run '^TestParseServeFlagsInspect' .
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/integration-tests/inspect-syntax.py internal/client/inspector.html
+
+test-inspect-loopback:
+	go test -race -count=1 -timeout=30s -run '^TestInspector' ./internal/client
+
+test-inspect-browser:
+	go test -count=1 -timeout=20s -run '^TestInspectBrowserFixture$$' ./internal/client -args -inspect-browser-fixture="$(CURDIR)/.scratch/inspect-browser.html"
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/integration-tests/inspect-syntax.py internal/client/inspector.html .scratch/inspect-browser.html
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/integration-tests/inspect-browser.py .scratch/inspect-browser.html
+# SSH API checks use only in-process or loopback clients.
+.PHONY: test-ssh
+test-ssh:
+	go test -race -count=1 -timeout=90s ./internal/sshfront ./internal/cliopts
+	go test -race -count=1 -timeout=90s -run 'TestSSH|TestParseServe|TestServeWebSocket' ./internal/host .

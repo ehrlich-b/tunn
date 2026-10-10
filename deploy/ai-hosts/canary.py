@@ -136,6 +136,7 @@ def ssh_probe(args, ssh_token_path):
 
 def evidence(args, ssh_token, wt_token):
     return {"host": args.host, "hostname": args.expected_hostname,
+            "token_lifecycle": args.token_lifecycle,
             "tools": sorted(args.expected_tools.split(",")), "dashboard_path": args.dashboard_path,
             "dashboard_marker": args.dashboard_marker,
             "ssh_digest": hashlib.sha256(ssh_token.encode()).hexdigest(),
@@ -146,9 +147,14 @@ def check_restart(previous, current):
     for key in ("host", "hostname", "tools", "dashboard_path", "dashboard_marker"):
         if previous.get(key) != current[key]:
             raise ValueError("baseline belongs to a different canary configuration")
+    lifecycle = current["token_lifecycle"]
+    if previous.get("token_lifecycle", "rotate") != lifecycle:
+        raise ValueError("baseline belongs to a different token lifecycle")
     for key in ("ssh_digest", "wt_digest"):
-        if previous.get(key) == current[key]:
+        if lifecycle == "rotate" and previous.get(key) == current[key]:
             raise ValueError("after phase requires newly copied SSH and MCP tokens from restarted publishers")
+        if lifecycle == "preserve" and previous.get(key) != current[key]:
+            raise ValueError("host-mode recovery must preserve the existing SSH and MCP token digests")
 
 
 def run(args, http=None):
@@ -194,18 +200,21 @@ def run(args, http=None):
         raise ValueError("authenticated dashboard did not return the expected page marker")
     print("PASS HTTPS dashboard denies anonymous access and serves the expected page", flush=True)
     if args.phase == "after":
-        print("PASS all three endpoints after publisher restart with refreshed capabilities", flush=True)
+        description = "refreshed" if args.token_lifecycle == "rotate" else "preserved"
+        print(f"PASS all three endpoints after publisher restart with {description} capabilities", flush=True)
     else:
         receipt = Path(args.receipt)
         with receipt.open("x") as output:
             output.write(json.dumps(current, indent=2) + "\n")
         receipt.chmod(0o600)
-        print("PASS baseline saved; Bryan restarts publishers, then copy fresh tokens and run --phase after", flush=True)
+        print(f"PASS baseline saved; Bryan restarts publishers, then run --phase after with {args.token_lifecycle} token lifecycle", flush=True)
 
 
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--phase", choices=("before", "after"), required=True)
+    parser.add_argument("--token-lifecycle", choices=("rotate", "preserve"), default="rotate",
+                        help="rotate for the legacy kit; preserve only for persistent host mode")
     parser.add_argument("--host", choices=("forge", "rig"), required=True)
     parser.add_argument("--tunn-binary", type=Path, required=True)
     parser.add_argument("--token-dir", type=Path, required=True)

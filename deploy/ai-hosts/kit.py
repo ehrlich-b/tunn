@@ -41,9 +41,14 @@ class Config:
     def __init__(self, path):
         self.path = private_file(Path(path).expanduser().absolute())
         self.data = json.loads(self.path.read_text())
-        if set(self.data) != {"host", "tunn_binary", "wt_binary", "work_dir",
-                              "dashboard_port", "dashboard_path", "allow_emails", "mcp_tools"}:
+        keys = {"host", "tunn_binary", "wt_binary", "work_dir",
+                "dashboard_port", "dashboard_path", "allow_emails", "mcp_tools"}
+        # Read old profiles in place. Adding a schema never rewrites an owner's
+        # existing profile or silently substitutes a new machine name.
+        if not isinstance(self.data, dict) or set(self.data) not in (keys, keys | {"version"}):
             raise ValueError("config keys must match host.json.example exactly")
+        if "version" in self.data and (type(self.data["version"]) is not int or self.data["version"] != 1):
+            raise ValueError("host.json version must be 1")
         self.host = self.data["host"]
         if self.host not in ("forge", "rig"):
             raise ValueError("host must be forge or rig")

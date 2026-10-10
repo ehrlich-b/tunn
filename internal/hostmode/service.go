@@ -14,6 +14,7 @@ const ServiceLabel = "com.tunn.host"
 
 type ServiceSpec struct {
 	OS, Home, Binary, Config, Username string
+	ConfigHome                         string // Explicit root; never inferred when supplied by a rehearsal.
 	UID                                int
 }
 
@@ -120,7 +121,10 @@ func (s ServiceSpec) Path() string {
 	case "darwin":
 		return filepath.Join(s.Home, "Library", "LaunchAgents", ServiceLabel+".plist")
 	case "linux":
-		root := os.Getenv("XDG_CONFIG_HOME")
+		root := s.ConfigHome
+		if root == "" {
+			root = os.Getenv("XDG_CONFIG_HOME")
+		}
 		if root == "" {
 			root = filepath.Join(s.Home, ".config")
 		}
@@ -142,6 +146,9 @@ func (s ServiceSpec) Manage(action string, run CommandRunner) (string, error) {
 		return "", err
 	}
 	path := s.Path()
+	if !filepath.IsAbs(path) {
+		return "", fmt.Errorf("service definition path must be absolute")
+	}
 	command := func(name string, args ...string) (string, error) {
 		out, err := run(name, args...)
 		if err != nil {
@@ -150,14 +157,56 @@ func (s ServiceSpec) Manage(action string, run CommandRunner) (string, error) {
 		return string(out), nil
 	}
 	if action == "install" {
+		// An existing definition belongs to this invocation only if every path
+		// matches. Updates use a stable binary path and an explicit restart.
+		existing, err := serviceDefinition(path)
+		if err != nil && !os.IsNotExist(err) {
+			return "", err
+		}
+		if err == nil && string(existing) != unit {
+			return "", fmt.Errorf("existing service definition differs; use its original binary and config to uninstall it first: %s", path)
+		}
+		if os.IsNotExist(err) {
+			switch s.OS {
+			case "linux":
+				fragment, err := command("systemctl", "--user", "show", "--property=FragmentPath", "--value", "tunn-host.service")
+				if err != nil {
+					return "", err
+				}
+				if strings.TrimSpace(fragment) != "" {
+					return "", fmt.Errorf("an existing systemd service has no matching local definition; refusing to replace %s", strings.TrimSpace(fragment))
+				}
+			case "windows":
+				if _, err := command("schtasks", "/Query", "/TN", "TunnHost"); err == nil {
+					return "", fmt.Errorf("TunnHost already exists without this local definition; refusing to replace it")
+				}
+			}
+		}
+		if err == nil {
+			// print/Query succeeds for a registered job even when it is offline.
+			// A failed query is never reported as success: registration below is
+			// checked, and a failed manager leaves the definition for recovery.
+			if s.OS == "darwin" {
+				if _, err := command("launchctl", "print", fmt.Sprintf("gui/%d/%s", s.UID, ServiceLabel)); err == nil {
+					return "Already installed " + path + "; use status or restart to check recovery.\n", nil
+				}
+			}
+			if s.OS == "windows" {
+				if _, err := command("schtasks", "/Query", "/TN", "TunnHost"); err == nil {
+					if _, err := command("schtasks", "/Run", "/TN", "TunnHost"); err != nil {
+						return "", err
+					}
+					return "Already installed " + path + "; use status or restart to check recovery.\n", nil
+				}
+			}
+		}
 		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 			return "", err
 		}
-		if err := os.WriteFile(path, []byte(unit), 0600); err != nil {
-			return "", err
-		}
-		if err := os.Chmod(path, 0600); err != nil {
-			return "", err
+		if os.IsNotExist(err) {
+			if err := createPrivateFile(path, []byte(unit)); err != nil {
+				return "", err
+			}
 		}
 		switch s.OS {
 		case "darwin":
@@ -174,7 +223,7 @@ func (s ServiceSpec) Manage(action string, run CommandRunner) (string, error) {
 				return "", err
 			}
 		case "windows":
-			if _, err := command("schtasks", "/Create", "/TN", "TunnHost", "/XML", path, "/F"); err != nil {
+			if _, err := command("schtasks", "/Create", "/TN", "TunnHost", "/XML", path); err != nil {
 				return "", err
 			}
 			if _, err := command("schtasks", "/Run", "/TN", "TunnHost"); err != nil {
@@ -184,6 +233,16 @@ func (s ServiceSpec) Manage(action string, run CommandRunner) (string, error) {
 		return "Installed " + path + "\n", nil
 	}
 	if action == "uninstall" {
+		existing, err := serviceDefinition(path)
+		if os.IsNotExist(err) {
+			return "Service definition already absent; config and publisher/endpoint credentials retained.\n", nil
+		}
+		if err != nil {
+			return "", err
+		}
+		if string(existing) != unit {
+			return "", fmt.Errorf("refusing to remove a different service definition: %s", path)
+		}
 		switch s.OS {
 		case "darwin":
 			if _, err := command("launchctl", "bootout", fmt.Sprintf("gui/%d/%s", s.UID, ServiceLabel)); err != nil {
@@ -194,8 +253,11 @@ func (s ServiceSpec) Manage(action string, run CommandRunner) (string, error) {
 				return "", err
 			}
 		case "windows":
-			// /End can fail if the task is already stopped. /Delete remains checked.
-			_, _ = command("schtasks", "/End", "/TN", "TunnHost")
+			// Never delete registration after an unchecked stop: a running task
+			// can outlive registration. Native acceptance covers stopped tasks.
+			if _, err := command("schtasks", "/End", "/TN", "TunnHost"); err != nil {
+				return "", err
+			}
 			if _, err := command("schtasks", "/Delete", "/TN", "TunnHost", "/F"); err != nil {
 				return "", err
 			}
@@ -208,7 +270,27 @@ func (s ServiceSpec) Manage(action string, run CommandRunner) (string, error) {
 				return "", err
 			}
 		}
-		return "Uninstalled service; config and endpoint tokens retained.\n", nil
+		return "Uninstalled service; config, publisher/endpoint credentials, relay inventory and reserved names retained.\n", nil
+	}
+	if action == "restart" {
+		existing, err := serviceDefinition(path)
+		if err != nil {
+			return "", err
+		}
+		if string(existing) != unit {
+			return "", fmt.Errorf("refusing to restart a different service definition: %s", path)
+		}
+		switch s.OS {
+		case "darwin":
+			return command("launchctl", "kickstart", "-k", fmt.Sprintf("gui/%d/%s", s.UID, ServiceLabel))
+		case "linux":
+			return command("systemctl", "--user", "restart", "tunn-host.service")
+		case "windows":
+			if _, err := command("schtasks", "/End", "/TN", "TunnHost"); err != nil {
+				return "", err
+			}
+			return command("schtasks", "/Run", "/TN", "TunnHost")
+		}
 	}
 	if action == "status" {
 		switch s.OS {
@@ -220,5 +302,37 @@ func (s ServiceSpec) Manage(action string, run CommandRunner) (string, error) {
 			return command("schtasks", "/Query", "/TN", "TunnHost", "/V", "/FO", "LIST")
 		}
 	}
-	return "", fmt.Errorf("expected service install, uninstall, status, or run")
+	return "", fmt.Errorf("expected service install, uninstall, restart, status, check, or run")
+}
+
+func serviceDefinition(path string) ([]byte, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("service definition must be a regular file, not a symlink: %s", path)
+	}
+	return os.ReadFile(path)
+}
+
+// Link publishes the complete file without overwriting a competing install.
+func createPrivateFile(path string, data []byte) error {
+	f, err := os.CreateTemp(filepath.Dir(path), ".tunn-unit-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name())
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Link(f.Name(), path)
 }

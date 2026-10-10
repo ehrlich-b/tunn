@@ -3,12 +3,14 @@
 # Variables
 APP_NAME := tunn
 BINARY_NAME := tunn
+BINARY_DIR ?= bin
+GO_TEST_FLAGS ?=
 GO_BUILD_ENV := CGO_ENABLED=0 GOOS=linux GOARCH=amd64
 GO_FILES := $(wildcard *.go)
 DOCKER_IMAGE := $(APP_NAME):latest
 FLY_APP_NAME := $(APP_NAME)
 
-.PHONY: all build clean proto fmt tidy verify check vet lint test test-ai-hosts test-ai-hosts-security test-verbose test-mcp test-websocket test-websocket-memory test-websocket-unit test-lifecycle-contract test-metering-contract test-coverage test-race integration-test integration-test-smoke integration-test-ai integration-test-lifecycle integration-test-metering docker docker-build docker-run cert-setup cert-renew cert-install-schedule fly-create fly-init fly-secrets fly-certs fly-deploy fly-logs fly-status analytics-hour analytics-day analytics-live help
+.PHONY: all build clean proto fmt tidy verify check vet lint test test-ai-hosts test-install-recovery test-ai-hosts-security test-verbose test-mcp test-websocket test-websocket-memory test-websocket-unit test-lifecycle-contract test-metering-contract test-coverage test-race integration-test integration-test-smoke integration-test-ai integration-test-lifecycle integration-test-metering docker docker-build docker-run cert-setup cert-renew cert-install-schedule fly-create fly-init fly-secrets fly-certs fly-deploy fly-logs fly-status analytics-hour analytics-day analytics-live help
 
 # Default target
 all: build
@@ -16,7 +18,7 @@ all: build
 # Build the binary
 build:
 	@echo "Building $(BINARY_NAME)..."
-	go build -ldflags="-s -w" -o ./bin/$(BINARY_NAME) .
+	go build -ldflags="-s -w" -o "$(BINARY_DIR)/$(BINARY_NAME)" .
 
 # Generate protobuf and gRPC code
 proto:
@@ -58,6 +60,11 @@ test-ai-hosts:
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s deploy/ai-hosts -p 'test_*.py'
 	bash -n deploy/ai-hosts/wsl-run.sh
 
+# Explicitly rooted artifact/service/TLS/SQLite fixtures; never native activation.
+test-install-recovery: build
+	go test $(GO_TEST_FLAGS) -count=1 -timeout=90s -run '^(TestConfig|TestService.*|TestHostRuntimePrivateCredentialFixtures|TestHostRuntimeConfiguredCredentialRootSurvivesRestart|TestHostRuntimeTokensSurviveRestart)$$' ./internal/hostmode
+	PYTHONDONTWRITEBYTECODE=1 TUNN_TEST_BINARY="$(abspath $(BINARY_DIR)/$(BINARY_NAME))" python3 -m unittest discover -s deploy/install -p 'test_*.py'
+
 test-ai-hosts-security:
 	go test -run '^(TestLogin|TestGetTokenPath|TestSaveAndLoadToken|TestLoadTokenNotFound|TestSaveTokenCreatesDirectory|TestCookieAuthenticatedRequestDoesNotForwardPlatformCredentials|TestMalformedAuthorizationIsNotLogged|TestHandleWebProxy|TestPublicTunnelStripsTunnAuthorization|TestProxyHTTPOverGRPC|TestSaveAndLoadEndpointToken|TestRotateEndpointTokenReplacesFile|TestWatchEndpointTokenSendsDigestOnly)' ./internal/client ./internal/host
 
@@ -88,16 +95,16 @@ clean:
 # Testing targets
 .PHONY: test-hostmode test-hostmode-loopback test-hostmode-compile
 test-hostmode:
-	go test -race -timeout=90s -run '^(TestConfig|TestService.*|TestBoundedLogs|TestReconnectBackoffBounds|TestHostStore.*|TestHostAPI.*|TestHostStream.*|TestHostModeGate.*|TestHostHealth.*|TestHostClient.*|TestHostCLI.*|TestHostRuntime.*|TestOpenClaw.*)$$' ./internal/hostmode ./internal/client ./internal/store ./internal/host .
-	go test -race -timeout=60s ./internal/store ./internal/config ./internal/common
+	go test $(GO_TEST_FLAGS) -race -timeout=90s -run '^(TestConfig|TestService.*|TestBoundedLogs|TestReconnectBackoffBounds|TestHostStore.*|TestHostAPI.*|TestHostStream.*|TestHostModeGate.*|TestHostHealth.*|TestHostClient.*|TestHostCLI.*|TestHostRuntime.*|TestOpenClaw.*)$$' ./internal/hostmode ./internal/client ./internal/store ./internal/host .
+	go test $(GO_TEST_FLAGS) -race -timeout=60s ./internal/store ./internal/config ./internal/common
 
 # Real TLS/gRPC, private HTTP/MCP/TCP/Unix, readiness, reconnect and shutdown.
 # Requires loopback and Unix sockets; never skips when listeners are denied.
 test-hostmode-loopback:
-	go test -race -count=1 -timeout=90s -run '^TestLoopbackHostMode$$' ./internal/host
+	go test $(GO_TEST_FLAGS) -race -count=1 -timeout=90s -run '^TestLoopbackHostMode$$' ./internal/host
 
 test-hostmode-compile:
-	go test -run '^$$' ./...
+	go test $(GO_TEST_FLAGS) -run '^$$' ./...
 
 test:
 	@echo "Running tests..."
@@ -141,7 +148,7 @@ test-coverage:
 
 test-race:
 	@echo "Running tests with race detection..."
-	go test -race ./...
+	go test $(GO_TEST_FLAGS) -race ./...
 
 # Integration tests (require build + certs)
 integration-test: build
@@ -300,7 +307,7 @@ dev:
 # Install local build to /usr/local/bin (requires sudo)
 install: build
 	@echo "Installing $(BINARY_NAME) to /usr/local/bin..."
-	sudo cp $(BINARY_NAME) /usr/local/bin/
+	sudo cp "$(BINARY_DIR)/$(BINARY_NAME)" /usr/local/bin/
 
 # Analytics - count events from logs (bots vs humans separated)
 analytics-hour:

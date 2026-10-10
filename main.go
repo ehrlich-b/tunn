@@ -53,7 +53,7 @@ Usage:
   tunn <port>                    Tunnel localhost:<port> to a public URL
   tunn <host:port>               Tunnel host:port to a public URL
   tunn <url>                     Tunnel any URL to a public URL
-  tunn service install|uninstall|status  Manage persistent machine endpoints
+  tunn service install|uninstall|restart|status|check  Manage persistent machine endpoints
   tunn hosts [--json]             List your machines and their tunnels
   tunn openclaw [options]         Preview OpenClaw phone setup (needs WebSockets)
   tunn login                     Authenticate with GitHub

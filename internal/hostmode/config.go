@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -16,14 +17,15 @@ import (
 )
 
 type Config struct {
-	Version   int      `yaml:"version"`
-	Machine   string   `yaml:"machine"`
-	Server    string   `yaml:"server"`
-	Domain    string   `yaml:"domain"`
-	Insecure  bool     `yaml:"insecure"`
-	TokenFile string   `yaml:"token_file"`
-	Health    string   `yaml:"health"`
-	Tunnels   []Tunnel `yaml:"tunnels"`
+	Version        int      `yaml:"version"`
+	Machine        string   `yaml:"machine"`
+	Server         string   `yaml:"server"`
+	Domain         string   `yaml:"domain"`
+	Insecure       bool     `yaml:"insecure"`
+	TokenFile      string   `yaml:"token_file"`
+	CredentialsDir string   `yaml:"credentials_dir"`
+	Health         string   `yaml:"health"`
+	Tunnels        []Tunnel `yaml:"tunnels"`
 }
 
 type Tunnel struct {
@@ -52,11 +54,22 @@ func DefaultPath() (string, error) {
 }
 
 func Load(path string) (*Config, error) {
-	b, err := os.ReadFile(path)
+	b, err := readPrivateFile(path)
 	if err != nil {
 		return nil, err
 	}
 	return Parse(b)
+}
+
+func readPrivateFile(path string) ([]byte, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() || (runtime.GOOS != "windows" && info.Mode().Perm() != 0600) {
+		return nil, fmt.Errorf("%s: require a regular, non-symlink file with mode 0600 (Windows requires a private user ACL)", path)
+	}
+	return os.ReadFile(path)
 }
 
 func Parse(b []byte) (*Config, error) {
@@ -119,6 +132,9 @@ func (c *Config) Validate() error {
 	}
 	if c.TokenFile != "" && !filepath.IsAbs(c.TokenFile) {
 		return fmt.Errorf("token_file must be an absolute path")
+	}
+	if c.CredentialsDir != "" && !filepath.IsAbs(c.CredentialsDir) {
+		return fmt.Errorf("credentials_dir must be an absolute path")
 	}
 	names := map[string]bool{}
 	for i := range c.Tunnels {

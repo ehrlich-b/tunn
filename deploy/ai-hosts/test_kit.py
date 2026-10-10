@@ -163,7 +163,36 @@ class KitTests(unittest.TestCase):
         self.assertEqual([c.args[0] for c in stopping.wait.call_args_list], [5, 10])
         self.assertEqual(popen.call_args.kwargs["env"]["TUNN_ENV"], "prod")
         self.assertTrue(popen.call_args.kwargs["start_new_session"])
+        self.assertTrue(all(call.args[0] == config.command("ssh") for call in popen.call_args_list))
+        self.assertEqual(config.command("ssh")[-3:], ["--name", "forge-ssh", "127.0.0.1:22"])
         self.assertFalse((self.root / "ssh.json").exists())
+
+    def test_versioned_config_rejects_unknown_schemas_without_rewriting_legacy(self):
+        original = self.path.read_bytes()
+        Config(self.path)  # Existing unversioned profiles remain readable.
+        self.assertEqual(self.path.read_bytes(), original)
+        self.data["version"] = 1
+        self.save_config()
+        self.assertEqual(Config(self.path).host, "forge")
+        for version in (2, True, "1"):
+            self.data["version"] = version
+            self.save_config()
+            with self.assertRaisesRegex(ValueError, "version"):
+                Config(self.path)
+
+    def test_expired_login_prevents_supervisor_from_starting_a_new_identity(self):
+        credentials = self.credentials(expiration=time.time() - 1)
+        config = Config(self.path)
+        original = (credentials / "token").read_bytes()
+        stopping = MagicMock()
+        stopping.is_set.return_value = False
+        with patch.object(runner, "log_for", return_value=MagicMock()), \
+             patch.object(runner.subprocess, "Popen") as popen:
+            with self.assertRaisesRegex(ValueError, "expired"):
+                runner.supervise(config, "ssh", self.root, credentials, stopping)
+        popen.assert_not_called()
+        self.assertEqual((credentials / "token").read_bytes(), original)
+        self.assertEqual(config.command("ssh")[-3:], ["--name", "forge-ssh", "127.0.0.1:22"])
 
     def test_shutdown_terminates_then_kills_a_stuck_child(self):
         process = MagicMock(pid=98765)
@@ -240,6 +269,32 @@ class KitTests(unittest.TestCase):
         with patch.object(canary, "ssh_probe"), contextlib.redirect_stdout(io.StringIO()):
             with self.assertRaisesRegex(ValueError, "reviewed exact tool list"):
                 canary.run(args, self.fake_http())
+        self.assertFalse(args.receipt.exists())
+
+    def test_hostmode_canary_requires_preserved_capabilities_and_same_policy(self):
+        self.canary_tokens()
+        args = self.canary_args()
+        args.token_lifecycle = "preserve"
+        with patch.object(canary, "ssh_probe"), contextlib.redirect_stdout(io.StringIO()):
+            canary.run(args, self.fake_http())
+            args.phase = "after"
+            canary.run(args, self.fake_http())
+        self.canary_tokens("b")
+        with self.assertRaisesRegex(ValueError, "must preserve"):
+            canary.run(args, self.fake_http())
+        args.token_lifecycle = "rotate"
+        with self.assertRaisesRegex(ValueError, "different token lifecycle"):
+            canary.run(args, self.fake_http())
+
+    def test_unavailable_relay_does_not_create_a_success_receipt(self):
+        self.canary_tokens()
+        args = self.canary_args()
+        http = MagicMock()
+        http.request.return_value = (503, {}, b"fixture relay unavailable")
+        with patch.object(canary, "ssh_probe") as ssh:
+            with self.assertRaises(ValueError):
+                canary.run(args, http)
+        ssh.assert_not_called()
         self.assertFalse(args.receipt.exists())
 
     def test_ssh_command_pins_host_identity_and_runs_only_fixed_command(self):

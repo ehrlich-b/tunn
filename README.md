@@ -20,6 +20,12 @@ Visitors log in with GitHub or a magic link. If they're on your list, they're in
 
 ## Install
 
+For the versioned source-checkout install, upgrade and recovery path, use the
+[install guide](docs/install-recovery.md). Its fixture gate is
+`bash scripts/verify-install-recovery.sh --fixtures`; actual native activation
+remains a separate owner-run acceptance gate. The legacy downloader below does
+not retain that path's checked artifact history or recovery journal.
+
 ```bash
 curl -fsSL https://tunn.to/install.sh | sh
 ```
@@ -295,3 +301,7 @@ See `CLAUDE.md` for architecture details and contribution guidelines.
 ## License
 
 MIT
+
+An approved full license text is not present in this checkout. License packaging
+and redistribution rights remain unresolved; the local install rehearsal does
+not change ownership or supply a replacement license.

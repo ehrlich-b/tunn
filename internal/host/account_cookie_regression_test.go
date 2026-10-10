@@ -44,12 +44,12 @@ func TestAccountMergePreservesUsageAndGrants(t *testing.T) {
 	if err := local.UpdatePlan(ctx, survivor.ID, "pro"); err != nil {
 		t.Fatal(err)
 	}
-	ledger, err := metering.New(db, metering.WithOwnerBudgets(1, 10))
+	ledger, err := metering.New(db, metering.WithOwnerBudgets(2, 20))
 	if err != nil {
 		t.Fatal(err)
 	}
 	token := sha256.Sum256([]byte("tunn_gr_merge-fixture"))
-	grant, err := ledger.CreateGrant(ctx, &meterpb.Grant{Owner: old.ID, Endpoint: "merged-api", TokenSha256: token[:], ExpiresAt: time.Now().Add(time.Hour).UnixMilli()})
+	grant, err := ledger.CreateGrant(ctx, &meterpb.Grant{Owner: old.ID, Endpoint: "merged-api", TokenSha256: token[:], ExpiresAt: time.Now().Add(time.Hour).UnixMilli(), MonthlyRequests: 1, MonthlyBytes: 10, RequestsPerMinute: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,10 +60,18 @@ func TestAccountMergePreservesUsageAndGrants(t *testing.T) {
 	if _, err := ledger.Charge(ctx, &meterpb.ChargeRequest{RequestId: id, RequestBytes: 10}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ledger.Finish(ctx, &meterpb.Event{RequestId: id, Status: 200}); err != nil {
+	if err := local.RecordUsage(ctx, old.ID, 10); err != nil {
 		t.Fatal(err)
 	}
-	if err := local.RecordUsage(ctx, old.ID, 10); err != nil {
+	// Overlapping rows on the survivor must be added, rather than overwritten.
+	activeID := strings.Repeat("3", 32)
+	if d, err := ledger.Admit(ctx, &meterpb.Event{RequestId: activeID, Owner: survivor.ID, Endpoint: "merged-api", Caller: "grant:" + grant.Id, AuthMethod: "none", Allowed: true}); err != nil || !d.Allowed {
+		t.Fatalf("survivor admit: %v %v", d, err)
+	}
+	if _, err := ledger.Charge(ctx, &meterpb.ChargeRequest{RequestId: activeID, ResponseBytes: 10}); err != nil {
+		t.Fatal(err)
+	}
+	if err := local.RecordUsage(ctx, survivor.ID, 10); err != nil {
 		t.Fatal(err)
 	}
 	merged, err := local.FindOrCreateByEmails(ctx, []string{"old@example.com", "survivor@example.com"}, "github")
@@ -74,21 +82,21 @@ func TestAccountMergePreservesUsageAndGrants(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bytes != 10 {
-		t.Errorf("merged account bandwidth = %d, want 10", bytes)
+	if bytes != 20 {
+		t.Errorf("merged account bandwidth = %d, want 20", bytes)
 	}
 	out, err := ledger.Export(ctx, &meterpb.ExportRequest{Owner: merged.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.OwnerUsage.AdmittedRequests != 1 || out.OwnerUsage.TotalBytes != 10 {
-		t.Errorf("merged usage: requests=%d bytes=%d, want 1 and 10", out.OwnerUsage.AdmittedRequests, out.OwnerUsage.TotalBytes)
+	if out.OwnerUsage.AdmittedRequests != 2 || out.OwnerUsage.TotalBytes != 20 {
+		t.Errorf("merged usage: requests=%d bytes=%d, want 2 and 20", out.OwnerUsage.AdmittedRequests, out.OwnerUsage.TotalBytes)
 	}
 	resolved, err := ledger.Resolve(ctx, &meterpb.ResolveRequest{Owner: merged.ID, Endpoint: "merged-api", TokenSha256: token[:]})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resolved.Id != grant.Id {
+	if resolved.Id != grant.Id || resolved.Owner != merged.ID || resolved.MonthlyRequests != 1 || resolved.MonthlyBytes != 10 || resolved.RequestsPerMinute != 1 {
 		t.Errorf("grant orphaned: resolved %q, want %q", resolved.Id, grant.Id)
 	}
 	listed, err := ledger.ListGrants(ctx, &meterpb.ListGrantsRequest{Owner: merged.ID, Endpoint: "merged-api"})
@@ -98,16 +106,63 @@ func TestAccountMergePreservesUsageAndGrants(t *testing.T) {
 	if len(listed.Grants) != 1 {
 		t.Errorf("merged owner lists %d grants, want 1", len(listed.Grants))
 	}
+	for _, event := range out.Events {
+		if event.Owner != merged.ID {
+			t.Errorf("serialized event owner = %s", event.Owner)
+		}
+	}
+	// In-flight events continue charging after their serialized owner moves.
+	if _, err := ledger.Charge(ctx, &meterpb.ChargeRequest{RequestId: id, RequestBytes: 10}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ledger.Finish(ctx, &meterpb.Event{RequestId: id, Status: 200}); err != nil {
+		t.Fatal(err)
+	}
+	// A delayed old-UUID accounting write must reach the surviving account.
+	if err := local.RecordUsage(ctx, old.ID, 1); err != nil {
+		t.Fatal(err)
+	}
+	if used, err := local.GetMonthlyUsage(ctx, merged.ID); err != nil || used != 21 {
+		t.Errorf("delayed accounting = %d, %v", used, err)
+	}
+	if account, err := local.GetAccount(ctx, old.ID); err != nil || account == nil || account.ID != merged.ID {
+		t.Errorf("obsolete UUID did not resolve: %v %v", account, err)
+	}
 	if _, err := ledger.RevokeGrant(ctx, &meterpb.Grant{Owner: merged.ID, Endpoint: "merged-api", Id: grant.Id}); err != nil {
 		t.Errorf("merged owner cannot revoke its grant: %v", err)
 	}
-	d, err := ledger.Admit(ctx, &meterpb.Event{RequestId: strings.Repeat("2", 32), Owner: merged.ID, Endpoint: "merged-api", Caller: "anonymous", AuthMethod: "none", Allowed: true})
+	d, err := ledger.Admit(ctx, &meterpb.Event{RequestId: strings.Repeat("2", 32), Owner: old.ID, Endpoint: "merged-api", Caller: "anonymous", AuthMethod: "none", Allowed: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if d.Allowed {
 		t.Error("merge reset exhausted owner budgets: admitted another request")
 	}
+	t.Run("atomic", func(t *testing.T) {
+		third, err := local.FindOrCreateByEmails(ctx, []string{"third@example.com"}, "magic_link")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := local.RecordUsage(ctx, third.ID, 9); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`INSERT INTO meter_events(id,owner,endpoint,month,finished,data) VALUES(?,?,?,?,1,?)`, strings.Repeat("4", 32), third.ID, "broken", time.Now().UTC().Format("2006-01"), []byte("{")); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := local.FindOrCreateByEmails(ctx, []string{third.PrimaryEmail, merged.PrimaryEmail}, "github"); err == nil {
+			t.Fatal("merge accepted malformed accounting")
+		}
+		if account, err := local.GetAccountByEmail(ctx, third.PrimaryEmail); err != nil || account == nil || account.ID != third.ID {
+			t.Errorf("failed merge moved emails: %v %v", account, err)
+		}
+		if used, err := local.GetMonthlyUsage(ctx, third.ID); err != nil || used != 9 {
+			t.Errorf("failed merge moved usage: %d %v", used, err)
+		}
+		if used, err := local.GetMonthlyUsage(ctx, merged.ID); err != nil || used != 21 {
+			t.Errorf("failed merge changed survivor usage: %d %v", used, err)
+		}
+	})
+
 }
 
 func TestMergedHostRemainsUsable(t *testing.T) {
@@ -225,7 +280,7 @@ func TestApplicationCannotReplacePlatformCookie(t *testing.T) {
 			endpoint, _ := url.Parse("https://api.tunn.test/")
 			jar.SetCookies(platform, []*http.Cookie{victim})
 			stream.hook = func(msg *pb.TunnelMessage) error {
-				headers := map[string]string{"Set-Cookie": attacker.String()}
+				headers := map[string]string{"sEt-CoOkIe": attacker.String() + ", app_cookie=keep; Expires=Wed, 21 Oct 2037 07:28:00 GMT, tunn_future=bad; Path=/, __Host-tunn_oauth=bad; Path=/; Secure, __Secure-tunn_future=bad; Path=/; Secure"}
 				if request := msg.GetHttpRequest(); request != nil {
 					tunnel.pendingMu.RLock()
 					ch := tunnel.pendingRequests[request.ConnectionId]
@@ -282,7 +337,11 @@ func TestApplicationCannotReplacePlatformCookie(t *testing.T) {
 					t.Fatalf("response fixture: %d", response.StatusCode)
 				}
 			}
-			jar.SetCookies(endpoint, response.Cookies())
+			cookies := response.Cookies()
+			if len(cookies) != 1 || cookies[0].Name != "app_cookie" || cookies[0].Value != "keep" || cookies[0].Expires.Year() != 2037 {
+				t.Errorf("application response cookies = %v, want only the application cookie with its expiry", cookies)
+			}
+			jar.SetCookies(endpoint, cookies)
 			next := httptest.NewRequest("GET", platform.String()+"account", nil)
 			for _, cookie := range jar.Cookies(platform) {
 				next.AddCookie(cookie)

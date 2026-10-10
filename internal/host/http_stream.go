@@ -167,12 +167,7 @@ func (p *ProxyServer) writeStreamingHTTPResponse(
 	requestResult <-chan requestBodyResult,
 	requestFinished *bool,
 ) error {
-	for key, value := range head.Headers {
-		if strings.HasPrefix(strings.ToLower(key), "tunn-") {
-			continue
-		}
-		w.Header().Set(key, value)
-	}
+	copyApplicationResponseHeaders(w.Header(), head.Headers)
 	if meterForRequest(r) != nil && r.Method != http.MethodHead && head.StatusCode != 204 && head.StatusCode != 304 {
 		// HTTP/1 trailers require chunked framing. The upstream length was already
 		// checked, but a concurrent upload/revocation may still terminate egress.

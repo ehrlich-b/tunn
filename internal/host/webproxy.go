@@ -45,7 +45,7 @@ func stripPlatformCookies(cookieHeader string) string {
 		if idx := strings.Index(part, "="); idx > 0 {
 			name = strings.TrimSpace(part[:idx])
 		}
-		if !strings.HasPrefix(name, "tunn_") && !strings.HasPrefix(name, "__Host-tunn_") && !strings.HasPrefix(name, "__Secure-tunn_") {
+		if !isPlatformCookie(name) {
 			kept = append(kept, part)
 		}
 	}
@@ -467,12 +467,7 @@ func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, 
 			return err
 		}
 		// Write response headers
-		for key, value := range httpResp.Headers {
-			if strings.HasPrefix(strings.ToLower(key), "tunn-") {
-				continue
-			}
-			w.Header().Set(key, value)
-		}
+		copyApplicationResponseHeaders(w.Header(), httpResp.Headers)
 
 		// Write status code
 		w.WriteHeader(int(httpResp.StatusCode))

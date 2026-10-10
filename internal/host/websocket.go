@@ -77,11 +77,7 @@ func (p *ProxyServer) proxyWebSocketOverGRPC(w http.ResponseWriter, r *http.Requ
 		return nil
 	}
 	headers := make(http.Header)
-	for key, value := range head.Headers {
-		if !strings.HasPrefix(strings.ToLower(key), "tunn-") {
-			headers.Set(key, value)
-		}
-	}
+	copyApplicationResponseHeaders(headers, head.Headers)
 	if !common.ValidWebSocketResponse(headers, r.Header.Get("Sec-WebSocket-Key")) {
 		return fmt.Errorf("invalid WebSocket acceptance")
 	}

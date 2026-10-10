@@ -101,6 +101,14 @@ func initSchema(db *sql.DB) error {
 	);
 	CREATE INDEX IF NOT EXISTS idx_accounts_primary_email ON accounts(primary_email);
 
+	-- Keep live publishers and delayed accounting tied to the surviving UUID.
+	CREATE TABLE IF NOT EXISTS account_merges (
+		old_id TEXT PRIMARY KEY,
+		account_id TEXT NOT NULL,
+		FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+	);
+	CREATE INDEX IF NOT EXISTS idx_account_merges_account_id ON account_merges(account_id);
+
 	-- Account emails (many-to-one with accounts)
 	CREATE TABLE IF NOT EXISTS account_emails (
 		account_id TEXT NOT NULL,

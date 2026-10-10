@@ -164,6 +164,11 @@ func (s *Store) CreateGrant(ctx context.Context, g *pb.Grant) (*pb.Grant, error)
 	g.Id = uuid.NewString()
 	g.Revoked = false
 	err := s.transaction(ctx, func(tx *sql.Tx) error {
+		var err error
+		g.Owner, err = canonicalOwner(tx, g.Owner)
+		if err != nil {
+			return err
+		}
 		cutoff := now.UTC().AddDate(0, -RetentionMonths, 0)
 		if _, err := tx.Exec(`DELETE FROM meter_grants WHERE expires<?`, cutoff.UnixMilli()); err != nil {
 			return err
@@ -332,6 +337,11 @@ func (s *Store) Admit(ctx context.Context, input *pb.Event) (*pb.Decision, error
 	}
 	var d *pb.Decision
 	err := s.transaction(ctx, func(tx *sql.Tx) error {
+		var err error
+		e.Owner, err = canonicalOwner(tx, e.Owner)
+		if err != nil {
+			return err
+		}
 		prior, err := readEvent(tx, e.RequestId)
 		if err == nil {
 			if prior.Owner != e.Owner || prior.Endpoint != e.Endpoint || prior.Caller != e.Caller || prior.GrantId != e.GrantId {

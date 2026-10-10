@@ -177,7 +177,7 @@ func (s *AccountStore) GetEmailBucket(email string) ([]string, error) {
 
 // UpdatePlan updates an account's plan
 func (s *AccountStore) UpdatePlan(accountID, plan string) error {
-	_, err := s.db.Exec("UPDATE accounts SET plan = ? WHERE id = ?", plan, accountID)
+	_, err := s.db.Exec("UPDATE accounts SET plan = ? WHERE id = COALESCE((SELECT account_id FROM account_merges WHERE old_id = ?), ?)", plan, accountID, accountID)
 	return err
 }
 
@@ -228,6 +228,16 @@ ON CONFLICT(account_id, machine) DO UPDATE SET last_seen=MAX(host_machines.last_
 			if _, err := tx.Exec("DELETE FROM host_machines WHERE account_id=?", acc.ID); err != nil {
 				return nil, err
 			}
+		}
+		if err := mergeAccountAccounting(tx, acc.ID, primary.ID); err != nil {
+			return nil, err
+		}
+		// Flatten prior merges so every obsolete UUID resolves in one lookup.
+		if _, err := tx.Exec("UPDATE account_merges SET account_id=? WHERE account_id=?", primary.ID, acc.ID); err != nil {
+			return nil, err
+		}
+		if _, err := tx.Exec("INSERT INTO account_merges(old_id,account_id) VALUES(?,?)", acc.ID, primary.ID); err != nil {
+			return nil, err
 		}
 		if _, err := tx.Exec("DELETE FROM accounts WHERE id=?", acc.ID); err != nil {
 			return nil, err
@@ -387,9 +397,10 @@ func (s *AccountStore) RecordUsage(accountID string, bytes int64) error {
 
 	_, err := s.db.Exec(`
 		INSERT INTO account_usage (account_id, month, bytes_used)
-		VALUES (?, ?, ?)
-		ON CONFLICT(account_id, month) DO UPDATE SET bytes_used = bytes_used + ?
-	`, accountID, month, bytes, bytes)
+		SELECT id, ?, ? FROM accounts
+		WHERE id = COALESCE((SELECT account_id FROM account_merges WHERE old_id = ?), ?)
+		ON CONFLICT(account_id, month) DO UPDATE SET bytes_used = bytes_used + excluded.bytes_used
+	`, month, bytes, accountID, accountID)
 	return err
 }
 
@@ -401,8 +412,8 @@ func (s *AccountStore) GetMonthlyUsage(accountID string) (int64, error) {
 	err := s.db.QueryRow(
 		`SELECT COALESCE(u.bytes_used, 0)
 		 FROM accounts a LEFT JOIN account_usage u ON u.account_id = a.id AND u.month = ?
-		 WHERE a.id = ?`,
-		month, accountID,
+		 WHERE a.id = COALESCE((SELECT account_id FROM account_merges WHERE old_id = ?), ?)`,
+		month, accountID, accountID,
 	).Scan(&bytesUsed)
 	if err != nil {
 		return 0, err
@@ -418,8 +429,8 @@ func (s *AccountStore) GetByID(accountID string) (*Account, error) {
 	err := s.db.QueryRow(`
 		SELECT id, primary_email, plan, created_at
 		FROM accounts
-		WHERE id = ?
-	`, accountID).Scan(&account.ID, &account.PrimaryEmail, &account.Plan, &createdAtUnix)
+		WHERE id = COALESCE((SELECT account_id FROM account_merges WHERE old_id = ?), ?)
+	`, accountID, accountID).Scan(&account.ID, &account.PrimaryEmail, &account.Plan, &createdAtUnix)
 	if err != nil {
 		return nil, err
 	}

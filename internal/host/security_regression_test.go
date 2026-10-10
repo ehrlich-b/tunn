@@ -341,6 +341,69 @@ func TestSecurityQuotaUnavailableFailsClosed(t *testing.T) {
 	}
 }
 
+func TestSecurityQuotaRequiresKnownAccountAndCountsPendingUsage(t *testing.T) {
+	local := securityDB(t)
+	p := securityProxy(local)
+	account, err := local.FindOrCreateByEmails(context.Background(), []string{"owner@example.test"}, "github")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !p.CheckQuota(context.Background(), account.ID, "free") {
+		t.Fatal("healthy account with no usage was denied")
+	}
+	for _, id := range []string{"", account.PrimaryEmail, "unknown-account"} {
+		if p.CheckQuota(context.Background(), id, "free") {
+			t.Errorf("unknown account identity %q passed quota enforcement", id)
+		}
+	}
+	if err := local.RecordUsage(context.Background(), account.ID, FreeQuotaBytes-10); err != nil {
+		t.Fatal(err)
+	}
+	p.usageBuffer.Add(account.ID, 11)
+	if p.CheckQuota(context.Background(), account.ID, "free") {
+		t.Error("quota enforcement omitted buffered usage")
+	}
+	// Usage remains visible while a write is in flight, not just while pending.
+	blocked := securityBlockedUsage{Storage: local, entered: make(chan struct{}), release: make(chan struct{})}
+	done := make(chan error, 1)
+	go func() { _, err := p.usageBuffer.Flush(context.Background(), blocked); done <- err }()
+	select {
+	case <-blocked.entered:
+	case <-time.After(time.Second):
+		close(blocked.release)
+		t.Fatal("usage flush did not start")
+	}
+	if p.CheckQuota(context.Background(), account.ID, "free") {
+		t.Error("quota enforcement lost usage during an in-flight flush")
+	}
+	close(blocked.release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	p.quotaCache.Set(account.ID, 0)
+	p.storage = securityUsageFailure{local}
+	if p.CheckQuota(context.Background(), account.ID, "free") {
+		t.Error("usage lookup error allowed traffic using stale cached usage")
+	}
+}
+
+type securityBlockedUsage struct {
+	storage.Storage
+	entered, release chan struct{}
+}
+
+func (s securityBlockedUsage) RecordUsage(ctx context.Context, accountID string, bytes int64) error {
+	close(s.entered)
+	<-s.release
+	return s.Storage.RecordUsage(ctx, accountID, bytes)
+}
+
+type securityUsageFailure struct{ storage.Storage }
+
+func (s securityUsageFailure) GetMonthlyUsage(context.Context, string) (int64, error) {
+	return 0, errors.New("fixture usage lookup error")
+}
+
 func TestSecurityPublicPublisherReceivesOnlyApplicationCredentials(t *testing.T) {
 	p := securityProxy(storage.NewProxyStorage())
 	accountToken, err := p.generateJWT("victim@example.test")

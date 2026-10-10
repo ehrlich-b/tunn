@@ -230,8 +230,8 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 	}
 
 	// Check quota before proxying
-	if tunnel.CreatorEmail != "" {
-		if !p.CheckQuota(r.Context(), tunnel.CreatorEmail, tunnel.Plan) {
+	if !tunnel.accountQuotaExempt && (tunnel.CreatorEmail != "" || tunnel.AccountID != "") {
+		if !p.CheckQuota(r.Context(), tunnel.AccountID, tunnel.Plan) {
 			common.LogInfo("quota exceeded, rejecting request",
 				"tunnel_id", tunnelID,
 				"creator", tunnel.CreatorEmail,

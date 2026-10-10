@@ -1037,29 +1037,26 @@ func (p *ProxyServer) flushUsageBuffer(ctx context.Context) {
 }
 
 // CheckQuota checks if an account is within its usage quota.
-// Uses cached values with stale fallback when login node is unavailable.
-// Returns true if allowed (under quota or unknown), false if over quota.
+// Unknown identities, storage failures, and unavailable usage data fail closed.
 func (p *ProxyServer) CheckQuota(ctx context.Context, accountID string, plan string) bool {
+	if accountID == "" || p.storage == nil || !p.storage.Available() {
+		return false
+	}
 	// Get quota limit based on plan (defined in limits.go)
 	quotaBytes := GetQuotaBytes(plan)
-
-	// Try to get fresh usage data
-	if p.storage.Available() {
-		usage, err := p.storage.GetMonthlyUsage(ctx, accountID)
-		if err == nil {
-			p.quotaCache.Set(accountID, usage)
-			return usage < quotaBytes
-		}
-		common.LogError("failed to get usage, checking cache", "account_id", accountID, "error", err)
+	// Read buffered usage before the storage query: a concurrent flush may
+	// already appear in the database, but cannot make prior usage disappear.
+	var pending int64
+	if p.usageBuffer != nil {
+		pending = p.usageBuffer.Total(accountID)
 	}
-
-	// Fall back to cache
-	if cached, ok := p.quotaCache.Get(accountID); ok {
-		return cached < quotaBytes
+	usage, err := p.storage.GetMonthlyUsage(ctx, accountID)
+	if err != nil {
+		common.LogError("failed to verify quota, rejecting traffic", "account_id", accountID, "error", err)
+		return false
 	}
-
-	// No data available - fail open (allow traffic)
-	// This is intentional: we'd rather allow some traffic than block paying customers
-	common.LogDebug("no quota data available, allowing traffic", "account_id", accountID)
-	return true
+	if p.quotaCache != nil {
+		p.quotaCache.Set(accountID, usage)
+	}
+	return usage >= 0 && pending >= 0 && usage < quotaBytes && pending < quotaBytes-usage
 }

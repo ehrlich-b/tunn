@@ -16,14 +16,16 @@ const FlushThreshold = 20 * 1024 * 1024 // 20 MB
 // UsageBuffer accumulates usage data when the login node is unavailable.
 // Non-login nodes buffer usage locally and flush to the login node when it reconnects.
 type UsageBuffer struct {
-	mu      sync.Mutex
-	pending map[string]int64 // accountID -> bytes
+	mu       sync.Mutex
+	pending  map[string]int64 // accountID -> bytes
+	flushing map[string]int64 // Remains counted until a storage write completes
 }
 
 // NewUsageBuffer creates a new usage buffer.
 func NewUsageBuffer() *UsageBuffer {
 	return &UsageBuffer{
-		pending: make(map[string]int64),
+		pending:  make(map[string]int64),
+		flushing: make(map[string]int64),
 	}
 }
 
@@ -49,6 +51,9 @@ func (b *UsageBuffer) Flush(ctx context.Context, store storage.Storage) (int, er
 	// Copy and clear pending
 	toFlush := b.pending
 	b.pending = make(map[string]int64)
+	for accountID, bytes := range toFlush {
+		b.flushing[accountID] += bytes
+	}
 	b.mu.Unlock()
 
 	// Flush each account
@@ -59,6 +64,7 @@ func (b *UsageBuffer) Flush(ctx context.Context, store storage.Storage) (int, er
 			// Put failed entries back in the buffer
 			b.mu.Lock()
 			b.pending[accountID] += bytes
+			b.flushing[accountID] -= bytes
 			b.mu.Unlock()
 
 			if firstErr == nil {
@@ -66,12 +72,25 @@ func (b *UsageBuffer) Flush(ctx context.Context, store storage.Storage) (int, er
 			}
 			common.LogError("failed to flush usage", "account_id", accountID, "bytes", bytes, "error", err)
 		} else {
+			b.mu.Lock()
+			b.flushing[accountID] -= bytes
+			if b.flushing[accountID] == 0 {
+				delete(b.flushing, accountID)
+			}
+			b.mu.Unlock()
 			flushed++
 			common.LogDebug("flushed usage", "account_id", accountID, "bytes", bytes)
 		}
 	}
 
 	return flushed, firstErr
+}
+
+// Total returns unpersisted usage, including writes currently being flushed.
+func (b *UsageBuffer) Total(accountID string) int64 {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.pending[accountID] + b.flushing[accountID]
 }
 
 // Len returns the number of accounts with pending usage.

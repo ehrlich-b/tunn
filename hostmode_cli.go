@@ -47,10 +47,10 @@ func hostCommand(ctx context.Context, command string, args []string, out, errout
 	var name, gateway, qrFile, domain *string
 	if command == "service" {
 		if len(args) == 0 {
-			return fmt.Errorf("usage: tunn service install|uninstall|status|run [--config path] [--dry-run] [--os darwin|linux|windows]")
+			return fmt.Errorf("usage: tunn service install|uninstall|restart|status|check|run [--config path] [--dry-run] [--os darwin|linux|windows]")
 		}
 		action, args = args[0], args[1:]
-		if action != "install" && action != "uninstall" && action != "status" && action != "run" {
+		if action != "install" && action != "uninstall" && action != "restart" && action != "status" && action != "check" && action != "run" {
 			return fmt.Errorf("unknown service action %q", action)
 		}
 		dry = fs.Bool("dry-run", false, "print a service definition without installing")
@@ -96,8 +96,15 @@ func hostCommand(ctx context.Context, command string, args []string, out, errout
 		return hostmode.OpenClaw(ctx, hostmode.OpenClawOptions{Name: *name, Domain: *domain, Gateway: *gateway, ConfigPath: configPath, QRFile: *qrFile}, out)
 	}
 	if command == "service" && action != "run" {
-		if action == "install" && loadErr != nil {
+		if (action == "install" || action == "restart" || action == "check") && loadErr != nil {
 			return loadErr
+		}
+		if action == "check" {
+			if _, err := hostmode.Credentials(c); err != nil {
+				return err
+			}
+			_, err := fmt.Fprintf(out, "PASS local host config v%d: machine %s, %d endpoints, private credential; JWT expiry checked locally. Relay authentication and readiness remain unchecked.\n", c.Version, c.Machine, len(c.Tunnels))
+			return err
 		}
 		if *platform != runtime.GOOS && !*dry {
 			return fmt.Errorf("--os requires --dry-run when previewing another OS")
@@ -124,7 +131,7 @@ func hostCommand(ctx context.Context, command string, args []string, out, errout
 			_, err = io.WriteString(out, unit)
 			return err
 		}
-		if action == "install" {
+		if action == "install" || action == "restart" {
 			if _, err := hostmode.Credentials(c); err != nil {
 				return err
 			}

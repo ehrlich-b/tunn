@@ -1,277 +1,190 @@
-# Self-Hosting Guide
+# Standalone self-host install, export and rollback
 
-tunn is fully self-hostable. This guide covers running your own tunnel server.
+The supported versioned reference path is one authenticated login relay, its
+SQLite database and owner-managed TLS. It uses the same tunn binary as the
+publisher. It is not a global edge, cluster recovery recipe or availability
+promise. DNS, public reachability, certificate renewal, backups, abuse response
+and operator access remain the owner's responsibilities.
 
-## Requirements
+Use [install-recovery.md](install-recovery.md) to select a pinned local artifact.
+The helper files must come from the same staged source checkout. No helper
+downloads binaries, acquires certificates, installs a service or touches hosted
+state. An approved full license text is absent despite the README's MIT
+declaration; release/license packaging remains unresolved. This local rehearsal
+does not authorize redistribution or supply a new license.
 
-1. **A server with a public IP** - VPS, cloud VM, or on-prem with port forwarding
-2. **A domain with wildcard DNS** - `*.tunnel.yourcompany.com` pointing to your server
-3. **TLS certificates** - Wildcard cert for `*.tunnel.yourcompany.com`
+## Version-1 relay configuration
 
-## Quick Start (Single Node)
+Use Python 3.9+, an existing certificate/key pair covering both the apex and
+wildcard tunnel authority, and a dedicated local data directory. The reference
+configuration supports a single shared self-hosted publisher identity
+(`client@local`), using an owner-supplied static client secret. It does not enable
+public mode, cluster peers, billing, OAuth or SMTP. Other existing server
+environment settings remain available outside this narrow rehearsed path.
+Stage regular TLS files: symlinked key/certificate files are refused. Certificate
+renewal and the reviewed relay restart remain owner actions.
 
-### 1. Get the binary
+Create `relay.json` only if absent; do not replace an existing profile on upgrade.
+The following is a template: replace every absolute path, domain and secret
+locally. Placeholders intentionally fail validation. Keep config/key/database
+files at 0600 and the relay directory at 0700. Do not put secrets in shell argv,
+repository history or captured stdout.
 
-```bash
-# Download latest release
-curl -L https://github.com/ehrlich-b/tunn/releases/latest/download/tunn-linux-amd64 -o tunn
-chmod +x tunn
+```json
+{
+  "version": 1,
+  "domain": "tunnel.example.com",
+  "http2_addr": "0.0.0.0:8443",
+  "http3_addr": "0.0.0.0:8443",
+  "internal_grpc_addr": "127.0.0.1:15051",
+  "cert_file": "/home/OWNER/relay/fullchain.pem",
+  "key_file": "/home/OWNER/relay/privkey.pem",
+  "db_path": "/home/OWNER/relay/tunn.sqlite",
+  "client_secret": "CHANGE_ME_OWNER_SUPPLIED_SECRET_AT_LEAST_32_CHARACTERS",
+  "jwt_secret": "CHANGE_ME_DIFFERENT_OWNER_SUPPLIED_SECRET_AT_LEAST_32_CHARACTERS",
+  "host_mode": true
+}
 ```
 
-Or build from source:
-```bash
-git clone https://github.com/ehrlich-b/tunn.git
-cd tunn
-make build
+Listeners require literal IPs and nonzero ports; internal gRPC must listen on
+loopback with a distinct TCP port. Choose reachable external ports and configure the
+publisher's `server` with that authority. HTTP/2 uses TCP and HTTP/3 uses UDP.
+Use public port 443 or an owner-provisioned frontend if ordinary browser URLs
+are needed: generated tunnel URLs do not include a custom listen port.
+`TUNN_HOST_MODE` requires an authenticated standalone login node. The topology
+guard is retained; do not remove it to enable cluster host mode.
+
+Owner-run checks and foreground operation, from the staged checkout:
+
+```sh
+relay_profile="$HOME/.local/state/tunn-relay/relay.json"
+relay_install="$HOME/.local/lib/tunn-relay-install"
+relay_binary="$relay_install/bin/tunn"
+python3 deploy/install/selfhost.py check --config "$relay_profile"
+python3 deploy/install/selfhost.py run --config "$relay_profile" --binary "$relay_binary"
 ```
 
-### 2. Set up DNS
+`check` validates schema, TLS key/certificate compatibility, and an existing
+database with read-only SQLite `quick_check`. It permits a missing database only
+when its parent exists, for first startup. This does not test certificate expiry,
+DNS, clients, listener availability or a real native service. The launcher clears
+inherited tunn/Fly settings and explicitly supplies prod, standalone login,
+private mode, the declared TLS/SQLite paths and secrets. It refuses a `.env` in
+the manifest directory, rather than letting that file silently add deployment
+settings. `run` replaces the launcher process with the server; it opens listeners
+and initializes the database, so it is an owner action, never part of fixtures.
 
-Add a wildcard A record pointing to your server:
-```
-*.tunnel.yourcompany.com  A  203.0.113.10
-```
+For a publisher, provision the same static client secret privately into its
+configured `credentials_dir/token`, or an explicit `token_file`. Use the same
+secret/account after recovery. That shared identity has no independent
+per-device revocation; do not claim continuity after replacing it. A browser
+application-authentication/phone recipe needs separately accepted login support.
 
-### 3. Get TLS certificates
+## Linux user-service plan — REQUIRED/UNRUN
 
-Using Let's Encrypt with certbot:
-```bash
-certbot certonly --manual --preferred-challenges dns \
-  -d "tunnel.yourcompany.com" \
-  -d "*.tunnel.yourcompany.com"
-```
-
-You'll need to add a DNS TXT record to verify ownership.
-
-### 4. Configure and run
-
-```bash
-export TUNN_ENV=prod
-export TUNN_DOMAIN=tunnel.yourcompany.com
-export TUNN_CERT_FILE=/etc/letsencrypt/live/tunnel.yourcompany.com/fullchain.pem
-export TUNN_KEY_FILE=/etc/letsencrypt/live/tunnel.yourcompany.com/privkey.pem
-export TUNN_LOGIN_NODE=true
-export TUNN_CLIENT_SECRET=your-secret-key-here
-export TUNN_JWT_SECRET=another-random-secret
-
-./tunn -mode=host
-```
-
-### 5. Connect a tunnel
-
-On your laptop:
-```bash
-./tunn 8080 --server tunnel.yourcompany.com:443 --secret your-secret-key-here
-```
-
-## Authentication Options
-
-### Option A: Client Secret (Simplest)
-
-A single shared secret for all users. Good for small teams.
-
-**Server:**
-```bash
-export TUNN_CLIENT_SECRET=my-shared-secret
-```
-
-**Client:**
-```bash
-tunn 8080 --secret my-shared-secret
-```
-
-### Option B: Per-User Tokens (users.yaml)
-
-Individual tokens per user. Better for larger teams.
-
-**Create users.yaml:**
-```yaml
-users:
-  - email: alice@company.com
-    token: alice-secret-token-here
-  - email: bob@company.com
-    token: bob-secret-token-here
-```
-
-**Server:**
-```bash
-export TUNN_USERS_FILE=/path/to/users.yaml
-```
-
-**Client:**
-```bash
-tunn 8080 --secret alice-secret-token-here
-```
-
-### Option C: GitHub OAuth + Magic Link (Full tunn.to experience)
-
-Requires GitHub OAuth app and SMTP for magic link emails.
-
-**1. Create GitHub OAuth App:**
-- Go to GitHub Settings -> Developer settings -> OAuth Apps
-- Set callback URL to `https://tunnel.yourcompany.com/auth/callback`
-
-**2. Configure SMTP** (for magic link auth - users without GitHub):
-```bash
-export TUNN_SMTP_HOST=smtp.mailgun.org  # Or your SMTP provider
-export TUNN_SMTP_PORT=587
-export TUNN_SMTP_USER=postmaster@tunnel.yourcompany.com
-export TUNN_SMTP_PASSWORD=your-smtp-password
-export TUNN_SMTP_FROM=noreply@tunnel.yourcompany.com
-```
-
-**3. Configure server:**
-```bash
-export TUNN_GITHUB_CLIENT_ID=your-github-client-id
-export TUNN_GITHUB_CLIENT_SECRET=your-github-client-secret
-export TUNN_JWT_SECRET=random-secret-for-signing-jwts
-# Plus SMTP vars from step 2
-```
-
-**4. Users authenticate:**
-```bash
-# Via CLI (GitHub OAuth device flow)
-tunn login --server tunnel.yourcompany.com:443
-tunn 8080
-
-# Via browser (GitHub or magic link)
-# Users visiting tunnels get redirected to login page
-# They can choose GitHub or enter email for magic link
-```
-
-## Environment Variables
-
-### Required
-
-| Variable | Description |
-|----------|-------------|
-| `TUNN_ENV` | `prod` for production |
-| `TUNN_DOMAIN` | Your tunnel domain (e.g., `tunnel.yourcompany.com`) |
-| `TUNN_CERT_FILE` | Path to TLS certificate |
-| `TUNN_KEY_FILE` | Path to TLS private key |
-| `TUNN_LOGIN_NODE` | Set to `true` for single-node deployments |
-
-### Authentication (pick one)
-
-| Variable | Description |
-|----------|-------------|
-| `TUNN_CLIENT_SECRET` | Shared secret for all clients |
-| `TUNN_USERS_FILE` | Path to users.yaml for per-user tokens |
-| `TUNN_GITHUB_CLIENT_ID` | GitHub OAuth client ID |
-| `TUNN_GITHUB_CLIENT_SECRET` | GitHub OAuth client secret |
-
-### SMTP (for magic link auth)
-
-| Variable | Description |
-|----------|-------------|
-| `TUNN_SMTP_HOST` | SMTP server hostname |
-| `TUNN_SMTP_PORT` | SMTP port (default: 587) |
-| `TUNN_SMTP_USER` | SMTP username |
-| `TUNN_SMTP_PASSWORD` | SMTP password |
-| `TUNN_SMTP_FROM` | From address for emails |
-
-### Optional
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `TUNN_HTTP2_ADDR` | `:8443` | HTTP/2 listen address |
-| `TUNN_HTTP3_ADDR` | `:8443` | HTTP/3 listen address |
-| `TUNN_JWT_SECRET` | (required for OAuth) | Secret for signing JWTs |
-| `TUNN_PUBLIC_MODE` | `false` | Disable all auth (testing only) |
-| `TUNN_DB_PATH` | `/data/tunn.db` | SQLite database path |
-| `TUNN_WELL_KNOWN_KEY` | `tunn-free-v1-2025` | Key clients use to create tunnels |
-
-## Running as a Service
-
-### systemd
-
-Create `/etc/systemd/system/tunn.service`:
+Retain an independent admin console before start/stop/restart. Use a disposable
+test host for acceptance. This example definition contains paths only, no
+secret values. Replace paths with the staged checkout, dedicated artifact root
+and configured relay manifest; systemd quoting must be verified on the target.
 
 ```ini
 [Unit]
-Description=tunn reverse tunnel server
+Description=Tunn standalone reference relay
 After=network.target
 
 [Service]
 Type=simple
-User=tunn
-Environment=TUNN_ENV=prod
-Environment=TUNN_DOMAIN=tunnel.yourcompany.com
-Environment=TUNN_CERT_FILE=/etc/letsencrypt/live/tunnel.yourcompany.com/fullchain.pem
-Environment=TUNN_KEY_FILE=/etc/letsencrypt/live/tunnel.yourcompany.com/privkey.pem
-Environment=TUNN_LOGIN_NODE=true
-Environment=TUNN_CLIENT_SECRET=your-secret
-Environment=TUNN_JWT_SECRET=another-secret
-ExecStart=/usr/local/bin/tunn -mode=host
-Restart=always
-RestartSec=5
+ExecStart=/usr/bin/python3 "/home/OWNER/tunn checkout/deploy/install/selfhost.py" run --config "/home/OWNER/relay config/relay.json" --binary "/home/OWNER/tunn install/bin/tunn"
+Restart=on-failure
+RestartSec=30
+UMask=0077
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target
 ```
 
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable tunn
-sudo systemctl start tunn
+Save the reviewed definition as `.scratch/native-acceptance/tunn-relay.service`
+in the staged checkout. These are commands for Bryan to run, not fixture actions:
+
+```sh
+systemd-analyze --user verify .scratch/native-acceptance/tunn-relay.service
+install -d -m 700 "$HOME/.config/systemd/user"
+# First install only: exclusive copy refuses an existing user definition.
+(set -C; cat .scratch/native-acceptance/tunn-relay.service > "$HOME/.config/systemd/user/tunn-relay.service")
+systemctl --user daemon-reload
+systemctl --user enable --now tunn-relay.service
 ```
 
-### Docker
+A user manager must exist. Operation after logout/boot and any lingering setting
+are separate administrator decisions. There is no system-wide sudo installer,
+container rollout or live certificate-renewal scheduler in the rehearsal.
 
-```dockerfile
-FROM golang:1.25-alpine AS builder
-WORKDIR /app
-COPY . .
-RUN make build
+## Export and import
 
-FROM alpine:latest
-COPY --from=builder /app/bin/tunn /usr/local/bin/tunn
-ENTRYPOINT ["tunn", "-mode=host"]
+Stop the standalone relay through its independent admin route before taking a
+configuration/certificate/database cut. SQLite online backup captures committed
+WAL content, but does not make concurrently changing config/TLS files one atomic
+snapshot. Export writes a new mode-0700 directory and never replaces an existing
+bundle; each file is 0600. The bundle includes the TLS private key, client/JWT
+secrets and complete SQLite data. Treat it as credentials; do not share it in
+chat or commit it.
+
+```sh
+systemctl --user stop tunn-relay.service
+snapshot="$HOME/.local/state/tunn-relay-before-upgrade"
+python3 deploy/install/selfhost.py export --config "$relay_profile" --output "$snapshot"
+
+# Import requires a NEW directory, retaining the old profile/database:
+restored="$HOME/.local/state/tunn-relay-restored"
+python3 deploy/install/selfhost.py import --bundle "$snapshot" --output "$restored"
+python3 deploy/install/selfhost.py check --config "$restored/relay.json"
 ```
 
-```bash
-docker run -d \
-  -p 8443:8443 \
-  -v /etc/letsencrypt:/certs:ro \
-  -e TUNN_ENV=prod \
-  -e TUNN_DOMAIN=tunnel.yourcompany.com \
-  -e TUNN_CERT_FILE=/certs/live/tunnel.yourcompany.com/fullchain.pem \
-  -e TUNN_KEY_FILE=/certs/live/tunnel.yourcompany.com/privkey.pem \
-  -e TUNN_LOGIN_NODE=true \
-  -e TUNN_CLIENT_SECRET=your-secret \
-  tunn
+Import verifies asset hashes, copies into a disposable staging directory, checks
+TLS and SQLite, then publishes a complete new root. It rewrites only the three
+local asset paths; domain, secrets, policy and stored identity/name mappings are
+retained. Unknown schemas, corrupt assets and existing destinations fail without
+overwriting a profile. Hashes detect accidental corruption, not malicious
+replacement of the whole unsigned bundle. Recovery to the same domain still
+requires operator-controlled DNS/TLS and the original account/identity data.
+
+## Upgrade and rollback
+
+With the relay stopped and an export retained, select the staged replacement at
+the same artifact root. Then explicitly start and validate authenticated clients:
+
+```sh
+python3 deploy/install/artifacts.py install --root "$relay_install" \
+  --binary "$candidate" --sha256 "$candidate_sha"
+python3 deploy/install/selfhost.py check --config "$relay_profile"
+systemctl --user start tunn-relay.service
 ```
 
-## Certificate Renewal
+If interrupted, run `artifacts.py reconcile --root "$relay_install"` before
+further changes. If the artifact must be rolled back, stop the relay and run
+`artifacts.py rollback --root "$relay_install"`. **Artifact rollback does not
+undo SQLite migrations.** No backward-compatible schema downgrade is promised.
+If the newer server changed the schema incompatibly, import the pre-upgrade
+snapshot into a new root and explicitly change the reviewed service definition
+to that manifest before starting the old binary. Keep the old root as evidence;
+never overwrite it with an import. Confirm names, accounts, budgets and
+authenticated client behavior on the original authority after restore.
 
-If using Let's Encrypt, set up automatic renewal:
+Removal stops/disables the reviewed owner service before removing its selected
+artifact. Configuration, SQLite, TLS/credentials, artifact history and all name
+reservations remain. Deleting secrets/data or releasing remote names is a
+separate explicit owner operation. Native service removal and real client
+acceptance remain **REQUIRED/UNRUN**.
 
-```bash
-# In crontab
-0 0 1 * * certbot renew --quiet && systemctl reload tunn
+## Bounded local rehearsal
+
+```sh
+bash scripts/verify-install-recovery.sh --fixtures
 ```
 
-## Firewall Configuration
-
-Open these ports:
-
-| Port | Protocol | Purpose |
-|------|----------|---------|
-| 443 or 8443 | TCP | HTTP/2 (gRPC + HTTPS) |
-| 443 or 8443 | UDP | HTTP/3 (QUIC) - optional |
-
-## Monitoring
-
-Check tunnel is running:
-```bash
-curl -k https://tunnel.yourcompany.com/
-```
-
-Check logs:
-```bash
-journalctl -u tunn -f
-```
-
-## Multi-Node Setup
-
-For high availability, see [Multi-Node Architecture](./multi-node.md).
+This uses generated fixture TLS, synthetic secrets, isolated SQLite with
+committed WAL rows, two fixture artifact versions, and a fake relay manager.
+It proves configuration export/import, retained identity/name rows, artifact
+upgrade/rollback and failure retention without launching a relay. The separate
+`make test-hostmode-loopback` gate exercises the actual TLS/gRPC relay and host
+runtime on loopback; neither gate is real OS activation or hosted acceptance.

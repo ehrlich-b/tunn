@@ -87,7 +87,7 @@ func TestServiceInstallUninstall(t *testing.T) {
 	if _, err := os.Stat(s.Path()); !os.IsNotExist(err) {
 		t.Fatal("unit was not removed")
 	}
-	want := [][]string{{"systemctl", "--user", "daemon-reload"}, {"systemctl", "--user", "enable", "--now", "tunn-host.service"}, {"systemctl", "--user", "disable", "--now", "tunn-host.service"}, {"systemctl", "--user", "daemon-reload"}}
+	want := [][]string{{"systemctl", "--user", "show", "--property=FragmentPath", "--value", "tunn-host.service"}, {"systemctl", "--user", "daemon-reload"}, {"systemctl", "--user", "enable", "--now", "tunn-host.service"}, {"systemctl", "--user", "disable", "--now", "tunn-host.service"}, {"systemctl", "--user", "daemon-reload"}}
 	if !reflect.DeepEqual(calls, want) {
 		t.Fatalf("commands = %v", calls)
 	}

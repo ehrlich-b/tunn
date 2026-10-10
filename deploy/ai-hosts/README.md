@@ -6,6 +6,12 @@ in [SECURITY.md](SECURITY.md). Nothing here installs a relay or changes tunn.to.
 The coordinator may stage files and run read-only checks. Bryan runs login and
 any production start, stop, restart, rotation, or deployment commands himself.
 
+Keep an independent trusted console or management route before a tunn stop,
+restart, upgrade or recovery window. Start with the
+[versioned installation guide](../../docs/install-recovery.md) for artifact
+selection, failure reconciliation and explicit retention on removal. It never
+overwrites a configured host profile or changes the installed `wt`.
+
 ## Configuration and layout
 
 Use the patched tunn CLI from this branch, Python 3.9+, and an already installed
@@ -46,6 +52,9 @@ No request inspector or trace logging is enabled. Tokens belong on the WSL
 distro's Linux filesystem, under its home directory, never `/mnt/c` or a repo.
 
 Copy `host.json.example` to the host configuration location with mode 0600.
+New profiles use `version: 1` (JSON integer); existing unversioned profiles remain
+readable in place and are never automatically rewritten. Unknown schema versions
+or fields fail before a publisher starts.
 Replace all placeholders, set `host` to `forge` or `rig`, give absolute Linux
 paths to the two executables and wingthing's working directory, set the actual
 dashboard port/path, and enter Bryan's verified tunn account email. Choose a
@@ -85,7 +94,7 @@ install -m 644 "$kit_dir/kit.py" "$kit_dir/runner.py" "$kit_dir/canary.py" "$HOM
 install -m 755 "$kit_dir/wsl-run.sh" "$HOME/.local/lib/tunn-ai-hosts/"
 install -m 644 "$kit_dir/systemd/tunn-ai-hosts@.service" "$HOME/.config/systemd/user/"
 # First install only; do not overwrite a configured host.json on an update.
-install -m 600 "$kit_dir/host.json.example" "$HOME/.config/tunn-ai-hosts/host.json"
+(set -C; umask 077; cat "$kit_dir/host.json.example" > "$HOME/.config/tunn-ai-hosts/host.json")
 ```
 
 After configuration, the coordinator can check the generated commands without
@@ -242,6 +251,18 @@ dashboard checks have 30-second request deadlines; run after host local health
 passes. Repeat this whole procedure separately for rig with its own receipt.
 
 ## Rotation and stop commands for Bryan
+
+For persistent `tunn service run` host mode, endpoint capabilities survive
+restart instead of the legacy kit's startup replacement. Reuse this canary with
+`--token-lifecycle preserve` in **both** phases and a new baseline receipt;
+changed digests then fail. Default `rotate` retains the legacy kit's refreshed
+token requirement. Confirm the same machine/account and reserved names with
+`tunn hosts --json`; a matching token digest alone does not prove that identity.
+The canary still targets tunn.to and requires separately verified relay
+compatibility; it is never run by the offline fixture gate. For expired login,
+Bryan authenticates to the same relay/account and credential directory, then
+restarts explicitly. During relay unavailability, readiness remains offline;
+retrying is not permission to create a new host/name or substitute credentials.
 
 Rotate a live endpoint locally without printing its token into logs:
 

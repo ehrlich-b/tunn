@@ -36,7 +36,7 @@ func TestHostCLIPreview(t *testing.T) {
 }
 
 func TestHostCLIRejectsInvalidActions(t *testing.T) {
-	for _, args := range [][]string{{}, {"restart"}, {"install", "--unknown"}, {"install", "extra"}} {
+	for _, args := range [][]string{{}, {"replace"}, {"install", "--unknown"}, {"install", "extra"}} {
 		var out, stderr bytes.Buffer
 		if err := hostCommand(context.Background(), "service", args, &out, &stderr); err == nil {
 			t.Fatalf("invalid command accepted: %v", args)

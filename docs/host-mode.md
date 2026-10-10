@@ -1,5 +1,9 @@
 # Persistent machine endpoints
 
+Start with the [versioned install/recovery path](install-recovery.md) and its
+[native acceptance plan](install-native-acceptance.md). The commands below
+describe the host capability; native activation remains an owner-run gate.
+
 Host mode keeps named, private capabilities on a GPU box or agent server
 reachable while the user's service is running. It requires a relay with the
 experimental `TUNN_HOST_MODE=true` feature enabled. This branch does not enable
@@ -17,6 +21,8 @@ machine: home-gpu
 server: tunnel.example.com:443
 domain: tunnel.example.com
 health: 127.0.0.1:9087
+# Pin this directory across terminal and daemon environments (absolute path):
+# credentials_dir: /home/bryan/.local/state/tunn-host/credentials
 # Optional: absolute path to a login JWT or a self-hosted per-user token.
 # token_file: /home/bryan/.tunn/token
 tunnels:
@@ -44,6 +50,9 @@ HTTP requires an explicit nonempty email/domain allow-list. TCP, Unix, and MCP
 use private endpoint tokens; an optional `allow` additionally permits the
 named tunn identities. Every endpoint gets a token in `~/.tunn/endpoints` (or
 `$TUNN_CONFIG_DIR/endpoints` when configured in the daemon environment).
+`credentials_dir`, when set, takes precedence over that environment and pins
+the token root for the daemon. YAML, publisher and endpoint files require 0600;
+native Windows requires a private current-user ACL instead of POSIX mode bits.
 Tokens persist through reconnects and service restarts. Existing `tunn token`
 and `tunn token --rotate` commands work with these endpoints.
 
@@ -82,6 +91,8 @@ that quota.
 ```bash
 tunn service install
 tunn service status
+tunn service check
+tunn service restart
 tunn hosts
 tunn hosts --json
 tunn service uninstall
@@ -97,9 +108,10 @@ tunn service install --config ./host.yaml --dry-run --os windows
 
 Install validates the manifest and local publisher credential before writing
 the unit and invoking the per-user manager. No administrator privileges are
-requested. The binary must remain at its installed absolute path. Manifest
-changes take effect on the next service start; uninstall/reinstall reloads
-them. If a login credential expires, run `tunn login` again and restart the
+requested. The binary must remain at its installed absolute path. Repeated
+installation reconciles the same definition; a conflicting definition is refused.
+Manifest changes take effect on the next service start; `service restart` reloads
+them. If a login credential expires, log in to the same relay/account and restart the
 user service to load it. Keep `token_file` private.
 
 - **macOS:** `~/Library/LaunchAgents/com.tunn.host.plist`, loaded into the
@@ -208,6 +220,8 @@ These commands use repository fixtures and loopback only; no hosted service:
 
 ```bash
 make build
+make test-ai-hosts
+bash scripts/verify-install-recovery.sh --fixtures
 make test-hostmode           # race-checked contracts, no listeners
 make test-hostmode-compile   # compile all tests without running them
 make test-hostmode-loopback  # POSIX: real TLS/gRPC + daemon/adapters/reconnect

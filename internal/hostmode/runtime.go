@@ -2,6 +2,7 @@ package hostmode
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -17,28 +19,53 @@ import (
 	"github.com/ehrlich-b/tunn/internal/client"
 	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/ehrlich-b/tunn/internal/mcpbridge"
+	"github.com/golang-jwt/jwt/v4"
 )
 
 func Credentials(c *Config) (string, error) {
-	var token string
-	if c.TokenFile != "" {
-		b, err := os.ReadFile(c.TokenFile)
-		if err != nil {
-			return "", fmt.Errorf("read host token: %w", err)
-		}
-		token = string(b)
-	} else {
-		var err error
-		token, err = client.LoadToken()
+	path := c.TokenFile
+	if path == "" {
+		base, err := credentialsDirectory(c)
 		if err != nil {
 			return "", err
 		}
+		path = filepath.Join(base, "token")
 	}
-	token = strings.TrimSpace(token)
+	b, err := readPrivateFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read host token (run tunn login or check token_file): %w", err)
+	}
+	token := strings.TrimSpace(string(b))
 	if token == "" || strings.ContainsAny(token, "\r\n") {
 		return "", fmt.Errorf("empty or invalid host credential")
 	}
+	// This is a local expiry diagnostic, not signature authentication. Static
+	// self-hosted tokens remain supported; the relay verifies their identity.
+	if strings.HasPrefix(token, "eyJ") {
+		claims := jwt.MapClaims{}
+		if _, _, err := jwt.NewParser().ParseUnverified(token, claims); err != nil || !claims.VerifyExpiresAt(time.Now().Unix(), true) {
+			return "", fmt.Errorf("login expired or invalid; log in to the same relay/account and restart the service")
+		}
+	}
 	return token, nil
+}
+
+func credentialsDirectory(c *Config) (string, error) {
+	base := c.CredentialsDir
+	if base == "" {
+		base = strings.TrimSpace(os.Getenv("TUNN_CONFIG_DIR"))
+	}
+	if base == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		base = filepath.Join(home, ".tunn")
+	}
+	if !filepath.IsAbs(base) {
+		return "", fmt.Errorf("credentials_dir and TUNN_CONFIG_DIR must be absolute")
+	}
+	return base, nil
 }
 
 type Health struct {
@@ -179,28 +206,54 @@ func (r *Runtime) Run(ctx context.Context) error {
 }
 
 func endpointToken(name string) (string, error) {
-	token, err := client.LoadEndpointToken(name)
+	base, err := credentialsDirectory(&Config{})
 	if err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	return endpointTokenIn(base, name)
+}
+
+func endpointTokenIn(base, name string) (string, error) {
+	if !filepath.IsAbs(base) || !ValidName(name) {
+		return "", fmt.Errorf("endpoint credential requires an absolute root and a valid name")
+	}
+	dir := filepath.Join(base, "endpoints")
+	for _, path := range []string{base, dir} {
+		if err := os.MkdirAll(path, 0700); err != nil {
 			return "", err
 		}
-		token, _, err = client.GenerateEndpointToken()
+		info, err := os.Lstat(path)
 		if err != nil {
 			return "", err
 		}
-		return client.SaveEndpointToken(name, token)
+		if !info.IsDir() || (runtime.GOOS != "windows" && info.Mode().Perm()&0022 != 0) {
+			return "", fmt.Errorf("endpoint credentials require non-symlink directories without group/world write access (Windows requires a private user ACL)")
+		}
 	}
-	// Existing tokens survive restarts. Compute their path without rewriting
-	// the file, so live rotation cannot race a daemon's redundant save.
-	base := strings.TrimSpace(os.Getenv("TUNN_CONFIG_DIR"))
-	if base == "" {
-		home, err := os.UserHomeDir()
+	path := filepath.Join(dir, name+".token")
+	data, err := readPrivateFile(path)
+	if os.IsNotExist(err) {
+		token, _, err := client.GenerateEndpointToken()
 		if err != nil {
 			return "", err
 		}
-		base = filepath.Join(home, ".tunn")
+		if err := createPrivateFile(path, []byte(token+"\n")); err != nil && !os.IsExist(err) {
+			return "", err
+		}
+		// A competing first start may have won publication; load its credential.
+		data, err = readPrivateFile(path)
+		if err != nil {
+			return "", err
+		}
+	} else if err != nil {
+		return "", err
 	}
-	return filepath.Join(base, "endpoints", name+".token"), nil
+	token := strings.TrimSpace(string(data))
+	random, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(token, "tunn_ep_"))
+	if !strings.HasPrefix(token, "tunn_ep_") || err != nil || len(random) != 32 {
+		return "", fmt.Errorf("invalid endpoint credential; existing file retained: %s", path)
+	}
+	return path, nil
 }
 
 func (r *Runtime) publish(ctx context.Context, t Tunnel, health *Health) error {
@@ -218,7 +271,11 @@ func (r *Runtime) publish(ctx context.Context, t Tunnel, health *Health) error {
 		s.AllowedEmails = []string{owner}
 	}
 	var err error
-	s.EndpointTokenPath, err = endpointToken(t.Name)
+	base, err := credentialsDirectory(r.Config)
+	if err != nil {
+		return err
+	}
+	s.EndpointTokenPath, err = endpointTokenIn(base, t.Name)
 	if err != nil {
 		return err
 	}

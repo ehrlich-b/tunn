@@ -45,6 +45,10 @@ func Share(ctx context.Context, listener net.Listener, serveSSH func(context.Con
 			}
 			go func() {
 				defer func() { <-slots }()
+				// Closing the listener does not close sockets already accepted.
+				// Retain shutdown ownership until classification hands them off.
+				stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
+				defer stop()
 				_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
 				r := bufio.NewReaderSize(conn, 4096)
 				first, err := r.Peek(1)

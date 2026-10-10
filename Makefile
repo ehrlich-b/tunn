@@ -77,6 +77,10 @@ clean:
 	rm -rf ./bin
 
 # Testing targets
+.PHONY: test-hostmode
+test-hostmode:
+	go test -race -timeout=90s -run '^(TestConfig|TestService.*|TestBoundedLogs|TestReconnectBackoffBounds|TestHostStore.*|TestHostAPI.*|TestHostStream.*|TestHostModeGate.*|TestHostHealth.*|TestHostClient.*|TestHostRuntime.*|TestOpenClaw.*)$$' ./internal/hostmode ./internal/client ./internal/store ./internal/host
+
 test:
 	@echo "Running tests..."
 	go test ./...

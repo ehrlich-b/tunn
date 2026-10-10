@@ -162,6 +162,11 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 		}),
 	)
 	tunnelServer := NewTunnelServer(cfg, userTokens, accounts, storageImpl)
+	if cfg.HostModeEnabled {
+		if err := tunnelServer.EnableHostMode(store.DB()); err != nil {
+			return nil, err
+		}
+	}
 	pb.RegisterTunnelServiceServer(grpcServer, tunnelServer)
 
 	// Create gRPC server for internal node-to-node communication
@@ -698,6 +703,8 @@ func (p *ProxyServer) createHandler() http.Handler {
 
 	// Account page (requires auth)
 	mux.HandleFunc("/account", p.handleAccount)
+
+	mux.HandleFunc("/api/hosts", p.tunnelServer.HandleHosts)
 
 	// Device code flow for CLI login
 	mux.HandleFunc("/api/device/code", p.handleDeviceCode)

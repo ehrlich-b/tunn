@@ -16,6 +16,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
+	"google.golang.org/grpc/metadata"
 
 	"github.com/ehrlich-b/tunn/internal/common"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
@@ -77,6 +78,12 @@ type ServeClient struct {
 	Insecure           bool // Skip TLS verification for proxy gRPC connection
 	SkipLocalTLSVerify bool // Skip TLS verification for local HTTPS target
 
+	// Host-mode lifecycle hooks; called serially by Run.
+	HostID     string
+	Quiet      bool
+	Persistent bool
+	OnState    func(online bool)
+
 	// Reconnection settings
 	MaxReconnectDelay time.Duration // Maximum delay between reconnects (default: 30s)
 	InitialDelay      time.Duration // Initial delay for exponential backoff (default: 1s)
@@ -97,7 +104,7 @@ func (s *ServeClient) Run(ctx context.Context) error {
 		s.MaxReconnectDelay = 30 * time.Second
 	}
 
-	delay := s.InitialDelay
+	backoffAttempt := 0
 	attempts := 0
 
 	for {
@@ -122,12 +129,14 @@ func (s *ServeClient) Run(ctx context.Context) error {
 
 		// Reset backoff if connection was stable for at least 30 seconds
 		if duration > 30*time.Second {
-			delay = s.InitialDelay
+			backoffAttempt = 0
 			attempts = 1
 		}
 
 		// Log the error and prepare for reconnection
 		common.LogError("tunnel connection lost", "error", err, "attempt", attempts)
+
+		delay := ReconnectDelay(s.InitialDelay, s.MaxReconnectDelay, backoffAttempt)
 
 		// Wait before reconnecting
 		common.LogInfo("reconnecting", "delay", delay.String())
@@ -139,10 +148,7 @@ func (s *ServeClient) Run(ctx context.Context) error {
 		}
 
 		// Exponential backoff with cap
-		delay = delay * 2
-		if delay > s.MaxReconnectDelay {
-			delay = s.MaxReconnectDelay
-		}
+		backoffAttempt++
 	}
 }
 
@@ -173,6 +179,9 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 	client := pb.NewTunnelServiceClient(conn)
 
 	// Establish the bidirectional stream
+	if s.HostID != "" {
+		ctx = metadata.AppendToOutgoingContext(ctx, "tunn-host-id", s.HostID)
+	}
 	stream, err := client.EstablishTunnel(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to establish tunnel: %w", err)
@@ -249,27 +258,35 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 		return &permanentTunnelError{err: fmt.Errorf("relay does not support raw connection streams")}
 	}
 
+	if s.OnState != nil {
+		s.OnState(true)
+		defer s.OnState(false)
+	}
+
 	common.LogInfo("tunnel registered successfully", "public_url", regResp.PublicUrl)
 	publicURL := regResp.PublicUrl + s.PublicPath
 	displayTarget := s.TargetURL
 	if s.DisplayTarget != "" {
 		displayTarget = s.DisplayTarget
 	}
-	fmt.Printf("%s -> %s\n", publicURL, displayTarget)
+	if !s.Quiet {
+		fmt.Printf("%s -> %s\n", publicURL, displayTarget)
 
-	// Warn if tunnel is open to the internet (no --allow specified)
-	if len(s.AllowedEmails) == 0 {
-		fmt.Println("Warning: Tunnel is open to the internet. Use --allow=email@example.com to restrict access.")
-	} else if s.PublicPath == "/mcp" {
-		fmt.Println("Access: private. Use the endpoint token as Tunn-Authorization: Bearer <token>.")
-		if s.EndpointTokenPath != "" {
+		// Warn if tunnel is open to the internet (no --allow specified)
+		if len(s.AllowedEmails) == 0 {
+			fmt.Println("Warning: Tunnel is open to the internet. Use --allow=email@example.com to restrict access.")
+		} else if s.PublicPath == "/mcp" {
+			fmt.Println("Access: private. Use the endpoint token as Tunn-Authorization: Bearer <token>.")
+			if s.EndpointTokenPath != "" {
+				fmt.Printf("Endpoint token: %s (mode 0600)\n", s.EndpointTokenPath)
+			}
+		} else if s.EndpointProtocol == "tcp" {
+			fmt.Printf("Access: private. Run tunn connect --token-file %s %s\n", s.EndpointTokenPath, s.TunnelID)
+		} else if s.EndpointTokenPath != "" {
+			fmt.Println("Access: private. Use the endpoint token as Tunn-Authorization: Bearer <token>.")
 			fmt.Printf("Endpoint token: %s (mode 0600)\n", s.EndpointTokenPath)
 		}
-	} else if s.EndpointProtocol == "tcp" {
-		fmt.Printf("Access: private. Run tunn connect --token-file %s %s\n", s.EndpointTokenPath, s.TunnelID)
-	} else if s.EndpointTokenPath != "" {
-		fmt.Println("Access: private. Use the endpoint token as Tunn-Authorization: Bearer <token>.")
-		fmt.Printf("Endpoint token: %s (mode 0600)\n", s.EndpointTokenPath)
+
 	}
 
 	// Wrap stream with mutex for thread-safe sends
@@ -363,6 +380,9 @@ func (s *ServeClient) processMessages(ctx context.Context, stream pb.TunnelServi
 		msg, err := stream.Recv()
 		if err == io.EOF {
 			common.LogInfo("server closed stream")
+			if s.Persistent {
+				return fmt.Errorf("relay closed persistent tunnel")
+			}
 			return nil
 		}
 		if err != nil {

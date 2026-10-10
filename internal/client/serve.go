@@ -80,10 +80,11 @@ type ServeClient struct {
 	SkipLocalTLSVerify bool // Skip TLS verification for local HTTPS target
 
 	// Host-mode lifecycle hooks; called serially by Run.
-	HostID     string
-	Quiet      bool
-	Persistent bool
-	OnState    func(online bool)
+	HostID       string
+	Quiet        bool
+	Persistent   bool
+	OnState      func(online bool)
+	OnRegistered func(publicURL string)
 
 	// Reconnection settings
 	MaxReconnectDelay time.Duration // Maximum delay between reconnects (default: 30s)
@@ -271,6 +272,9 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 		return &permanentTunnelError{err: fmt.Errorf("relay must support websocket-v1 for --require-upstream-auth")}
 	}
 
+	if s.OnRegistered != nil {
+		s.OnRegistered(regResp.PublicUrl)
+	}
 	if s.OnState != nil {
 		s.OnState(true)
 		defer s.OnState(false)
@@ -376,7 +380,18 @@ func containsString(values []string, wanted string) bool {
 }
 
 // processMessages handles incoming messages from the server
-func (s *ServeClient) processMessages(ctx context.Context, stream pb.TunnelService_EstablishTunnelClient, sender messageSender) error {
+// MessageStream is the bounded message transport used by embedded front doors.
+type MessageStream interface {
+	Send(*pb.TunnelMessage) error
+	Recv() (*pb.TunnelMessage, error)
+}
+
+// ServeMessages uses the normal HTTP, TCP and WebSocket adapters after registration.
+func (s *ServeClient) ServeMessages(ctx context.Context, stream MessageStream) error {
+	return s.processMessages(ctx, stream, stream)
+}
+
+func (s *ServeClient) processMessages(ctx context.Context, stream MessageStream, sender messageSender) error {
 	// Semaphore to limit concurrent HTTP request handlers
 	sem := make(chan struct{}, MaxConcurrentRequests)
 	connections := newInboundConnectionManager()

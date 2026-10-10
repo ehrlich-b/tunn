@@ -379,3 +379,9 @@ help:
 	@echo "  make dev           - Run in development mode"
 	@echo "  make install       - Install binary to /usr/local/bin"
 	@echo "  make help          - Show this help message"
+
+# SSH API checks use only in-process or loopback clients.
+.PHONY: test-ssh
+test-ssh:
+	go test -race -count=1 -timeout=90s ./internal/sshfront ./internal/cliopts
+	go test -race -count=1 -timeout=90s -run 'TestSSH|TestParseServe|TestServeWebSocket' ./internal/host .

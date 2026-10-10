@@ -25,6 +25,10 @@ type Config struct {
 	HTTP2Addr string // HTTP/2 (TCP) listener address
 	HTTP3Addr string // HTTP/3 (QUIC) listener address
 
+	// SSH front door (opt-in, login nodes own the key registry).
+	SSHHostKeyFile string
+	SSHAddr        string // optional separate raw SSH listener, for example :22
+
 	// Internal gRPC configuration
 	InternalGRPCPort string
 	NodeAddresses    string // Comma-separated list of other node addresses (fallback)
@@ -91,6 +95,8 @@ func LoadConfig() (*Config, error) {
 	}
 
 	cfg.HostModeEnabled = os.Getenv("TUNN_HOST_MODE") == "true"
+	cfg.SSHHostKeyFile = os.Getenv("TUNN_SSH_HOST_KEY_FILE")
+	cfg.SSHAddr = os.Getenv("TUNN_SSH_ADDR")
 
 	switch env {
 	case EnvDev:

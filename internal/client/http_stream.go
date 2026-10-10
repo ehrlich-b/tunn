@@ -132,7 +132,11 @@ func (s *ServeClient) handleStreamingTCP(ctx context.Context, sender messageSend
 	if targetNetwork == "" {
 		targetNetwork = "tcp"
 	}
-	connection, err := (&net.Dialer{}).DialContext(ctx, targetNetwork, s.TargetURL)
+	dial := (&net.Dialer{}).DialContext
+	if s.DialContext != nil {
+		dial = s.DialContext
+	}
+	connection, err := dial(ctx, targetNetwork, s.TargetURL)
 	if err != nil {
 		sendConnectionRejection(sender, connectionID, "failed to reach local TCP target")
 		return
@@ -333,6 +337,7 @@ func (s *ServeClient) handleStreamingHTTPRequest(ctx context.Context, sender mes
 	httpClient := &http.Client{Transport: transport}
 	response, err := httpClient.Do(request)
 	if err != nil {
+		common.LogDebug("streaming target failed", "error", err)
 		sendConnectionRejection(sender, open.ConnectionId, "failed to reach local target")
 		return
 	}

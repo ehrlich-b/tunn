@@ -1,0 +1,333 @@
+package host
+
+import (
+	"bufio"
+	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/json"
+	"encoding/pem"
+	"github.com/ehrlich-b/tunn/internal/testnet"
+	"io"
+	"math/big"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/ehrlich-b/tunn/internal/config"
+	"github.com/ehrlich-b/tunn/internal/metering"
+	"github.com/ehrlich-b/tunn/internal/sshfront"
+	"github.com/ehrlich-b/tunn/internal/storage"
+	"github.com/ehrlich-b/tunn/internal/store"
+	"golang.org/x/crypto/ssh"
+)
+
+func sshSigner(t *testing.T) ssh.Signer {
+	t.Helper()
+	_, key, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer, err := ssh.NewSignerFromKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return signer
+}
+func sshRelay(t *testing.T, known bool) (*ProxyServer, *ssh.Client, *sshfront.Server) {
+	t.Helper()
+	db, err := store.InitForTest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	st := storage.NewLocalStorage(db)
+	cfg := &config.Config{Domain: "tunn.test", PublicAddr: "tunn.test", LoginNode: true, JWTSecret: "ssh-test-secret", WellKnownKey: "creation"}
+	account, err := st.FindOrCreateByEmails(context.Background(), []string{"owner@example.com"}, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys, err := sshfront.NewRegistry(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer := sshSigner(t)
+	if known {
+		if _, err := keys.Add(context.Background(), account.PrimaryEmail, string(ssh.MarshalAuthorizedKey(signer.PublicKey()))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s := NewTunnelServer(cfg, nil, st.AccountStore(), st)
+	ledger, err := metering.New(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := &ProxyServer{Domain: cfg.Domain, config: cfg, tunnelServer: s, storage: st, meter: ledger, sshKeys: keys, quotaCache: NewQuotaCache(time.Minute), usageBuffer: NewUsageBuffer(), tunnelCache: map[string]string{}}
+	hostKey := sshSigner(t)
+	server, err := sshfront.New(sshfront.Config{HostKey: hostKey, Resolve: keys.Owner, Establish: p.establishSSH, Command: p.sshCommand, RotateToken: p.rotateSSHToken, Connect: p.sshConnect})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.sshServer = server
+	l := testnet.NewListener()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go func() { _ = server.Serve(ctx, l) }()
+	raw, err := l.Dial()
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, channels, requests, err := ssh.NewClientConn(raw, l.Addr().String(), &ssh.ClientConfig{User: "tunn", Auth: []ssh.AuthMethod{ssh.PublicKeys(signer)}, HostKeyCallback: ssh.FixedHostKey(hostKey.PublicKey()), Timeout: 3 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := ssh.NewClient(conn, channels, requests)
+	t.Cleanup(func() { _ = client.Close() })
+	return p, client, server
+}
+
+func sshForward(t *testing.T, c *ssh.Client, command string, handler http.Handler) (*ssh.Session, *bufio.Reader) {
+	t.Helper()
+	l, err := c.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	upstream := &http.Server{Handler: handler, ReadHeaderTimeout: time.Second}
+	go func() { _ = upstream.Serve(l) }()
+	t.Cleanup(func() { _ = upstream.Close() })
+	session, err := c.NewSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := session.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := session.Start(command); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = session.Close() })
+	return session, bufio.NewReader(out)
+}
+func sshLine(t *testing.T, r *bufio.Reader) string {
+	t.Helper()
+	result := make(chan string, 1)
+	go func() {
+		s, e := r.ReadString('\n')
+		if e != nil {
+			s = "ERROR: " + e.Error() + ": " + s
+		}
+		result <- s
+	}()
+	select {
+	case s := <-result:
+		return s
+	case <-time.After(3 * time.Second):
+		t.Fatal("SSH session output timeout")
+		return ""
+	}
+}
+
+func TestSSHForwardHTTPSAccessFilteringAndMetering(t *testing.T) {
+	p, c, _ := sshRelay(t, true)
+	target := make(chan *http.Request, 4)
+	session, out := sshForward(t, c, "-- --name ssh-http --allow alice@example.com --bearer", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		target <- r.Clone(context.Background())
+		w.Header().Set("Set-Cookie", "app=ok; Path=/, tunn_auth=stolen; Path=/")
+		_, _ = io.WriteString(w, "ssh response "+r.URL.RequestURI())
+	}))
+	if line := sshLine(t, out); line != "https://ssh-http.tunn.test\n" {
+		t.Fatal(line)
+	}
+	tunnel, ok := p.tunnelServer.GetTunnel("ssh-http")
+	if !ok || tunnel.TargetURL != "http" || tunnel.AccountID == "" || len(tunnel.accessTokenDigest()) != 32 {
+		t.Fatalf("ordinary tunnel not registered: %#v", tunnel)
+	}
+	client, relayURL := sshHTTPS(t, p.createHandler())
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	request := func(token string) *http.Response {
+		t.Helper()
+		r, err := http.NewRequest("GET", relayURL+"/hello?from=ssh", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r.Host = "ssh-http.tunn.test"
+		if token != "" {
+			r.Header.Set("Tunn-Authorization", "Bearer "+token)
+			r.Header.Set("Authorization", "Bearer application-secret")
+		}
+		r.AddCookie(&http.Cookie{Name: "tunn_auth", Value: "invalid-platform-cookie"})
+		r.AddCookie(&http.Cookie{Name: "app", Value: "local-cookie"})
+		resp, err := client.Do(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return resp
+	}
+	resp := request("")
+	_ = resp.Body.Close()
+	if resp.StatusCode != 302 {
+		t.Fatalf("anonymous access=%d", resp.StatusCode)
+	}
+	stranger, err := p.generateJWT("stranger@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp = request(stranger)
+	_ = resp.Body.Close()
+	if resp.StatusCode != 403 {
+		t.Fatalf("stranger access=%d", resp.StatusCode)
+	}
+	alice, err := p.generateJWT("alice@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp = request(alice)
+	data, err := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if err != nil || resp.StatusCode != 200 || string(data) != "ssh response /hello?from=ssh" {
+		t.Fatalf("response=%d %q %v", resp.StatusCode, data, err)
+	}
+	r := <-target
+	if r.Header.Get("Tunn-Authorization") != "" || r.Header.Get("Authorization") != "Bearer application-secret" || strings.Contains(r.Header.Get("Cookie"), "tunn_auth") {
+		t.Fatalf("platform credentials forwarded: %v", r.Header)
+	}
+	if cookies := resp.Header.Values("Set-Cookie"); len(cookies) != 1 || !strings.HasPrefix(cookies[0], "app=") {
+		t.Fatalf("platform response cookie leaked: %v", cookies)
+	}
+	if resp.Header.Get("Tunn-Request-ID") == "" {
+		t.Fatal("SSH bypassed ingress meter")
+	}
+	if err := session.Signal(ssh.SIGINT); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(time.Second)
+	for {
+		if _, ok := p.tunnelServer.GetTunnel("ssh-http"); !ok {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("Ctrl-C left tunnel registered")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+func TestSSHAnonymousRequiresAllowListAndConservativeLimits(t *testing.T) {
+	p, c, _ := sshRelay(t, false)
+	session, out := sshForward(t, c, "-- --name ssh-anon --allow alice@example.com --expire 2h", http.NotFoundHandler())
+	if line := sshLine(t, out); line != "https://ssh-anon.tunn.test\n" {
+		t.Fatal(line)
+	}
+	_ = sshLine(t, out)
+	if line := sshLine(t, out); !strings.Contains(line, "30m0s") {
+		t.Fatal(line)
+	}
+	tunnel, ok := p.tunnelServer.GetTunnel("ssh-anon")
+	if !ok || !tunnel.anonymousSSH || tunnel.accountQuotaExempt || tunnel.rateLimiter.Limit() != 125000 {
+		t.Fatalf("anonymous limits=%#v", tunnel)
+	}
+	tunnel.updateBandwidthPlan("pro")
+	if tunnel.rateLimiter.Limit() != 125000 {
+		t.Fatal("account plan reset anonymous rate")
+	}
+	_ = session.Signal(ssh.SIGINT)
+	_ = session.Wait()
+	_, other, _ := sshRelay(t, false)
+	rejected, out := sshForward(t, other, "-- --public", http.NotFoundHandler())
+	if line := sshLine(t, out); !strings.Contains(line, "anonymous SSH requires") {
+		t.Fatal(line)
+	}
+	if err := rejected.Wait(); err == nil {
+		t.Fatal("anonymous public tunnel accepted")
+	}
+}
+
+func TestSSHEmailLinkAndOwnerKeyAPI(t *testing.T) {
+	p, c, _ := sshRelay(t, false)
+	ctx := context.Background()
+	pub := string(ssh.MarshalAuthorizedKey(sshSigner(t).PublicKey()))
+	token, err := p.sshKeys.BeginLink(ctx, pub, "linked@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "https://tunn.test/auth/ssh-key?token="+token, nil)
+	p.handleSSHKeyLink(w, r)
+	if w.Code != 200 {
+		t.Fatalf("link=%d %s", w.Code, w.Body.String())
+	}
+	key, _ := sshfront.ParseKey(pub)
+	if owner, err := p.sshKeys.Owner(ctx, key.Fingerprint); err != nil || owner != "linked@example.com" {
+		t.Fatalf("owner=%q %v", owner, err)
+	}
+	w = httptest.NewRecorder()
+	p.handleSSHKeyLink(w, r)
+	if w.Code != 400 {
+		t.Fatalf("link replay=%d", w.Code)
+	}
+	// An unknown key cannot list or add account keys through the SSH command API.
+	session, err := c.NewSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, err := session.CombinedOutput("keys list")
+	if err == nil || !strings.Contains(string(output), "link an SSH key first") {
+		t.Fatalf("anonymous keys=%q %v", output, err)
+	}
+	ownerToken, err := p.generateJWT("linked@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r = httptest.NewRequest("GET", "https://tunn.test/api/ssh/keys", nil)
+	r.Header.Set("Authorization", "Bearer "+ownerToken)
+	w = httptest.NewRecorder()
+	p.handleSSHKeys(w, r)
+	var keys []sshfront.Key
+	if err := json.Unmarshal(w.Body.Bytes(), &keys); err != nil || len(keys) != 1 {
+		t.Fatalf("keys=%s %v", w.Body.String(), err)
+	}
+}
+
+func sshHTTPS(t *testing.T, handler http.Handler) (*http.Client, string) {
+	t.Helper()
+	pub, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	template := &x509.Certificate{SerialNumber: big.NewInt(1), DNSNames: []string{"relay.test"}, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour), KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, pub, private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pk, err := x509.MarshalPKCS8PrivateKey(private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	certificate, err := tls.X509KeyPair(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: pk}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roots := x509.NewCertPool()
+	roots.AddCert(root)
+	l := testnet.NewListener()
+	server := &http.Server{Handler: handler}
+	go func() {
+		_ = server.Serve(tls.NewListener(l, &tls.Config{Certificates: []tls.Certificate{certificate}}))
+	}()
+	transport := &http.Transport{TLSClientConfig: &tls.Config{RootCAs: roots}, DialContext: func(context.Context, string, string) (net.Conn, error) { return l.Dial() }}
+	t.Cleanup(func() { transport.CloseIdleConnections(); _ = server.Close(); _ = l.Close() })
+	return &http.Client{Transport: transport, Timeout: 3 * time.Second}, "https://relay.test"
+}

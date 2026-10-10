@@ -1,0 +1,34 @@
+{
+  "protocol_id": "tunn-access-e1-e2-v1",
+  "frozen_on": "2026-10-10",
+  "source_commit": "53cdce9b4cc43c70b57f02dd32ea54b9978d4c8f",
+  "thesis_commit": "e2df01b",
+  "thesis_sha256": "83c4869a1dc043537703e4be120944943108c59c0a00bbb9732fc70a04eaeca0",
+  "experiments": {
+    "E1": {
+      "target_responses": 10,
+      "minimum_recurring": 6,
+      "minimum_per_recipe": 3,
+      "minimum_occurrences_last_month": 2,
+      "deadline_day": 14,
+      "recruitment_minutes_ceiling": 50
+    },
+    "E2": {
+      "participants": 6,
+      "participants_per_recipe": 3,
+      "minimum_successes": 4,
+      "maximum_active_seconds": 300,
+      "maximum_baseline_ratio": 0.5,
+      "owner_review_minutes_ceiling": 35,
+      "deadline_day": 21
+    }
+  },
+  "recipes": ["mcp", "browser"],
+  "offers": {
+    "personal_launch_annual_usd": 12,
+    "personal_launch_target_accounts": 50,
+    "early_users_grandfathered": true,
+    "team_monthly_usd_per_maintainer": 6,
+    "status": "proposed; unavailable; no entitlement changes"
+  }
+}

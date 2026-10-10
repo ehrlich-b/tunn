@@ -158,6 +158,9 @@ func (p *ProxyServer) parseOAuthState(stateToken string) (*OAuthState, error) {
 	if claims["type"] != "oauth_state" {
 		return nil, fmt.Errorf("invalid state token purpose")
 	}
+	if !claims.VerifyExpiresAt(time.Now().Unix(), true) {
+		return nil, fmt.Errorf("missing or expired state token expiry")
+	}
 
 	state := &OAuthState{}
 	if s, ok := claims["state"].(string); ok {

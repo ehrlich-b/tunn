@@ -35,6 +35,53 @@ tunn 3000 --allow=@company.com  # Allow entire domain
 tunn 8080 -id=myapp           # Custom URL (myapp.tunn.to)
 ```
 
+### WebSockets
+
+HTTP tunnels also carry WebSocket upgrades and full-duplex text, binary,
+ping/pong, and close frames. Use the same HTTPS URL with `wss://` in a client;
+the relay and publisher must both support `websocket-v1`. Browser upgrades use
+the same email allow-list session cookie as HTTP, so sign in on the tunnel's
+HTTPS page first.
+
+```bash
+tunn 18789 --allow=you@example.com
+tunn 8080 --allow=you@example.com --ws-idle-timeout=10m --ws-keepalive=30s
+```
+
+Defaults: five minutes without received traffic, pings every 30 seconds on
+both legs, eight MiB per message, and 100 concurrent streaming connections per
+tunnel (shared with HTTP streams). `--ws-idle-timeout=0` and `--ws-keepalive=0`
+disable the respective timers. `--ws-max-message-size` sets a limit in bytes
+across all fragments, in both directions. Compression/extensions are not
+negotiated. Standard HTTP/1.1 upgrades are supported; HTTP/2 and HTTP/3 extended
+CONNECT WebSockets are not implemented.
+
+Native clients can opt into an endpoint token while browsers retain email login:
+
+```bash
+tunn 8080 --id=myapp --allow=you@example.com --bearer
+tunn token myapp
+tunn token --rotate myapp
+```
+
+Send `Tunn-Authorization: Bearer <endpoint-token>` on HTTP requests and the
+WebSocket handshake. This preserves the application's `Authorization` header.
+`Authorization: Bearer <endpoint-token>` also works when the client has only
+one auth field; that tunn credential is consumed before forwarding. Tokens
+use the same private files and digest-only registration as MCP. Rotation
+revokes the old token, normally within one second, and disconnects WebSockets
+opened with it; existing cookie-authenticated sockets remain connected. Token
+access is off unless `--bearer` is passed. An ordinary tunnel without `--allow`
+is still public.
+
+For applications that authenticate through HTTP headers,
+`--require-upstream-auth` rejects HTTP and WebSocket requests that lack an
+application `Authorization` header after tunn authentication is stripped. The
+application must validate the credential. OpenClaw browsers authenticate in a
+WebSocket message, so keep gateway token/password auth enabled instead of using
+that header guard. See the [OpenClaw guide draft](docs/guides/openclaw.md) and
+[forwarded-header contract](docs/how-it-works.md#websocket-upgrades).
+
 ### Local request inspector
 
 Add `--inspect` when debugging an HTTP endpoint or webhook handler:
@@ -186,6 +233,8 @@ Your laptop connects to tunn.to over a persistent tunnel. When someone visits yo
 make build    # Build the binary
 make test     # Run tests
 make test-mcp # Run the focused stdio/Streamable HTTP bridge tests
+make test-websocket # Local TLS relay, auth, headers, rotation, 100 sockets
+make test-websocket-memory # Same WebSocket stack over net.Pipe; no socket binds
 make integration-test-ai # TLS relay; private MCP/TCP, rotation, concurrency, reconnect
 make check    # Full pre-commit check (format, tidy, test with race detection)
 ```

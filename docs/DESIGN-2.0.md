@@ -205,10 +205,20 @@ OPEN(protocol + metadata) -> DATA* -> HALF_CLOSE -> CLOSE
 ```
 
 Capability negotiation keeps rolling upgrades safe: upgraded clients advertise
-`http-stream-v1` and `connection-stream-v1`; older peers continue using the
-buffered request/response messages. HTTP metadata travels in OPEN/ACCEPT while
+`http-stream-v1`, `connection-stream-v1`, and `websocket-v1`; older peers
+continue using the buffered request/response messages. HTTP metadata travels in OPEN/ACCEPT while
 bodies stream in either direction. Long-lived HTTP and SSE responses no longer
 have a whole-response buffer or 30-second body deadline.
+
+WebSocket upgrades use an additional `websocket` OPEN adapter on HTTP
+endpoints. Ingress authenticates before OPEN; the publisher verifies the local
+101 response before the relay hijacks HTTP/1.1. Ordered DATA chunks carry the
+original wire frames in both directions. The publisher bounds message size
+across fragments, suppresses extensions, and supplies configurable inactivity
+and ping timers. Close frames and their replies precede stream teardown.
+Endpoint-token rotation also disconnects upgraded sockets authenticated with
+the previous capability. `--bearer` opts ordinary HTTP tunnels into the token
+machinery; `--require-upstream-auth` is a separate application-header guard.
 
 The first generic adapter is raw TCP:
 
@@ -277,8 +287,8 @@ technical work below remains the MCP and transport backlog.
    metadata-only audit events, Prometheus metrics, live connection inspection,
    and a clear reason for every rejected request.
 5. Fix HTTP proxy parity: preserve repeated headers such as `Set-Cookie`,
-   support WebSocket upgrades, forward trailers, and prove HTTP/3 reachability
-   through a live UDP deployment. The Fly configuration now exposes UDP 443,
+   retain WebSocket regression coverage (implemented), forward trailers, and
+   prove HTTP/3 reachability through a live UDP deployment. The Fly configuration now exposes UDP 443,
    but production reachability has not yet been verified.
 6. Dogfood three sources (a direct stdio server, Docker MCP Gateway, and a
    private TCP service) from at least three consumers (one OpenAI surface, one
@@ -354,7 +364,8 @@ narrow.
 
 - introduce the connection-oriented protocol (implemented on the existing gRPC
   stream; independent transport streams remain future work);
-- migrate HTTP bodies and SSE to real streaming (implemented); add WebSockets;
+- migrate HTTP bodies and SSE to real streaming (implemented); WebSocket
+  upgrades, frame limits, and auth on upgrade are implemented;
 - add authenticated raw TCP (implemented through `tunn tcp`/`tunn connect`)
   plus raw and HTTP-adapted Unix socket publishing (implemented);
 - use MCP as one adapter on the generic stream kernel.

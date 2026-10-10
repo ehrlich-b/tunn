@@ -12,6 +12,40 @@ This script:
 - Starts the proxy in dev mode (mock OIDC)
 - Prints instructions for manual testing
 
+## WebSocket regression suite
+
+Run the repository gates and full loopback WebSocket stack:
+
+```bash
+make vet
+make test
+make test-websocket
+```
+
+`test-websocket` uses a local TLS relay with the actual gRPC publisher and a
+WebSocket echo fixture. It covers text/binary and 1 MiB frames, fragmentation,
+control frames and both close handshakes, 100 simultaneous sockets and slot
+reuse, upgrade auth denial/allow, token HTTP access and live rotation/revocation,
+forwarded headers and credential stripping, local HTTPS upstreams, idle expiry,
+partial-frame cleanup, and configurable keepalive. No public relay or external
+identity provider is contacted.
+
+For environments that prohibit socket binds, keep those gates intact and run:
+
+```bash
+make test-websocket-unit
+make test-websocket-memory
+```
+
+The memory variant runs the same WebSocket stack tests over `net.Pipe`, including
+TLS and gRPC. It validates the application path while preserving the default
+loopback suite for an unrestricted environment. Socket-bound tests in the full
+suite still require loopback permission. Focus an individual memory regression
+with `make test-websocket-memory WS_TESTS=TestWebSocketPartialFrameIdle`.
+
+Real OpenClaw and mobile-client acceptance remain manual; see the
+[OpenClaw guide draft](docs/guides/openclaw.md).
+
 ## Manual Testing
 
 ### Terminal 1: Start the proxy

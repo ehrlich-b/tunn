@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 )
 
 // LogLevel represents the verbosity level
@@ -34,14 +35,19 @@ func ParseLogLevel(level string) LogLevel {
 }
 
 var currentLogLevel LogLevel = LogLevelError
+var logLevelMu sync.RWMutex
 
 // GetCurrentLogLevel returns the current log level (useful for testing)
 func GetCurrentLogLevel() LogLevel {
+	logLevelMu.RLock()
+	defer logLevelMu.RUnlock()
 	return currentLogLevel
 }
 
 // SetLogLevel sets the global log level and configures slog
 func SetLogLevel(level LogLevel) {
+	logLevelMu.Lock()
+	defer logLevelMu.Unlock()
 	currentLogLevel = level
 
 	var slogLevel slog.Level

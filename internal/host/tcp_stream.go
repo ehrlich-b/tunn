@@ -36,6 +36,9 @@ func (p *ProxyServer) proxyTCPOverGRPC(w http.ResponseWriter, r *http.Request, t
 	}); err != nil {
 		return fmt.Errorf("failed to open TCP connection: %w", err)
 	}
+	if s := meterForRequest(r); s != nil {
+		s.event.Forwarded = true
+	}
 
 	var requestBytes atomic.Int64
 	requestResult := make(chan requestBodyResult, 1)

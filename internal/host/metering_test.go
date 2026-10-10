@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/ehrlich-b/tunn/internal/common"
+	"github.com/ehrlich-b/tunn/internal/config"
 	"github.com/ehrlich-b/tunn/internal/metering"
 	"github.com/ehrlich-b/tunn/internal/store"
 	meterpb "github.com/ehrlich-b/tunn/pkg/proto/meteringv1"
@@ -475,5 +476,34 @@ func TestMeteringAccountQuotaUsesAccountID(t *testing.T) {
 	defer stream.mu.Unlock()
 	if len(stream.sentMsgs) != 0 {
 		t.Fatal("over-quota account reached publisher")
+	}
+}
+
+func TestMeteringSelfHostPreservesApplicationJWTWithoutPlatformKey(t *testing.T) {
+	p, tunnel, ledger, stream := meteringRelay(t, false, "ok")
+	appJWT := relayJWT(t, p, "application@example.com")
+	p.config.Environment = config.EnvProd
+	p.config.JWTSecret = ""
+	tunnel.AllowedEmails = nil
+	r := relayRequest("", "")
+	r.Header.Set("Authorization", "Bearer "+appJWT)
+	r.AddCookie(&http.Cookie{Name: authCookieName, Value: appJWT})
+	rec := httptest.NewRecorder()
+	p.createHandler().ServeHTTP(rec, r)
+	if rec.Code != 200 {
+		t.Fatalf("self-hosted application JWT broke public ingress: %d", rec.Code)
+	}
+	out := relayExport(t, ledger)
+	if out.Usage[0].Caller != "anonymous" {
+		t.Fatal(out)
+	}
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+	for _, msg := range stream.sentMsgs {
+		if req := msg.GetHttpRequest(); req != nil {
+			if req.Headers["Authorization"] != "Bearer "+appJWT || req.Headers["Cookie"] != "" {
+				t.Fatal("application JWT or platform cookie forwarding changed")
+			}
+		}
 	}
 }

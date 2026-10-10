@@ -63,6 +63,9 @@ func (p *ProxyServer) setAuthCookie(w http.ResponseWriter, email string) error {
 
 // getAuthFromCookie reads and validates the JWT auth cookie, returning the email if valid
 func (p *ProxyServer) getAuthFromCookie(r *http.Request) (string, bool) {
+	if !p.visitorJWTConfigured() {
+		return "", false
+	}
 	cookie, err := r.Cookie(authCookieName)
 	if err != nil {
 		return "", false
@@ -198,6 +201,12 @@ func (p *ProxyServer) getAuthFromTunnelBearer(r *http.Request, tunnel *TunnelCon
 			}
 		}
 
+		// A self-hosted public endpoint may use only a publisher secret. Its
+		// application's bearer JWT is not a platform credential, and must not
+		// trigger the operator's missing-signing-key panic during attribution.
+		if !p.visitorJWTConfigured() {
+			continue
+		}
 		token, err := jwt.Parse(parts[1], func(token *jwt.Token) (interface{}, error) {
 			if _, validMethod := token.Method.(*jwt.SigningMethodHMAC); !validMethod {
 				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
@@ -220,6 +229,10 @@ func (p *ProxyServer) getAuthFromTunnelBearer(r *http.Request, tunnel *TunnelCon
 	}
 
 	return "", "", false, false
+}
+
+func (p *ProxyServer) visitorJWTConfigured() bool {
+	return p.config != nil && (p.config.JWTSecret != "" || p.config.IsDev())
 }
 
 // sanitizeReturnTo validates and sanitizes a return_to URL parameter.

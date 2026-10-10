@@ -123,6 +123,38 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 		return nil, fmt.Errorf("TUNN_NODE_SECRET must be set for multi-node mode (detected via TUNN_NODE_ADDRESSES or FLY_APP_NAME)")
 	}
 
+	cert, err := tls.LoadX509KeyPair(cfg.CertFile, cfg.KeyFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load TUNN_CERT_FILE/TUNN_KEY_FILE: %w", err)
+	}
+
+	tlsConfig := &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		NextProtos:   []string{"h2", "http/1.1"}, // HTTP/2 will negotiate via ALPN
+	}
+
+	// Load user tokens from users.yaml if configured
+	var userTokens map[string]string
+	if cfg.UsersFile != "" {
+		userStore, err := store.NewUserStore(cfg.UsersFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load TUNN_USERS_FILE: %w", err)
+		} else {
+			userTokens = userStore.GetTokenMap()
+			common.LogInfo("loaded users file", "path", cfg.UsersFile, "count", userStore.Count())
+		}
+	}
+
+	internalTLSConfig, err := createInternalTLSConfig(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create internal TLS config: %w", err)
+	}
+	if cfg.InternalCACert != "" {
+		if _, err := loadInternalCA(cfg.InternalCACert); err != nil {
+			return nil, err
+		}
+	}
+
 	// Initialize storage based on whether this is a login node
 	var proxyStorage *storage.ProxyStorage
 	var storageImpl storage.Storage
@@ -154,29 +186,6 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 		common.LogInfo("non-login node, will proxy storage to login node")
 	}
 
-	cert, err := tls.LoadX509KeyPair(cfg.CertFile, cfg.KeyFile)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load certificates: %w", err)
-	}
-
-	tlsConfig := &tls.Config{
-		Certificates: []tls.Certificate{cert},
-		NextProtos:   []string{"h2", "http/1.1"}, // HTTP/2 will negotiate via ALPN
-	}
-
-	// Load user tokens from users.yaml if configured
-	var userTokens map[string]string
-	if cfg.UsersFile != "" {
-		userStore, err := store.NewUserStore(cfg.UsersFile)
-		if err != nil {
-			common.LogError("failed to load users file", "path", cfg.UsersFile, "error", err)
-			// Continue without user tokens - not fatal
-		} else {
-			userTokens = userStore.GetTokenMap()
-			common.LogInfo("loaded users file", "path", cfg.UsersFile, "count", userStore.Count())
-		}
-	}
-
 	// Get account store for subdomain reservations (login node only, direct access)
 	var accounts *store.AccountStore
 	if localStorage != nil {
@@ -185,6 +194,7 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 
 	// Create gRPC server for public tunnel control plane with keepalive
 	grpcServer := grpc.NewServer(
+		grpc.WaitForHandlers(true),
 		grpc.KeepaliveParams(keepalive.ServerParameters{
 			Time:    10 * time.Second, // Ping clients every 10s
 			Timeout: 5 * time.Second,  // Wait 5s for pong
@@ -203,10 +213,6 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 	pb.RegisterTunnelServiceServer(grpcServer, tunnelServer)
 
 	// Create gRPC server for internal node-to-node communication
-	internalTLSConfig, err := createInternalTLSConfig(cfg)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create internal TLS config: %w", err)
-	}
 	internalGRPCServer := grpc.NewServer(
 		grpc.Creds(credentials.NewTLS(internalTLSConfig)),
 		grpc.UnaryInterceptor(nodeSecretInterceptor(cfg.NodeSecret)),
@@ -341,14 +347,9 @@ func createInternalClient(addr string, cfg *config.Config) (*grpc.ClientConn, er
 
 	// If custom CA cert is specified (self-hosters), load it
 	if cfg.InternalCACert != "" {
-		caCert, err := os.ReadFile(cfg.InternalCACert)
+		caCertPool, err := loadInternalCA(cfg.InternalCACert)
 		if err != nil {
-			return nil, fmt.Errorf("failed to read CA cert %s: %w", cfg.InternalCACert, err)
-		}
-
-		caCertPool := x509.NewCertPool()
-		if !caCertPool.AppendCertsFromPEM(caCert) {
-			return nil, fmt.Errorf("failed to parse CA cert from %s", cfg.InternalCACert)
+			return nil, err
 		}
 
 		tlsConfig.RootCAs = caCertPool
@@ -360,6 +361,18 @@ func createInternalClient(addr string, cfg *config.Config) (*grpc.ClientConn, er
 		grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)),
 		grpc.WithPerRPCCredentials(&nodeSecretCreds{secret: cfg.NodeSecret}),
 	)
+}
+
+func loadInternalCA(path string) (*x509.CertPool, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read TUNN_CA_CERT: %w", err)
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(data) {
+		return nil, fmt.Errorf("TUNN_CA_CERT must contain a PEM certificate")
+	}
+	return pool, nil
 }
 
 // discoverNodes discovers other nodes in the mesh using Fly.io internal DNS

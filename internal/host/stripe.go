@@ -116,6 +116,14 @@ func (p *ProxyServer) handleStripeWebhook(w http.ResponseWriter, r *http.Request
 		http.Error(w, "Invalid billing metadata", 400)
 		return
 	}
+	// Preserve receipt of historically ignored notifications when no account
+	// service is configured. NewProxyServer always installs local or proxy
+	// storage, so configured billing still requires a durable commit below.
+	if p.storage == nil && (!eventMetadata.Supported || event.Type == "customer.subscription.created" || event.Type == "customer.subscription.updated") {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(&store.BillingResult{EventID: event.ID, State: "ignored"})
+		return
+	}
 	processor, ok := p.storage.(interface {
 		ProcessBillingEvent(context.Context, store.BillingEvent) (*store.BillingResult, error)
 	})

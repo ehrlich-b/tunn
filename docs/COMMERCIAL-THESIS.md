@@ -65,6 +65,22 @@ payment commitment before building a large admin console. Charge for the
 operational value of controlling agent access and accounting for each consumer.
 Account bandwidth limits still protect tunn's own costs and abuse exposure.
 
+## Usage-based tier experiment
+
+The [HTTP metering/grant prototype](METERING.md) supplies per-consumer admitted
+requests and body bytes as possible included units for usage-based tiers.
+Personal development can stay easy to try; a managed team tier can sell durable
+retention, central grants, support, and predictable consumer spend caps, with
+additional request/byte allowances tested against actual customer needs.
+No new prices, invoices, or Stripe writes are part of this prototype.
+
+Keep denied decisions out of proposed request charges. Decide how failed
+admissions, short writes, and conservative crash reservations reconcile before
+calling counters billable. Test real multi-node routing and authority failures
+before charging for these units. The existing $100–$500 team pilot is still a
+payment-commitment experiment; usage meters support that commercial bet but do
+not prove demand or a price point.
+
 ## Falsifiers
 
 Use the webhook, ordinary HTTP, and private context/tool workflows ourselves

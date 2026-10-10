@@ -52,6 +52,26 @@ secrets or personal data. Replay creates a new delivery, so use a test endpoint
 or an idempotent handler when the action has side effects. Provider signatures
 with timestamps may expire before replay.
 
+### Metered consumer grants
+
+Give each consumer of a private HTTP endpoint a separate token and budget:
+
+```bash
+tunn serve --id=api --allow=owner@example.com 8080
+tunn grant create api --for=agent@example.com --expires=1h \
+  --rate=60 --monthly-requests=1000 --monthly-bytes=1000000
+tunn usage api --month=2026-10
+tunn grant revoke api <grant-id>
+```
+
+Create prints the consumer token once; only its digest reaches the relay.
+Consumers send `Tunn-Authorization: Bearer <token>`. Request/byte exhaustion
+returns `429`; expiry and revocation return `403`. The durable ledger records
+caller usage and rejected ingress decisions across buffered and streamed HTTP.
+See [the usage contract](docs/METERING.md) for units, retention, streaming limit
+trailers, local/self-hosted CLI options, and the boundary between metering and
+billable usage.
+
 ### Remote MCP preview
 
 Expose a local stdio MCP server as a remote Streamable HTTP endpoint:
@@ -185,6 +205,8 @@ Your laptop connects to tunn.to over a persistent tunnel. When someone visits yo
 ```bash
 make build    # Build the binary
 make test     # Run tests
+make test-metering-contract # Durable usage/grant and forwarding contract (no sockets)
+make integration-test-metering # Local TLS relay/publisher/CLI grant lifecycle
 make test-mcp # Run the focused stdio/Streamable HTTP bridge tests
 make integration-test-ai # TLS relay; private MCP/TCP, rotation, concurrency, reconnect
 make check    # Full pre-commit check (format, tidy, test with race detection)

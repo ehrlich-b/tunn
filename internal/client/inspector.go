@@ -94,7 +94,7 @@ func NewInspectorWithBodyCapture(target *ServeClient, enabled bool) *Inspector {
 		UpstreamPath: target.UpstreamPath, UpstreamRawQuery: target.UpstreamRawQuery,
 		TargetNetwork: target.TargetNetwork, DialAddress: target.DialAddress,
 		DialContext: target.DialContext, LocalDialContext: target.LocalDialContext,
-		LocalTLSConfig: target.localTLSConfig(), HTTPTimeout: target.HTTPTimeout,
+		LocalTLSConfig: target.localTLSConfig(), HTTPTransport: target.HTTPTransport, HTTPTimeout: target.HTTPTimeout,
 		SkipLocalTLSVerify: target.SkipLocalTLSVerify, RequireUpstreamAuth: target.RequireUpstreamAuth,
 	}
 	return &Inspector{target: &config, captureBody: enabled, actions: make(map[uint64]replayAction)}
@@ -289,12 +289,12 @@ func (c *inspectionCapture) Write(data []byte) (int, error) {
 	return len(data), nil
 }
 
-// A positive HTTP Content-Length defines the whole body even when the target
+// A known HTTP Content-Length defines the whole body even when the target
 // responds before the transport's asynchronous writer performs its EOF read.
 func (c *inspectionCapture) expectLength(length int64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if length > 0 && !c.finished {
+	if length >= 0 && !c.finished {
 		c.expectedBytes = length
 		c.event.BodyComplete = c.event.RequestBytes == length
 	}
@@ -603,7 +603,11 @@ func (i *Inspector) replay(ctx context.Context, id uint64, input inspectionRepla
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
-	client := &http.Client{Transport: transport, Timeout: timeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	var roundTripper http.RoundTripper = transport
+	if i.target.HTTPTransport != nil {
+		roundTripper = i.target.HTTPTransport
+	}
+	client := &http.Client{Transport: roundTripper, Timeout: timeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	i.mu.Lock()
 	i.metrics.ReplayDispatches++
 	i.mu.Unlock()
@@ -727,3 +731,29 @@ func (i *Inspector) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 //go:embed inspector.html
 var inspectorHTML string
+
+// Events returns sanitized snapshots for authenticated embedded owner interfaces.
+func (i *Inspector) Events() []InspectionEvent { return i.list() }
+
+// Replay performs one explicit action for a fully reconstructable captured request.
+func (i *Inspector) Replay(ctx context.Context, id uint64) (InspectionEvent, error) {
+	return i.ReplayWithRequest(ctx, id, InspectionReplayRequest{})
+}
+
+// InspectionReplayRequest supplies unavailable request data deliberately. Body
+// uses JSON's base64 encoding for byte slices, matching the local inspection API.
+type InspectionReplayRequest struct {
+	Path    *string           `json:"path,omitempty"`
+	Headers map[string]string `json:"headers,omitempty"`
+	Body    *[]byte           `json:"body,omitempty"`
+}
+
+// ReplayWithRequest applies the same reconstruction and credential checks as
+// the local viewer, with a fresh one-use action for this owner command.
+func (i *Inspector) ReplayWithRequest(ctx context.Context, id uint64, request InspectionReplayRequest) (InspectionEvent, error) {
+	action, err := i.prepare(id)
+	if err != nil {
+		return InspectionEvent{}, err
+	}
+	return i.replay(ctx, id, inspectionReplayInput{Action: action, Path: request.Path, Headers: request.Headers, Body: request.Body})
+}

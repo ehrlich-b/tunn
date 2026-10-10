@@ -75,6 +75,48 @@ func httpReadFixtureRequest(peer net.Conn) (string, error) {
 	return r.URL.RequestURI(), err
 }
 
+func TestIntegrationSSHInspectionKeepsEmbeddedHTTPTransport(t *testing.T) {
+	for _, streaming := range []bool{false, true} {
+		t.Run(fmt.Sprint(streaming), func(t *testing.T) {
+			var calls atomic.Int32
+			transport := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+				if r.URL.Path != "/mcp" {
+					return nil, errors.New("unexpected embedded handler path")
+				}
+				calls.Add(1)
+				return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("ok")), ContentLength: 2, Request: r}, nil
+			})
+			s := &ServeClient{TargetURL: "http://ssh-stdio.invalid", HTTPTransport: transport, LocalDialContext: func(context.Context, string, string) (net.Conn, error) {
+				return nil, errors.New("embedded SSH handler must not dial a socket")
+			}}
+			s.Inspector = NewInspector(s)
+			if streaming {
+				s.handleStreamingHTTPRequest(context.Background(), inspectContractSender{}, &pb.ConnectionOpen{ConnectionId: "stdio-stream", Protocol: "http", HttpRequest: &pb.HttpRequestHead{Method: "GET", Path: "/mcp", ContentLength: 0}}, strings.NewReader(""))
+			} else {
+				s.handleHttpRequest(&mockEstablishTunnelClient{}, &pb.HttpRequest{ConnectionId: "stdio-buffered", Method: "GET", Path: "/mcp"})
+			}
+			// The replay snapshot retains the handler selected at publication.
+			s.HTTPTransport = nil
+			events := s.Inspector.Events()
+			if len(events) != 1 || events[0].Status != 200 || !events[0].Replayable {
+				t.Fatalf("embedded capture=%v", events)
+			}
+			result, err := s.Inspector.Replay(context.Background(), events[0].ID)
+			if err != nil || result.Status != 200 || calls.Load() != 2 {
+				t.Fatalf("embedded replay=%v %v calls=%d", result, err, calls.Load())
+			}
+			if streaming {
+				s.HTTPTransport = transport
+				s.handleStreamingHTTPRequest(context.Background(), inspectContractSender{}, &pb.ConnectionOpen{ConnectionId: "stdio-unread", Protocol: "http", HttpRequest: &pb.HttpRequestHead{Method: "POST", Path: "/mcp", ContentLength: 1}}, strings.NewReader("x"))
+				incomplete := s.Inspector.Events()[2]
+				if incomplete.BodyComplete || incomplete.Reconstructable {
+					t.Fatal("embedded handler made an unread nonempty body replayable")
+				}
+			}
+		})
+	}
+}
+
 func TestIntegrationMCPOAuthInspectionRedactsCaptureAndReconstruction(t *testing.T) {
 	const token = "tunn_mcp_inspection_integration_sentinel"
 	for _, streaming := range []bool{false, true} {

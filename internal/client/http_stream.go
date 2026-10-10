@@ -367,9 +367,14 @@ func (s *ServeClient) handleStreamingHTTPRequest(ctx context.Context, sender mes
 		}
 	}
 	defer transport.CloseIdleConnections()
-	httpClient := &http.Client{Transport: transport}
+	var roundTripper http.RoundTripper = transport
+	if s.HTTPTransport != nil {
+		roundTripper = s.HTTPTransport
+	}
+	httpClient := &http.Client{Transport: roundTripper}
 	response, err := httpClient.Do(request)
 	if err != nil {
+		common.LogDebug("streaming target failed", "error", err)
 		sendConnectionRejection(sender, open.ConnectionId, "failed to reach local target")
 		return
 	}

@@ -467,3 +467,8 @@ test-inspect-browser:
 	go test -count=1 -timeout=20s -run '^TestInspectBrowserFixture$$' ./internal/client -args -inspect-browser-fixture="$(CURDIR)/.scratch/inspect-browser.html"
 	PYTHONDONTWRITEBYTECODE=1 python3 scripts/integration-tests/inspect-syntax.py internal/client/inspector.html .scratch/inspect-browser.html
 	PYTHONDONTWRITEBYTECODE=1 python3 scripts/integration-tests/inspect-browser.py .scratch/inspect-browser.html
+# SSH API checks use only in-process or loopback clients.
+.PHONY: test-ssh
+test-ssh:
+	go test -race -count=1 -timeout=90s ./internal/sshfront ./internal/cliopts
+	go test -race -count=1 -timeout=90s -run 'TestSSH|TestParseServe|TestServeWebSocket' ./internal/host .

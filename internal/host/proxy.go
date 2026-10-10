@@ -31,6 +31,7 @@ import (
 	"github.com/ehrlich-b/tunn/internal/domains"
 	"github.com/ehrlich-b/tunn/internal/metering"
 	"github.com/ehrlich-b/tunn/internal/mockoidc"
+	"github.com/ehrlich-b/tunn/internal/sshfront"
 	"github.com/ehrlich-b/tunn/internal/storage"
 	"github.com/ehrlich-b/tunn/internal/store"
 	domainpb "github.com/ehrlich-b/tunn/pkg/proto/domainv1"
@@ -41,9 +42,11 @@ import (
 
 // ProxyServer is the new V1 dual-listener proxy server
 type ProxyServer struct {
-	Domain   string
-	CertFile string
-	KeyFile  string
+	sshServer *sshfront.Server
+	sshKeys   *sshfront.Registry
+	Domain    string
+	CertFile  string
+	KeyFile   string
 
 	// HTTP/2 (TCP) listener address
 	HTTP2Addr string
@@ -282,6 +285,14 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 			}}
 		}
 		proxy.tlsConfig.GetCertificate = proxy.domainCertificate(cert)
+	}
+	if cfg.SSHHostKeyFile != "" {
+		if !cfg.LoginNode {
+			return nil, fmt.Errorf("SSH requires the login node for durable key ownership; route raw SSH traffic there")
+		}
+		if err := proxy.enableSSH(store.DB()); err != nil {
+			return nil, err
+		}
 	}
 
 	// Discover and connect to other nodes in the mesh
@@ -556,6 +567,19 @@ func (p *ProxyServer) Run(ctx context.Context) error {
 
 	// Create the HTTP handler (will be used by both servers)
 	handler := p.createHandler()
+	if p.sshServer != nil && p.config.SSHAddr != "" {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			l, err := net.Listen("tcp", p.config.SSHAddr)
+			if err == nil {
+				err = p.sshServer.Serve(ctx, l)
+			}
+			if err != nil {
+				errChan <- fmt.Errorf("SSH listener error: %w", err)
+			}
+		}()
+	}
 
 	if p.domains != nil {
 		wg.Add(1)
@@ -658,6 +682,9 @@ func (p *ProxyServer) startHTTP2Server(ctx context.Context, handler http.Handler
 	ln, err := net.Listen("tcp4", p.HTTP2Addr)
 	if err != nil {
 		return fmt.Errorf("failed to listen on %s: %w", p.HTTP2Addr, err)
+	}
+	if p.sshServer != nil {
+		ln = sshfront.Share(ctx, ln, p.sshServer.ServeConn)
 	}
 	tlsLn := tls.NewListener(ln, p.tlsConfig)
 
@@ -792,6 +819,8 @@ func (p *ProxyServer) createHandler() http.Handler {
 	mux.HandleFunc("/oauth/", p.handleMCPOAuth)
 
 	mux.HandleFunc("/api/hosts", p.handleHosts)
+	mux.HandleFunc("/api/ssh/keys", p.handleSSHKeys)
+	mux.HandleFunc("/auth/ssh-key", p.handleSSHKeyLink)
 
 	// Device code flow for CLI login
 	mux.HandleFunc("/api/device/code", p.handleDeviceCode)

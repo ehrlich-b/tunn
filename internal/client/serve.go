@@ -93,6 +93,7 @@ type ServeClient struct {
 	ValidatePublicURL func(string) error
 	Logger            *slog.Logger // nil keeps the CLI logger; never changes process logging
 	SafeLogs          bool         // Emit static messages only, without remote errors or private target data
+	OnRegistered      func(publicURL string)
 
 	// Reconnection settings
 	MaxReconnectDelay time.Duration // Maximum delay between reconnects (default: 30s)
@@ -101,8 +102,9 @@ type ServeClient struct {
 	ConnectTimeout    time.Duration // Bounds connection and registration, not an established tunnel
 
 	// HTTP client settings
-	HTTPTimeout         time.Duration // Timeout for HTTP requests to local target (default: 30s)
-	Inspector           *Inspector    // Optional local, short-lived HTTP request inspector
+	HTTPTransport       http.RoundTripper // Optional in-process upstream for an embedded front door
+	HTTPTimeout         time.Duration     // Timeout for HTTP requests to local target (default: 30s)
+	Inspector           *Inspector        // Optional local, short-lived HTTP request inspector
 	WebSocket           *common.WebSocketOptions
 	RequireUpstreamAuth bool // Require an application Authorization header after tunn auth is stripped
 }
@@ -312,6 +314,9 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 		return &permanentTunnelError{err: fmt.Errorf("relay must support websocket-v1 for --require-upstream-auth"), kind: FailureProtocol}
 	}
 
+	if s.OnRegistered != nil {
+		s.OnRegistered(regResp.PublicUrl)
+	}
 	if s.OnState != nil {
 		s.OnState(true)
 		defer s.OnState(false)
@@ -424,11 +429,22 @@ func containsString(values []string, wanted string) bool {
 }
 
 // processMessages handles incoming messages from the server
-func (s *ServeClient) processMessages(ctx context.Context, stream pb.TunnelService_EstablishTunnelClient, sender messageSender) error {
+// MessageStream is the bounded message transport used by embedded front doors.
+type MessageStream interface {
+	Send(*pb.TunnelMessage) error
+	Recv() (*pb.TunnelMessage, error)
+}
+
+// ServeMessages uses the normal HTTP, TCP and WebSocket adapters after registration.
+func (s *ServeClient) ServeMessages(ctx context.Context, stream MessageStream) error {
+	return s.processMessages(ctx, stream, stream)
+}
+
+func (s *ServeClient) processMessages(ctx context.Context, stream MessageStream, sender messageSender) error {
 	return s.processMessagesOwned(ctx, stream, sender, func() {})
 }
 
-func (s *ServeClient) processMessagesOwned(ctx context.Context, stream pb.TunnelService_EstablishTunnelClient, sender messageSender, cancelStream context.CancelFunc) error {
+func (s *ServeClient) processMessagesOwned(ctx context.Context, stream MessageStream, sender messageSender, cancelStream context.CancelFunc) error {
 	ctx, cancel := context.WithCancel(ctx)
 	var workers sync.WaitGroup
 	// Semaphore to limit concurrent HTTP request handlers
@@ -571,9 +587,13 @@ func (s *ServeClient) handleHTTPRequestContext(ctx context.Context, sender messa
 		}
 	}
 	defer transport.CloseIdleConnections()
+	var roundTripper http.RoundTripper = transport
+	if s.HTTPTransport != nil {
+		roundTripper = s.HTTPTransport
+	}
 	client := &http.Client{
 		Timeout:   timeout,
-		Transport: transport,
+		Transport: roundTripper,
 	}
 
 	resp, err := client.Do(req)

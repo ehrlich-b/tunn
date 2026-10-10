@@ -18,6 +18,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/ehrlich-b/tunn/internal/cliopts"
 	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/ehrlich-b/tunn/internal/config"
 	"github.com/ehrlich-b/tunn/internal/hostmode"
@@ -39,7 +40,7 @@ func hostCommand(ctx context.Context, command string, args []string, out, errout
 	}
 	fs := flag.NewFlagSet(command, flag.ContinueOnError)
 	fs.SetOutput(errout)
-	path := fs.String("config", defaultPath, "host manifest path")
+	var path *string
 	var action string
 	var dry *bool
 	var platform *string
@@ -50,11 +51,12 @@ func hostCommand(ctx context.Context, command string, args []string, out, errout
 			return fmt.Errorf("usage: tunn service install|uninstall|restart|status|check|run [--config path] [--dry-run] [--os darwin|linux|windows]")
 		}
 		action, args = args[0], args[1:]
-		if action != "install" && action != "uninstall" && action != "restart" && action != "status" && action != "check" && action != "run" {
+		if !cliopts.ValidServiceAction(action) {
 			return fmt.Errorf("unknown service action %q", action)
 		}
-		dry = fs.Bool("dry-run", false, "print a service definition without installing")
-		platform = fs.String("os", runtime.GOOS, "OS for service definition preview")
+		o := new(cliopts.Service)
+		cliopts.ServiceFlags(fs, o, defaultPath, runtime.GOOS)
+		path, dry, platform = &o.Config, &o.DryRun, &o.OS
 	} else if command == "hosts" {
 		jsonOutput = fs.Bool("json", false, "print the machine inventory as JSON")
 	} else if command == "openclaw" {
@@ -62,6 +64,9 @@ func hostCommand(ctx context.Context, command string, args []string, out, errout
 		gateway = fs.String("gateway", "", "local gateway URL (default port 18789, or the named http tunnel in host.yaml)")
 		qrFile = fs.String("qr-file", "", "also write a QR PNG")
 		domain = fs.String("domain", "", "public relay domain")
+	}
+	if command != "service" {
+		path = fs.String("config", defaultPath, "host manifest path")
 	}
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {

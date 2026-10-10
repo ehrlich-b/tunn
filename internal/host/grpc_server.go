@@ -80,7 +80,8 @@ type TunnelConnection struct {
 	Stream             pb.TunnelService_EstablishTunnelServer
 	Connected          time.Time
 	CreatorEmail       string
-	AccountID          string   // Account ID for usage tracking (from storage)
+	AccountID          string // Account ID for usage tracking (from storage)
+	anonymousSSH       bool
 	accountQuotaExempt bool     // Explicit self-hosted authentication without an account
 	AllowedEmails      []string // Includes creator_email + any additional allowed emails
 	AccessTokenSHA256  []byte   // Endpoint-scoped bearer digest; plaintext never reaches the relay
@@ -150,6 +151,9 @@ func (t *TunnelConnection) CheckRateLimit(bytes int) bool {
 
 // Update the existing bucket instead of resetting its consumed allowance.
 func (t *TunnelConnection) updateBandwidthPlan(plan string) {
+	if t.anonymousSSH {
+		plan = "ssh-anonymous"
+	}
 	t.rateMu.Lock()
 	defer t.rateMu.Unlock()
 	if t.rateLimiter == nil || t.bandwidthPlan == plan {
@@ -167,6 +171,8 @@ func (t *TunnelConnection) updateBandwidthPlan(plan string) {
 func newRateLimiter(plan string) *rate.Limiter {
 	var mbps int
 	switch plan {
+	case "ssh-anonymous":
+		mbps = 1
 	case "pro":
 		mbps = ProBandwidthMbps
 	default:
@@ -301,8 +307,16 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 	var requiresAccount bool
 	var configuredUser bool
 
-	// Skip auth in public mode
-	if s.cfg.PublicMode {
+	sshIdentity, viaSSH := stream.Context().Value(sshPublisherContextKey{}).(sshPublisher)
+	// Only the in-process SSH adapter can attach this verified identity.
+	if viaSSH {
+		creatorEmail = sshIdentity.email
+		allowedEmails = regClient.AllowedEmails
+		requiresAccount = true
+		if sshIdentity.anonymous && len(allowedEmails) == 0 {
+			return rejectTunnelRegistration(stream, "Anonymous SSH requires an allow-list.")
+		}
+	} else if s.cfg.PublicMode {
 		common.LogInfo("public mode - skipping auth", "tunnel_id", tunnelID)
 		creatorEmail = "public@tunn.local"
 		// PublicMode controls publisher authentication for local/self-hosted
@@ -435,7 +449,12 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 	for _, capability := range regClient.Capabilities {
 		capabilities[capability] = true
 	}
+	bandwidthPlan := plan
+	if viaSSH && sshIdentity.anonymous {
+		bandwidthPlan = "ssh-anonymous"
+	}
 	conn := &TunnelConnection{
+		anonymousSSH:       viaSSH && sshIdentity.anonymous,
 		HostID:             hostID,
 		TunnelID:           tunnelID,
 		TargetURL:          targetURL,
@@ -449,8 +468,8 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		Capabilities:       capabilities,
 		EndpointProtocol:   endpointProtocol,
 		Plan:               plan,
-		rateLimiter:        newRateLimiter(plan),
-		bandwidthPlan:      plan,
+		rateLimiter:        newRateLimiter(bandwidthPlan),
+		bandwidthPlan:      bandwidthPlan,
 		pendingRequests:    make(map[string]chan *pb.HttpResponse),
 		pendingStreams:     make(map[string]*pendingConnection),
 	}

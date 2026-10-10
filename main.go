@@ -19,9 +19,11 @@ import (
 	"time"
 
 	"github.com/ehrlich-b/tunn/internal/client"
+	"github.com/ehrlich-b/tunn/internal/cliopts"
 	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/ehrlich-b/tunn/internal/config"
 	"github.com/ehrlich-b/tunn/internal/host"
+	"github.com/ehrlich-b/tunn/internal/hostmode"
 	"github.com/ehrlich-b/tunn/internal/mcpbridge"
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/joho/godotenv"
@@ -56,6 +58,7 @@ Usage:
   tunn service install|uninstall|restart|status|check  Manage persistent machine endpoints
   tunn hosts [--json]             List your machines and their tunnels
   tunn openclaw [options]         Preview OpenClaw phone setup (needs WebSockets)
+  tunn keys add|list|remove       Manage account SSH public keys
   tunn login                     Authenticate with GitHub
   tunn serve [options] <target>  Explicit serve mode (same as default)
   tunn mcp [options] <command…>   Connect a local MCP server to an AI agent
@@ -110,6 +113,8 @@ Options:
 		runOperations(args[1:])
 	case "service", "hosts", "openclaw":
 		runHostCommand(args[0], args[1:])
+	case "keys":
+		runKeys(args[1:])
 	case "login":
 		runLogin()
 	case "serve":
@@ -164,14 +169,10 @@ func parseMCPFlags(args []string) (*mcpCommandOptions, error) {
 
 	fs := flag.NewFlagSet("mcp", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	idFlag := fs.String("id", "", "tunnel ID (blank -> random)")
-	nameFlag := fs.String("name", "", "endpoint name (alias for --id)")
-	subdomainFlag := fs.String("subdomain", "", "reserved subdomain (alias for --id)")
-	allowFlag := fs.String("allow", "", "comma-separated list of emails allowed to access the endpoint")
-	publicFlag := fs.Bool("public", false, "allow unauthenticated internet access")
-	keyFlag := fs.String("tunnel-key", "", "tunnel creation authorization key")
-	secretFlag := fs.String("secret", "", "client secret for auth (or set TUNN_SECRET)")
-	toolsFlag := fs.String("tools", "", "comma-separated exact tool allow-list")
+	shared := new(cliopts.Serve)
+	cliopts.PublicationFlags(fs, shared)
+	var allowedTools []string
+	cliopts.MCPToolFlag(fs, &allowedTools)
 
 	flagArgs := args
 	if separator != -1 {
@@ -187,33 +188,12 @@ func parseMCPFlags(args []string) (*mcpCommandOptions, error) {
 		return nil, fmt.Errorf("provide one MCP HTTP URL, or use -- before a stdio command")
 	}
 
-	tunnelID := *idFlag
-	if *nameFlag != "" {
-		tunnelID = *nameFlag
-	}
-	if *subdomainFlag != "" {
-		tunnelID = *subdomainFlag
-	}
-
-	var allowedEmails []string
-	if *allowFlag != "" {
-		for _, email := range strings.Split(*allowFlag, ",") {
-			if normalized := strings.TrimSpace(email); normalized != "" {
-				allowedEmails = append(allowedEmails, normalized)
-			}
-		}
-	}
-	if *publicFlag && len(allowedEmails) > 0 {
+	tunnelID, allowedEmails := shared.Name, shared.AllowedEmails
+	if shared.Public && len(allowedEmails) > 0 {
 		return nil, fmt.Errorf("--public and --allow cannot be used together")
 	}
-	var allowedTools []string
-	for _, tool := range strings.Split(*toolsFlag, ",") {
-		if normalized := strings.TrimSpace(tool); normalized != "" {
-			allowedTools = append(allowedTools, normalized)
-		}
-	}
 
-	clientSecret := *secretFlag
+	clientSecret := shared.Secret
 	if clientSecret == "" {
 		clientSecret = os.Getenv("TUNN_SECRET")
 	}
@@ -221,9 +201,9 @@ func parseMCPFlags(args []string) (*mcpCommandOptions, error) {
 	opts := &mcpCommandOptions{
 		tunnelID:      tunnelID,
 		allowedEmails: allowedEmails,
-		tunnelKey:     *keyFlag,
+		tunnelKey:     shared.TunnelKey,
 		clientSecret:  clientSecret,
-		public:        *publicFlag,
+		public:        shared.Public,
 		allowedTools:  allowedTools,
 	}
 	if separator == -1 {
@@ -514,12 +494,8 @@ func parseUnixFlags(args []string) (*tcpCommandOptions, error) {
 func parseRawPublisherFlags(command string, args []string, normalize func(string) (string, error)) (*tcpCommandOptions, error) {
 	fs := flag.NewFlagSet(command, flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	idFlag := fs.String("id", "", "endpoint name")
-	nameFlag := fs.String("name", "", "endpoint name (alias for --id)")
-	allowFlag := fs.String("allow", "", "comma-separated list of allowed emails")
-	publicFlag := fs.Bool("public", false, "allow unauthenticated access")
-	keyFlag := fs.String("tunnel-key", "", "tunnel creation authorization key")
-	secretFlag := fs.String("secret", "", "self-hosted client authentication secret")
+	shared := new(cliopts.Serve)
+	cliopts.PublicationFlags(fs, shared)
 	asFlag := fs.String("as", "raw", "adapter: raw or http (Unix sockets)")
 	if err := fs.Parse(args); err != nil {
 		return nil, err
@@ -532,29 +508,21 @@ func parseRawPublisherFlags(command string, args []string, normalize func(string
 		return nil, err
 	}
 
-	var allowedEmails []string
-	for _, email := range strings.Split(*allowFlag, ",") {
-		if normalized := strings.TrimSpace(email); normalized != "" {
-			allowedEmails = append(allowedEmails, normalized)
-		}
-	}
-	if *publicFlag && len(allowedEmails) > 0 {
+	allowedEmails, tunnelID := shared.AllowedEmails, shared.Name
+	if shared.Public && len(allowedEmails) > 0 {
 		return nil, fmt.Errorf("--public and --allow cannot be used together")
 	}
-	tunnelID := *idFlag
-	if *nameFlag != "" {
-		tunnelID = *nameFlag
-	}
-	clientSecret := *secretFlag
+
+	clientSecret := shared.Secret
 	if clientSecret == "" {
 		clientSecret = os.Getenv("TUNN_SECRET")
 	}
 	return &tcpCommandOptions{
 		tunnelID:      tunnelID,
 		allowedEmails: allowedEmails,
-		tunnelKey:     *keyFlag,
+		tunnelKey:     shared.TunnelKey,
 		clientSecret:  clientSecret,
-		public:        *publicFlag,
+		public:        shared.Public,
 		target:        target,
 		adapter:       strings.ToLower(strings.TrimSpace(*asFlag)),
 	}, nil
@@ -847,6 +815,8 @@ func appendUniqueEmail(emails []string, email string) []string {
 }
 
 type serveCommandOptions struct {
+	expire              time.Duration
+	qr, public          bool
 	target              string
 	tunnelID            string
 	allowedEmails       []string
@@ -861,77 +831,14 @@ type serveCommandOptions struct {
 }
 
 func parseServeFlags(args []string) (*serveCommandOptions, error) {
-	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
-	fs.SetOutput(io.Discard)
-	opts := &serveCommandOptions{webSocket: common.DefaultWebSocketOptions()}
-	fs.StringVar(&opts.tunnelID, "id", "", "tunnel ID (blank generates one)")
-	fs.StringVar(&opts.tunnelID, "name", "", "endpoint name (alias for --id)")
-	subdomain := fs.String("subdomain", "", "reserved subdomain (alias for --id)")
-	allow := fs.String("allow", "", "comma-separated list of allowed emails")
-	fs.StringVar(&opts.tunnelKey, "tunnel-key", "", "tunnel creation authorization key")
-	fs.StringVar(&opts.clientSecret, "secret", "", "self-hosted authentication secret (or TUNN_SECRET)")
-	fs.BoolVar(&opts.skipLocalTLSVerify, "skip-local-tls-verify", false, "skip local HTTPS certificate verification")
-	fs.BoolVar(&opts.inspect, "inspect", false, "open a local metadata inspector")
-	fs.BoolVar(&opts.inspectBody, "inspect-body", false, "explicitly retain local request bodies up to 64 KiB; requires --inspect")
-	fs.BoolVar(&opts.bearer, "bearer", false, "enable private endpoint-token access for HTTP and WebSockets")
-	fs.BoolVar(&opts.requireUpstreamAuth, "require-upstream-auth", false, "require an upstream Authorization header after tunn authentication")
-	fs.DurationVar(&opts.webSocket.IdleTimeout, "ws-idle-timeout", opts.webSocket.IdleTimeout, "WebSocket inactivity timeout (0 disables)")
-	fs.DurationVar(&opts.webSocket.KeepaliveInterval, "ws-keepalive", opts.webSocket.KeepaliveInterval, "WebSocket ping interval (0 disables)")
-	fs.Int64Var(&opts.webSocket.MaxMessageSize, "ws-max-message-size", opts.webSocket.MaxMessageSize, "maximum WebSocket message bytes, including fragments")
-
-	// Serve accepts flags on either side of the target, including --flag value.
-	var flags, targets []string
-	for i := 0; i < len(args); i++ {
-		arg := args[i]
-		if arg == "--" {
-			targets = append(targets, args[i+1:]...)
-			break
-		}
-		if !strings.HasPrefix(arg, "-") {
-			targets = append(targets, arg)
-			continue
-		}
-		flags = append(flags, arg)
-		name, _, hasValue := strings.Cut(strings.TrimLeft(arg, "-"), "=")
-		definition := fs.Lookup(name)
-		if definition == nil || hasValue {
-			continue
-		}
-		boolean, isBoolean := definition.Value.(interface{ IsBoolFlag() bool })
-		if isBoolean && boolean.IsBoolFlag() {
-			continue
-		}
-		if i+1 >= len(args) {
-			return nil, fmt.Errorf("flag --%s requires a value", name)
-		}
-		i++
-		flags = append(flags, args[i])
-	}
-	if err := fs.Parse(flags); err != nil {
+	o, err := cliopts.ParseServe(args, true)
+	if err != nil {
 		return nil, err
 	}
-	if len(targets) != 1 {
-		return nil, fmt.Errorf("provide one target: tunn [options] <port|host:port|url>")
+	if o.Secret == "" {
+		o.Secret = os.Getenv("TUNN_SECRET")
 	}
-	if opts.inspectBody && !opts.inspect {
-		return nil, fmt.Errorf("--inspect-body requires --inspect")
-	}
-	opts.target = targets[0]
-	if *subdomain != "" {
-		opts.tunnelID = *subdomain
-	}
-	if opts.clientSecret == "" {
-		opts.clientSecret = os.Getenv("TUNN_SECRET")
-	}
-	for _, email := range strings.Split(*allow, ",") {
-		if email = strings.TrimSpace(email); email != "" {
-			opts.allowedEmails = append(opts.allowedEmails, email)
-		}
-	}
-	if err := opts.webSocket.Validate(); err != nil {
-		return nil, err
-	}
-	return opts, nil
+	return &serveCommandOptions{target: o.Target, tunnelID: o.Name, allowedEmails: o.AllowedEmails, tunnelKey: o.TunnelKey, clientSecret: o.Secret, skipLocalTLSVerify: o.SkipLocalTLSVerify, inspect: o.Inspect, inspectBody: o.InspectBody, bearer: o.Bearer, requireUpstreamAuth: o.RequireUpstreamAuth, webSocket: o.WebSocket, expire: o.Expire, qr: o.QR, public: o.Public}, nil
 }
 
 func runLogin() {
@@ -1096,6 +1003,18 @@ func runServe(args []string) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	if opts.expire > 0 {
+		var stop context.CancelFunc
+		ctx, stop = context.WithTimeout(ctx, opts.expire)
+		defer stop()
+	}
+	if opts.qr {
+		serveClient.OnRegistered = func(u string) {
+			if err := hostmode.RenderQR(ctx, u, os.Stderr, ""); err != nil {
+				common.LogError("QR rendering failed", "error", err)
+			}
+		}
+	}
 	if opts.inspect {
 		inspector := client.NewInspectorWithBodyCapture(serveClient, opts.inspectBody)
 		viewerURL, err := inspector.StartInspector(ctx)
@@ -1115,7 +1034,7 @@ func runServe(args []string) {
 		cancel()
 	}()
 
-	if err := serveClient.Run(ctx); err != nil && err != context.Canceled {
+	if err := serveClient.Run(ctx); err != nil && err != context.Canceled && err != context.DeadlineExceeded {
 		common.LogError("tunnel error", "error", err)
 		os.Exit(1)
 	}

@@ -39,9 +39,9 @@ func (s *EmailSender) Send(to, subject, body string) error {
 
 	// Build email message
 	msg := strings.Builder{}
-	msg.WriteString(fmt.Sprintf("From: %s\r\n", s.From))
-	msg.WriteString(fmt.Sprintf("To: %s\r\n", to))
-	msg.WriteString(fmt.Sprintf("Subject: %s\r\n", subject))
+	_, _ = fmt.Fprintf(&msg, "From: %s\r\n", s.From)
+	_, _ = fmt.Fprintf(&msg, "To: %s\r\n", to)
+	_, _ = fmt.Fprintf(&msg, "Subject: %s\r\n", subject)
 	msg.WriteString("MIME-Version: 1.0\r\n")
 	msg.WriteString("Content-Type: text/html; charset=UTF-8\r\n")
 	msg.WriteString("\r\n")

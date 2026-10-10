@@ -236,7 +236,7 @@ func TestProxyServerRun(t *testing.T) {
 	if err != nil {
 		t.Logf("HTTP/2 server connection attempt: %v (may be expected in test environment)", err)
 	} else {
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		if resp.StatusCode != http.StatusOK {
 			t.Errorf("Expected health check status 200, got %d", resp.StatusCode)
 		}

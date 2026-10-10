@@ -563,7 +563,7 @@ func normalizeTCPTarget(target string) (string, error) {
 
 func normalizeUnixTarget(target string) (string, error) {
 	if !filepath.IsAbs(target) || strings.ContainsRune(target, '\x00') {
-		return "", fmt.Errorf("Unix socket path must be absolute")
+		return "", fmt.Errorf("unix socket path must be absolute")
 	}
 	return filepath.Clean(target), nil
 }
@@ -870,7 +870,9 @@ Options:
 	}
 
 	// Parse just the flags
-	fs.Parse(flagArgs)
+	if err := fs.Parse(flagArgs); err != nil {
+		os.Exit(2)
+	}
 
 	if len(nonFlagArgs) == 0 {
 		common.LogError("target required: tunn <port|host:port|url>")
@@ -1120,7 +1122,9 @@ Options:
 		}
 	}
 
-	fs.Parse(flagArgs)
+	if err := fs.Parse(flagArgs); err != nil {
+		os.Exit(2)
+	}
 
 	if len(nonFlagArgs) == 0 {
 		common.LogError("email required: tunn magic-link <email>")

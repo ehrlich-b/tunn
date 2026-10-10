@@ -67,20 +67,20 @@ func isValidDNSLabel(tunnelID string) bool {
 
 	// Must start with alphanumeric
 	first := tunnelID[0]
-	if !((first >= 'a' && first <= 'z') || (first >= '0' && first <= '9')) {
+	if (first < 'a' || first > 'z') && (first < '0' || first > '9') {
 		return false
 	}
 
 	// Must end with alphanumeric
 	last := tunnelID[len(tunnelID)-1]
-	if !((last >= 'a' && last <= 'z') || (last >= '0' && last <= '9')) {
+	if (last < 'a' || last > 'z') && (last < '0' || last > '9') {
 		return false
 	}
 
 	// Middle chars can be alphanumeric or hyphen
 	for i := 1; i < len(tunnelID)-1; i++ {
 		c := tunnelID[i]
-		if !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-') {
+		if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '-' {
 			return false
 		}
 	}
@@ -226,7 +226,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 				},
 			},
 		}
-		stream.Send(respMsg)
+		_ = stream.Send(respMsg)
 		return fmt.Errorf("invalid tunnel ID: %s", tunnelID)
 	}
 
@@ -241,7 +241,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 				},
 			},
 		}
-		stream.Send(respMsg)
+		_ = stream.Send(respMsg)
 		return fmt.Errorf("reserved subdomain: %s", tunnelID)
 	}
 
@@ -324,7 +324,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 					},
 				},
 			}
-			stream.Send(respMsg)
+			_ = stream.Send(respMsg)
 			return fmt.Errorf("invalid tunnel key for tunnel %s", tunnelID)
 		}
 
@@ -340,7 +340,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 					},
 				},
 			}
-			stream.Send(respMsg)
+			_ = stream.Send(respMsg)
 			return fmt.Errorf("no authentication provided for tunnel %s", tunnelID)
 		}
 
@@ -355,7 +355,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 					},
 				},
 			}
-			stream.Send(respMsg)
+			_ = stream.Send(respMsg)
 			return fmt.Errorf("JWT validation failed for tunnel %s: %w", tunnelID, err)
 		}
 		creatorEmail = extractedEmail
@@ -382,7 +382,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 						},
 					},
 				}
-				stream.Send(respMsg)
+				_ = stream.Send(respMsg)
 				return fmt.Errorf("subdomain %s is reserved by another user", tunnelID)
 			}
 			common.LogInfo("using reserved subdomain", "tunnel_id", tunnelID, "creator", creatorEmail)
@@ -450,7 +450,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 				},
 			},
 		}
-		stream.Send(respMsg)
+		_ = stream.Send(respMsg)
 		return fmt.Errorf("tunnel ID %s already registered", tunnelID)
 	}
 	s.mu.Unlock()
@@ -472,7 +472,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 					},
 				},
 			}
-			stream.Send(respMsg)
+			_ = stream.Send(respMsg)
 			common.LogInfo("tunnel registration denied", "tunnel_id", tunnelID, "reason", reg.Reason)
 			return fmt.Errorf("tunnel registration denied: %s", reg.Reason)
 		} else {
@@ -499,7 +499,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 					},
 				},
 			}
-			stream.Send(respMsg)
+			_ = stream.Send(respMsg)
 			common.LogInfo("tunnel limit reached", "email", creatorEmail, "count", currentCount, "max", maxTunnels)
 			return fmt.Errorf("tunnel limit reached for %s", creatorEmail)
 		}
@@ -512,7 +512,9 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		s.mu.Unlock()
 		// Unregister from storage if we registered
 		if registeredWithStorage && s.storage != nil {
-			s.storage.UnregisterTunnel(stream.Context(), tunnelID)
+			if err := s.storage.UnregisterTunnel(stream.Context(), tunnelID); err != nil {
+				common.LogError("failed to unregister duplicate tunnel", "tunnel_id", tunnelID, "error", err)
+			}
 		}
 		respMsg := &pb.TunnelMessage{
 			Message: &pb.TunnelMessage_RegisterResponse{
@@ -522,7 +524,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 				},
 			},
 		}
-		stream.Send(respMsg)
+		_ = stream.Send(respMsg)
 		return fmt.Errorf("tunnel ID %s already registered (race)", tunnelID)
 	}
 	// The tunnel becomes visible before the registration reply reaches the

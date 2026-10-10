@@ -65,7 +65,7 @@ func (i *Inspector) StartInspector(ctx context.Context) (string, error) {
 	}
 	secret := make([]byte, 32)
 	if _, err := rand.Read(secret); err != nil {
-		listener.Close()
+		_ = listener.Close()
 		return "", err
 	}
 	i.host = listener.Addr().String()

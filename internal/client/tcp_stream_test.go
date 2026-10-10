@@ -22,7 +22,7 @@ func TestInboundConnectionStreamsTCP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 	serverDone := make(chan error, 1)
 	go func() {
 		connection, err := listener.Accept()
@@ -30,7 +30,7 @@ func TestInboundConnectionStreamsTCP(t *testing.T) {
 			serverDone <- err
 			return
 		}
-		defer connection.Close()
+		defer func() { _ = connection.Close() }()
 		body, err := io.ReadAll(connection)
 		if err == nil && string(body) != "ping-through-tunn" {
 			err = &unexpectedTCPBody{got: string(body)}
@@ -93,18 +93,18 @@ func TestInboundConnectionStreamsUnixSocket(t *testing.T) {
 	socketPath := placeholder.Name()
 	_ = placeholder.Close()
 	_ = os.Remove(socketPath)
-	defer os.Remove(socketPath)
+	defer func() { _ = os.Remove(socketPath) }()
 	listener, err := net.Listen("unix", socketPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 	go func() {
 		connection, acceptErr := listener.Accept()
 		if acceptErr != nil {
 			return
 		}
-		defer connection.Close()
+		defer func() { _ = connection.Close() }()
 		body, _ := io.ReadAll(connection)
 		_, _ = connection.Write(bytes.ToUpper(body))
 	}()
@@ -154,7 +154,7 @@ func TestInboundConnectionServesHTTPOverUnixSocket(t *testing.T) {
 	socketPath := placeholder.Name()
 	_ = placeholder.Close()
 	_ = os.Remove(socketPath)
-	defer os.Remove(socketPath)
+	defer func() { _ = os.Remove(socketPath) }()
 	listener, err := net.Listen("unix", socketPath)
 	if err != nil {
 		t.Fatal(err)
@@ -164,7 +164,7 @@ func TestInboundConnectionServesHTTPOverUnixSocket(t *testing.T) {
 		_, _ = w.Write([]byte(`{"path":"` + r.URL.Path + `"}`))
 	})}
 	go func() { _ = httpServer.Serve(listener) }()
-	defer httpServer.Close()
+	defer func() { _ = httpServer.Close() }()
 
 	serveClient := &ServeClient{
 		TargetURL:        "http://unix",
@@ -247,7 +247,7 @@ func TestConnectClientPumpsLocalSocket(t *testing.T) {
 		Token:       "endpoint-secret",
 	}
 	connectorSide, applicationSide := net.Pipe()
-	defer applicationSide.Close()
+	defer func() { _ = applicationSide.Close() }()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	done := make(chan error, 1)
@@ -323,7 +323,7 @@ func TestConnectClientOverHTTP2CONNECT(t *testing.T) {
 		Token:       "endpoint-secret",
 	}
 	connectorSide, applicationSide := net.Pipe()
-	defer applicationSide.Close()
+	defer func() { _ = applicationSide.Close() }()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	done := make(chan error, 1)

@@ -194,7 +194,7 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 			w.Header().Set("Content-Type", "text/html")
 			w.WriteHeader(http.StatusForbidden)
 			writePageStart(w, "tunn - Access Denied")
-			fmt.Fprintf(w, `<h1 class="error-title">Access denied</h1>
+			_, _ = fmt.Fprintf(w, `<h1 class="error-title">Access denied</h1>
 <p>You (<code>%s</code>) are not authorized to access this tunnel.</p>
 <p>Contact the tunnel owner to request access.</p>
 `, html.EscapeString(userEmail))
@@ -288,7 +288,7 @@ func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, 
 	if err != nil {
 		return fmt.Errorf("failed to read request body: %w", err)
 	}
-	defer r.Body.Close()
+	defer func() { _ = r.Body.Close() }()
 	if int64(len(limitedBody)) > MaxBodySize {
 		return fmt.Errorf("request body too large (max %d bytes)", MaxBodySize)
 	}
@@ -477,9 +477,9 @@ func (p *ProxyServer) handleApexDomain(w http.ResponseWriter, r *http.Request) {
 
 	switch r.URL.Path {
 	case "/privacy":
-		fmt.Fprint(w, privacyHTML)
+		_, _ = fmt.Fprint(w, privacyHTML)
 	case "/terms":
-		fmt.Fprint(w, termsHTML)
+		_, _ = fmt.Fprint(w, termsHTML)
 	case "/favicon.ico", "/robots.txt", "/sitemap.xml":
 		http.NotFound(w, r)
 	default:
@@ -493,7 +493,7 @@ func (p *ProxyServer) handleApexDomain(w http.ResponseWriter, r *http.Request) {
 				common.LogInfo("homepage human", "ip", ip, "ua", ua)
 			}
 		}
-		fmt.Fprint(w, homepageHTML)
+		_, _ = fmt.Fprint(w, homepageHTML)
 	}
 }
 

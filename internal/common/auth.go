@@ -35,7 +35,7 @@ func AuthMiddleware(token string) func(http.HandlerFunc) http.HandlerFunc {
 // Use this when you've already validated the JWT elsewhere (e.g., via JWKS)
 func ExtractEmailFromJWT(tokenString string) (string, error) {
 	// Parse without validation (signature already validated by proxy)
-	parser := jwt.Parser{SkipClaimsValidation: true}
+	parser := jwt.NewParser(jwt.WithoutClaimsValidation())
 	token, _, err := parser.ParseUnverified(tokenString, jwt.MapClaims{})
 	if err != nil {
 		return "", fmt.Errorf("failed to parse JWT: %w", err)

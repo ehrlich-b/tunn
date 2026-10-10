@@ -102,7 +102,7 @@ func (p *ProxyServer) proxyStreamingHTTPOverGRPC(w http.ResponseWriter, r *http.
 }
 
 func streamConnectionInput(body io.ReadCloser, tunnel *TunnelConnection, connectionID string, count *atomic.Int64, maxBytes int64) (int64, error) {
-	defer body.Close()
+	defer func() { _ = body.Close() }()
 	buffer := make([]byte, common.StreamChunkSize)
 	for {
 		n, err := body.Read(buffer)

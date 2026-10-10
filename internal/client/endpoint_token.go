@@ -56,7 +56,7 @@ func SaveEndpointToken(tunnelID, token string) (string, error) {
 		return "", fmt.Errorf("create temporary endpoint token: %w", err)
 	}
 	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
+	defer func() { _ = os.Remove(temporaryPath) }()
 	if err := temporary.Chmod(0600); err != nil {
 		_ = temporary.Close()
 		return "", fmt.Errorf("secure temporary endpoint token: %w", err)

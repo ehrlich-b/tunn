@@ -1,14 +1,12 @@
 package config
 
 import (
-	"os"
 	"testing"
 )
 
 func TestLoadConfigDev(t *testing.T) {
 	// Set dev environment
-	os.Setenv("TUNN_ENV", "dev")
-	defer os.Unsetenv("TUNN_ENV")
+	t.Setenv("TUNN_ENV", "dev")
 
 	cfg, err := LoadConfig()
 	if err != nil {
@@ -43,8 +41,7 @@ func TestLoadConfigDev(t *testing.T) {
 
 func TestLoadConfigProd(t *testing.T) {
 	// Set prod environment
-	os.Setenv("TUNN_ENV", "prod")
-	defer os.Unsetenv("TUNN_ENV")
+	t.Setenv("TUNN_ENV", "prod")
 
 	cfg, err := LoadConfig()
 	if err != nil {
@@ -79,7 +76,7 @@ func TestLoadConfigProd(t *testing.T) {
 
 func TestLoadConfigDefault(t *testing.T) {
 	// Unset TUNN_ENV to test default behavior
-	os.Unsetenv("TUNN_ENV")
+	t.Setenv("TUNN_ENV", "")
 
 	cfg, err := LoadConfig()
 	if err != nil {
@@ -94,14 +91,9 @@ func TestLoadConfigDefault(t *testing.T) {
 
 func TestLoadConfigEnvOverride(t *testing.T) {
 	// Set environment variables to override defaults
-	os.Setenv("TUNN_ENV", "dev")
-	os.Setenv("TUNN_DOMAIN", "custom.example.com")
-	os.Setenv("TUNN_CERT_FILE", "/custom/cert.pem")
-	defer func() {
-		os.Unsetenv("TUNN_ENV")
-		os.Unsetenv("TUNN_DOMAIN")
-		os.Unsetenv("TUNN_CERT_FILE")
-	}()
+	t.Setenv("TUNN_ENV", "dev")
+	t.Setenv("TUNN_DOMAIN", "custom.example.com")
+	t.Setenv("TUNN_CERT_FILE", "/custom/cert.pem")
 
 	cfg, err := LoadConfig()
 	if err != nil {
@@ -119,8 +111,7 @@ func TestLoadConfigEnvOverride(t *testing.T) {
 
 func TestGetEnvOrDefault(t *testing.T) {
 	// Test with set value
-	os.Setenv("TEST_KEY", "test_value")
-	defer os.Unsetenv("TEST_KEY")
+	t.Setenv("TEST_KEY", "test_value")
 
 	value := getEnvOrDefault("TEST_KEY", "default")
 	if value != "test_value" {

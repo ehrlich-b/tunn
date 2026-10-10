@@ -27,12 +27,10 @@ func TestSaveAndLoadToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
-	// Save original HOME and restore after test
-	originalHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", originalHome)
+	// Restore the test process environment automatically.
+	t.Setenv("HOME", tmpDir)
 
 	// Test saving token
 	client := &LoginClient{}
@@ -66,12 +64,10 @@ func TestLoadTokenNotFound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
-	// Save original HOME and restore after test
-	originalHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", originalHome)
+	// Restore the test process environment automatically.
+	t.Setenv("HOME", tmpDir)
 
 	// Try to load token from empty home
 	_, err = LoadToken()
@@ -86,12 +82,10 @@ func TestSaveTokenCreatesDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
-	// Save original HOME and restore after test
-	originalHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", originalHome)
+	// Restore the test process environment automatically.
+	t.Setenv("HOME", tmpDir)
 
 	// .tunn directory shouldn't exist yet
 	tunnDir := filepath.Join(tmpDir, ".tunn")

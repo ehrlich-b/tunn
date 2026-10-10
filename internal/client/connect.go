@@ -32,13 +32,13 @@ func (c *ConnectClient) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("listen for local TCP connections: %w", err)
 	}
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 
 	output := c.Output
 	if output == nil {
 		output = os.Stdout
 	}
-	fmt.Fprintf(output, "tcp://%s -> %s\n", listener.Addr(), c.EndpointURL)
+	_, _ = fmt.Fprintf(output, "tcp://%s -> %s\n", listener.Addr(), c.EndpointURL)
 
 	transport := &http.Transport{
 		TLSClientConfig:   &tls.Config{InsecureSkipVerify: c.Insecure},
@@ -66,16 +66,16 @@ func (c *ConnectClient) Run(ctx context.Context) error {
 		go func() {
 			defer connections.Done()
 			if err := c.handleConnection(ctx, httpClient, connection); err != nil && ctx.Err() == nil {
-				fmt.Fprintf(output, "connection failed: %v\n", err)
+				_, _ = fmt.Fprintf(output, "connection failed: %v\n", err)
 			}
 		}()
 	}
 }
 
 func (c *ConnectClient) handleConnection(ctx context.Context, httpClient *http.Client, local net.Conn) error {
-	defer local.Close()
+	defer func() { _ = local.Close() }()
 	requestReader, requestWriter := io.Pipe()
-	defer requestReader.Close()
+	defer func() { _ = requestReader.Close() }()
 
 	request, err := http.NewRequestWithContext(ctx, http.MethodConnect, c.EndpointURL, requestReader)
 	if err != nil {
@@ -99,7 +99,7 @@ func (c *ConnectClient) handleConnection(ctx context.Context, httpClient *http.C
 		_ = requestWriter.CloseWithError(err)
 		return fmt.Errorf("open remote TCP endpoint: %w", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
 		message, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
 		return fmt.Errorf("remote endpoint returned %s: %s", response.Status, message)

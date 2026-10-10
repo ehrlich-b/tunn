@@ -88,7 +88,7 @@ func (l *LoginClient) requestDeviceCode() (*DeviceCodeResponse, error) {
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -147,7 +147,7 @@ func (l *LoginClient) checkToken(deviceCode string) (*TokenResponse, error) {
 	if err != nil {
 		return nil, fmt.Errorf("token request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var tokenResp TokenResponse
 	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
@@ -243,5 +243,5 @@ func (l *LoginClient) openBrowser(url string) {
 	}
 
 	// Run in background, ignore errors (user can manually open URL)
-	cmd.Start()
+	_ = cmd.Start()
 }

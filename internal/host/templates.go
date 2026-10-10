@@ -134,7 +134,7 @@ code { background: #f6f8fa; padding: 2px 6px; border-radius: 4px; color: #1f2328
 
 // writePageStart writes the HTML head and opening body tags with header
 func writePageStart(w io.Writer, title string) {
-	fmt.Fprintf(w, `<!DOCTYPE html>
+	_, _ = fmt.Fprintf(w, `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -157,33 +157,18 @@ func writePageStart(w io.Writer, title string) {
 
 // writePageEnd writes the closing body and html tags
 func writePageEnd(w io.Writer) {
-	fmt.Fprint(w, `</div>
+	_, _ = fmt.Fprint(w, `</div>
 </body>
 </html>`)
-}
-
-// writeErrorPage writes a complete error page
-func writeErrorPage(w io.Writer, title, message, detail string) {
-	writePageStart(w, "tunn - "+title)
-	fmt.Fprintf(w, `<div class="message error">%s</div>
-<h1 class="page-title">%s</h1>
-<p class="page-subtitle">%s</p>
-`, message, title, message)
-	if detail != "" {
-		fmt.Fprintf(w, `<p><code>%s</code></p>
-`, detail)
-	}
-	fmt.Fprint(w, `<a href="/" class="btn btn-secondary">Back to Home</a>`)
-	writePageEnd(w)
 }
 
 // writeSuccessPage writes a complete success page
 func writeSuccessPage(w io.Writer, title, message string) {
 	writePageStart(w, "tunn - "+title)
-	fmt.Fprintf(w, `<div class="message success">%s</div>
+	_, _ = fmt.Fprintf(w, `<div class="message success">%s</div>
 <h1 class="page-title">%s</h1>
 <p class="page-subtitle">%s</p>
 `, message, title, message)
-	fmt.Fprint(w, `<a href="/" class="btn btn-primary">Back to Home</a>`)
+	_, _ = fmt.Fprint(w, `<a href="/" class="btn btn-primary">Back to Home</a>`)
 	writePageEnd(w)
 }

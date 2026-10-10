@@ -30,7 +30,7 @@ func TestBridgeMCPFlow(t *testing.T) {
 	discover := postMCP(t, bridge, "", "application/json", `{
 		"jsonrpc":"2.0","id":"discover","method":"server/discover","params":{}
 	}`)
-	defer discover.Body.Close()
+	defer func() { _ = discover.Body.Close() }()
 	if discover.StatusCode != http.StatusOK {
 		t.Fatalf("server/discover status = %d, want legacy method error: %s", discover.StatusCode, readBody(t, discover.Body))
 	}
@@ -42,7 +42,7 @@ func TestBridgeMCPFlow(t *testing.T) {
 		"jsonrpc":"2.0","id":1,"method":"initialize",
 		"params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"test","version":"1"}}
 	}`)
-	defer initialize.Body.Close()
+	defer func() { _ = initialize.Body.Close() }()
 	if initialize.StatusCode != http.StatusOK {
 		t.Fatalf("initialize status = %d, want 200: %s", initialize.StatusCode, readBody(t, initialize.Body))
 	}
@@ -57,7 +57,7 @@ func TestBridgeMCPFlow(t *testing.T) {
 	initialized := postMCP(t, bridge, sessionID, "application/json", `{
 		"jsonrpc":"2.0","method":"notifications/initialized"
 	}`)
-	initialized.Body.Close()
+	_ = initialized.Body.Close()
 	if initialized.StatusCode != http.StatusAccepted {
 		t.Fatalf("initialized status = %d, want 202", initialized.StatusCode)
 	}
@@ -65,7 +65,7 @@ func TestBridgeMCPFlow(t *testing.T) {
 	missingSession := postMCP(t, bridge, "", "application/json", `{
 		"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}
 	}`)
-	missingSession.Body.Close()
+	_ = missingSession.Body.Close()
 	if missingSession.StatusCode != http.StatusNotFound {
 		t.Fatalf("missing session status = %d, want 404", missingSession.StatusCode)
 	}
@@ -73,7 +73,7 @@ func TestBridgeMCPFlow(t *testing.T) {
 	list := postMCP(t, bridge, sessionID, "application/json", `{
 		"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}
 	}`)
-	defer list.Body.Close()
+	defer func() { _ = list.Body.Close() }()
 	if list.StatusCode != http.StatusOK {
 		t.Fatalf("tools/list status = %d, want 200: %s", list.StatusCode, readBody(t, list.Body))
 	}
@@ -106,7 +106,7 @@ func TestBridgeOfficialGoSDKClient(t *testing.T) {
 	if err != nil {
 		t.Fatalf("official MCP client Connect: %v", err)
 	}
-	defer session.Close()
+	defer func() { _ = session.Close() }()
 	if got := session.InitializeResult().ProtocolVersion; got != modernProtocolVersion {
 		t.Fatalf("official MCP client negotiated %q, want %s", got, modernProtocolVersion)
 	}
@@ -160,26 +160,26 @@ func TestBridgeModernHeadersAndSessionlessCalls(t *testing.T) {
 	if body := readBody(t, discover.Body); !strings.Contains(body, modernProtocolVersion) {
 		t.Fatalf("discover did not advertise current protocol: %s", body)
 	}
-	discover.Body.Close()
+	_ = discover.Body.Close()
 
 	listBody := `{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{` + meta + `}}`
 	list := post("tools/list", "", listBody)
 	if list.StatusCode != http.StatusOK || !strings.Contains(readBody(t, list.Body), `"echo"`) {
 		t.Fatal("modern tools/list failed")
 	}
-	list.Body.Close()
+	_ = list.Body.Close()
 
 	callBody := `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"echo","arguments":{"text":"hello"},` + meta + `}}`
 	badName := post("tools/call", "wrong", callBody)
 	if badName.StatusCode != http.StatusBadRequest || !strings.Contains(readBody(t, badName.Body), `"code":-32020`) {
 		t.Fatal("mismatched Mcp-Name was not rejected")
 	}
-	badName.Body.Close()
+	_ = badName.Body.Close()
 	call := post("tools/call", "echo", callBody)
 	if call.StatusCode != http.StatusOK || !strings.Contains(readBody(t, call.Body), `"hello"`) {
 		t.Fatal("modern tools/call failed")
 	}
-	call.Body.Close()
+	_ = call.Body.Close()
 
 	request, err := http.NewRequest(http.MethodPost, bridge.URL()+"/mcp", strings.NewReader(listBody))
 	if err != nil {
@@ -195,7 +195,7 @@ func TestBridgeModernHeadersAndSessionlessCalls(t *testing.T) {
 	if response.StatusCode != http.StatusBadRequest || !strings.Contains(readBody(t, response.Body), `"code":-32020`) {
 		t.Fatal("mismatched Mcp-Method was not rejected")
 	}
-	response.Body.Close()
+	_ = response.Body.Close()
 
 	request, err = http.NewRequest(http.MethodPost, bridge.URL()+"/mcp", strings.NewReader(listBody))
 	if err != nil {
@@ -210,7 +210,7 @@ func TestBridgeModernHeadersAndSessionlessCalls(t *testing.T) {
 	if response.StatusCode != http.StatusForbidden {
 		t.Fatalf("browser Origin status = %d, want 403", response.StatusCode)
 	}
-	response.Body.Close()
+	_ = response.Body.Close()
 }
 
 func TestBridgeCarriesFiniteSSENotifications(t *testing.T) {
@@ -220,7 +220,7 @@ func TestBridgeCarriesFiniteSSENotifications(t *testing.T) {
 	response := postMCP(t, bridge, sessionID, "application/json, text/event-stream", `{
 		"jsonrpc":"2.0","id":"call-1","method":"tools/call","params":{"name":"echo","arguments":{"text":"hello"}}
 	}`)
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("tools/call status = %d, want 200: %s", response.StatusCode, readBody(t, response.Body))
 	}
@@ -243,7 +243,7 @@ func TestBridgeRejectsChildRequestsWithoutDeadlock(t *testing.T) {
 	response := postMCP(t, bridge, sessionID, "application/json", `{
 		"jsonrpc":"2.0","id":7,"method":"test/server-request","params":{}
 	}`)
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("server-request status = %d, want 200: %s", response.StatusCode, readBody(t, response.Body))
 	}
@@ -259,7 +259,7 @@ func TestBridgeEnforcesLocalToolAllowList(t *testing.T) {
 	list := postMCP(t, bridge, sessionID, "application/json", `{
 		"jsonrpc":"2.0","id":20,"method":"tools/list","params":{}
 	}`)
-	defer list.Body.Close()
+	defer func() { _ = list.Body.Close() }()
 	if body := readBody(t, list.Body); !strings.Contains(body, `"tools":[]`) {
 		t.Fatalf("tools/list was not filtered: %s", body)
 	}
@@ -267,7 +267,7 @@ func TestBridgeEnforcesLocalToolAllowList(t *testing.T) {
 	call := postMCP(t, bridge, sessionID, "application/json", `{
 		"jsonrpc":"2.0","id":21,"method":"tools/call","params":{"name":"echo","arguments":{"text":"secret"}}
 	}`)
-	defer call.Body.Close()
+	defer func() { _ = call.Body.Close() }()
 	body := readBody(t, call.Body)
 	if call.StatusCode != http.StatusOK || !strings.Contains(body, `"code":-32001`) {
 		t.Fatalf("denied tools/call response = %d %s", call.StatusCode, body)
@@ -286,7 +286,7 @@ func TestBridgeValidatesHTTPEnvelope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	response.Body.Close()
+	_ = response.Body.Close()
 	if response.StatusCode != http.StatusUnsupportedMediaType {
 		t.Fatalf("wrong content type status = %d, want 415", response.StatusCode)
 	}
@@ -300,7 +300,7 @@ func TestBridgeTimesOut(t *testing.T) {
 	response := postMCP(t, bridge, sessionID, "application/json", `{
 		"jsonrpc":"2.0","id":99,"method":"test/never","params":{}
 	}`)
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusGatewayTimeout {
 		t.Fatalf("timeout status = %d, want 504: %s", response.StatusCode, readBody(t, response.Body))
 	}
@@ -313,7 +313,7 @@ func TestBridgeReportsChildExit(t *testing.T) {
 	response := postMCP(t, bridge, sessionID, "application/json", `{
 		"jsonrpc":"2.0","id":10,"method":"test/exit","params":{}
 	}`)
-	response.Body.Close()
+	_ = response.Body.Close()
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("exit response status = %d, want 200", response.StatusCode)
 	}
@@ -335,7 +335,7 @@ func TestBridgeFailsRequestWhenChildExits(t *testing.T) {
 	response := postMCP(t, bridge, sessionID, "application/json", `{
 		"jsonrpc":"2.0","id":11,"method":"test/exit-now","params":{}
 	}`)
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusBadGateway {
 		t.Fatalf("child exit status = %d, want 502: %s", response.StatusCode, readBody(t, response.Body))
 	}
@@ -371,7 +371,7 @@ func initializeTestBridge(t *testing.T, bridge *Bridge) string {
 		"jsonrpc":"2.0","id":1,"method":"initialize",
 		"params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"test","version":"1"}}
 	}`)
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("initialize status = %d: %s", response.StatusCode, readBody(t, response.Body))
 	}

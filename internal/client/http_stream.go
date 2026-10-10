@@ -113,7 +113,7 @@ func (s *ServeClient) handleStreamingTCP(ctx context.Context, sender messageSend
 		sendConnectionRejection(sender, connectionID, "failed to reach local TCP target")
 		return
 	}
-	defer connection.Close()
+	defer func() { _ = connection.Close() }()
 	stopWatcher := make(chan struct{})
 	defer close(stopWatcher)
 	go func() {
@@ -285,7 +285,7 @@ func (s *ServeClient) handleStreamingHTTPRequest(ctx context.Context, sender mes
 		sendConnectionRejection(sender, open.ConnectionId, "failed to reach local target")
 		return
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	status = response.StatusCode
 	failure = ""
 

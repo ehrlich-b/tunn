@@ -167,7 +167,7 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to connect: %w", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// Create tunnel service client
 	client := pb.NewTunnelServiceClient(conn)
@@ -472,7 +472,7 @@ func (s *ServeClient) handleHttpRequest(sender messageSender, httpReq *pb.HttpRe
 		s.sendErrorResponse(sender, httpReq.ConnectionId, http.StatusBadGateway, "Failed to reach local target")
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	status = resp.StatusCode
 	failure = ""
 

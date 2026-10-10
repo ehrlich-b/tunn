@@ -74,7 +74,7 @@ func TestSendHealthChecks(t *testing.T) {
 						},
 					},
 				}
-				stream.Send(msg)
+				_ = stream.Send(msg)
 			}
 		}
 	}()
@@ -110,7 +110,7 @@ func TestHandleHttpRequest(t *testing.T) {
 		w.Header().Set("X-Test-Header", "test-value")
 		w.Header().Set("Content-Type", "text/plain")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("Hello from local server"))
+		_, _ = w.Write([]byte("Hello from local server"))
 	}))
 	defer localServer.Close()
 
@@ -285,7 +285,7 @@ func TestHandleHttpRequestMultiValueHeaders(t *testing.T) {
 		w.Header().Add("Set-Cookie", "cookie2=value2")
 		w.Header().Set("Content-Type", "text/plain")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+		_, _ = w.Write([]byte("OK"))
 	}))
 	defer localServer.Close()
 
@@ -372,7 +372,7 @@ func TestHandleHttpRequestConcurrent(t *testing.T) {
 	localServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Echo the path back to verify correct routing
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(r.URL.Path))
+		_, _ = w.Write([]byte(r.URL.Path))
 	}))
 	defer localServer.Close()
 
@@ -530,7 +530,7 @@ func TestHandleHttpRequestTimeout(t *testing.T) {
 		// Sleep longer than the client timeout
 		time.Sleep(200 * time.Millisecond)
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("Too late"))
+		_, _ = w.Write([]byte("Too late"))
 	}))
 	defer localServer.Close()
 
@@ -578,7 +578,7 @@ func TestProcessMessagesHttpRequest(t *testing.T) {
 	// Start a mock local server
 	localServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("response from local"))
+		_, _ = w.Write([]byte("response from local"))
 	}))
 	defer localServer.Close()
 

@@ -275,24 +275,24 @@ func (p *ProxyServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 	writePageStart(w, "tunn - Login")
 
 	if tunnelID != "" {
-		fmt.Fprint(w, `<h1 class="page-title">Sign in to access tunnel</h1>
+		_, _ = fmt.Fprint(w, `<h1 class="page-title">Sign in to access tunnel</h1>
 <p class="page-subtitle">This tunnel requires authentication.</p>
 <div id="message"></div>`)
 	} else {
-		fmt.Fprint(w, `<h1 class="page-title">Sign in to tunn</h1>
+		_, _ = fmt.Fprint(w, `<h1 class="page-title">Sign in to tunn</h1>
 <p class="page-subtitle">Access your tunnels and account settings.</p>
 <div id="message"></div>`)
 	}
 
 	// Show OAuth button (GitHub in prod, Mock OIDC in dev)
 	if hasGitHub {
-		fmt.Fprintf(w, `<a href="/auth/github?%s" class="btn btn-github">Continue with GitHub</a>`, oauthParams)
+		_, _ = fmt.Fprintf(w, `<a href="/auth/github?%s" class="btn btn-github">Continue with GitHub</a>`, oauthParams)
 	} else if hasMockOIDC {
-		fmt.Fprintf(w, `<a href="/auth/mock?%s" class="btn btn-github">Continue with Mock Login</a>`, oauthParams)
+		_, _ = fmt.Fprintf(w, `<a href="/auth/mock?%s" class="btn btn-github">Continue with Mock Login</a>`, oauthParams)
 	}
 
 	if hasOAuth && hasEmail {
-		fmt.Fprint(w, `<div class="divider"><span>or</span></div>`)
+		_, _ = fmt.Fprint(w, `<div class="divider"><span>or</span></div>`)
 	}
 
 	if hasEmail {
@@ -301,7 +301,7 @@ func (p *ProxyServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 		if deviceUserCode != "" {
 			magicURL += "?device_user_code=" + url.QueryEscape(deviceUserCode)
 		}
-		fmt.Fprintf(w, `
+		_, _ = fmt.Fprintf(w, `
 <form id="email-form">
 <input type="email" name="email" placeholder="you@example.com" required>
 <button type="submit" class="btn btn-secondary">Continue with Email</button>
@@ -342,7 +342,7 @@ document.getElementById('email-form').addEventListener('submit', async (e) => {
 	}
 
 	if !hasOAuth && !hasEmail {
-		fmt.Fprint(w, `<p>No login methods configured. Contact your administrator.</p>`)
+		_, _ = fmt.Fprint(w, `<p>No login methods configured. Contact your administrator.</p>`)
 	}
 
 	writePageEnd(w)
@@ -481,7 +481,7 @@ func (p *ProxyServer) exchangeGitHubCode(code string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("token request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -525,7 +525,7 @@ func (p *ProxyServer) getGitHubEmails(accessToken string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("email request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)

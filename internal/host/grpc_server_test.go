@@ -231,7 +231,7 @@ func TestTunnelServerDuplicateRegistration(t *testing.T) {
 
 	// Run first connection in background
 	go func() {
-		srv.EstablishTunnel(stream1)
+		_ = srv.EstablishTunnel(stream1)
 	}()
 
 	// Give it time to register

@@ -98,19 +98,19 @@ func StartWithOptions(parent context.Context, command []string, stderr io.Writer
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		cancel()
-		listener.Close()
+		_ = listener.Close()
 		return nil, fmt.Errorf("open MCP command stdin: %w", err)
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		cancel()
-		listener.Close()
+		_ = listener.Close()
 		return nil, fmt.Errorf("open MCP command stdout: %w", err)
 	}
 
 	if err := cmd.Start(); err != nil {
 		cancel()
-		listener.Close()
+		_ = listener.Close()
 		return nil, fmt.Errorf("start MCP command %q: %w", command[0], err)
 	}
 

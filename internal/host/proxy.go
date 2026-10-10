@@ -270,7 +270,7 @@ func createInternalClient(addr string, cfg *config.Config) (*grpc.ClientConn, er
 	}
 	// Otherwise use system CA pool (tunn.to uses Let's Encrypt, which is trusted)
 
-	return grpc.Dial(addr,
+	return grpc.NewClient("passthrough:///"+addr,
 		grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)),
 		grpc.WithPerRPCCredentials(&nodeSecretCreds{secret: cfg.NodeSecret}),
 	)
@@ -533,7 +533,7 @@ func (p *ProxyServer) Run(ctx context.Context) error {
 		// Shutdown mock OIDC server if running
 		if p.mockOIDC != nil {
 			common.LogInfo("shutting down mock OIDC server")
-			p.mockOIDC.Shutdown()
+			_ = p.mockOIDC.Shutdown()
 		}
 
 		// Shutdown internal gRPC server
@@ -561,7 +561,9 @@ func (p *ProxyServer) startHTTP2Server(ctx context.Context, handler http.Handler
 	}
 
 	// Enable HTTP/2
-	http2.ConfigureServer(srv, &http2.Server{})
+	if err := http2.ConfigureServer(srv, &http2.Server{}); err != nil {
+		return fmt.Errorf("configure HTTP/2 server: %w", err)
+	}
 
 	common.LogInfo("starting HTTP/2 server", "addr", p.HTTP2Addr)
 
@@ -578,7 +580,9 @@ func (p *ProxyServer) startHTTP2Server(ctx context.Context, handler http.Handler
 		common.LogInfo("shutting down HTTP/2 server")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
-		srv.Shutdown(shutdownCtx)
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			_ = srv.Close()
+		}
 	}()
 
 	if err := srv.Serve(tlsLn); err != nil && err != http.ErrServerClosed {
@@ -602,7 +606,7 @@ func (p *ProxyServer) startHTTP3Server(ctx context.Context, handler http.Handler
 	go func() {
 		<-ctx.Done()
 		common.LogInfo("shutting down HTTP/3 server")
-		srv.Close()
+		_ = srv.Close()
 	}()
 
 	if err := srv.ListenAndServeTLS(p.CertFile, p.KeyFile); err != nil && err != http.ErrServerClosed {
@@ -677,7 +681,7 @@ func (p *ProxyServer) createHandler() http.Handler {
 	// Health check endpoint (no auth required)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, "ok")
+		_, _ = fmt.Fprint(w, "ok")
 	})
 
 	// Install script endpoint
@@ -725,7 +729,7 @@ func (p *ProxyServer) handleInstallScript(w http.ResponseWriter, r *http.Request
 	ip := extractClientIP(r)
 	common.LogInfo("install script download", "ip", ip, "ua", ua)
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	fmt.Fprint(w, installScript)
+	_, _ = fmt.Fprint(w, installScript)
 }
 
 // installScript is the embedded install.sh content
@@ -842,7 +846,7 @@ func (p *ProxyServer) findAndConnectLoginNode() bool {
 
 			// Close existing connection if any
 			if p.loginNodeConn != nil {
-				p.loginNodeConn.Close()
+				_ = p.loginNodeConn.Close()
 			}
 
 			p.loginNodeConn = conn

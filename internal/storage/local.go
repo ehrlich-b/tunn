@@ -29,6 +29,21 @@ type LocalStorage struct {
 	// Maps email -> list of request times
 	magicLinkRequests   map[string][]time.Time
 	magicLinkRequestsMu sync.Mutex
+
+	// now is the clock source for time-dependent behavior (magic-token TTL
+	// cleanup and magic-link rate limiting). It defaults to time.Now and is
+	// used via currentTime so tests can inject a deterministic fake clock
+	// (the only seam needed to test expiry and rate-limit windows).
+	now func() time.Time
+}
+
+// currentTime returns the injected clock time, falling back to the wall clock
+// when no clock was injected (e.g. LocalStorage built directly in tests).
+func (s *LocalStorage) currentTime() time.Time {
+	if s.now != nil {
+		return s.now()
+	}
+	return time.Now()
 }
 
 // NewLocalStorage creates a new LocalStorage backed by SQLite.
@@ -39,25 +54,33 @@ func NewLocalStorage(db *sql.DB) *LocalStorage {
 		activeTunnels:     make(map[string]string),
 		usedJTIs:          make(map[string]time.Time),
 		magicLinkRequests: make(map[string][]time.Time),
+		now:               time.Now,
 	}
 	// Start cleanup goroutine for expired JTIs
 	go s.cleanupExpiredJTIs()
 	return s
 }
 
-// cleanupExpiredJTIs periodically removes expired JTIs from memory
+// cleanupExpiredJTIs periodically removes expired JTIs from memory.
+// Each pass runs in cleanupExpiredJTIsOnce, which in-package tests call
+// directly to make past-TTL expiry deterministic against the injected clock.
 func (s *LocalStorage) cleanupExpiredJTIs() {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
 	for range ticker.C {
-		now := time.Now()
-		s.usedJTIsMu.Lock()
-		for jti, expiry := range s.usedJTIs {
-			if now.After(expiry) {
-				delete(s.usedJTIs, jti)
-			}
+		s.cleanupExpiredJTIsOnce()
+	}
+}
+
+// cleanupExpiredJTIsOnce removes expired JTIs from memory in a single pass.
+func (s *LocalStorage) cleanupExpiredJTIsOnce() {
+	now := s.currentTime()
+	s.usedJTIsMu.Lock()
+	defer s.usedJTIsMu.Unlock()
+	for jti, expiry := range s.usedJTIs {
+		if now.After(expiry) {
+			delete(s.usedJTIs, jti)
 		}
-		s.usedJTIsMu.Unlock()
 	}
 }
 
@@ -270,7 +293,7 @@ func (s *LocalStorage) CheckMagicLinkRateLimit(ctx context.Context, email string
 	s.magicLinkRequestsMu.Lock()
 	defer s.magicLinkRequestsMu.Unlock()
 
-	now := time.Now()
+	now := s.currentTime()
 	windowStart := now.Add(-magicLinkRateWindow)
 
 	// Get existing requests and filter to current window

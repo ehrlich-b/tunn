@@ -11,13 +11,15 @@ GO_FILES := $(wildcard *.go)
 DOCKER_IMAGE := $(APP_NAME):latest
 FLY_APP_NAME := $(APP_NAME)
 
-.PHONY: test-ops-config test-ops-store test-ops-host test-ops-logs test-ops-scripts test-ops
+.PHONY: test-ops-config test-ops-store test-ops-host test-ops-host-unit test-ops-logs test-ops-scripts test-ops
 test-ops-config:
 	go test $(GO_TEST_FLAGS) -p 2 -parallel=2 -count=1 -timeout=60s ./internal/config
 test-ops-store:
 	go test $(GO_TEST_FLAGS) -p 2 -parallel=2 -count=1 -timeout=90s -run '^TestOps' ./internal/store
 test-ops-host:
 	go test $(GO_TEST_FLAGS) -p 2 -parallel=2 -count=1 -timeout=90s -run '^TestOps' ./internal/host
+test-ops-host-unit:
+	go test $(GO_TEST_FLAGS) -p 2 -parallel=2 -count=1 -timeout=90s -run '^TestOpsRelay' ./internal/host
 test-ops-logs:
 	go test $(GO_TEST_FLAGS) -p 2 -parallel=2 -count=1 -timeout=60s ./internal/common
 test-ops-scripts:

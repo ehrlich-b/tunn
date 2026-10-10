@@ -227,7 +227,7 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 	// A browser cookie may have authenticated the request before bearer auth
 	// was considered. Still remove a recognized tunn credential in the standard
 	// header, while preserving an upstream application's unrelated credential.
-	if authorization := r.Header.Get("Authorization"); authorization != "" {
+	if authorization := r.Header.Get("Authorization"); len(tunnel.AllowedEmails) > 0 && authorization != "" {
 		authRequest := &http.Request{Header: make(http.Header)}
 		authRequest.Header.Set("Authorization", authorization)
 		if _, _, _, valid := p.getAuthFromTunnelBearer(authRequest, tunnel); valid {

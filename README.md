@@ -162,6 +162,10 @@ and metering sequence; [the 2.0 design](docs/DESIGN-2.0.md) for architecture;
 and [the commercial thesis](docs/COMMERCIAL-THESIS.md) for the buyer and payment
 test.
 
+For supervised SSH, wingthing MCP, and private dashboard access on forge and
+rig, see the [AI host deployment kit](deploy/ai-hosts/README.md), including its
+security prerequisites and two-phase restart canary.
+
 ## Self-Host
 
 Run your own tunn server:
@@ -186,6 +190,7 @@ Your laptop connects to tunn.to over a persistent tunnel. When someone visits yo
 make build    # Build the binary
 make test     # Run tests
 make test-mcp # Run the focused stdio/Streamable HTTP bridge tests
+make test-ai-hosts # Offline deployment-kit unit and shell syntax checks
 make integration-test-ai # TLS relay; private MCP/TCP, rotation, concurrency, reconnect
 make check    # Full pre-commit check (format, tidy, test with race detection)
 ```

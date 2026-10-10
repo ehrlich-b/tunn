@@ -43,6 +43,12 @@ func SaveEndpointToken(tunnelID, token string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	return writePrivateTokenFile(dir, name+".token", token+"\n")
+}
+
+// writePrivateTokenFile replaces credentials atomically, including existing
+// permissive files or symlinks, without following the destination symlink.
+func writePrivateTokenFile(dir, name, token string) (string, error) {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return "", fmt.Errorf("create endpoint token directory: %w", err)
 	}
@@ -50,7 +56,7 @@ func SaveEndpointToken(tunnelID, token string) (string, error) {
 		return "", fmt.Errorf("secure endpoint token directory: %w", err)
 	}
 
-	path := filepath.Join(dir, name+".token")
+	path := filepath.Join(dir, name)
 	temporary, err := os.CreateTemp(dir, "."+name+".*.tmp")
 	if err != nil {
 		return "", fmt.Errorf("create temporary endpoint token: %w", err)
@@ -61,7 +67,7 @@ func SaveEndpointToken(tunnelID, token string) (string, error) {
 		_ = temporary.Close()
 		return "", fmt.Errorf("secure temporary endpoint token: %w", err)
 	}
-	if _, err := temporary.WriteString(token + "\n"); err != nil {
+	if _, err := temporary.WriteString(token); err != nil {
 		_ = temporary.Close()
 		return "", fmt.Errorf("write endpoint token: %w", err)
 	}
@@ -108,19 +114,27 @@ func LoadEndpointToken(tunnelID string) (string, error) {
 }
 
 func endpointTokenDirectory() (string, error) {
+	base, err := configDirectory()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(base, "endpoints"), nil
+}
+
+func configDirectory() (string, error) {
 	base := strings.TrimSpace(os.Getenv(configDirectoryEnvironment))
 	if base != "" {
 		if !filepath.IsAbs(base) {
 			return "", fmt.Errorf("%s must be an absolute path", configDirectoryEnvironment)
 		}
-		return filepath.Join(filepath.Clean(base), "endpoints"), nil
+		return filepath.Clean(base), nil
 	}
 
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("get home directory: %w", err)
 	}
-	return filepath.Join(home, ".tunn", "endpoints"), nil
+	return filepath.Join(home, ".tunn"), nil
 }
 
 func loadEndpointTokenFile(path string) (string, error) {

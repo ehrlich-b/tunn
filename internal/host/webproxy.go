@@ -28,6 +28,7 @@ const MaxBodySize = 100 * 1024 * 1024
 // These are tunn platform cookies that tunnel owners should never see.
 var platformCookies = map[string]bool{
 	"tunn_session": true,
+	authCookieName: true,
 }
 
 // stripPlatformCookies removes platform cookies from a Cookie header value.
@@ -223,6 +224,19 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 			r = clonedRequest
 		}
 	}
+	// A browser cookie may have authenticated the request before bearer auth
+	// was considered. Still remove a recognized tunn credential in the standard
+	// header, while preserving an upstream application's unrelated credential.
+	if authorization := r.Header.Get("Authorization"); authorization != "" {
+		authRequest := &http.Request{Header: make(http.Header)}
+		authRequest.Header.Set("Authorization", authorization)
+		if _, _, _, valid := p.getAuthFromTunnelBearer(authRequest, tunnel); valid {
+			clonedRequest := r.Clone(r.Context())
+			clonedRequest.Header = r.Header.Clone()
+			clonedRequest.Header.Del("Authorization")
+			r = clonedRequest
+		}
+	}
 
 	// Check quota before proxying
 	if tunnel.CreatorEmail != "" {
@@ -387,6 +401,11 @@ func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, 
 func forwardedRequestHeaders(source http.Header) map[string]string {
 	headers := make(map[string]string, len(source))
 	for key, values := range source {
+		// This header belongs exclusively to the relay, even when a browser
+		// cookie authenticated the request instead of the bearer credential.
+		if strings.EqualFold(key, "Tunn-Authorization") {
+			continue
+		}
 		value := strings.Join(values, ", ")
 		if strings.EqualFold(key, "Cookie") {
 			value = stripPlatformCookies(value)

@@ -718,7 +718,7 @@ func (p *ProxyServer) CheckJWT(next http.Handler) http.Handler {
 		// Check for Bearer token
 		const bearerPrefix = "Bearer "
 		if !strings.HasPrefix(authHeader, bearerPrefix) {
-			common.LogError("invalid authorization header format", "header", authHeader)
+			common.LogError("invalid authorization header format", "path", r.URL.Path)
 			http.Error(w, "Invalid Authorization header format", http.StatusUnauthorized)
 			return
 		}

@@ -73,7 +73,8 @@ func (l *LoginClient) Run(ctx context.Context) error {
 		return fmt.Errorf("failed to save token: %w", err)
 	}
 
-	common.LogInfo("login successful", "token_file", l.getTokenPath())
+	tokenPath, _ := l.getTokenPath() // saveToken already checked the path.
+	common.LogInfo("login successful", "token_file", tokenPath)
 	fmt.Printf("Logged in successfully!\n")
 
 	return nil
@@ -171,39 +172,29 @@ func (l *LoginClient) checkToken(deviceCode string) (*TokenResponse, error) {
 
 // saveToken saves the access token to a file
 func (l *LoginClient) saveToken(token string) error {
-	tokenPath := l.getTokenPath()
-
-	// Create directory if it doesn't exist
-	dir := filepath.Dir(tokenPath)
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return fmt.Errorf("failed to create token directory: %w", err)
+	tokenPath, err := l.getTokenPath()
+	if err != nil {
+		return err
 	}
-
-	// Write token to file
-	if err := os.WriteFile(tokenPath, []byte(token), 0600); err != nil {
-		return fmt.Errorf("failed to write token file: %w", err)
-	}
-
-	return nil
+	_, err = writePrivateTokenFile(filepath.Dir(tokenPath), filepath.Base(tokenPath), token)
+	return err
 }
 
 // getTokenPath returns the path to the token file
-func (l *LoginClient) getTokenPath() string {
-	home, err := os.UserHomeDir()
+func (l *LoginClient) getTokenPath() (string, error) {
+	dir, err := configDirectory()
 	if err != nil {
-		return ".tunn/token"
+		return "", err
 	}
-	return filepath.Join(home, ".tunn", "token")
+	return filepath.Join(dir, "token"), nil
 }
 
 // LoadToken loads the saved access token
 func LoadToken() (string, error) {
-	home, err := os.UserHomeDir()
+	tokenPath, err := (&LoginClient{}).getTokenPath()
 	if err != nil {
-		return "", fmt.Errorf("failed to get home directory: %w", err)
+		return "", err
 	}
-
-	tokenPath := filepath.Join(home, ".tunn", "token")
 	data, err := os.ReadFile(tokenPath)
 	if err != nil {
 		if os.IsNotExist(err) {

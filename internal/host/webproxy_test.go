@@ -16,6 +16,7 @@ import (
 	"github.com/ehrlich-b/tunn/internal/storage"
 	internalv1 "github.com/ehrlich-b/tunn/pkg/proto/internalv1"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
+	"github.com/golang-jwt/jwt/v4"
 	"google.golang.org/grpc/metadata"
 )
 
@@ -24,6 +25,67 @@ func webproxyTestConfig() *config.Config {
 		WellKnownKey: "test-key",
 		Domain:       "tunn.to",
 		JWTSecret:    "test-jwt-secret",
+	}
+}
+
+func TestCookieAuthenticatedRequestDoesNotForwardPlatformCredentials(t *testing.T) {
+	for _, authorization := range []string{"upstream", "account", "endpoint"} {
+		t.Run(authorization, func(t *testing.T) {
+			cfg := webproxyTestConfig()
+			stream := &mockWebProxyStream{}
+			endpointToken := "tunn_ep_synthetic-cookie-test"
+			digest := sha256.Sum256([]byte(endpointToken))
+			tunnel := &TunnelConnection{
+				TunnelID: "dashboard", Stream: stream,
+				AllowedEmails:     []string{"alice@example.com"},
+				AccessTokenSHA256: digest[:],
+				pendingRequests:   make(map[string]chan *pb.HttpResponse),
+			}
+			server := NewTunnelServer(cfg, nil, nil, nil)
+			server.tunnels[tunnel.TunnelID] = tunnel
+			proxy := &ProxyServer{Domain: cfg.Domain, config: cfg, tunnelServer: server, storage: storage.NewProxyStorage()}
+			accountToken, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+				"email": "alice@example.com", "exp": time.Now().Add(time.Hour).Unix(),
+			}).SignedString([]byte(cfg.JWTSecret))
+			if err != nil {
+				t.Fatal(err)
+			}
+			request := httptest.NewRequest(http.MethodGet, "https://dashboard.tunn.to/", nil)
+			request.AddCookie(&http.Cookie{Name: authCookieName, Value: accountToken})
+			request.AddCookie(&http.Cookie{Name: "tunn_session", Value: "synthetic-session"})
+			request.AddCookie(&http.Cookie{Name: "app_session", Value: "keep"})
+			request.Header.Set("Tunn-Authorization", "Bearer "+endpointToken)
+			switch authorization {
+			case "upstream":
+				request.Header.Set("Authorization", "Bearer upstream-app-token")
+			case "account":
+				request.Header.Set("Authorization", "Bearer "+accountToken)
+			case "endpoint":
+				request.Header.Set("Authorization", "Bearer "+endpointToken)
+			}
+			respondToForwardedRequest(t, stream, tunnel)
+			recorder := httptest.NewRecorder()
+			proxy.handleWebProxy(recorder, request)
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("cookie-authenticated request status = %d", recorder.Code)
+			}
+			stream.mu.Lock()
+			headers := stream.sentMsgs[0].GetHttpRequest().Headers
+			stream.mu.Unlock()
+			if headers["Cookie"] != "app_session=keep" || headers["Tunn-Authorization"] != "" {
+				t.Fatalf("platform credentials leaked: %v", headers)
+			}
+			want := ""
+			if authorization == "upstream" {
+				want = "Bearer upstream-app-token"
+			}
+			if headers["Authorization"] != want {
+				t.Fatal("Authorization was not correctly classified")
+			}
+			if request.Header.Get("Tunn-Authorization") == "" || len(request.Cookies()) != 3 {
+				t.Fatal("sanitizing credentials mutated the caller's request")
+			}
+		})
 	}
 }
 

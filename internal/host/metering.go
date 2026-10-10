@@ -53,7 +53,7 @@ func (s *ingressMeter) recordError(err error, ctx context.Context) {
 			s.reason = limit.decision.Reason
 		}
 	}
-	if ctx.Err() != nil {
+	if ctx.Err() != nil && !errors.As(context.Cause(ctx), new(*ingressLimitError)) && !errors.As(context.Cause(ctx), new(*meterUnavailableError)) {
 		s.reason = "caller_disconnected"
 	}
 }
@@ -75,6 +75,7 @@ func (s *ingressMeter) admit(ctx context.Context, w http.ResponseWriter, r *http
 	d, err := s.backend.Admit(ctx, s.event)
 	if err != nil {
 		s.reason = "meter_unavailable"
+		w.Header().Set("Tunn-Limit-Reason", s.reason)
 		http.Error(w, "Usage ledger unavailable", 503)
 		return false
 	}
@@ -86,6 +87,12 @@ func (s *ingressMeter) admit(ctx context.Context, w http.ResponseWriter, r *http
 		return false
 	}
 	s.admitted = true
+	if s.proxy.planMeter && s.accountID != "" && (d.RequestsRemaining < 0 || d.BytesRemaining < 0) {
+		s.reason = "meter_unavailable"
+		w.Header().Set("Tunn-Limit-Reason", s.reason)
+		http.Error(w, "Usage authority must support account plan limits", 503)
+		return false
+	}
 	return true
 }
 func (s *ingressMeter) charge(ctx context.Context, request bool, n int) (int, error) {
@@ -134,7 +141,7 @@ func (s *ingressMeter) checkResponse(ctx context.Context, size int64) error {
 		s.reason = "meter_unavailable"
 		return &meterUnavailableError{err}
 	}
-	if d.Allowed && size > 0 && d.BytesRemaining >= 0 && size > d.BytesRemaining {
+	if d.Allowed && d.BytesRemaining >= 0 && (d.BytesRemaining == 0 || size > d.BytesRemaining) {
 		d.Allowed = false
 		d.Status = 429
 		d.Reason = d.ByteBudgetReason
@@ -148,6 +155,30 @@ func (s *ingressMeter) checkResponse(ctx context.Context, size int64) error {
 		return &ingressLimitError{d}
 	}
 	return nil
+}
+
+// Bound idle-stream revocation and ledger-outage exposure without allowing a
+// cached quota decision. Every data chunk still needs an atomic reservation.
+func (s *ingressMeter) watch(ctx context.Context, cancel context.CancelCauseFunc) {
+	s.watchEvery(ctx, cancel, 5*time.Second)
+}
+func (s *ingressMeter) watchEvery(ctx context.Context, cancel context.CancelCauseFunc, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			probe, stop := context.WithTimeout(ctx, 5*time.Second)
+			err := s.checkResponse(probe, 0)
+			stop()
+			if err != nil {
+				cancel(err)
+				return
+			}
+		}
+	}
 }
 func (s *ingressMeter) complete(ctx context.Context, w *meterResponseWriter) {
 	if s.backend == nil {
@@ -175,12 +206,34 @@ func (s *ingressMeter) complete(ctx context.Context, w *meterResponseWriter) {
 		}
 		return
 	}
-	if s.accountID != "" && w.status != http.StatusSwitchingProtocols {
+	if s.accountID != "" {
 		s.proxy.RecordUsage(ctx, s.accountID, s.requestBytes+s.writtenBytes)
 	}
 	_, err := s.backend.Finish(ctx, &pb.Event{RequestId: s.event.RequestId, Status: int32(w.status), Reason: s.reason, Forwarded: s.event.Forwarded, ResponseBytes: s.writtenBytes})
 	if err != nil {
 		common.LogError("failed to finish ingress audit", "request_id", s.event.RequestId, "error", err)
+	}
+}
+
+// WebSockets bypass the HTTP body writer after hijacking. Reserve each frame
+// chunk before forwarding it, and reconcile actual egress at completion.
+func chargeWebSocket(r *http.Request, request bool, data []byte) ([]byte, error) {
+	if s := meterForRequest(r); s != nil {
+		n, err := s.charge(r.Context(), request, len(data))
+		// Never forward a partial WebSocket frame: that would corrupt framing.
+		if err != nil {
+			return nil, err
+		}
+		return data[:n], nil
+	}
+	return data, nil
+}
+
+func recordMeteredWrite(r *http.Request, n int) {
+	if s := meterForRequest(r); s != nil {
+		s.mu.Lock()
+		s.writtenBytes += int64(n)
+		s.mu.Unlock()
 	}
 }
 

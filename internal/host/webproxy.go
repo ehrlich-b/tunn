@@ -18,6 +18,7 @@ import (
 
 	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/ehrlich-b/tunn/internal/metering"
+	domainpb "github.com/ehrlich-b/tunn/pkg/proto/domainv1"
 	internalv1 "github.com/ehrlich-b/tunn/pkg/proto/internalv1"
 	meterpb "github.com/ehrlich-b/tunn/pkg/proto/meteringv1"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
@@ -59,7 +60,20 @@ func stripPlatformCookies(cookieHeader string) string {
 // handleWebProxy handles incoming web requests to tunnel subdomains
 func (p *ProxyServer) handleWebProxy(w http.ResponseWriter, r *http.Request) {
 	// Extract tunnel ID from hostname
-	tunnelID := extractTunnelID(r.Host, p.Domain)
+	tunnelID := extractTunnelID(requestHostname(r.Host), p.Domain)
+	if p.customerHost(r.Host) {
+		if p.domains == nil {
+			http.NotFound(w, r)
+			return
+		}
+		binding, err := p.domains.Route(r.Context(), &domainpb.Domain{Name: requestHostname(r.Host)})
+		if err != nil {
+			domainHTTPError(w, err)
+			return
+		}
+		tunnelID = binding.Tunnel
+		r = r.WithContext(context.WithValue(r.Context(), domainOwnerKey{}, binding.Owner))
+	}
 
 	// If this is the apex domain (no tunnel ID), show info page
 	if tunnelID == "" {
@@ -131,6 +145,10 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 	}
 	session := newIngressMeter(p, tunnel)
 	account, accountErr := p.currentTunnelAccount(r.Context(), tunnel)
+	if owner, ok := r.Context().Value(domainOwnerKey{}).(string); ok && (owner == "" || account == nil || account.ID != owner) {
+		http.Error(w, "Domain tunnel ownership mismatch", http.StatusForbidden)
+		return
+	}
 	if account != nil {
 		session.accountID, session.event.Owner = account.ID, account.ID
 		tunnel.updateBandwidthPlan(account.Plan)
@@ -187,7 +205,7 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 			session.reason = "authentication_required"
 			// MCP clients cannot consume the browser login redirect. Return an
 			// explicit bearer challenge for protocol endpoints and bearer attempts.
-			if common.IsWebSocketUpgrade(r.Header) || r.URL.Path == "/mcp" || tunnel.EndpointProtocol == "tcp" || r.Header.Get("Authorization") != "" || r.Header.Get("Tunn-Authorization") != "" {
+			if r.Context().Value(domainOwnerKey{}) != nil || common.IsWebSocketUpgrade(r.Header) || r.URL.Path == "/mcp" || tunnel.EndpointProtocol == "tcp" || r.Header.Get("Authorization") != "" || r.Header.Get("Tunn-Authorization") != "" {
 				w.Header().Set("WWW-Authenticate", `Bearer realm="tunn"`)
 				http.Error(w, "Authentication required", http.StatusUnauthorized)
 				return
@@ -309,7 +327,7 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 	}
 	// Check quota before proxying
 	if !tunnel.accountQuotaExempt && (tunnel.CreatorEmail != "" || tunnel.AccountID != "") {
-		if accountErr != nil || account == nil || !p.checkQuota(r.Context(), account.ID, account.Plan) {
+		if accountErr != nil || account == nil || !p.planMeter && !p.checkQuota(r.Context(), account.ID, account.Plan) {
 			session.reason = "account_quota"
 			common.LogInfo("quota exceeded, rejecting request",
 				"tunnel_id", tunnelID,
@@ -322,6 +340,12 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 
 	if !session.admit(r.Context(), w, r) {
 		return
+	}
+	if p.meter != nil {
+		ctx, cancel := context.WithCancelCause(r.Context())
+		defer cancel(nil)
+		r = r.WithContext(ctx)
+		go session.watch(ctx, cancel)
 	}
 	r = r.WithContext(context.WithValue(r.Context(), meterContextKey{}, session))
 	if p.meter != nil {
@@ -345,6 +369,20 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 	}
 
 	if proxyErr != nil {
+		if cause := context.Cause(r.Context()); cause != nil && cause != context.Canceled && cause != context.DeadlineExceeded {
+			proxyErr = &responseStartedError{cause}
+			if !meterWriter.started {
+				proxyErr = cause
+			}
+		}
+		var limit *ingressLimitError
+		if errors.As(proxyErr, &limit) {
+			w.Header().Set("Tunn-Limit-Reason", limit.decision.Reason)
+		}
+		var unavailable *meterUnavailableError
+		if errors.As(proxyErr, &unavailable) {
+			w.Header().Set("Tunn-Limit-Reason", "meter_unavailable")
+		}
 		meterWriter.bodyMeter = false
 		session.recordError(proxyErr, r.Context())
 		common.LogError("failed to proxy request", "error", proxyErr, "tunnel_id", tunnelID)
@@ -471,6 +509,14 @@ func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, 
 		if err := checkMeteredResponse(r, int64(len(httpResp.Body))); err != nil {
 			return err
 		}
+		// Reserve the buffered response atomically before committing its
+		// headers. A preflight alone races other account traffic.
+		if writer, ok := w.(*meterResponseWriter); ok && writer.bodyMeter {
+			if _, err := writer.meter.charge(r.Context(), false, len(httpResp.Body)); err != nil {
+				return err
+			}
+			writer.bodyMeter = false
+		}
 		// Write response headers
 		copyApplicationResponseHeaders(w.Header(), httpResp.Headers)
 
@@ -478,8 +524,12 @@ func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, 
 		w.WriteHeader(int(httpResp.StatusCode))
 
 		// Write body
-		if _, err := w.Write(httpResp.Body); err != nil {
-			return &responseStartedError{err: fmt.Errorf("failed to write response body: %w", err)}
+		n, writeErr := w.Write(httpResp.Body)
+		if meterForRequest(r) != nil {
+			recordMeteredWrite(r, n)
+		}
+		if writeErr != nil {
+			return &responseStartedError{err: fmt.Errorf("failed to write response body: %w", writeErr)}
 		}
 
 		common.LogDebug("proxied http response",

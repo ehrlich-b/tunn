@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/base64"
 	"fmt"
 	"net"
 	"net/http"
@@ -27,10 +28,12 @@ import (
 
 	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/ehrlich-b/tunn/internal/config"
+	"github.com/ehrlich-b/tunn/internal/domains"
 	"github.com/ehrlich-b/tunn/internal/metering"
 	"github.com/ehrlich-b/tunn/internal/mockoidc"
 	"github.com/ehrlich-b/tunn/internal/storage"
 	"github.com/ehrlich-b/tunn/internal/store"
+	domainpb "github.com/ehrlich-b/tunn/pkg/proto/domainv1"
 	internalv1 "github.com/ehrlich-b/tunn/pkg/proto/internalv1"
 	meterpb "github.com/ehrlich-b/tunn/pkg/proto/meteringv1"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
@@ -76,8 +79,11 @@ type ProxyServer struct {
 	mockOIDC *mockoidc.Server
 
 	// Unified storage interface (local for login node, proxy for others)
-	storage storage.Storage
-	meter   metering.Backend
+	storage        storage.Storage
+	meter          metering.Backend
+	planMeter      bool
+	domains        domains.Backend
+	domainRegistry *domains.Registry
 
 	// Proxy storage reference (non-login node only, to update connection on discovery)
 	proxyStorage *storage.ProxyStorage
@@ -119,7 +125,7 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 			return nil, fmt.Errorf("failed to initialize database: %w", err)
 		}
 		localStorage = storage.NewLocalStorage(db)
-		localMeter, err = metering.New(db, metering.WithOwnerBudgets(cfg.OwnerMonthlyRequests, cfg.OwnerMonthlyBytes))
+		localMeter, err = metering.New(db, metering.WithAccountPlans(), metering.WithOwnerBudgets(cfg.OwnerMonthlyRequests, cfg.OwnerMonthlyBytes))
 		if err != nil {
 			return nil, fmt.Errorf("initialize ingress meter: %w", err)
 		}
@@ -222,6 +228,7 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 		config:             cfg,
 		PublicAddr:         cfg.PublicAddr,
 		storage:            storageImpl,
+		planMeter:          true,
 		proxyStorage:       proxyStorage,
 		emailSender:        emailSender,
 		isLoginNode:        cfg.LoginNode,
@@ -238,6 +245,31 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 			defer proxy.loginNodeMu.RUnlock()
 			return proxy.loginNodeConn
 		}}
+	}
+
+	if cfg.CustomDomainsEnabled {
+		if cfg.LoginNode {
+			key, err := base64.StdEncoding.DecodeString(cfg.DomainKeySecret)
+			if err != nil || len(key) != 32 {
+				return nil, fmt.Errorf("TUNN_DOMAIN_KEY_SECRET must be a base64-encoded 32-byte key")
+			}
+			registry, err := domains.New(store.DB(), cfg.Domain, key, nil, nil)
+			if err != nil {
+				return nil, err
+			}
+			if err := registry.ConfigureACME(cfg.ACMEDirectory, cfg.ACMEEmail, nil); err != nil {
+				return nil, err
+			}
+			proxy.domains, proxy.domainRegistry = registry, registry
+			domainpb.RegisterDomainsServer(internalGRPCServer, registry)
+		} else {
+			proxy.domains = &domains.Remote{Connection: func() *grpc.ClientConn {
+				proxy.loginNodeMu.RLock()
+				defer proxy.loginNodeMu.RUnlock()
+				return proxy.loginNodeConn
+			}}
+		}
+		proxy.tlsConfig.GetCertificate = proxy.domainCertificate(cert)
 	}
 
 	// Discover and connect to other nodes in the mesh
@@ -493,7 +525,7 @@ func getPeerIP(ctx context.Context) string {
 // Run starts both HTTP/2 and HTTP/3 listeners
 func (p *ProxyServer) Run(ctx context.Context) error {
 	var wg sync.WaitGroup
-	errChan := make(chan error, 4)
+	errChan := make(chan error, 5)
 
 	// Start mock OIDC server in dev mode
 	if p.mockOIDC != nil {
@@ -509,6 +541,19 @@ func (p *ProxyServer) Run(ctx context.Context) error {
 
 	// Create the HTTP handler (will be used by both servers)
 	handler := p.createHandler()
+
+	if p.domains != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := p.startHTTP01Server(ctx); err != nil {
+				errChan <- fmt.Errorf("HTTP-01 server error: %w", err)
+			}
+		}()
+		if p.domainRegistry != nil {
+			go p.domainRegistry.Run(ctx)
+		}
+	}
 
 	// Start HTTP/2 (TCP) server
 	wg.Add(1)
@@ -670,7 +715,8 @@ func (p *ProxyServer) createHTTP2Router(httpHandler http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Check if this is a gRPC request by examining the Content-Type header
 		contentType := r.Header.Get("Content-Type")
-		if strings.HasPrefix(contentType, "application/grpc") {
+		platformRPC := net.ParseIP(requestHostname(r.Host)) != nil || !p.customerHost(r.Host) && extractTunnelID(requestHostname(r.Host), p.Domain) == ""
+		if strings.HasPrefix(contentType, "application/grpc") && platformRPC {
 			// Route to gRPC server
 			common.LogDebug("routing to gRPC", "path", r.URL.Path, "content-type", contentType)
 			p.grpcServer.ServeHTTP(w, r)
@@ -734,6 +780,8 @@ func (p *ProxyServer) createHandler() http.Handler {
 	mux.HandleFunc("/api/endpoints/", p.handleMeteringAPI)
 	mux.HandleFunc("/api/usage", p.handleMeteringAPI)
 	mux.HandleFunc("/api/grants", p.handleMeteringAPI)
+	mux.HandleFunc("/api/domains", p.handleDomainsAPI)
+	mux.HandleFunc("/api/domains/", p.handleDomainsAPI)
 	mux.HandleFunc("/login", p.handleLoginPage)
 	mux.HandleFunc("/auth/device/authorize", p.handleDeviceAuthorize)
 
@@ -746,7 +794,7 @@ func (p *ProxyServer) createHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Publishers own every path on their tunnel origin. Serving platform
 		// forms there would let their scripts read session-bound CSRF tokens.
-		if extractTunnelID(r.Host, p.Domain) != "" {
+		if p.customerHost(r.Host) || extractTunnelID(requestHostname(r.Host), p.Domain) != "" {
 			p.handleWebProxy(w, r)
 			return
 		}

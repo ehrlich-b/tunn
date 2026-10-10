@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/ehrlich-b/tunn/internal/common"
+	"github.com/ehrlich-b/tunn/internal/metering"
+	meterpb "github.com/ehrlich-b/tunn/pkg/proto/meteringv1"
 	"github.com/golang-jwt/jwt/v4"
 )
 
@@ -861,6 +863,9 @@ type AccountPageData struct {
 	UsagePercent             int
 	UsageFormatted           string
 	QuotaFormatted           string
+	RequestsUsed             int64
+	RequestsLimit            int64
+	UsageAvailable           bool
 	StripeCheckoutURLMonthly string
 	StripeCheckoutURLYearly  string
 	StripeBillingPortalURL   string
@@ -879,20 +884,34 @@ func (p *ProxyServer) handleAccount(w http.ResponseWriter, r *http.Request) {
 	// Get account info
 	plan := "free"
 	var usageBytes int64 = 0
+	var requestsUsed int64
+	usageAvailable := false
 
-	if p.storage.Available() {
+	if p.storage != nil && p.storage.Available() {
 		// Try to get account info
 		if account, err := p.storage.GetAccountByEmail(r.Context(), email); err == nil && account != nil {
 			plan = account.Plan
-			// Get usage (by account ID, not email)
-			if usage, err := p.storage.GetMonthlyUsage(r.Context(), account.ID); err == nil {
-				usageBytes = usage
+			// Include bytes charged by active streams, across every transport.
+			if p.meter != nil {
+				if usage, err := p.meter.Export(r.Context(), &meterpb.ExportRequest{Owner: account.ID, Month: time.Now().UTC().Format("2006-01")}); err == nil && usage.OwnerUsage != nil {
+					usageBytes, requestsUsed, usageAvailable = usage.OwnerUsage.TotalBytes, usage.OwnerUsage.AdmittedRequests, true
+				}
 			}
 		}
 	}
 
 	// Calculate percentage (quota defined in limits.go)
 	quotaBytes := GetQuotaBytes(plan)
+	requestsLimit := metering.FreeMonthlyRequests
+	if plan == "pro" {
+		requestsLimit = metering.ProMonthlyRequests
+	}
+	if p.config.OwnerMonthlyRequests > 0 {
+		requestsLimit = min(requestsLimit, p.config.OwnerMonthlyRequests)
+	}
+	if p.config.OwnerMonthlyBytes > 0 {
+		quotaBytes = min(quotaBytes, p.config.OwnerMonthlyBytes)
+	}
 	usagePercent := 0
 	if quotaBytes > 0 {
 		usagePercent = int((usageBytes * 100) / quotaBytes)
@@ -935,7 +954,8 @@ func (p *ProxyServer) handleAccount(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := AccountPageData{
-		Email:                    email,
+		Email:        email,
+		RequestsUsed: requestsUsed, RequestsLimit: requestsLimit, UsageAvailable: usageAvailable,
 		Plan:                     plan,
 		UsageBytes:               usageBytes,
 		QuotaBytes:               quotaBytes,

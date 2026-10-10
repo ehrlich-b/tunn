@@ -229,6 +229,15 @@ ON CONFLICT(account_id, machine) DO UPDATE SET last_seen=MAX(host_machines.last_
 				return nil, err
 			}
 		}
+		var domainTables int
+		if err := tx.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='custom_domains'").Scan(&domainTables); err != nil {
+			return nil, err
+		}
+		if domainTables != 0 {
+			if _, err := tx.Exec("UPDATE custom_domains SET owner=? WHERE owner=?", primary.ID, acc.ID); err != nil {
+				return nil, err
+			}
+		}
 		if err := mergeAccountAccounting(tx, acc.ID, primary.ID); err != nil {
 			return nil, err
 		}
@@ -393,7 +402,7 @@ func (s *AccountStore) ReleaseSubdomain(accountID, subdomain string) error {
 
 // RecordUsage adds bytes to an account's monthly usage
 func (s *AccountStore) RecordUsage(accountID string, bytes int64) error {
-	month := time.Now().Format("2006-01")
+	month := time.Now().UTC().Format("2006-01")
 
 	result, err := s.db.Exec(`
 		INSERT INTO account_usage (account_id, month, bytes_used)
@@ -416,7 +425,7 @@ func (s *AccountStore) RecordUsage(accountID string, bytes int64) error {
 
 // GetMonthlyUsage returns the bytes used by an account in the current month
 func (s *AccountStore) GetMonthlyUsage(accountID string) (int64, error) {
-	month := time.Now().Format("2006-01")
+	month := time.Now().UTC().Format("2006-01")
 
 	var bytesUsed int64
 	err := s.db.QueryRow(

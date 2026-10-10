@@ -1,4 +1,4 @@
-# HTTP audit, usage, and consumer grants
+# Account cutoffs, audit, usage, and consumer grants
 
 Status: prototype contract v1, 2026-10-10. The in-process contract tests run
 without sockets. The real relay/publisher/CLI test is local and needs loopback.
@@ -46,23 +46,31 @@ A stream stays in its admission month. An admitted request consumes one request
 even if the publisher fails or the caller disconnects. Application retries are
 new ingress requests and consume new units.
 
-The login node can also enforce shared monthly HTTP caps with
-`TUNN_OWNER_MONTHLY_REQUESTS` and `TUNN_OWNER_MONTHLY_BYTES`. Both default to zero
-(unlimited); invalid or negative values fail configuration loading. These caps
-apply to every known owner's tunnels and callers together, including anonymous
-traffic and shared endpoint tokens, so creating another grant cannot multiply
-the allowance. They use durable monthly rollups and atomic byte reservations;
-remaining headers report the tighter owner/grant allowance. Exhaustion returns
-`429` with `owner_request_budget` or `owner_byte_budget`. Existing account-level
-bandwidth limits still apply. Quotas, owner caps, grants, and owner exports use
-the account UUID, so verified email aliases share one allowance. Unknown
-accounts and unavailable account or metering services fail closed. This
-prototype policy does not select owner budgets by subscription plan.
+The login node enforces plan allowances across HTTP, streaming/SSE, MCP,
+WebSocket frames and TCP CONNECT. Free accounts get 100,000 monthly admissions
+and 1 GB; Pro accounts get 1,000,000 admissions and 50 GB (decimal units).
+`TUNN_OWNER_MONTHLY_REQUESTS` and `TUNN_OWNER_MONTHLY_BYTES` optionally impose
+*tighter* caps. Zero leaves the plan allowance in place. The authority reads the
+current account plan, so a connected publisher cannot retain an old paid limit.
+Anonymous visitors, email aliases, endpoint tokens and grants all share the
+account UUID's allowance. New grants and endpoints cannot multiply it.
 
-WebSocket handshakes consume one owner request and retain their admission
-headers and final `101` audit status. Frame bytes count toward account bandwidth
-usage, rather than HTTP body-byte budgets. HTTP consumer grants cannot authorize
-WebSocket upgrades; use a browser session or shared endpoint token instead.
+Admission and byte reservations commit atomically on the login node before
+forwarding. Exhaustion returns `429` with `owner_request_budget` or
+`owner_byte_budget`. Missing accounts and unavailable account/ledger services
+fail closed. Imported legacy bandwidth is included once; a restart cannot
+reset counters or double-import the completion mirror. Verified account merges
+transfer counters, grants and active events along with reserved names.
+
+Each WebSocket upgrade or TCP CONNECT consumes one admission. WebSocket wire
+frames (including masks/control frames) and TCP payloads now consume the same
+account byte allowance as HTTP/MCP bodies. HTTP consumer grants still cannot
+authorize WebSockets or raw TCP; use a session or endpoint token instead.
+The owner `/account` view includes currently reserved active-stream bytes and
+monthly admitted requests. `tunn usage` exports transport bytes under the
+existing `body_bytes` schema label for compatibility; HTTP bodies, TCP payloads
+and WebSocket wire frames are its exact counting units. TLS, HTTP and gRPC
+transport framing remain excluded.
 
 Expired/revoked/wrong-endpoint grants return `403`. Exhausted request or byte
 budgets and request-rate limits return `429`. Responses include
@@ -75,8 +83,14 @@ Unknown-length bodies are checked as they flow. If a response has already
 started, HTTP cannot replace its status with `429` or `403`: tunn stops the
 stream and reports the reason through the `Tunn-Limit-Reason` trailer and audit
 record. Metered HTTP/1 streaming responses use chunked framing for trailers. Revocation and expiry are checked at admission and each byte check;
-already forwarded application work may continue, and an idle stream ends when
-its next byte check fails or it disconnects.
+already forwarded application work may continue. Idle metered streams recheck
+the authority every five seconds, with a five-second RPC deadline, and terminate
+on byte exhaustion, grant revocation/expiry or ledger failure. A request allowance
+blocks further admissions; work already admitted can finish within its remaining
+byte allowance. WebSockets send a policy close (`1008`) or temporary-failure close
+(`1013`) when an egress frame boundary permits it; a cutoff inside a frame closes
+the transport instead of corrupting its payload. TCP CONNECT reports the limit
+through the same trailer when its HTTP transport supports trailers.
 
 ## Contract and privacy
 
@@ -146,7 +160,7 @@ startup. Those records require review before any commercial reconciliation.
 
 The login node owns the ledger in the existing `TUNN_DB_PATH` SQLite database.
 Admission, minute-rate state, rollups, and byte reservations commit atomically;
-counts and revocations survive restarts. Buffered HTTP and chunked HTTP/SSE
+counts and revocations survive restarts. Buffered HTTP, chunked HTTP/SSE, WebSockets and TCP CONNECT
 use the same ledger. HTTP-backed MCP uses this ingress path too; grants do not
 provide MCP OAuth onboarding, tool permissions, or stdio principal isolation.
 Raw TCP grants are not supported in this preview.
@@ -202,8 +216,8 @@ that is not a reason to skip or weaken those tests.
 
 Bryan's entry paid-tier target is **about $12/year** (about $1/month), with a
 monthly request and bandwidth cap. The intended purchase should be a no-brainer,
-strictly cheaper than a VPS and easier than a VPN. No allowance sizes or payment
-integration are chosen here. Shared owner caps enforce an experimental ceiling;
+strictly cheaper than a VPS and easier than a VPN. The plan allowances above are code defaults, not a new Starter entitlement or
+a billing reconciliation implementation. Shared owner caps impose a tighter ceiling;
 per-grant budgets divide that ceiling among consumers.
 
 Export `tunn usage` per user/month and compare `owner_usage.request_bytes` and

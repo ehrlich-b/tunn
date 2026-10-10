@@ -21,6 +21,24 @@ type ManagementClient struct {
 }
 
 func (c *ManagementClient) Call(ctx context.Context, method, endpoint, operation string, input any) (json.RawMessage, error) {
+	var path, query string
+	if endpoint != "" && !validManagementEndpoint(endpoint) {
+		return nil, fmt.Errorf("invalid endpoint name")
+	}
+	path = "/api/endpoints/" + endpoint + "/" + strings.SplitN(operation, "?", 2)[0]
+	if endpoint == "" {
+		if method != http.MethodGet || strings.SplitN(operation, "?", 2)[0] != "usage" && operation != "grants" {
+			return nil, fmt.Errorf("endpoint required for this operation")
+		}
+		path = "/api/" + strings.SplitN(operation, "?", 2)[0]
+	}
+	if parts := strings.SplitN(operation, "?", 2); len(parts) == 2 {
+		query = parts[1]
+	}
+	return c.callPath(ctx, method, path, query, input)
+}
+
+func (c *ManagementClient) callPath(ctx context.Context, method, path, query string, input any) (json.RawMessage, error) {
 	base := c.ServerURL
 	if !strings.Contains(base, "://") {
 		base = "https://" + base
@@ -34,19 +52,7 @@ func (c *ManagementClient) Call(ctx context.Context, method, endpoint, operation
 	if u.Scheme != "https" && (u.Scheme != "http" || host != "localhost" && (ip == nil || !ip.IsLoopback())) {
 		return nil, fmt.Errorf("owner credentials require HTTPS (HTTP is allowed only on loopback)")
 	}
-	if endpoint != "" && !validManagementEndpoint(endpoint) {
-		return nil, fmt.Errorf("invalid endpoint name")
-	}
-	u.Path = "/api/endpoints/" + endpoint + "/" + strings.SplitN(operation, "?", 2)[0]
-	if endpoint == "" {
-		if method != http.MethodGet || strings.SplitN(operation, "?", 2)[0] != "usage" && operation != "grants" {
-			return nil, fmt.Errorf("endpoint required for this operation")
-		}
-		u.Path = "/api/" + strings.SplitN(operation, "?", 2)[0]
-	}
-	if parts := strings.SplitN(operation, "?", 2); len(parts) == 2 {
-		u.RawQuery = parts[1]
-	}
+	u.Path, u.RawQuery = path, query
 	var body io.Reader
 	if input != nil {
 		data, err := json.Marshal(input)

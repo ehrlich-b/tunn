@@ -1,6 +1,9 @@
 package host
 
 import (
+	"context"
+	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -26,7 +29,7 @@ func closeUpgradedConnection(conn net.Conn) {
 	}
 }
 
-func (p *ProxyServer) proxyWebSocketOverGRPC(w http.ResponseWriter, r *http.Request, tunnel *TunnelConnection) error {
+func (p *ProxyServer) proxyWebSocketOverGRPC(w http.ResponseWriter, r *http.Request, tunnel *TunnelConnection) (result error) {
 	id, err := generateConnectionID()
 	if err != nil {
 		return err
@@ -81,6 +84,9 @@ func (p *ProxyServer) proxyWebSocketOverGRPC(w http.ResponseWriter, r *http.Requ
 	if !common.ValidWebSocketResponse(headers, r.Header.Get("Sec-WebSocket-Key")) {
 		return fmt.Errorf("invalid WebSocket acceptance")
 	}
+	if err := checkMeteredResponse(r, 0); err != nil {
+		return err
+	}
 	conn, buffered, err := http.NewResponseController(w).Hijack()
 	if err != nil {
 		return fmt.Errorf("WebSocket ingress requires HTTP/1.1: %w", err)
@@ -97,6 +103,27 @@ func (p *ProxyServer) proxyWebSocketOverGRPC(w http.ResponseWriter, r *http.Requ
 		writer.status, writer.started, writer.bodyMeter = http.StatusSwitchingProtocols, true, false
 	}
 	defer closeUpgradedConnection(conn)
+	var boundary webSocketBoundary
+	defer func() {
+		failure := result
+		if cause := context.Cause(r.Context()); cause != nil {
+			failure = cause
+		}
+		code, reason := uint16(0), ""
+		var limit *ingressLimitError
+		var unavailable *meterUnavailableError
+		if errors.As(failure, &limit) {
+			code, reason = 1008, limit.decision.Reason
+		}
+		if errors.As(failure, &unavailable) {
+			code, reason = 1013, "meter_unavailable"
+		}
+		if code != 0 && boundary.atBoundary() {
+			_ = conn.SetWriteDeadline(time.Now().Add(time.Second))
+			frameWriter := &common.WebSocketFrameWriter{Writer: conn}
+			_ = frameWriter.TryControl(8, append(binary.BigEndian.AppendUint16(nil, code), []byte(reason)...), false)
+		}
+	}()
 	// Hijack retains the HTTP server's deadlines. An upgraded connection must
 	// outlive those header/body limits; the publisher owns its idle timer.
 	_ = conn.SetDeadline(time.Time{})
@@ -107,7 +134,7 @@ func (p *ProxyServer) proxyWebSocketOverGRPC(w http.ResponseWriter, r *http.Requ
 		case <-pending.done:
 			closeUpgradedConnection(conn)
 		case <-r.Context().Done():
-			closeUpgradedConnection(conn)
+			_ = conn.SetReadDeadline(time.Now())
 		case <-watchDone:
 		}
 	}()
@@ -126,7 +153,7 @@ func (p *ProxyServer) proxyWebSocketOverGRPC(w http.ResponseWriter, r *http.Requ
 	var requestBytes atomic.Int64
 	var responseBytes int64
 	defer func() {
-		if tunnel.AccountID != "" {
+		if tunnel.AccountID != "" && meterForRequest(r) == nil {
 			p.RecordUsage(r.Context(), tunnel.AccountID, requestBytes.Load()+responseBytes)
 		}
 	}()
@@ -138,12 +165,17 @@ func (p *ProxyServer) proxyWebSocketOverGRPC(w http.ResponseWriter, r *http.Requ
 			n, readErr := buffered.Read(buffer)
 			if n > 0 {
 				requestBytes.Add(int64(n))
+				chunk, err := chargeWebSocket(r, true, buffer[:n])
+				if err != nil {
+					inputDone <- err
+					return
+				}
 				if !tunnel.CheckRateLimit(n) {
 					inputDone <- fmt.Errorf("WebSocket bandwidth limit exceeded")
 					return
 				}
 				if err := tunnel.SendMessage(&pb.TunnelMessage{Message: &pb.TunnelMessage_ConnectionData{
-					ConnectionData: &pb.ConnectionData{ConnectionId: id, Data: append([]byte(nil), buffer[:n]...)},
+					ConnectionData: &pb.ConnectionData{ConnectionId: id, Data: append([]byte(nil), chunk...)},
 				}}); err != nil {
 					inputDone <- err
 					return
@@ -160,12 +192,19 @@ func (p *ProxyServer) proxyWebSocketOverGRPC(w http.ResponseWriter, r *http.Requ
 		case event := <-pending.events:
 			switch {
 			case event.data != nil:
+				chunk, err := chargeWebSocket(r, false, event.data)
+				if err != nil {
+					return &responseStartedError{err}
+				}
 				if !tunnel.CheckRateLimit(len(event.data)) {
 					return &responseStartedError{fmt.Errorf("WebSocket bandwidth limit exceeded")}
 				}
 				responseBytes += int64(len(event.data))
 				_ = conn.SetWriteDeadline(time.Now().Add(30 * time.Second))
-				if _, err := conn.Write(event.data); err != nil {
+				n, err := conn.Write(chunk)
+				boundary.consume(chunk[:n])
+				recordMeteredWrite(r, n)
+				if err != nil {
 					return &responseStartedError{err}
 				}
 			case event.halfClose, event.close != nil:

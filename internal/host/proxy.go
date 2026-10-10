@@ -1070,17 +1070,40 @@ func (p *ProxyServer) flushUsageBuffer(ctx context.Context) {
 
 // CheckQuota checks if an account is within its usage quota.
 // Unknown identities, storage failures, and unavailable usage data fail closed.
-func (p *ProxyServer) CheckQuota(ctx context.Context, accountID string, plan string) bool {
+func (p *ProxyServer) CheckQuota(ctx context.Context, accountID string, _ string) bool {
 	if accountID == "" || p.storage == nil || !p.storage.Available() {
 		return false
 	}
+	account, err := p.storage.GetAccount(ctx, accountID)
+	if err != nil || account == nil || account.ID == "" {
+		return false
+	}
+	return p.checkQuota(ctx, account.ID, account.Plan)
+}
+
+// The caller supplies a freshly resolved account, never a tunnel's plan snapshot.
+func (p *ProxyServer) checkQuota(ctx context.Context, accountID, plan string) bool {
 	// Get quota limit based on plan (defined in limits.go)
 	quotaBytes := GetQuotaBytes(plan)
 	// Read buffered usage before the storage query: a concurrent flush may
 	// already appear in the database, but cannot make prior usage disappear.
 	var pending int64
 	if p.usageBuffer != nil {
-		pending = p.usageBuffer.Total(accountID)
+		for id, bytes := range p.usageBuffer.Snapshot() {
+			if id != accountID {
+				account, err := p.storage.GetAccount(ctx, id)
+				if err != nil {
+					return false
+				}
+				if account == nil || account.ID != accountID {
+					continue
+				}
+			}
+			if bytes < 0 || pending > quotaBytes-bytes {
+				return false
+			}
+			pending += bytes
+		}
 	}
 	usage, err := p.storage.GetMonthlyUsage(ctx, accountID)
 	if err != nil {

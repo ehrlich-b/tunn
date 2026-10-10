@@ -40,6 +40,19 @@ func (s *meteringFixtureStream) Send(msg *pb.TunnelMessage) error {
 
 type meteringFixtureStorage struct{ mockStorage }
 
+func (s *meteringFixtureStorage) GetAccount(ctx context.Context, id string) (*storage.Account, error) {
+	for _, email := range []string{"owner@example.com", "stranger@example.com"} {
+		account, err := s.GetAccountByEmail(ctx, email)
+		if err != nil {
+			return nil, err
+		}
+		if account.ID == id {
+			return account, nil
+		}
+	}
+	return nil, nil
+}
+
 func (s *meteringFixtureStorage) GetAccountByEmail(ctx context.Context, email string) (*storage.Account, error) {
 	switch email {
 	case "owner@example.com":

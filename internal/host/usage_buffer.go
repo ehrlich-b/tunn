@@ -96,6 +96,21 @@ func (b *UsageBuffer) Total(accountID string) int64 {
 	return b.pending[accountID] + b.flushing[accountID]
 }
 
+// Snapshot retains both pending and in-flight writes while obsolete UUIDs are
+// resolved outside the buffer lock. A concurrent flush cannot hide these bytes.
+func (b *UsageBuffer) Snapshot() map[string]int64 {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	totals := make(map[string]int64, len(b.pending)+len(b.flushing))
+	for id, bytes := range b.pending {
+		totals[id] = bytes
+	}
+	for id, bytes := range b.flushing {
+		totals[id] += bytes
+	}
+	return totals
+}
+
 // Len returns the number of accounts with pending usage.
 func (b *UsageBuffer) Len() int {
 	b.mu.Lock()

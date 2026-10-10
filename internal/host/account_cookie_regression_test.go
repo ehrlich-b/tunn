@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -89,6 +91,9 @@ func TestAccountMergePreservesUsageAndGrants(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(out.Usage) != 1 || len(out.Events) != 2 || out.OwnerUsage.RequestBytes != 10 || out.OwnerUsage.ResponseBytes != 10 {
+		t.Errorf("merged ledger rows = %v", out)
+	}
 	if out.OwnerUsage.AdmittedRequests != 2 || out.OwnerUsage.TotalBytes != 20 {
 		t.Errorf("merged usage: requests=%d bytes=%d, want 2 and 20", out.OwnerUsage.AdmittedRequests, out.OwnerUsage.TotalBytes)
 	}
@@ -163,6 +168,59 @@ func TestAccountMergePreservesUsageAndGrants(t *testing.T) {
 		}
 	})
 
+	t.Run("durable_aliases", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "merged.db")
+		if _, err := db.Exec("VACUUM INTO ?", path); err != nil {
+			t.Fatal(err)
+		}
+		durable, err := sql.Open("sqlite", path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer durable.Close()
+		durable.SetMaxOpenConns(1)
+		reopened := storage.NewLocalStorage(durable)
+		if account, err := reopened.GetAccount(ctx, old.ID); err != nil || account == nil || account.ID != merged.ID {
+			t.Fatalf("reopened UUID mapping: %v %v", account, err)
+		}
+		// Absorb the survivor again, forcing every previous alias to move with it.
+		next, err := reopened.FindOrCreateByEmails(ctx, []string{"next@example.com"}, "github")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := reopened.UpdatePlan(ctx, next.ID, "pro"); err != nil {
+			t.Fatal(err)
+		}
+		if err := reopened.UpdatePlan(ctx, merged.ID, "free"); err != nil {
+			t.Fatal(err)
+		}
+		if account, err := reopened.FindOrCreateByEmails(ctx, []string{merged.PrimaryEmail, next.PrimaryEmail}, "github"); err != nil || account.ID != next.ID {
+			t.Fatalf("second merge: %v %v", account, err)
+		}
+		for _, id := range []string{old.ID, merged.ID} {
+			if account, err := reopened.GetAccount(ctx, id); err != nil || account == nil || account.ID != next.ID {
+				t.Errorf("flattened alias %s: %v %v", id, account, err)
+			}
+		}
+		if err := reopened.RecordUsage(ctx, old.ID, 1); err != nil {
+			t.Fatal(err)
+		}
+		if used, err := reopened.GetMonthlyUsage(ctx, next.ID); err != nil || used != 22 {
+			t.Errorf("second merge bandwidth = %d %v, want 22", used, err)
+		}
+		restarted, err := metering.New(durable, metering.WithOwnerBudgets(2, 20))
+		if err != nil {
+			t.Fatal(err)
+		}
+		listed, err := restarted.ListGrants(ctx, &meterpb.ListGrantsRequest{Owner: next.ID})
+		if err != nil || len(listed.Grants) != 1 || listed.Grants[0].Owner != next.ID || !listed.Grants[0].Revoked {
+			t.Errorf("second merge grants: %v %v", listed, err)
+		}
+		if d, err := restarted.Admit(ctx, &meterpb.Event{RequestId: strings.Repeat("5", 32), Owner: old.ID, Endpoint: "merged-api", Caller: "anonymous", Allowed: true}); err != nil || d.Allowed {
+			t.Errorf("restart/second merge reset owner budget: %v %v", d, err)
+		}
+	})
+
 }
 
 func TestMergedHostRemainsUsable(t *testing.T) {
@@ -179,12 +237,19 @@ func TestMergedHostRemainsUsable(t *testing.T) {
 	p.config, p.Domain, p.tunnelServer = s.cfg, s.cfg.Domain, s
 	conn, _ := securityEndpoint(p, "gpu-http", owner.PrimaryEmail, owner.ID, []string{owner.PrimaryEmail}, false)
 	conn.HostID = "gpu-box"
+	ctx := context.Background()
+	if reg, err := s.storage.RegisterTunnel(ctx, conn.TunnelID, owner.ID, "fixture"); err != nil || !reg.Allowed {
+		t.Fatalf("registration: %v %v", reg, err)
+	}
 	survivor, err := s.accounts.FindOrCreateByEmails([]string{"survivor@example.com"}, "github")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := s.accounts.UpdatePlan(survivor.ID, "pro"); err != nil {
 		t.Fatal(err)
+	}
+	if reg, err := s.storage.RegisterTunnel(ctx, "survivor-live", survivor.ID, "fixture"); err != nil || !reg.Allowed {
+		t.Fatalf("survivor registration: %v %v", reg, err)
 	}
 	merged, err := s.accounts.FindOrCreateByEmails([]string{owner.PrimaryEmail, survivor.PrimaryEmail}, "github")
 	if err != nil || merged.ID != survivor.ID {
@@ -201,6 +266,70 @@ func TestMergedHostRemainsUsable(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("host reports online but returns %d after merge; live UUID=%s surviving UUID=%s: %s", w.Code, conn.AccountID, merged.ID, w.Body.String())
 	}
+	if count, err := s.storage.GetTunnelCount(ctx, merged.ID); err != nil || count != 2 {
+		t.Errorf("merged live count = %d %v, want 2", count, err)
+	}
+	if w := hostRequest(t, s, "POST", token, fixtureManifest); w.Code != 200 {
+		t.Errorf("merged owner cannot update host: %d %s", w.Code, w.Body.String())
+	}
+	// Management and ledger attribution must use the same canonical ownership,
+	// including on a relay that accesses accounts through the internal RPC API.
+	db, err := store.InitForTest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ledger, err := metering.New(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.meter = ledger
+	local := s.storage.(*storage.LocalStorage)
+	for _, replica := range []bool{false, true} {
+		t.Run(fmt.Sprintf("replica=%v", replica), func(t *testing.T) {
+			p.storage = local
+			if replica {
+				p.storage = securityReplicaStorage(t, local)
+			}
+			digest := sha256.Sum256([]byte(fmt.Sprint(replica)))
+			body, _ := json.Marshal(&meterpb.Grant{TokenSha256: digest[:], ExpiresAt: time.Now().Add(time.Hour).UnixMilli()})
+			r := httptest.NewRequest("POST", "https://host.test/api/endpoints/gpu-http/grants", strings.NewReader(string(body)))
+			r.Header.Set("Authorization", "Bearer "+token)
+			w := httptest.NewRecorder()
+			p.createHandler().ServeHTTP(w, r)
+			if w.Code != 201 {
+				t.Fatalf("merged owner grant creation: %d %s", w.Code, w.Body.String())
+			}
+			r = httptest.NewRequest("GET", "https://gpu-http.host.test/", nil)
+			r.Header.Set("Tunn-Authorization", "Bearer "+token)
+			w = httptest.NewRecorder()
+			p.createHandler().ServeHTTP(w, r)
+			if w.Code != 200 {
+				t.Fatalf("merged metered ingress: %d %s", w.Code, w.Body.String())
+			}
+		})
+	}
+	out, err := ledger.Export(ctx, &meterpb.ExportRequest{Owner: merged.ID})
+	if err != nil || out.OwnerUsage.AdmittedRequests != 2 || len(out.Events) != 2 {
+		t.Fatalf("merged ingress attribution: %v %v", out, err)
+	}
+	for _, event := range out.Events {
+		if event.Owner != merged.ID {
+			t.Errorf("live request owner = %s", event.Owner)
+		}
+	}
+	p.storage = local
+	p.usageBuffer.Add(owner.ID, ProQuotaBytes)
+	if p.CheckQuota(ctx, merged.ID, "pro") {
+		t.Error("merge hid buffered usage on the obsolete UUID")
+	}
+	if _, err := p.usageBuffer.Flush(ctx, local); err != nil {
+		t.Fatal(err)
+	}
+	if used, err := local.GetMonthlyUsage(ctx, merged.ID); err != nil || used < ProQuotaBytes {
+		t.Errorf("merged buffer flush = %d %v", used, err)
+	}
+
 }
 
 func TestLiveBillingUpdatesQuota(t *testing.T) {
@@ -229,6 +358,10 @@ func TestLiveBillingUpdatesQuota(t *testing.T) {
 			}
 			p, tunnel, _, _ := meteringRelay(t, false, "ok")
 			p.storage, tunnel.AccountID, tunnel.Plan = local, acc.ID, transition.from
+			tunnel.rateLimiter = newRateLimiter(transition.from)
+			if !tunnel.CheckRateLimit(tunnel.rateLimiter.Burst()) {
+				t.Fatal("could not exhaust initial bandwidth burst")
+			}
 			if transition.to == "pro" {
 				object, _ := json.Marshal(StripeCheckoutSession{ID: "cs_local", CustomerEmail: acc.PrimaryEmail, Mode: "subscription", Status: "complete"})
 				if err := p.handleCheckoutCompleted(ctx, StripeEvent{Type: "checkout.session.completed", Data: StripeEventData{Object: object}}); err != nil {
@@ -257,6 +390,16 @@ func TestLiveBillingUpdatesQuota(t *testing.T) {
 			p.createHandler().ServeHTTP(w, relayRequest(relayJWT(t, p, acc.PrimaryEmail), ""))
 			if w.Code != transition.want {
 				t.Fatalf("stored plan=%s live plan=%s: HTTP %d, want %d: %s", updated.Plan, tunnel.Plan, w.Code, transition.want, w.Body.String())
+			}
+			limits := newRateLimiter(transition.to)
+			if tunnel.rateLimiter.Limit() != limits.Limit() || tunnel.rateLimiter.Burst() != limits.Burst() {
+				t.Error("live bandwidth rate still uses the old plan")
+			}
+			if transition.to == "pro" && tunnel.CheckRateLimit(limits.Burst()/2) {
+				t.Error("upgrade restored an exhausted bandwidth burst")
+			}
+			if allowed := p.CheckQuota(ctx, acc.ID, transition.from); allowed != (transition.want == 200) {
+				t.Errorf("direct quota check trusted stale plan: %v", allowed)
 			}
 		})
 	}

@@ -130,6 +130,11 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		return
 	}
 	session := newIngressMeter(p, tunnel)
+	account, accountErr := p.currentTunnelAccount(r.Context(), tunnel)
+	if account != nil {
+		session.accountID, session.event.Owner = account.ID, account.ID
+		tunnel.updateBandwidthPlan(account.Plan)
+	}
 	meterWriter := &meterResponseWriter{ResponseWriter: w, meter: session, ctx: r.Context(), status: 200}
 	w = meterWriter
 	if p.meter != nil {
@@ -304,12 +309,12 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 	}
 	// Check quota before proxying
 	if !tunnel.accountQuotaExempt && (tunnel.CreatorEmail != "" || tunnel.AccountID != "") {
-		if !p.CheckQuota(r.Context(), tunnel.AccountID, tunnel.Plan) {
+		if accountErr != nil || account == nil || !p.checkQuota(r.Context(), account.ID, account.Plan) {
 			session.reason = "account_quota"
 			common.LogInfo("quota exceeded, rejecting request",
 				"tunnel_id", tunnelID,
 				"creator", tunnel.CreatorEmail,
-				"plan", tunnel.Plan)
+				"registration_plan", tunnel.Plan)
 			http.Error(w, "Quota exceeded - tunnel owner's monthly limit reached", http.StatusTooManyRequests)
 			return
 		}

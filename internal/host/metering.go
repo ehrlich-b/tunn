@@ -394,7 +394,12 @@ func (p *ProxyServer) handleMeteringAPI(w http.ResponseWriter, r *http.Request) 
 			http.Error(w, "Endpoint offline", 503)
 			return
 		}
-		if tunnel.AccountID == "" || tunnel.AccountID != owner {
+		tunnelAccount, err := p.currentTunnelAccount(r.Context(), tunnel)
+		if err != nil {
+			http.Error(w, "Account service temporarily unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if tunnelAccount == nil || tunnelAccount.ID != owner {
 			http.Error(w, "Only the endpoint owner can create grants", 403)
 			return
 		}

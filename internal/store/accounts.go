@@ -395,13 +395,23 @@ func (s *AccountStore) ReleaseSubdomain(accountID, subdomain string) error {
 func (s *AccountStore) RecordUsage(accountID string, bytes int64) error {
 	month := time.Now().Format("2006-01")
 
-	_, err := s.db.Exec(`
+	result, err := s.db.Exec(`
 		INSERT INTO account_usage (account_id, month, bytes_used)
 		SELECT id, ?, ? FROM accounts
 		WHERE id = COALESCE((SELECT account_id FROM account_merges WHERE old_id = ?), ?)
 		ON CONFLICT(account_id, month) DO UPDATE SET bytes_used = bytes_used + excluded.bytes_used
 	`, month, bytes, accountID, accountID)
-	return err
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 // GetMonthlyUsage returns the bytes used by an account in the current month

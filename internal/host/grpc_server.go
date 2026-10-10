@@ -119,10 +119,12 @@ type TunnelConnection struct {
 	AccessTokenSHA256  []byte   // Endpoint-scoped bearer digest; plaintext never reaches the relay
 	Capabilities       map[string]bool
 	EndpointProtocol   string
-	Plan               string // "free" or "pro" - cached for quota checks
+	Plan               string // Registration plan; ingress resolves the current plan.
 
 	// Bandwidth rate limiter (token bucket)
-	rateLimiter *rate.Limiter
+	rateLimiter   *rate.Limiter
+	rateMu        sync.RWMutex
+	bandwidthPlan string
 
 	// Stream send mutex - gRPC streams are NOT thread-safe for concurrent Send()
 	streamMu sync.Mutex
@@ -171,10 +173,26 @@ func (t *TunnelConnection) SendMessage(msg *pb.TunnelMessage) error {
 // CheckRateLimit checks if the specified number of bytes can be sent.
 // Returns true if allowed, false if rate limited.
 func (t *TunnelConnection) CheckRateLimit(bytes int) bool {
+	t.rateMu.RLock()
+	defer t.rateMu.RUnlock()
 	if t.rateLimiter == nil {
 		return true // No rate limiter configured
 	}
 	return t.rateLimiter.AllowN(time.Now(), bytes)
+}
+
+// Update the existing bucket instead of resetting its consumed allowance.
+func (t *TunnelConnection) updateBandwidthPlan(plan string) {
+	t.rateMu.Lock()
+	defer t.rateMu.Unlock()
+	if t.rateLimiter == nil || t.bandwidthPlan == plan {
+		return
+	}
+	limits := newRateLimiter(plan)
+	now := time.Now()
+	t.rateLimiter.SetLimitAt(now, limits.Limit())
+	t.rateLimiter.SetBurstAt(now, limits.Burst())
+	t.bandwidthPlan = plan
 }
 
 // newRateLimiter creates a rate limiter for the given plan.
@@ -453,6 +471,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		EndpointProtocol:   endpointProtocol,
 		Plan:               plan,
 		rateLimiter:        newRateLimiter(plan),
+		bandwidthPlan:      plan,
 		pendingRequests:    make(map[string]chan *pb.HttpResponse),
 		pendingStreams:     make(map[string]*pendingConnection),
 	}

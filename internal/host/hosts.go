@@ -142,9 +142,12 @@ func (s *TunnelServer) HandleHosts(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, e := range manifest.Tunnels {
-		if conn := s.tunnels[e.Name]; conn != nil && conn.AccountID != a.ID {
-			http.Error(w, "name is currently in use", http.StatusConflict)
-			return
+		if conn := s.tunnels[e.Name]; conn != nil {
+			owner, err := s.accounts.GetByID(conn.AccountID)
+			if err != nil || owner.ID != a.ID {
+				http.Error(w, "name is currently in use", http.StatusConflict)
+				return
+			}
 		}
 	}
 	if err := s.hosts.Register(a.ID, manifest); err != nil {
@@ -159,7 +162,7 @@ func (s *TunnelServer) hostSeen(conn *TunnelConnection) {
 		accountID := conn.AccountID
 		// Verified email buckets can merge while a stream remains connected.
 		// Resolve its current owner without mutating the live connection fields.
-		if account, err := s.accounts.GetByEmail(conn.CreatorEmail); err == nil {
+		if account, err := s.accounts.GetByID(conn.AccountID); err == nil {
 			accountID = account.ID
 		}
 		if err := s.hosts.Seen(accountID, conn.HostID, conn.TunnelID, time.Now()); err != nil {

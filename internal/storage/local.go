@@ -181,6 +181,8 @@ func (s *LocalStorage) RegisterTunnel(ctx context.Context, tunnelID, accountID, 
 		return nil, err
 	}
 
+	accountID = acc.ID
+
 	// Every node registers here, so reservation ownership is authoritative
 	// even when the ingress node has no local account database.
 	owner, err := s.accounts.GetSubdomainOwner(tunnelID)
@@ -200,11 +202,9 @@ func (s *LocalStorage) RegisterTunnel(ctx context.Context, tunnelID, accountID, 
 	}
 
 	// Count current tunnels for this account
-	count := int32(0)
-	for _, accID := range s.activeTunnels {
-		if accID == accountID {
-			count++
-		}
+	count, err := s.canonicalTunnelCount(accountID)
+	if err != nil {
+		return nil, err
 	}
 
 	// Get account plan to determine limit
@@ -259,9 +259,38 @@ func (s *LocalStorage) GetTunnelCount(ctx context.Context, accountID string) (in
 	s.activeTunnelsMu.RLock()
 	defer s.activeTunnelsMu.RUnlock()
 
-	count := int32(0)
-	for _, accID := range s.activeTunnels {
-		if accID == accountID {
+	if account, err := s.accounts.GetByID(accountID); err == nil {
+		accountID = account.ID
+	} else if err != sql.ErrNoRows {
+		return 0, err
+	}
+	count, err := s.canonicalTunnelCount(accountID)
+	if err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+// Caller holds activeTunnelsMu. Live registrations can retain an absorbed UUID
+// even when the account merge happened through a different AccountStore handle.
+func (s *LocalStorage) canonicalTunnelCount(accountID string) (int32, error) {
+	var count int32
+	resolved := make(map[string]string)
+	for _, id := range s.activeTunnels {
+		canonical := id
+		if id != accountID {
+			var ok bool
+			canonical, ok = resolved[id]
+			if !ok {
+				account, err := s.accounts.GetByID(id)
+				if err != nil {
+					return 0, err
+				}
+				canonical = account.ID
+				resolved[id] = canonical
+			}
+		}
+		if canonical == accountID {
 			count++
 		}
 	}

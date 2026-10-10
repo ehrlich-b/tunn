@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"strings"
@@ -12,11 +13,13 @@ import (
 
 // Account represents a user account (email bucket)
 type Account struct {
-	ID           string
-	PrimaryEmail string
-	Plan         string // "free" or "pro"
-	CreatedAt    time.Time
-	Emails       []AccountEmail
+	OperationalState   string
+	OperationalVersion int64
+	ID                 string
+	PrimaryEmail       string
+	Plan               string // "free" or "pro"
+	CreatedAt          time.Time
+	Emails             []AccountEmail
 }
 
 // AccountEmail represents an email in an account bucket
@@ -127,6 +130,9 @@ func (s *AccountStore) FindOrCreateByEmails(emails []string, verifiedVia string)
 		return nil, err
 	}
 
+	if err = s.loadOperationalState(account); err != nil {
+		return nil, err
+	}
 	return account, nil
 }
 
@@ -154,6 +160,9 @@ func (s *AccountStore) GetByEmail(email string) (*Account, error) {
 		return nil, err
 	}
 
+	if err = s.loadOperationalState(&account); err != nil {
+		return nil, err
+	}
 	return &account, nil
 }
 
@@ -232,6 +241,9 @@ ON CONFLICT(account_id, machine) DO UPDATE SET last_seen=MAX(host_machines.last_
 		if err := mergeAccountAccounting(tx, acc.ID, primary.ID); err != nil {
 			return nil, err
 		}
+		if err := mergeAccountOperations(tx, acc.ID, primary.ID); err != nil {
+			return nil, err
+		}
 		// Flatten prior merges so every obsolete UUID resolves in one lookup.
 		if _, err := tx.Exec("UPDATE account_merges SET account_id=? WHERE account_id=?", primary.ID, acc.ID); err != nil {
 			return nil, err
@@ -291,10 +303,18 @@ type ReservedSubdomain struct {
 // - Subdomain is already reserved by another account
 func (s *AccountStore) ReserveSubdomain(accountID, subdomain string) error {
 	subdomain = strings.ToLower(strings.TrimSpace(subdomain))
+	status, err := NewOperationsStore(s.db, nil).LookupAccountStatus(context.Background(), accountID)
+	if err != nil {
+		return err
+	}
+	if status.State != "active" {
+		return ErrSuspended
+	}
+	accountID = status.AccountID
 
 	// Check if account is Pro
 	var plan string
-	err := s.db.QueryRow("SELECT plan FROM accounts WHERE id = ?", accountID).Scan(&plan)
+	err = s.db.QueryRow("SELECT plan FROM accounts WHERE id = ?", accountID).Scan(&plan)
 	if err != nil {
 		return err
 	}
@@ -451,5 +471,17 @@ func (s *AccountStore) GetByID(accountID string) (*Account, error) {
 		return nil, err
 	}
 
+	if err = s.loadOperationalState(&account); err != nil {
+		return nil, err
+	}
 	return &account, nil
+}
+
+func (s *AccountStore) loadOperationalState(account *Account) error {
+	status, err := NewOperationsStore(s.db, nil).LookupAccountStatus(context.Background(), account.ID)
+	if err != nil {
+		return err
+	}
+	account.OperationalState, account.OperationalVersion = status.State, status.Version
+	return nil
 }

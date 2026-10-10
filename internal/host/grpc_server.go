@@ -332,6 +332,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 	var creatorEmail string
 	var allowedEmails []string
 	var requiresAccount bool
+	var configuredUser bool
 
 	// Skip auth in public mode
 	if s.cfg.PublicMode {
@@ -358,6 +359,8 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		common.LogInfo("user token auth", "tunnel_id", tunnelID, "email", email)
 		creatorEmail = email
 		allowedEmails = regClient.AllowedEmails
+		configuredUser = true
+		requiresAccount = s.storage != nil
 	} else {
 		// Validate tunnel_key (authorization to create tunnels)
 		if regClient.TunnelKey != s.cfg.WellKnownKey {
@@ -419,11 +422,17 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 			return rejectTunnelRegistration(stream, "Account service temporarily unavailable.")
 		}
 		account, err := s.storage.GetAccountByEmail(stream.Context(), creatorEmail)
+		if err == nil && account == nil && configuredUser {
+			account, err = s.storage.FindOrCreateByEmails(stream.Context(), []string{creatorEmail}, "configured-user")
+		}
 		if err != nil || account == nil || account.ID == "" {
 			return rejectTunnelRegistration(stream, "Account could not be verified. Run 'tunn login' again.")
 		}
 		plan = account.Plan
 		accountID = account.ID
+		if account.OperationalState != "active" {
+			return rejectTunnelRegistration(stream, "Account suspended or status unavailable.")
+		}
 	}
 
 	if hostID != "" {
@@ -437,6 +446,9 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 			expectedProtocol = "tcp"
 		}
 		if err == nil && account != nil {
+			if account.OperationalState != "active" {
+				return rejectTunnelRegistration(stream, "Account suspended or status unavailable.")
+			}
 			accountID, plan = account.ID, account.Plan
 			err = s.hosts.CheckEndpoint(accountID, hostID, tunnelID, kind)
 			if endpointProtocol != expectedProtocol {

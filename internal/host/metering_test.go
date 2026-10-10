@@ -56,9 +56,9 @@ func (s *meteringFixtureStorage) GetAccount(ctx context.Context, id string) (*st
 func (s *meteringFixtureStorage) GetAccountByEmail(ctx context.Context, email string) (*storage.Account, error) {
 	switch email {
 	case "owner@example.com":
-		return &storage.Account{ID: "ad38bf44-0c4a-40ce-bdee-2d8579bf63cc", PrimaryEmail: email, Plan: "free"}, nil
+		return &storage.Account{OperationalState: "active", ID: "ad38bf44-0c4a-40ce-bdee-2d8579bf63cc", PrimaryEmail: email, Plan: "free"}, nil
 	case "stranger@example.com":
-		return &storage.Account{ID: "60b009cf-6023-4d39-8c69-39a692790e37", PrimaryEmail: email, Plan: "free"}, nil
+		return &storage.Account{OperationalState: "active", ID: "60b009cf-6023-4d39-8c69-39a692790e37", PrimaryEmail: email, Plan: "free"}, nil
 	default:
 		return nil, nil
 	}

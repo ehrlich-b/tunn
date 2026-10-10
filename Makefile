@@ -16,7 +16,26 @@ all: build
 # Build the binary
 build:
 	@echo "Building $(BINARY_NAME)..."
-	go build -ldflags="-s -w" -o ./bin/$(BINARY_NAME) .
+	go build -ldflags="-s -w" -o $(BUILD_OUTPUT) .
+
+BUILD_OUTPUT ?= ./bin/$(BINARY_NAME)
+
+.PHONY: proto-internal test-account-operations
+proto-internal:
+	protoc --go_out=. --go-grpc_out=. --go_opt=module=github.com/ehrlich-b/tunn --go-grpc_opt=module=github.com/ehrlich-b/tunn proto/internal.proto
+
+test-account-operations:
+	go test -race -v -count=1 -parallel=2 -timeout=120s -run '^TestAccountOperations' ./internal/store ./internal/storage ./internal/metering ./internal/host .
+
+# The coordinator must supply the pinned domains commit after integration.
+# A missing pin or unmerged domains head is a failed promotion gate.
+.PHONY: test-account-operations-combined
+test-account-operations-combined:
+	@test -n "$$TUNN_DOMAINS_HEAD" || { echo "REQUIRED: set TUNN_DOMAINS_HEAD to the integrated domains commit"; exit 1; }
+	@test "$$(git rev-parse --verify "$$TUNN_DOMAINS_HEAD^{commit}")" = "$$TUNN_DOMAINS_HEAD" || { echo "REQUIRED: provide the full immutable domains commit SHA"; exit 1; }
+	git merge-base --is-ancestor "$$TUNN_DOMAINS_HEAD" HEAD
+	go test -race -count=1 -parallel=2 -timeout=180s -run '^TestAccountOperationsCombinedLifecycle$$' ./internal/host
+	$(MAKE) -j1 test-account-operations test-metering-contract
 
 # Generate protobuf and gRPC code
 proto:

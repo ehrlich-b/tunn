@@ -7,7 +7,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"net/http/cookiejar"
@@ -362,25 +361,19 @@ func TestLiveBillingUpdatesQuota(t *testing.T) {
 			if !tunnel.CheckRateLimit(tunnel.rateLimiter.Burst()) {
 				t.Fatal("could not exhaust initial bandwidth burst")
 			}
-			if transition.to == "pro" {
-				object, _ := json.Marshal(StripeCheckoutSession{ID: "cs_local", CustomerEmail: acc.PrimaryEmail, Mode: "subscription", Status: "complete"})
-				if err := p.handleCheckoutCompleted(ctx, StripeEvent{Type: "checkout.session.completed", Data: StripeEventData{Object: object}}); err != nil {
-					t.Fatal(err)
-				}
-			} else {
-				p.config.StripeSecretKey = "local-fixture-key"
-				previous := http.DefaultClient
-				http.DefaultClient = &http.Client{Transport: billingFixtureTransport(func(r *http.Request) (*http.Response, error) {
-					if r.URL.String() != "https://api.stripe.com/v1/customers/cus_local" || r.Method != "GET" {
-						return nil, fmt.Errorf("unexpected provider fixture request")
-					}
-					return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"email":"owner@example.com"}`)), Header: make(http.Header)}, nil
-				})}
-				defer func() { http.DefaultClient = previous }()
-				object, _ := json.Marshal(StripeSubscription{ID: "sub_local", Customer: "cus_local", Status: "canceled"})
-				if err := p.handleSubscriptionDeleted(ctx, StripeEvent{Type: "customer.subscription.deleted", Data: StripeEventData{Object: object}}); err != nil {
-					t.Fatal(err)
-				}
+			// Keep the original live-quota assertions, driven by a provider
+			// fixture with an authoritative revision instead of email lookup.
+			ops := local.OperationsStore()
+			digest := sha256.Sum256([]byte("fixture-administration-token-0123456789"))
+			principal, err := store.AuthenticateAdmin([]store.AdminCredential{{Actor: "fixture-operator", TokenSHA256: fmt.Sprintf("%x", digest), Accounts: []string{acc.ID}}}, "fixture-administration-token-0123456789")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err = ops.BindBilling(ctx, principal, store.BillingMapping{Provider: "fixture", CustomerID: "cus_local", SubscriptionID: "sub_local", AccountID: acc.ID}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err = ops.ProcessBillingEvent(ctx, store.BillingEvent{Provider: "fixture", ID: "evt_live", Type: "subscription.updated", CustomerID: "cus_local", SubscriptionID: "sub_local", Revision: 1, Plan: transition.to, Supported: true}); err != nil {
+				t.Fatal(err)
 			}
 			updated, err := local.GetAccount(ctx, acc.ID)
 			if err != nil || updated.Plan != transition.to {

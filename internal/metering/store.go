@@ -169,6 +169,11 @@ func (s *Store) CreateGrant(ctx context.Context, g *pb.Grant) (*pb.Grant, error)
 		if err != nil {
 			return err
 		}
+		if suspended, err := operationallySuspended(tx, g.Owner); err != nil {
+			return err
+		} else if suspended {
+			return fmt.Errorf("account_suspended")
+		}
 		cutoff := now.UTC().AddDate(0, -RetentionMonths, 0)
 		if _, err := tx.Exec(`DELETE FROM meter_grants WHERE expires<?`, cutoff.UnixMilli()); err != nil {
 			return err
@@ -342,6 +347,10 @@ func (s *Store) Admit(ctx context.Context, input *pb.Event) (*pb.Decision, error
 		if err != nil {
 			return err
 		}
+		suspended, err := operationallySuspended(tx, e.Owner)
+		if err != nil {
+			return err
+		}
 		prior, err := readEvent(tx, e.RequestId)
 		if err == nil {
 			if prior.Owner != e.Owner || prior.Endpoint != e.Endpoint || prior.Caller != e.Caller || prior.GrantId != e.GrantId {
@@ -351,6 +360,9 @@ func (s *Store) Admit(ctx context.Context, input *pb.Event) (*pb.Decision, error
 				d = proto.Clone(prior.Admission).(*pb.Decision)
 			} else {
 				d = decision(prior)
+			}
+			if suspended {
+				deny(d, "account_suspended", 403)
 			}
 			return nil
 		}
@@ -403,6 +415,9 @@ func (s *Store) Admit(ctx context.Context, input *pb.Event) (*pb.Decision, error
 			}
 		}
 		d = decision(e)
+		if suspended {
+			deny(d, "account_suspended", 403)
+		}
 		var g *pb.Grant
 		if e.Allowed && e.GrantId != "" {
 			g, err = grant(tx, e.GrantId)
@@ -487,6 +502,13 @@ func (s *Store) Charge(ctx context.Context, r *pb.ChargeRequest) (*pb.Decision, 
 			return err
 		}
 		d = decision(e)
+		suspended, err := operationallySuspended(tx, e.Owner)
+		if err != nil {
+			return err
+		}
+		if suspended {
+			deny(d, "account_suspended", 403)
+		}
 		if r.RequestBytes < e.RequestBytes || r.ResponseBytes < e.ResponseBytes || r.RequestBytes < 0 || r.ResponseBytes < 0 {
 			return fmt.Errorf("byte counts must be monotonic")
 		}

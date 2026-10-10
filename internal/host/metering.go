@@ -329,6 +329,10 @@ func (p *ProxyServer) handleMeteringAPI(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	owner := account.ID
+	if r.Method == http.MethodPost && account.OperationalState != "active" {
+		http.Error(w, "account_suspended", 403)
+		return
+	}
 	switch {
 	case parts[1] == "usage" && len(parts) == 2 && r.Method == http.MethodGet:
 		month := r.URL.Query().Get("month")

@@ -6,7 +6,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
+	"net/mail"
+	"net/url"
 	"strings"
 	"time"
 
@@ -34,28 +38,48 @@ func (p *ProxyServer) handleMagicLinkRequest(w http.ResponseWriter, r *http.Requ
 	var req struct {
 		Email string `json:"email"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	email := strings.ToLower(strings.TrimSpace(req.Email))
-	if email == "" || !strings.Contains(email, "@") {
+	email := common.NormalizeEmail(strings.TrimSpace(req.Email))
+	parsed, parseErr := mail.ParseAddress(email)
+	if len(email) > 254 || parseErr != nil || parsed.Address != email || strings.ContainsAny(email, "\r\n") {
 		http.Error(w, "Invalid email address", http.StatusBadRequest)
+		return
+	}
+	var extra any
+	if decoder.Decode(&extra) != io.EOF {
+		http.Error(w, "Expected one request", 400)
+		return
+	}
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		ip = r.RemoteAddr
+	}
+	if !p.checkDeviceCodeRateLimit(ip) {
+		http.Error(w, "Too many requests", 429)
 		return
 	}
 
 	// Check rate limit via login node
-	if p.storage.Available() {
+	if p.storage != nil && p.storage.Available() {
 		allowed, _, _, err := p.storage.CheckMagicLinkRateLimit(r.Context(), email)
 		if err != nil {
 			common.LogError("failed to check magic link rate limit", "email", email, "error", err)
-			// Fail open on error - allow the request but log it
+			http.Error(w, "Login rate limiter unavailable", 503)
+			return
 		} else if !allowed {
 			common.LogInfo("magic link rate limited", "email", email)
 			http.Error(w, "Too many requests. Please try again in a few minutes.", http.StatusTooManyRequests)
 			return
 		}
+	} else {
+		http.Error(w, "Login service unavailable", 503)
+		return
 	}
 
 	// Generate magic link JWT (5 minute expiry)
@@ -71,8 +95,12 @@ func (p *ProxyServer) handleMagicLinkRequest(w http.ResponseWriter, r *http.Requ
 
 	// Check for device code in URL params (for CLI login flow)
 	deviceUserCode := r.URL.Query().Get("device_user_code")
+	if len(deviceUserCode) > 64 {
+		http.Error(w, "Invalid device code", 400)
+		return
+	}
 	if deviceUserCode != "" {
-		magicLinkURL += "&device_code=" + deviceUserCode
+		magicLinkURL += "&device_code=" + url.QueryEscape(deviceUserCode)
 	}
 
 	// Send email

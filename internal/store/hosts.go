@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"sync"
@@ -46,6 +47,14 @@ func (s *HostStore) Register(accountID string, manifest common.HostManifest) err
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
+	status, err := readAccountStatus(context.Background(), tx, accountID)
+	if err != nil {
+		return err
+	}
+	if status.State != "active" {
+		return ErrSuspended
+	}
+	accountID = status.AccountID
 	var count int
 	if err := tx.QueryRow("SELECT COUNT(*) FROM host_machines WHERE account_id = ?", accountID).Scan(&count); err != nil {
 		return err

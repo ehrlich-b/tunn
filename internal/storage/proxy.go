@@ -2,6 +2,11 @@ package storage
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"github.com/ehrlich-b/tunn/internal/store"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"sync"
 	"time"
 
@@ -324,10 +329,63 @@ func protoAccountToStorage(resp *internalv1.AccountResponse) *Account {
 		}
 	}
 	return &Account{
-		ID:           resp.Id,
-		PrimaryEmail: resp.PrimaryEmail,
-		Plan:         resp.Plan,
-		CreatedAt:    time.Unix(resp.CreatedAt, 0),
-		Emails:       emails,
+		OperationalState:   resp.OperationalState,
+		OperationalVersion: resp.OperationalVersion,
+		ID:                 resp.Id,
+		PrimaryEmail:       resp.PrimaryEmail,
+		Plan:               resp.Plan,
+		CreatedAt:          time.Unix(resp.CreatedAt, 0),
+		Emails:             emails,
 	}
+}
+
+func (s *ProxyStorage) LookupAccountStatus(ctx context.Context, id string) (*store.AccountStatus, error) {
+	a, err := s.GetAccount(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if a == nil || a.OperationalState != "active" && a.OperationalState != "suspended" {
+		return nil, fmt.Errorf("account status unavailable (upgrade login authority)")
+	}
+	return &store.AccountStatus{AccountID: a.ID, State: a.OperationalState, Version: a.OperationalVersion}, nil
+}
+func (s *ProxyStorage) ProcessBillingEvent(ctx context.Context, e store.BillingEvent) (*store.BillingResult, error) {
+	c := s.getClient()
+	if c == nil {
+		return nil, ErrNotAvailable
+	}
+	data, err := json.Marshal(e)
+	if err != nil {
+		return nil, err
+	}
+	r, err := c.ProcessBillingEvent(ctx, &internalv1.ProcessBillingEventRequest{EventJson: data})
+	if err != nil {
+		return nil, err
+	}
+	var out store.BillingResult
+	if err = json.Unmarshal(r.ResultJson, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+func (s *ProxyStorage) IntakeReport(ctx context.Context, id, category, endpoint string) (*store.IncidentReport, error) {
+	c := s.getClient()
+	if c == nil {
+		return nil, ErrNotAvailable
+	}
+	r, err := c.IntakeReport(ctx, &internalv1.IntakeReportRequest{AccountId: id, Category: category, Endpoint: endpoint})
+	if err != nil {
+		if status.Code(err) == codes.ResourceExhausted {
+			if status.Convert(err).Message() == "report_capacity" {
+				return nil, store.ErrReportCapacity
+			}
+			return nil, store.ErrReportRateLimited
+		}
+		return nil, err
+	}
+	var out store.IncidentReport
+	if err = json.Unmarshal(r.ReportJson, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }

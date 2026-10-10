@@ -142,6 +142,19 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 	}
 	defer session.complete(r.Context(), meterWriter)
 	grantAuthenticated := false
+	if !tunnel.accountQuotaExempt && (tunnel.CreatorEmail != "" || tunnel.AccountID != "") {
+		if accountErr != nil || account == nil || account.OperationalState == "" {
+			session.reason = "account_unavailable"
+			http.Error(w, "Account status unavailable", 503)
+			return
+		}
+		if account.OperationalState != "active" {
+			session.reason = "account_suspended"
+			w.Header().Set("Tunn-Limit-Reason", session.reason)
+			http.Error(w, session.reason, 403)
+			return
+		}
+	}
 	if token, header := grantBearer(r); token != "" {
 		if p.meter == nil {
 			session.reason = "meter_unavailable"
@@ -323,6 +336,8 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 	if !session.admit(r.Context(), w, r) {
 		return
 	}
+	r, stopAccountWatch := p.watchAccountRequest(r, tunnel, account)
+	defer stopAccountWatch()
 	r = r.WithContext(context.WithValue(r.Context(), meterContextKey{}, session))
 	if p.meter != nil {
 		r.Body = &meterRequestBody{ReadCloser: r.Body, meter: session, ctx: r.Context()}

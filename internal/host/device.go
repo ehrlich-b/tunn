@@ -284,8 +284,22 @@ func (p *ProxyServer) checkDeviceCodeRateLimit(ip string) bool {
 	p.deviceCodeRateMu.Lock()
 	defer p.deviceCodeRateMu.Unlock()
 
-	now := time.Now()
+	now := p.currentTime()
 	windowStart := now.Add(-deviceCodeRateWindow)
+	if len(ip) > 128 {
+		return false
+	}
+	if p.deviceCodeRateByIP == nil {
+		p.deviceCodeRateByIP = make(map[string][]time.Time)
+	}
+	for key, requests := range p.deviceCodeRateByIP {
+		if len(requests) == 0 || !requests[len(requests)-1].After(windowStart) {
+			delete(p.deviceCodeRateByIP, key)
+		}
+	}
+	if _, exists := p.deviceCodeRateByIP[ip]; !exists && len(p.deviceCodeRateByIP) >= 4096 {
+		return false
+	}
 
 	// Get existing requests and filter to current window
 	requests := p.deviceCodeRateByIP[ip]

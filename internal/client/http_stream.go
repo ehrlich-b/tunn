@@ -2,7 +2,6 @@ package client
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"io"
 	"net"
@@ -31,6 +30,7 @@ func (c *inboundConnection) stop(err error) {
 }
 
 type inboundConnectionManager struct {
+	workers     sync.WaitGroup
 	mu          sync.RWMutex
 	connections map[string]*inboundConnection
 	slots       chan struct{}
@@ -81,7 +81,9 @@ func (m *inboundConnectionManager) open(ctx context.Context, client *ServeClient
 	if open.Protocol == "websocket" {
 		connection.input = make(chan []byte, 16)
 		connection.done = connectionCtx.Done()
+		m.workers.Add(1)
 		go func() {
+			defer m.workers.Done()
 			for {
 				select {
 				case data := <-connection.input:
@@ -111,7 +113,9 @@ func (m *inboundConnectionManager) open(ctx context.Context, client *ServeClient
 	m.connections[open.ConnectionId] = connection
 	m.mu.Unlock()
 
+	m.workers.Add(1)
 	go func() {
+		defer m.workers.Done()
 		defer func() {
 			_ = bodyReader.Close()
 			m.remove(open.ConnectionId, connection)
@@ -314,15 +318,11 @@ func (s *ServeClient) handleStreamingHTTPRequest(ctx context.Context, sender mes
 		timeout = 30 * time.Second
 	}
 	transport := &http.Transport{
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: s.SkipLocalTLSVerify,
-		},
+		TLSClientConfig:       s.localTLSConfig(),
 		ForceAttemptHTTP2:     true,
 		ResponseHeaderTimeout: timeout,
 	}
-	if s.DialContext != nil {
-		transport.DialContext = s.DialContext
-	}
+	transport.DialContext = s.localDialContext()
 	if s.TargetNetwork == "unix" {
 		dialAddress := s.DialAddress
 		transport.DialContext = func(ctx context.Context, _, _ string) (net.Conn, error) {

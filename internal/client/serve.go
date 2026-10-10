@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"strings"
@@ -44,7 +45,8 @@ type streamSender struct {
 }
 
 type permanentTunnelError struct {
-	err error
+	err  error
+	kind FailureKind
 }
 
 func (e *permanentTunnelError) Error() string { return e.err.Error() }
@@ -74,20 +76,29 @@ type ServeClient struct {
 	TargetNetwork      string                                                  // "tcp" (default) or "unix" for raw endpoints
 	DialAddress        string                                                  // Optional transport address when TargetURL is only an HTTP origin
 	DialContext        func(context.Context, string, string) (net.Conn, error) // Optional embedded transport dialer
+	LocalDialContext   func(context.Context, string, string) (net.Conn, error) // Optional HTTP origin transport, separate from relay
+	RelayTLSConfig     *tls.Config
+	LocalTLSConfig     *tls.Config
 	TunnelKey          string
 	AllowedEmails      []string
 	Insecure           bool // Skip TLS verification for proxy gRPC connection
 	SkipLocalTLSVerify bool // Skip TLS verification for local HTTPS target
 
 	// Host-mode lifecycle hooks; called serially by Run.
-	HostID     string
-	Quiet      bool
-	Persistent bool
-	OnState    func(online bool)
+	HostID            string
+	Quiet             bool
+	Persistent        bool
+	OnState           func(online bool)
+	OnLifecycle       func(LifecycleEvent)
+	ValidatePublicURL func(string) error
+	Logger            *slog.Logger // nil keeps the CLI logger; never changes process logging
+	SafeLogs          bool         // Emit static messages only, without remote errors or private target data
 
 	// Reconnection settings
 	MaxReconnectDelay time.Duration // Maximum delay between reconnects (default: 30s)
 	InitialDelay      time.Duration // Initial delay for exponential backoff (default: 1s)
+	ReconnectLimit    *int          // nil keeps CLI retries unlimited; otherwise bounds retries
+	ConnectTimeout    time.Duration // Bounds connection and registration, not an established tunnel
 
 	// HTTP client settings
 	HTTPTimeout         time.Duration // Timeout for HTTP requests to local target (default: 30s)
@@ -111,6 +122,10 @@ func (s *ServeClient) Run(ctx context.Context) error {
 	attempts := 0
 
 	for {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		s.lifecycle(LifecycleEvent{State: StateConnecting})
 		attempts++
 		start := time.Now()
 		err := s.runOnce(ctx)
@@ -129,20 +144,23 @@ func (s *ServeClient) Run(ctx context.Context) error {
 		if errors.As(err, &permanent) {
 			return err
 		}
-
 		// Reset backoff if connection was stable for at least 30 seconds
 		if duration > 30*time.Second {
 			backoffAttempt = 0
 			attempts = 1
 		}
+		if s.ReconnectLimit != nil && attempts > *s.ReconnectLimit {
+			return err
+		}
 
 		// Log the error and prepare for reconnection
-		common.LogError("tunnel connection lost", "error", err, "attempt", attempts)
+		s.log(slog.LevelError, "tunnel connection lost", "error", err, "attempt", attempts)
 
 		delay := ReconnectDelay(s.InitialDelay, s.MaxReconnectDelay, backoffAttempt)
+		s.lifecycle(LifecycleEvent{State: StateReconnecting, Err: err, RetryDelay: delay})
 
 		// Wait before reconnecting
-		common.LogInfo("reconnecting", "delay", delay.String())
+		s.log(slog.LevelInfo, "reconnecting", "delay", delay.String())
 
 		select {
 		case <-ctx.Done():
@@ -157,14 +175,25 @@ func (s *ServeClient) Run(ctx context.Context) error {
 
 // runOnce establishes a single gRPC tunnel connection and handles messages until disconnection
 func (s *ServeClient) runOnce(ctx context.Context) error {
+	ctx, cancel := context.WithCancel(ctx)
+	var workers sync.WaitGroup
+	defer func() { cancel(); workers.Wait() }()
+	var connectTimer *time.Timer
+	if s.ConnectTimeout > 0 {
+		connectTimer = time.AfterFunc(s.ConnectTimeout, cancel)
+		defer connectTimer.Stop()
+	}
 	// Create TLS credentials
 	tlsConfig := &tls.Config{
 		InsecureSkipVerify: s.Insecure,
 	}
+	if s.RelayTLSConfig != nil {
+		tlsConfig = s.RelayTLSConfig.Clone()
+	}
 	creds := credentials.NewTLS(tlsConfig)
 
 	// Connect to the gRPC server with keepalive
-	common.LogInfo("connecting to proxy", "server", s.ServerAddr)
+	s.log(slog.LevelInfo, "connecting to proxy", "server", s.ServerAddr)
 	dialOptions := []grpc.DialOption{
 		grpc.WithTransportCredentials(creds),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
@@ -196,7 +225,7 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 		return fmt.Errorf("failed to establish tunnel: %w", err)
 	}
 
-	common.LogInfo("gRPC stream established")
+	s.log(slog.LevelInfo, "gRPC stream established")
 
 	// Extract email from JWT (skip if no token)
 	creatorEmail := s.CreatorEmail
@@ -204,14 +233,14 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 		if s.AuthToken != "" {
 			if email, err := common.ExtractEmailFromJWT(s.AuthToken); err == nil {
 				creatorEmail = email
-				common.LogInfo("extracted creator email", "email", creatorEmail)
+				s.log(slog.LevelInfo, "extracted creator email", "email", creatorEmail)
 			} else {
 				// Self-hosted client secrets and per-user tokens are not JWTs. The
 				// server derives their identity from its own trusted configuration.
-				common.LogDebug("auth token has no JWT email; server will derive identity")
+				s.log(slog.LevelDebug, "auth token has no JWT email; server will derive identity")
 			}
 		} else {
-			common.LogInfo("no auth token - using public mode")
+			s.log(slog.LevelInfo, "no auth token - using public mode")
 		}
 	}
 
@@ -248,7 +277,7 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 		return fmt.Errorf("failed to send registration: %w", err)
 	}
 
-	common.LogInfo("registration sent", "tunnel_id", s.TunnelID, "target", s.TargetURL)
+	s.log(slog.LevelInfo, "registration sent", "tunnel_id", s.TunnelID, "target", s.TargetURL)
 
 	// Wait for registration response
 	msg, err := stream.Recv()
@@ -258,25 +287,37 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 
 	regResp := msg.GetRegisterResponse()
 	if regResp == nil {
-		return fmt.Errorf("expected RegisterResponse, got %T", msg.Message)
+		return &permanentTunnelError{err: fmt.Errorf("expected RegisterResponse, got %T", msg.Message), kind: FailureProtocol}
 	}
 
 	if !regResp.Success {
-		return &permanentTunnelError{err: fmt.Errorf("registration failed: %s", regResp.ErrorMessage)}
+		return &permanentTunnelError{err: fmt.Errorf("registration failed: %s", regResp.ErrorMessage), kind: FailureRegistration}
+	}
+	if s.ValidatePublicURL != nil {
+		if err := s.ValidatePublicURL(regResp.PublicUrl); err != nil {
+			return &permanentTunnelError{err: err, kind: FailureProtocol}
+		}
+	}
+	if connectTimer != nil {
+		connectTimer.Stop()
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
 	}
 	if s.EndpointProtocol == "tcp" && !containsString(regResp.Capabilities, common.CapabilityConnectionStreamV1) {
 		return &permanentTunnelError{err: fmt.Errorf("relay does not support raw connection streams")}
 	}
 	if s.RequireUpstreamAuth && !containsString(regResp.Capabilities, common.CapabilityWebSocketV1) {
-		return &permanentTunnelError{err: fmt.Errorf("relay must support websocket-v1 for --require-upstream-auth")}
+		return &permanentTunnelError{err: fmt.Errorf("relay must support websocket-v1 for --require-upstream-auth"), kind: FailureProtocol}
 	}
 
 	if s.OnState != nil {
 		s.OnState(true)
 		defer s.OnState(false)
 	}
+	s.lifecycle(LifecycleEvent{State: StateReady, PublicURL: regResp.PublicUrl + s.PublicPath})
 
-	common.LogInfo("tunnel registered successfully", "public_url", regResp.PublicUrl)
+	s.log(slog.LevelInfo, "tunnel registered successfully", "public_url", regResp.PublicUrl)
 	publicURL := regResp.PublicUrl + s.PublicPath
 	displayTarget := s.TargetURL
 	if s.DisplayTarget != "" {
@@ -310,13 +351,15 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 	defer connCancel() // Cancel health check goroutine when connection ends
 
 	// Start health check sender
-	go s.sendHealthChecks(connCtx, sender)
+	workers.Add(1)
+	go func() { defer workers.Done(); s.sendHealthChecks(connCtx, sender) }()
 	if s.EndpointTokenPath != "" {
-		go s.watchEndpointToken(connCtx, sender, accessTokenDigest, time.Second)
+		workers.Add(1)
+		go func() { defer workers.Done(); s.watchEndpointToken(connCtx, sender, accessTokenDigest, time.Second) }()
 	}
 
 	// Enter message processing loop
-	return s.processMessages(ctx, stream, sender)
+	return s.processMessagesOwned(ctx, stream, sender, cancel)
 }
 
 func (s *ServeClient) watchEndpointToken(ctx context.Context, sender messageSender, current []byte, interval time.Duration) {
@@ -330,7 +373,7 @@ func (s *ServeClient) watchEndpointToken(ctx context.Context, sender messageSend
 		case <-ticker.C:
 			digest, err := endpointTokenDigestFromFile(s.EndpointTokenPath)
 			if err != nil {
-				common.LogError("failed to read endpoint token for rotation", "error", err)
+				s.log(slog.LevelError, "failed to read endpoint token for rotation", "error", err)
 				continue
 			}
 			if bytes.Equal(digest, current) {
@@ -341,11 +384,11 @@ func (s *ServeClient) watchEndpointToken(ctx context.Context, sender messageSend
 					UpdateAccessToken: &pb.UpdateAccessToken{AccessTokenSha256: digest},
 				},
 			}); err != nil {
-				common.LogError("failed to rotate endpoint token at relay", "error", err)
+				s.log(slog.LevelError, "failed to rotate endpoint token at relay", "error", err)
 				return
 			}
 			current = digest
-			common.LogInfo("endpoint access token rotated")
+			s.log(slog.LevelInfo, "endpoint access token rotated")
 		}
 	}
 }
@@ -377,22 +420,36 @@ func containsString(values []string, wanted string) bool {
 
 // processMessages handles incoming messages from the server
 func (s *ServeClient) processMessages(ctx context.Context, stream pb.TunnelService_EstablishTunnelClient, sender messageSender) error {
+	return s.processMessagesOwned(ctx, stream, sender, func() {})
+}
+
+func (s *ServeClient) processMessagesOwned(ctx context.Context, stream pb.TunnelService_EstablishTunnelClient, sender messageSender, cancelStream context.CancelFunc) error {
+	ctx, cancel := context.WithCancel(ctx)
+	var workers sync.WaitGroup
 	// Semaphore to limit concurrent HTTP request handlers
 	sem := make(chan struct{}, MaxConcurrentRequests)
 	connections := newInboundConnectionManager()
-	defer connections.closeAll(fmt.Errorf("tunnel connection closed"))
+	defer func() {
+		cancel()
+		connections.closeAll(fmt.Errorf("tunnel connection closed"))
+		// Cancel the stream before joining workers: a send can be blocked on
+		// relay backpressure. CloseSend is not safe alongside those sends.
+		cancelStream()
+		workers.Wait()
+		connections.workers.Wait()
+	}()
 
 	for {
 		select {
 		case <-ctx.Done():
-			common.LogInfo("context canceled, closing stream")
+			s.log(slog.LevelInfo, "context canceled, closing stream")
 			return ctx.Err()
 		default:
 		}
 
 		msg, err := stream.Recv()
 		if err == io.EOF {
-			common.LogInfo("server closed stream")
+			s.log(slog.LevelInfo, "server closed stream")
 			if s.Persistent {
 				return fmt.Errorf("relay closed persistent tunnel")
 			}
@@ -408,19 +465,21 @@ func (s *ServeClient) processMessages(ctx context.Context, stream pb.TunnelServi
 			select {
 			case sem <- struct{}{}:
 				// Got a slot, spawn handler
+				workers.Add(1)
 				go func(req *pb.HttpRequest) {
+					defer workers.Done()
 					defer func() { <-sem }() // Release slot when done
-					s.handleHttpRequest(sender, req)
+					s.handleHTTPRequestContext(ctx, sender, req)
 				}(m.HttpRequest)
 			case <-ctx.Done():
-				common.LogInfo("context canceled while waiting for semaphore")
+				s.log(slog.LevelInfo, "context canceled while waiting for semaphore")
 				return ctx.Err()
 			}
 
 		case *pb.TunnelMessage_HealthCheckResponse:
 			// Calculate RTT
 			rtt := time.Now().UnixMilli() - m.HealthCheckResponse.Timestamp
-			common.LogDebug("health check response", "rtt_ms", rtt)
+			s.log(slog.LevelDebug, "health check response", "rtt_ms", rtt)
 
 		case *pb.TunnelMessage_ConnectionOpen:
 			connections.open(ctx, s, sender, m.ConnectionOpen)
@@ -434,14 +493,21 @@ func (s *ServeClient) processMessages(ctx context.Context, stream pb.TunnelServi
 		case *pb.TunnelMessage_ConnectionClose:
 			connections.close(m.ConnectionClose.ConnectionId, m.ConnectionClose.ErrorMessage)
 
+		case *pb.TunnelMessage_RegisterResponse:
+			return &permanentTunnelError{err: fmt.Errorf("duplicate registration response"), kind: FailureProtocol}
+
 		default:
-			common.LogInfo("unexpected message type", "type", fmt.Sprintf("%T", m))
+			s.log(slog.LevelInfo, "unexpected message type", "type", fmt.Sprintf("%T", m))
 		}
 	}
 }
 
 // handleHttpRequest handles an HTTP request from the proxy, makes a request to the local target, and sends back the response
 func (s *ServeClient) handleHttpRequest(sender messageSender, httpReq *pb.HttpRequest) {
+	s.handleHTTPRequestContext(context.Background(), sender, httpReq)
+}
+
+func (s *ServeClient) handleHTTPRequestContext(ctx context.Context, sender messageSender, httpReq *pb.HttpRequest) {
 	var capture *inspectionCapture
 	if s.Inspector != nil {
 		capture = s.Inspector.begin(httpReq.Method, httpReq.Path, httpReq.Headers)
@@ -452,7 +518,7 @@ func (s *ServeClient) handleHttpRequest(sender messageSender, httpReq *pb.HttpRe
 	if capture != nil {
 		defer func() { capture.finish(status, responseBytes, failure) }()
 	}
-	common.LogDebug("http request received",
+	s.log(slog.LevelDebug, "http request received",
 		"connection_id", httpReq.ConnectionId,
 		"method", httpReq.Method,
 		"path", httpReq.Path)
@@ -462,9 +528,9 @@ func (s *ServeClient) handleHttpRequest(sender messageSender, httpReq *pb.HttpRe
 	targetURL := s.targetURL(httpReq.Path)
 
 	// Create HTTP request
-	req, err := http.NewRequest(httpReq.Method, targetURL, bytes.NewReader(httpReq.Body))
+	req, err := http.NewRequestWithContext(ctx, httpReq.Method, targetURL, bytes.NewReader(httpReq.Body))
 	if err != nil {
-		common.LogError("failed to create http request", "error", err)
+		s.log(slog.LevelError, "failed to create http request", "error", err)
 		s.sendErrorResponse(sender, httpReq.ConnectionId, http.StatusBadGateway, "Failed to create request")
 		return
 	}
@@ -486,9 +552,8 @@ func (s *ServeClient) handleHttpRequest(sender messageSender, httpReq *pb.HttpRe
 		timeout = 30 * time.Second
 	}
 	transport := &http.Transport{
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: s.SkipLocalTLSVerify,
-		},
+		DialContext:     s.localDialContext(),
+		TLSClientConfig: s.localTLSConfig(),
 		// Custom TLSClientConfig disables HTTP/2 by default; re-enable it
 		// so we can talk to local HTTPS servers that require HTTP/2 via ALPN.
 		ForceAttemptHTTP2: true,
@@ -507,7 +572,7 @@ func (s *ServeClient) handleHttpRequest(sender messageSender, httpReq *pb.HttpRe
 
 	resp, err := client.Do(req)
 	if err != nil {
-		common.LogError("failed to make http request to target", "error", err, "target", targetURL)
+		s.log(slog.LevelError, "failed to make http request to target", "error", err, "target", targetURL)
 		s.sendErrorResponse(sender, httpReq.ConnectionId, http.StatusBadGateway, "Failed to reach local target")
 		return
 	}
@@ -519,12 +584,12 @@ func (s *ServeClient) handleHttpRequest(sender messageSender, httpReq *pb.HttpRe
 	// Read one extra byte to detect if body exceeds limit
 	limitedBody, err := io.ReadAll(io.LimitReader(resp.Body, MaxResponseBodySize+1))
 	if err != nil {
-		common.LogError("failed to read response body", "error", err)
+		s.log(slog.LevelError, "failed to read response body", "error", err)
 		s.sendErrorResponse(sender, httpReq.ConnectionId, http.StatusBadGateway, "Failed to read response")
 		return
 	}
 	if int64(len(limitedBody)) > MaxResponseBodySize {
-		common.LogError("response body too large", "size", len(limitedBody), "max", MaxResponseBodySize)
+		s.log(slog.LevelError, "response body too large", "size", len(limitedBody), "max", MaxResponseBodySize)
 		s.sendErrorResponse(sender, httpReq.ConnectionId, http.StatusBadGateway, "Response too large")
 		return
 	}
@@ -552,11 +617,11 @@ func (s *ServeClient) handleHttpRequest(sender messageSender, httpReq *pb.HttpRe
 	}
 
 	if err := sender.Send(msg); err != nil {
-		common.LogError("failed to send http response", "error", err)
+		s.log(slog.LevelError, "failed to send http response", "error", err)
 		return
 	}
 
-	common.LogDebug("http response sent",
+	s.log(slog.LevelDebug, "http response sent",
 		"connection_id", httpReq.ConnectionId,
 		"status", resp.StatusCode,
 		"body_size", len(body))
@@ -610,7 +675,7 @@ func (s *ServeClient) sendErrorResponse(sender messageSender, connectionID strin
 	}
 
 	if err := sender.Send(msg); err != nil {
-		common.LogError("failed to send error response", "error", err)
+		s.log(slog.LevelError, "failed to send error response", "error", err)
 	}
 }
 
@@ -643,9 +708,9 @@ func (s *ServeClient) sendOneHealthCheck(sender messageSender) {
 	}
 
 	if err := sender.Send(msg); err != nil {
-		common.LogError("failed to send health check", "error", err)
+		s.log(slog.LevelError, "failed to send health check", "error", err)
 		return
 	}
 
-	common.LogDebug("health check sent")
+	s.log(slog.LevelDebug, "health check sent")
 }

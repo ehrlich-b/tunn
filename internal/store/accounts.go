@@ -328,7 +328,12 @@ type ReservedSubdomain struct {
 // - Subdomain is already reserved by another account
 func (s *AccountStore) ReserveSubdomain(accountID, subdomain string) error {
 	subdomain = strings.ToLower(strings.TrimSpace(subdomain))
-	status, err := NewOperationsStore(s.db, nil).LookupAccountStatus(context.Background(), accountID)
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	status, err := readAccountStatus(context.Background(), tx, accountID)
 	if err != nil {
 		return err
 	}
@@ -339,17 +344,30 @@ func (s *AccountStore) ReserveSubdomain(accountID, subdomain string) error {
 
 	// Check if account is Pro
 	var plan string
-	err = s.db.QueryRow("SELECT plan FROM accounts WHERE id = ?", accountID).Scan(&plan)
+	err = tx.QueryRow("SELECT plan FROM accounts WHERE id = ?", accountID).Scan(&plan)
 	if err != nil {
 		return err
 	}
 	if plan != "pro" {
 		return fmt.Errorf("subdomain reservations require a Pro plan")
 	}
+	// Retrying an owned reservation consumes no additional allowance, even
+	// when the account has reached its limit.
+	var existingAccountID string
+	err = tx.QueryRow("SELECT account_id FROM reserved_subdomains WHERE subdomain = ?", subdomain).Scan(&existingAccountID)
+	if err == nil {
+		if existingAccountID == accountID {
+			return tx.Commit()
+		}
+		return fmt.Errorf("subdomain '%s' is already reserved by another user", subdomain)
+	}
+	if err != sql.ErrNoRows {
+		return err
+	}
 
 	// Check current count
 	var count int
-	err = s.db.QueryRow("SELECT COUNT(*) FROM reserved_subdomains WHERE account_id = ?", accountID).Scan(&count)
+	err = tx.QueryRow("SELECT COUNT(*) FROM reserved_subdomains WHERE account_id = ?", accountID).Scan(&count)
 	if err != nil {
 		return err
 	}
@@ -358,24 +376,15 @@ func (s *AccountStore) ReserveSubdomain(accountID, subdomain string) error {
 	}
 
 	// Try to insert (will fail if already exists)
-	_, err = s.db.Exec(
+	_, err = tx.Exec(
 		"INSERT INTO reserved_subdomains (subdomain, account_id, created_at) VALUES (?, ?, ?)",
 		subdomain, accountID, time.Now().Unix(),
 	)
 	if err != nil {
-		// Check if it's already reserved
-		var existingAccountID string
-		checkErr := s.db.QueryRow("SELECT account_id FROM reserved_subdomains WHERE subdomain = ?", subdomain).Scan(&existingAccountID)
-		if checkErr == nil {
-			if existingAccountID == accountID {
-				return nil // Already reserved by this account, that's fine
-			}
-			return fmt.Errorf("subdomain '%s' is already reserved by another user", subdomain)
-		}
 		return err
 	}
 
-	return nil
+	return tx.Commit()
 }
 
 // GetSubdomainOwner returns the account ID that owns a subdomain, or empty string if not reserved

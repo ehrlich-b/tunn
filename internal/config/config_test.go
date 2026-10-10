@@ -1,8 +1,32 @@
 package config
 
 import (
+	"strings"
 	"testing"
 )
+
+func TestMeteringOwnerBudgetConfiguration(t *testing.T) {
+	for _, env := range []string{"dev", "prod"} {
+		t.Run(env, func(t *testing.T) {
+			t.Setenv("TUNN_ENV", env)
+			t.Setenv("TUNN_OWNER_MONTHLY_REQUESTS", "1000")
+			t.Setenv("TUNN_OWNER_MONTHLY_BYTES", "1000000")
+			cfg, err := LoadConfig()
+			if err != nil || cfg.OwnerMonthlyRequests != 1000 || cfg.OwnerMonthlyBytes != 1000000 {
+				t.Fatalf("config=%v %v", cfg, err)
+			}
+			for _, key := range []string{"TUNN_OWNER_MONTHLY_REQUESTS", "TUNN_OWNER_MONTHLY_BYTES"} {
+				for _, value := range []string{"-1", "bad", "9223372036854775808"} {
+					t.Setenv(key, value)
+					if _, err := LoadConfig(); err == nil || !strings.Contains(err.Error(), key) {
+						t.Fatalf("accepted %s=%s: %v", key, value, err)
+					}
+				}
+				t.Setenv(key, "0")
+			}
+		})
+	}
+}
 
 func TestLoadConfigDev(t *testing.T) {
 	// Set dev environment

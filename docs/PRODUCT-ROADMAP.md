@@ -1,6 +1,6 @@
 # Product roadmap: useful ingress before a paid gateway
 
-Status: working plan, 2026-09-22
+Status: working plan with HTTP metering/grant prototype, 2026-10-10
 
 ## Product promise
 
@@ -37,8 +37,10 @@ add a separate adapter for each one before the common HTTP/MCP path works well.
 - HTTP forwarding, private email allow-lists, MCP stdio and HTTP publishing,
   endpoint tokens, raw TCP/Unix previews, streaming HTTP, and relay reconnects.
 - Monthly **account-level bandwidth** accounting and per-tunnel bandwidth rate
-  limits. There is no per-caller request meter, per-endpoint usage ledger, or
-  request budget that can enforce a customer-facing quota.
+  limits, plus a durable per-caller endpoint request/body-byte ledger and
+  expiring, revocable HTTP grants with monthly budgets and minute-rate limits.
+  See [the v1 usage contract](METERING.md); commercial reconciliation remains
+  incomplete.
 - An opt-in, process-local inspector now shows forwarded HTTP requests and
   replays complete small captures. It has no durable history or ingress-side
   record of requests rejected before they reach the publisher.
@@ -69,6 +71,14 @@ HTTP paths. This is a development tool, not durable webhook delivery.
 
 ### 2. Establish an audit and usage contract
 
+**Implementation status:** the metadata-only SQLite ledger and owner JSON export
+are implemented for buffered and streaming HTTP. It records ingress denials,
+caller identities, admission/final outcomes, and request/body-byte units.
+Bounded retention, short-write reconciliation, restart recovery, and shared
+login-node RPC accounting have in-process tests. The local real-process E2E
+is runnable; real cluster routing/failure reconciliation is still needed before
+calling these counts billable. Details: [usage contract](METERING.md).
+
 Define one privacy-safe event at the ingress for *every decision*: endpoint,
 caller identity or anonymous, authentication method, allow/deny reason, status,
 timing, request ID, and metered units. Include rejections that never reach the
@@ -82,6 +92,17 @@ denied, how many requests and bytes each caller consumed, and which counts
 would be billable. Existing account bandwidth quotas still work.
 
 ### 3. Grant metered access to a local endpoint
+
+**Implementation status:** `tunn grant create|list|revoke` and
+`tunn usage [--tunnel NAME] [--since DURATION]` now provide
+the HTTP CLI slice. Separate credentials have expiry, revocation, a fixed UTC
+minute request limit, monthly admitted-request/body-byte budgets, and remaining
+usage headers. Tests cover two independent consumers and quota boundaries.
+Optional monthly owner caps apply across tunnels and callers, and usage exports
+include owner request/byte totals for checking entry-tier economics.
+MCP HTTP shares the ingress accounting; OAuth and tool/application permissions
+remain separate work. Loopback E2E verifies the CLI/relay/publisher lifecycle
+when run in an environment that permits sockets.
 
 Issue a separate revocable credential per consumer, bound to one endpoint.
 Add expiry, request rate, monthly request/byte budget, and a visible usage
@@ -111,7 +132,11 @@ without taking down the service.
 
 ### 5. Test willingness to pay
 
-Dogfood all three workflows first. Then put a paid team pilot in front of
+Dogfood all three workflows first. Bryan's entry paid-tier target is about
+**$12/year**, with monthly bandwidth and request caps: a no-brainer purchase
+intended to be strictly cheaper than a VPS and easier than a VPN. Use per-user
+usage exports to choose sustainable allowances against Fly.io egress and fixed
+costs. Then put a paid team pilot in front of
 teams already trying to connect hosted agents to private capabilities or
 operate webhooks. The chargeable thing is managed grants, reliable policy,
 shared audit/retention, and support. Personal inspection and simple tunnels
@@ -156,6 +181,7 @@ Primary sources:
 
 ## Next concrete build step
 
-Dogfood milestone 1 with a small webhook receiver and a normal API, then
-define the ingress audit event and usage counters for milestone 2. The local
-inspector must not pretend to be that central audit ledger.
+Run `make integration-test-metering` on a loopback-capable machine, then dogfood
+inspection plus the new grants with a small webhook receiver and an ordinary
+API. Reconcile routed-node failures and crash reservations before a paid usage
+pilot. The local inspector remains separate from the central audit ledger.

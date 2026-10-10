@@ -8,7 +8,7 @@ GO_FILES := $(wildcard *.go)
 DOCKER_IMAGE := $(APP_NAME):latest
 FLY_APP_NAME := $(APP_NAME)
 
-.PHONY: all build clean proto fmt tidy verify check vet lint test test-verbose test-mcp test-lifecycle-contract test-coverage test-race integration-test integration-test-smoke integration-test-ai integration-test-lifecycle docker docker-build docker-run cert-setup cert-renew cert-install-schedule fly-create fly-init fly-secrets fly-certs fly-deploy fly-logs fly-status analytics-hour analytics-day analytics-live help
+.PHONY: all build clean proto fmt tidy verify check vet lint test test-verbose test-mcp test-lifecycle-contract test-metering-contract test-coverage test-race integration-test integration-test-smoke integration-test-ai integration-test-lifecycle integration-test-metering docker docker-build docker-run cert-setup cert-renew cert-install-schedule fly-create fly-init fly-secrets fly-certs fly-deploy fly-logs fly-status analytics-hour analytics-day analytics-live help
 
 # Default target
 all: build
@@ -23,6 +23,7 @@ proto:
 	@echo "Generating protobuf code..."
 	protoc --go_out=. --go-grpc_out=. proto/tunnel.proto
 	protoc --go_out=. --go-grpc_out=. proto/internal.proto
+	protoc --go_out=. --go-grpc_out=. --go_opt=module=github.com/ehrlich-b/tunn --go-grpc_opt=module=github.com/ehrlich-b/tunn proto/metering.proto
 	@mkdir -p pkg/proto/tunnelv1 pkg/proto/internalv1
 	@if [ -d github.com ]; then \
 		mv github.com/ehrlich-b/tunn/pkg/proto/tunnelv1/*.pb.go pkg/proto/tunnelv1/ 2>/dev/null || true; \
@@ -106,6 +107,13 @@ test-mcp:
 test-lifecycle-contract:
 	go test -race -v -timeout=20s -run '^(TestNormalizeEmail|TestBridgeLifecycle)' ./internal/common ./internal/mcpbridge
 
+# Durable store, buffered/streamed relay fixtures, owner CLI and internal RPCs;
+# these tests do not bind TCP/UDP sockets or call hosted services.
+test-metering-contract:
+	go test -race -v -timeout=60s ./internal/metering
+	go test -race -v -timeout=60s ./internal/config
+	go test -race -v -timeout=60s -run '^(TestMetering|TestProxyHTTPOverGRPC|TestLegacyClientKeepsBufferedHTTPPath|TestTunnelConnectionLimitRejectsPendingStream|TestHandleWebProxy|TestPublicTunnelStripsTunnAuthorization|TestGetAuthFromTunnelBearer|TestCheckJWT|TestAllowListCheck|TestEmailBucketAllowListCheck)' . ./internal/host ./internal/client
+
 test-coverage:
 	@echo "Running tests with coverage..."
 	go test -coverprofile=coverage.out ./...
@@ -136,6 +144,11 @@ integration-test-ai: build
 integration-test-lifecycle: build
 	@if [ ! -f "./certs/cert.pem" ]; then ./scripts/gen-test-certs.sh; fi
 	python3 ./scripts/integration-tests/lifecycle-test.py
+
+# Literal loopback addresses, local SQLite, and synthetic owner credentials only.
+integration-test-metering: build
+	@if [ ! -f "./certs/cert.pem" ]; then ./scripts/gen-test-certs.sh; fi
+	python3 ./scripts/integration-tests/metering-test.py
 
 # Docker targets
 docker: docker-build

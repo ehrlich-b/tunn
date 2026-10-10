@@ -178,3 +178,33 @@ During reconnection, the tunnel is offline. In-flight requests timeout (30 secon
 **Rate limiting**: Per-tunnel bandwidth limiting via token bucket algorithm. Prevents a single tunnel from consuming all resources.
 
 **Reserved subdomains**: ~50 common phishing targets (google, paypal, etc.) are blocked to prevent abuse.
+
+## Per-caller usage and HTTP grants
+
+The publisher relay makes one durable ingress decision per HTTP request in the
+login node's SQLite ledger. Other relays use its authenticated internal Metering
+RPC service. Counters group by tunnel/endpoint name, normalized email or token/
+grant ID (or anonymous), and UTC admission month. Authentication and budget
+rejections have audit events too; neither bodies nor headers enter this ledger.
+
+`tunn grant create` issues an expiring per-consumer bearer credential with
+minute-rate and monthly request/body-byte budgets. The relay checks known body
+sizes before forwarding and reserves bytes as unknown-length bodies stream.
+Limits return `429`; expired/revoked grants return `403`. A stream that already
+sent headers ends with a limit-reason trailer instead of a replacement status.
+Short writes reconcile reserved bytes, while interrupted reservations remain
+conservative and are labeled after restart. Account bandwidth quotas still
+apply, using the creator's account ID and one account update per metered call.
+
+`tunn grant list [<endpoint>]` returns owner-scoped grant metadata without
+credentials. `tunn usage [--tunnel NAME] [--since DURATION]` exports retained
+audit events and caller rollups, plus owner totals across the selected tunnels.
+Without `--since`, it uses durable current-month counters; duration reports
+flag potentially missing audit events. Optional login-node settings
+`TUNN_OWNER_MONTHLY_REQUESTS` and `TUNN_OWNER_MONTHLY_BYTES` enforce shared HTTP
+caps per owner email across all callers/tunnels. These controls support Bryan's
+about-$12/year entry-tier target and per-user Fly.io egress cost checks.
+See [the v1 usage contract](METERING.md) for exact units, hard
+retention/capacity bounds, owner API authentication, and local test commands.
+These are operational usage counters; commercial billing still requires failure
+and routing reconciliation.

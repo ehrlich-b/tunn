@@ -286,14 +286,20 @@ technical work below remains the MCP and transport backlog.
 
 ### Productize: grants and capability bundles
 
-The next product object after an endpoint should be a short-lived grant:
+The HTTP prototype now adds an endpoint-scoped grant with expiry, revocation,
+request-rate and monthly request/body-byte budgets. The login node serializes
+metering decisions for every relay. See [the usage contract](METERING.md) for
+storage bounds, export semantics, and unresolved billing reconciliation:
 
 ```bash
 tunn grant create work-tools \
   --for agent@example.com \
-  --tools read_file,list_directory \
-  --expires 1h
-tunn grant revoke <grant-id>
+  --expires 1h --rate 60 \
+  --monthly-requests 1000 --monthly-bytes 1000000
+tunn grant list work-tools
+tunn usage --tunnel work-tools --since 24h
+tunn usage
+tunn grant revoke work-tools <grant-id>
 ```
 
 A small manifest can publish several related capabilities without turning tunn

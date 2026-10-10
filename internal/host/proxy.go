@@ -27,10 +27,12 @@ import (
 
 	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/ehrlich-b/tunn/internal/config"
+	"github.com/ehrlich-b/tunn/internal/metering"
 	"github.com/ehrlich-b/tunn/internal/mockoidc"
 	"github.com/ehrlich-b/tunn/internal/storage"
 	"github.com/ehrlich-b/tunn/internal/store"
 	internalv1 "github.com/ehrlich-b/tunn/pkg/proto/internalv1"
+	meterpb "github.com/ehrlich-b/tunn/pkg/proto/meteringv1"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
 )
 
@@ -75,6 +77,7 @@ type ProxyServer struct {
 
 	// Unified storage interface (local for login node, proxy for others)
 	storage storage.Storage
+	meter   metering.Backend
 
 	// Proxy storage reference (non-login node only, to update connection on discovery)
 	proxyStorage *storage.ProxyStorage
@@ -107,6 +110,7 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 	var proxyStorage *storage.ProxyStorage
 	var storageImpl storage.Storage
 	var localStorage *storage.LocalStorage
+	var localMeter *metering.Store
 
 	if cfg.LoginNode {
 		// Login node: initialize SQLite and local storage
@@ -115,6 +119,10 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 			return nil, fmt.Errorf("failed to initialize database: %w", err)
 		}
 		localStorage = storage.NewLocalStorage(db)
+		localMeter, err = metering.New(db, metering.WithOwnerBudgets(cfg.OwnerMonthlyRequests, cfg.OwnerMonthlyBytes))
+		if err != nil {
+			return nil, fmt.Errorf("initialize ingress meter: %w", err)
+		}
 		storageImpl = localStorage
 		common.LogInfo("login node initialized", "db_path", cfg.DBPath)
 	} else {
@@ -188,6 +196,7 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 	if localStorage != nil {
 		loginNodeDBServer := NewLoginNodeDBServer(localStorage)
 		internalv1.RegisterLoginNodeDBServer(internalGRPCServer, loginNodeDBServer)
+		meterpb.RegisterMeteringServer(internalGRPCServer, localMeter)
 		common.LogInfo("registered LoginNodeDB gRPC service")
 	}
 
@@ -219,6 +228,16 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 		usageBuffer:        NewUsageBuffer(),
 		quotaCache:         NewQuotaCache(30 * time.Second),
 		deviceCodeRateByIP: make(map[string][]time.Time),
+	}
+
+	if localMeter != nil {
+		proxy.meter = localMeter
+	} else {
+		proxy.meter = &metering.Remote{Connection: func() *grpc.ClientConn {
+			proxy.loginNodeMu.RLock()
+			defer proxy.loginNodeMu.RUnlock()
+			return proxy.loginNodeConn
+		}}
 	}
 
 	// Discover and connect to other nodes in the mesh
@@ -712,6 +731,9 @@ func (p *ProxyServer) createHandler() http.Handler {
 	// Device code flow for CLI login
 	mux.HandleFunc("/api/device/code", p.handleDeviceCode)
 	mux.HandleFunc("/api/device/token", p.handleDeviceToken)
+	mux.HandleFunc("/api/endpoints/", p.handleMeteringAPI)
+	mux.HandleFunc("/api/usage", p.handleMeteringAPI)
+	mux.HandleFunc("/api/grants", p.handleMeteringAPI)
 	mux.HandleFunc("/login", p.handleLoginPage)
 	mux.HandleFunc("/auth/device/authorize", p.handleDeviceAuthorize)
 

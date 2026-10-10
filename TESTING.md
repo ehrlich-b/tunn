@@ -140,3 +140,19 @@ Dev mode uses self-signed certs. Click "Advanced" -> "Proceed" in browser.
 ### DNS not resolving
 
 Use the full nip.io URL: `https://abc123.tunn.local.127.0.0.1.nip.io:8443`
+
+## Metered HTTP grants (local only)
+
+`make test-metering-contract` runs the new SQLite, HTTP forwarding fixtures,
+owner CLI/transport and memory-backed internal gRPC tests with race detection;
+it needs no loopback listener. Existing relevant auth/proxy regressions also run.
+`make integration-test-metering` builds and starts a real TLS relay, publisher,
+and synthetic HTTP target on literal loopback IPs. It exercises CLI issuance,
+independent quotas, request/byte boundary counts, expiry, revocation, rate limits,
+and relay restart durability. All credentials and SQLite files are disposable
+fixtures under `.scratch`; it uses no live service or wildcard DNS.
+
+A sandbox that rejects TCP/UDP binds cannot run that E2E or the full `make check`.
+Keep those tests intact and run both commands on the coordinator host. The
+accounting definitions and commercial reconciliation limits are in
+[docs/METERING.md](docs/METERING.md).

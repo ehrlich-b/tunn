@@ -4,6 +4,7 @@ import (
 	"crypto/subtle"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/golang-jwt/jwt/v4"
 )
@@ -11,6 +12,9 @@ import (
 // identityEmail excludes one-time login and CSRF tokens from every account
 // authentication path. Older session and CLI tokens had no purpose claim.
 func identityEmail(claims jwt.MapClaims) (string, error) {
+	if !claims.VerifyExpiresAt(time.Now().Unix(), true) {
+		return "", fmt.Errorf("missing or expired identity token expiry")
+	}
 	if purpose, exists := claims["type"]; exists && purpose != "session" && purpose != "access" {
 		return "", fmt.Errorf("invalid identity token purpose")
 	}

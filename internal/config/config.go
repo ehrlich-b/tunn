@@ -42,6 +42,9 @@ type Config struct {
 	// Public mode (testing only - disables all auth)
 	PublicMode bool
 
+	// Experimental persistent machine registry (single login relay only).
+	HostModeEnabled bool
+
 	// GitHub OAuth configuration
 	GitHubClientID     string
 	GitHubClientSecret string
@@ -83,6 +86,8 @@ func LoadConfig() (*Config, error) {
 	cfg := &Config{
 		Environment: env,
 	}
+
+	cfg.HostModeEnabled = os.Getenv("TUNN_HOST_MODE") == "true"
 
 	switch env {
 	case EnvDev:

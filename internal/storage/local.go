@@ -200,6 +200,16 @@ func (s *LocalStorage) RegisterTunnel(ctx context.Context, tunnelID, accountID, 
 	s.activeTunnelsMu.Lock()
 	defer s.activeTunnelsMu.Unlock()
 
+	// Enforce durable ownership on every relay, including ordinary publishers
+	// and non-login nodes using the existing internal RegisterTunnel RPC.
+	owner, err := s.accounts.GetSubdomainOwner(tunnelID)
+	if err != nil {
+		return nil, err
+	}
+	if owner != "" && owner != accountID {
+		return &TunnelRegistration{Allowed: false, Reason: "name reserved by another account"}, nil
+	}
+
 	// Check if tunnel ID already exists (cross-node duplicate check)
 	if _, exists := s.activeTunnels[tunnelID]; exists {
 		return &TunnelRegistration{

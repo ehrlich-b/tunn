@@ -164,6 +164,26 @@ test.
 
 ## Self-Host
 
+### Persistent machine endpoints (preview)
+
+Host mode reads `~/.config/tunn/host.yaml` and keeps private named HTTP, TCP,
+Unix, and MCP endpoints connected under a per-user service:
+
+```bash
+tunn service install
+tunn service status
+tunn hosts
+tunn service uninstall
+tunn openclaw --name home-openclaw  # setup scaffold; requires WebSocket support
+```
+
+This preview requires a standalone authenticated relay with
+`TUNN_HOST_MODE=true`; it is disabled by default. See
+[host mode](docs/host-mode.md) for configuration, stable-name ownership,
+macOS/Linux/Windows/WSL startup, health, logs, and local tests.
+
+### Run a relay
+
 Run your own tunn server:
 
 ```bash

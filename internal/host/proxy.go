@@ -93,6 +93,9 @@ type ProxyServer struct {
 
 // NewProxyServer creates a new dual-listener proxy server
 func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
+	if cfg.HostModeEnabled && (!cfg.LoginNode || cfg.PublicMode || cfg.NodeAddresses != "" || cfg.FlyAppName != "") {
+		return nil, fmt.Errorf("host mode requires one authenticated, standalone login relay")
+	}
 	// SECURITY: Require NodeSecret when multi-node mode is enabled
 	// Multi-node can be configured via NODE_ADDRESSES (static) or FLY_APP_NAME (DNS discovery)
 	isMultiNode := cfg.NodeAddresses != "" || cfg.FlyAppName != ""
@@ -162,6 +165,11 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 		}),
 	)
 	tunnelServer := NewTunnelServer(cfg, userTokens, accounts, storageImpl)
+	if cfg.HostModeEnabled {
+		if err := tunnelServer.EnableHostMode(store.DB()); err != nil {
+			return nil, err
+		}
+	}
 	pb.RegisterTunnelServiceServer(grpcServer, tunnelServer)
 
 	// Create gRPC server for internal node-to-node communication
@@ -698,6 +706,8 @@ func (p *ProxyServer) createHandler() http.Handler {
 
 	// Account page (requires auth)
 	mux.HandleFunc("/account", p.handleAccount)
+
+	mux.HandleFunc("/api/hosts", p.handleHosts)
 
 	// Device code flow for CLI login
 	mux.HandleFunc("/api/device/code", p.handleDeviceCode)

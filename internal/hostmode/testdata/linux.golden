@@ -1,0 +1,16 @@
+[Unit]
+Description=Tunn private machine endpoints
+After=network.target
+
+[Service]
+Type=simple
+ExecStart="/opt/tunn/bin/tunn" --verbosity=error service run --config "/home/owner/.config/tunn/host.yaml"
+WorkingDirectory="/home/owner"
+Restart=always
+RestartSec=30
+UMask=0077
+StandardOutput=null
+StandardError=null
+
+[Install]
+WantedBy=default.target

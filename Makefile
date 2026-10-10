@@ -77,6 +77,19 @@ clean:
 	rm -rf ./bin
 
 # Testing targets
+.PHONY: test-hostmode test-hostmode-loopback test-hostmode-compile
+test-hostmode:
+	go test -race -timeout=90s -run '^(TestConfig|TestService.*|TestBoundedLogs|TestReconnectBackoffBounds|TestHostStore.*|TestHostAPI.*|TestHostStream.*|TestHostModeGate.*|TestHostHealth.*|TestHostClient.*|TestHostCLI.*|TestHostRuntime.*|TestOpenClaw.*)$$' ./internal/hostmode ./internal/client ./internal/store ./internal/host .
+	go test -race -timeout=60s ./internal/store ./internal/config ./internal/common
+
+# Real TLS/gRPC, private HTTP/MCP/TCP/Unix, readiness, reconnect and shutdown.
+# Requires loopback and Unix sockets; never skips when listeners are denied.
+test-hostmode-loopback:
+	go test -race -count=1 -timeout=90s -run '^TestLoopbackHostMode$$' ./internal/host
+
+test-hostmode-compile:
+	go test -run '^$$' ./...
+
 test:
 	@echo "Running tests..."
 	go test ./...

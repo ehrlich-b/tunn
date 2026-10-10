@@ -17,6 +17,7 @@ import (
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
 	"github.com/golang-jwt/jwt/v4"
 	"golang.org/x/time/rate"
+	"google.golang.org/grpc/metadata"
 )
 
 // reservedSubdomains are blocked to prevent phishing and squatting
@@ -92,6 +93,7 @@ func isValidDNSLabel(tunnelID string) bool {
 type TunnelServer struct {
 	pb.UnimplementedTunnelServiceServer
 
+	hosts      *store.HostStore
 	mu         sync.RWMutex
 	tunnels    map[string]*TunnelConnection
 	cfg        *config.Config
@@ -104,6 +106,7 @@ type TunnelServer struct {
 
 // TunnelConnection represents an active tunnel connection
 type TunnelConnection struct {
+	HostID            string
 	TunnelID          string
 	TargetURL         string
 	Stream            pb.TunnelService_EstablishTunnelServer
@@ -212,6 +215,16 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		return fmt.Errorf("expected RegisterClient message, got %T", msg.Message)
 	}
 
+	hostID := ""
+	if md, ok := metadata.FromIncomingContext(stream.Context()); ok {
+		if ids := md.Get("tunn-host-id"); len(ids) > 0 {
+			hostID = ids[0]
+		}
+	}
+	if hostID != "" && (!s.cfg.HostModeEnabled || s.hosts == nil) {
+		_ = stream.Send(&pb.TunnelMessage{Message: &pb.TunnelMessage_RegisterResponse{RegisterResponse: &pb.RegisterResponse{Success: false, ErrorMessage: "host mode is disabled on this relay"}}})
+		return fmt.Errorf("host mode is disabled")
+	}
 	tunnelID := strings.ToLower(regClient.TunnelId) // Normalize to lowercase
 	targetURL := regClient.TargetUrl
 
@@ -303,6 +316,9 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		// Client secret auth (self-hosters - master key)
 		common.LogInfo("client secret auth - bypassing OAuth", "tunnel_id", tunnelID)
 		creatorEmail = regClient.CreatorEmail
+		if hostID != "" {
+			creatorEmail = "client@local"
+		}
 		if creatorEmail == "" {
 			creatorEmail = "client@local"
 		}
@@ -416,12 +432,38 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		}
 	}
 
+	if hostID != "" {
+		account, err := s.hostAccount(regClient.AuthToken, false)
+		kind := targetURL
+		if kind == "unix-http" {
+			kind = "unix"
+		}
+		expectedProtocol := "http"
+		if targetURL == "tcp" || targetURL == "unix" {
+			expectedProtocol = "tcp"
+		}
+		if err == nil && account != nil {
+			accountID, plan = account.ID, account.Plan
+			err = s.hosts.CheckEndpoint(accountID, hostID, tunnelID, kind)
+			if endpointProtocol != expectedProtocol {
+				err = fmt.Errorf("host endpoint protocol mismatch")
+			}
+		} else if err == nil {
+			err = fmt.Errorf("host must be registered before publishing")
+		}
+		if err != nil || len(allowedEmails) == 0 {
+			_ = stream.Send(&pb.TunnelMessage{Message: &pb.TunnelMessage_RegisterResponse{RegisterResponse: &pb.RegisterResponse{Success: false, ErrorMessage: "private host endpoint does not match its reservation"}}})
+			return fmt.Errorf("invalid host registration")
+		}
+	}
+
 	// Create tunnel connection
 	capabilities := make(map[string]bool, len(regClient.Capabilities))
 	for _, capability := range regClient.Capabilities {
 		capabilities[capability] = true
 	}
 	conn := &TunnelConnection{
+		HostID:            hostID,
 		TunnelID:          tunnelID,
 		TargetURL:         targetURL,
 		Stream:            stream,
@@ -527,6 +569,19 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		_ = stream.Send(respMsg)
 		return fmt.Errorf("tunnel ID %s already registered (race)", tunnelID)
 	}
+	// Recheck durable ownership while holding the same lock used by host
+	// reservation. This closes the race between ephemeral admission and reserve.
+	if s.accounts != nil && !s.cfg.PublicMode {
+		owner, err := s.accounts.GetSubdomainOwner(tunnelID)
+		if err != nil || (owner != "" && owner != accountID) {
+			s.mu.Unlock()
+			if registeredWithStorage {
+				_ = s.storage.UnregisterTunnel(context.Background(), tunnelID)
+			}
+			_ = stream.Send(&pb.TunnelMessage{Message: &pb.TunnelMessage_RegisterResponse{RegisterResponse: &pb.RegisterResponse{Success: false, ErrorMessage: "name reservation could not be verified"}}})
+			return fmt.Errorf("name reservation could not be verified")
+		}
+	}
 	// The tunnel becomes visible before the registration reply reaches the
 	// publisher. Hold its send lock so an incoming request cannot overtake
 	// RegisterResponse on the same gRPC stream.
@@ -534,8 +589,11 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 	s.tunnels[tunnelID] = conn
 	s.mu.Unlock()
 
+	s.hostSeen(conn)
+
 	// Cleanup on disconnect
 	defer func() {
+		s.hostSeen(conn)
 		conn.closePendingConnections()
 		s.mu.Lock()
 		delete(s.tunnels, tunnelID)
@@ -642,6 +700,7 @@ func stringSliceContains(values []string, wanted string) bool {
 
 // handleHealthCheck responds to health check pings
 func (s *TunnelServer) handleHealthCheck(conn *TunnelConnection, hc *pb.HealthCheck) {
+	s.hostSeen(conn)
 	response := &pb.TunnelMessage{
 		Message: &pb.TunnelMessage_HealthCheckResponse{
 			HealthCheckResponse: &pb.HealthCheckResponse{

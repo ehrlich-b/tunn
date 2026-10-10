@@ -53,6 +53,9 @@ Usage:
   tunn <port>                    Tunnel localhost:<port> to a public URL
   tunn <host:port>               Tunnel host:port to a public URL
   tunn <url>                     Tunnel any URL to a public URL
+  tunn service install|uninstall|status  Manage persistent machine endpoints
+  tunn hosts [--json]             List your machines and their tunnels
+  tunn openclaw [options]         Preview OpenClaw phone setup (needs WebSockets)
   tunn login                     Authenticate with GitHub
   tunn serve [options] <target>  Explicit serve mode (same as default)
   tunn mcp [options] -- <command> Expose a stdio MCP server at /mcp
@@ -98,6 +101,8 @@ Options:
 
 	// Route to subcommand or default serve behavior
 	switch args[0] {
+	case "service", "hosts", "openclaw":
+		runHostCommand(args[0], args[1:])
 	case "login":
 		runLogin()
 	case "serve":

@@ -226,6 +226,15 @@ func (s *LocalStorage) RegisterTunnel(ctx context.Context, tunnelID, accountID, 
 	if acc.Plan == "pro" {
 		maxAllowed = ProTunnelLimit
 	}
+	// A denied publisher must not consume a durable name reservation.
+	if count >= maxAllowed {
+		return &TunnelRegistration{
+			Allowed:      false,
+			Reason:       "tunnel limit reached",
+			CurrentCount: count,
+			MaxAllowed:   maxAllowed,
+		}, nil
+	}
 
 	// Preserve Pro auto-claiming on replicas as well as the login node.
 	// A full reservation allowance still permits an unreserved active name.
@@ -238,16 +247,6 @@ func (s *LocalStorage) RegisterTunnel(ctx context.Context, tunnelID, accountID, 
 		if owner != "" && owner != accountID {
 			return &TunnelRegistration{Allowed: false, Reason: "subdomain is reserved by another user"}, nil
 		}
-	}
-
-	// Check if limit exceeded
-	if count >= maxAllowed {
-		return &TunnelRegistration{
-			Allowed:      false,
-			Reason:       "tunnel limit reached",
-			CurrentCount: count,
-			MaxAllowed:   maxAllowed,
-		}, nil
 	}
 
 	// Register the tunnel

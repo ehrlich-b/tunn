@@ -405,8 +405,9 @@ func (s *AccountStore) GetSubdomainOwner(subdomain string) (string, error) {
 // GetReservedSubdomains returns all subdomains reserved by an account
 func (s *AccountStore) GetReservedSubdomains(accountID string) ([]ReservedSubdomain, error) {
 	rows, err := s.db.Query(
-		"SELECT subdomain, account_id, created_at FROM reserved_subdomains WHERE account_id = ?",
-		accountID,
+		`SELECT subdomain, account_id, created_at FROM reserved_subdomains
+		 WHERE account_id = COALESCE((SELECT account_id FROM account_merges WHERE old_id = ?), ?)`,
+		accountID, accountID,
 	)
 	if err != nil {
 		return nil, err
@@ -431,8 +432,9 @@ func (s *AccountStore) ReleaseSubdomain(accountID, subdomain string) error {
 	subdomain = strings.ToLower(strings.TrimSpace(subdomain))
 
 	result, err := s.db.Exec(
-		"DELETE FROM reserved_subdomains WHERE subdomain = ? AND account_id = ?",
-		subdomain, accountID,
+		`DELETE FROM reserved_subdomains WHERE subdomain = ?
+		 AND account_id = COALESCE((SELECT account_id FROM account_merges WHERE old_id = ?), ?)`,
+		subdomain, accountID, accountID,
 	)
 	if err != nil {
 		return err

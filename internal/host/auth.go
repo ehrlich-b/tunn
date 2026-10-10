@@ -124,6 +124,7 @@ func (p *ProxyServer) createOAuthState(returnTo, deviceUserCode string) (string,
 
 	claims := jwt.MapClaims{
 		"state":            state,
+		"type":             "oauth_state",
 		"return_to":        returnTo,
 		"device_user_code": deviceUserCode,
 		"exp":              time.Now().Add(10 * time.Minute).Unix(), // Short-lived
@@ -149,10 +150,16 @@ func (p *ProxyServer) parseOAuthState(stateToken string) (*OAuthState, error) {
 	if !ok {
 		return nil, fmt.Errorf("invalid claims")
 	}
+	if claims["type"] != "oauth_state" {
+		return nil, fmt.Errorf("invalid state token purpose")
+	}
 
 	state := &OAuthState{}
 	if s, ok := claims["state"].(string); ok {
 		state.State = s
+	}
+	if state.State == "" {
+		return nil, fmt.Errorf("missing browser state")
 	}
 	if r, ok := claims["return_to"].(string); ok {
 		state.ReturnTo = r
@@ -371,6 +378,7 @@ func (p *ProxyServer) handleGitHubLogin(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Build GitHub authorization URL
+	setOAuthCookie(w, stateToken, 600)
 	authURL := fmt.Sprintf("%s?client_id=%s&redirect_uri=%s&scope=%s&state=%s",
 		githubAuthorizeURL,
 		url.QueryEscape(p.config.GitHubClientID),
@@ -400,6 +408,9 @@ func (p *ProxyServer) handleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get authorization code
+	if !requireOAuthBrowser(w, r, stateToken) {
+		return
+	}
 	code := r.URL.Query().Get("code")
 	if code == "" {
 		common.LogError("missing authorization code")
@@ -586,6 +597,7 @@ func (p *ProxyServer) handleMockLogin(w http.ResponseWriter, r *http.Request) {
 		p.config.MockOIDCIssuer,
 		url.QueryEscape(p.getCallbackURL()),
 		stateToken)
+	setOAuthCookie(w, stateToken, 600)
 
 	common.LogInfo("redirecting to mock OIDC", "url", authURL)
 	http.Redirect(w, r, authURL, http.StatusFound)
@@ -599,6 +611,9 @@ func (p *ProxyServer) handleMockCallback(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		common.LogError("invalid state parameter", "error", err)
 		http.Error(w, "Invalid state parameter", http.StatusBadRequest)
+		return
+	}
+	if !requireOAuthBrowser(w, r, stateToken) {
 		return
 	}
 
@@ -794,8 +809,32 @@ func (p *ProxyServer) getJWTSigningKey() []byte {
 	panic("FATAL: JWT_SECRET environment variable is required in production")
 }
 
-// handleLogout clears the auth cookie and redirects to home
+// handleLogout requires explicit confirmation before clearing the auth cookie.
 func (p *ProxyServer) handleLogout(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		if !p.isAuthenticated(r) {
+			http.Redirect(w, r, "/", http.StatusFound)
+			return
+		}
+		token, err := p.createCSRFToken(r, "/auth/logout")
+		if err != nil {
+			http.Error(w, "Failed to create confirmation", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html")
+		w.Header().Set("Cache-Control", "no-store")
+		writePageStart(w, "tunn - Logout")
+		_, _ = fmt.Fprintf(w, `<h1 class="page-title">Log out of tunn?</h1><form method="POST" action="/auth/logout"><input type="hidden" name="csrf_token" value="%s"><button type="submit" class="btn btn-secondary">Logout</button></form>`, token)
+		writePageEnd(w)
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !p.requireCSRFToken(w, r, "/auth/logout") {
+		return
+	}
 	p.clearAuthCookie(w)
 	http.Redirect(w, r, "/", http.StatusFound)
 }

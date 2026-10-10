@@ -6,8 +6,10 @@ the planned expiring, per-consumer grant product. No DNS or external API is used
 """
 
 import http.client
+import html
 import json
 import os
+import re
 from pathlib import Path
 import signal
 import shutil
@@ -193,10 +195,14 @@ class Lifecycle:
         require("Authorize Device" in confirmation, "device confirmation missing")
         require(json.loads(self.request(poll_url)[2])["error"] == "authorization_pending",
                 "OAuth login skipped explicit device authorization")
+        csrf_match = re.search(r'name="csrf_token" value="([^"]+)"', confirmation)
+        require(csrf_match is not None, "device confirmation omitted CSRF token")
         status, _, _ = self.request(
             self.base + "/auth/device/authorize", "POST",
-            urlencode({"code": device["user_code"]}),
-            {"Content-Type": "application/x-www-form-urlencoded"}, browser=True,
+            urlencode({"code": device["user_code"],
+                       "csrf_token": html.unescape(csrf_match.group(1))}),
+            {"Content-Type": "application/x-www-form-urlencoded", "Origin": self.base},
+            browser=True,
         )
         require(status == 200, "explicit device authorization failed")
         login_token = json.loads(self.request(poll_url)[2])["access_token"]

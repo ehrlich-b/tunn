@@ -712,6 +712,18 @@ func (p *ProxyServer) createHandler() http.Handler {
 	mux.HandleFunc("/", p.handleWebProxy)
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Publishers own every path on their tunnel origin. Serving platform
+		// forms there would let their scripts read session-bound CSRF tokens.
+		if extractTunnelID(r.Host, p.Domain) != "" {
+			p.handleWebProxy(w, r)
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/auth/") || r.URL.Path == "/login" || r.URL.Path == "/account" || strings.HasPrefix(r.URL.Path, "/api/device/") {
+			if !p.isPlatformHost(r.Host) {
+				http.Error(w, "Invalid authentication host", http.StatusForbidden)
+				return
+			}
+		}
 		// HTTP/2 CONNECT is authority-form and arrives without a URL path. An
 		// empty path does not match ServeMux's "/" pattern, so raw tunnel
 		// connections must enter the subdomain router before mux dispatch.

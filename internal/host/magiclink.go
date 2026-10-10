@@ -20,6 +20,9 @@ func (p *ProxyServer) handleMagicLinkRequest(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	if !p.requireAuthOrigin(w, r, false) {
+		return
+	}
 
 	// Check if email sender is configured
 	if p.emailSender == nil {

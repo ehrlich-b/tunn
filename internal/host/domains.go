@@ -205,8 +205,15 @@ func (p *ProxyServer) http01Handler() http.Handler {
 }
 func (p *ProxyServer) startHTTP01Server(ctx context.Context) error {
 	server := &http.Server{Addr: p.config.HTTP01Addr, Handler: p.http01Handler(), ReadHeaderTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second}
-	go func() { <-ctx.Done(); _ = server.Close() }()
-	err := server.ListenAndServe()
+	listener, err := net.Listen("tcp", server.Addr)
+	if err != nil {
+		return err
+	}
+	p.listenerStarted(listenerHTTP01)
+	defer p.listenerState.And(^uint32(listenerHTTP01))
+	stopShutdown := context.AfterFunc(ctx, func() { _ = server.Close() })
+	defer stopShutdown()
+	err = server.Serve(listener)
 	if err == http.ErrServerClosed {
 		return nil
 	}

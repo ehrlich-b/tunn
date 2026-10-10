@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/quic-go/quic-go/http3"
@@ -42,11 +43,14 @@ import (
 
 // ProxyServer is the new V1 dual-listener proxy server
 type ProxyServer struct {
-	sshServer *sshfront.Server
-	sshKeys   *sshfront.Registry
-	Domain    string
-	CertFile  string
-	KeyFile   string
+	listenerState     atomic.Uint32
+	requiredListeners atomic.Uint32
+	stopping          atomic.Bool
+	sshServer         *sshfront.Server
+	sshKeys           *sshfront.Registry
+	Domain            string
+	CertFile          string
+	KeyFile           string
 
 	// HTTP/2 (TCP) listener address
 	HTTP2Addr string
@@ -550,8 +554,27 @@ func getPeerIP(ctx context.Context) string {
 
 // Run starts both HTTP/2 and HTTP/3 listeners
 func (p *ProxyServer) Run(ctx context.Context) error {
+	ctx, cancel := context.WithCancel(ctx)
 	var wg sync.WaitGroup
-	errChan := make(chan error, 5)
+	errChan := make(chan error, 6)
+	p.stopping.Store(false)
+	required := uint32(listenerHTTP2 | listenerHTTP3 | listenerInternal)
+	if p.sshServer != nil && p.config.SSHAddr != "" {
+		required |= listenerSSH
+	}
+	if p.domains != nil {
+		required |= listenerHTTP01
+	}
+	p.requiredListeners.Store(required)
+	defer func() {
+		p.stopping.Store(true)
+		cancel()
+		// Long-lived publisher streams must close before HTTP shutdown waits.
+		p.grpcServer.Stop()
+		p.internalGRPCServer.Stop()
+		wg.Wait()
+		p.listenerState.Store(0)
+	}()
 
 	// Start mock OIDC server in dev mode
 	if p.mockOIDC != nil {
@@ -559,7 +582,7 @@ func (p *ProxyServer) Run(ctx context.Context) error {
 		go func() {
 			defer wg.Done()
 			common.LogInfo("starting mock OIDC server", "addr", p.config.MockOIDCAddr)
-			if err := p.mockOIDC.Start(); err != nil {
+			if err := p.mockOIDC.StartContext(ctx); err != nil {
 				errChan <- fmt.Errorf("mock OIDC server error: %w", err)
 			}
 		}()
@@ -573,6 +596,8 @@ func (p *ProxyServer) Run(ctx context.Context) error {
 			defer wg.Done()
 			l, err := net.Listen("tcp", p.config.SSHAddr)
 			if err == nil {
+				p.listenerStarted(listenerSSH)
+				defer p.listenerState.And(^uint32(listenerSSH))
 				err = p.sshServer.Serve(ctx, l)
 			}
 			if err != nil {
@@ -590,7 +615,8 @@ func (p *ProxyServer) Run(ctx context.Context) error {
 			}
 		}()
 		if p.domainRegistry != nil {
-			go p.domainRegistry.Run(ctx)
+			wg.Add(1)
+			go func() { defer wg.Done(); p.domainRegistry.Run(ctx) }()
 		}
 	}
 
@@ -623,16 +649,10 @@ func (p *ProxyServer) Run(ctx context.Context) error {
 
 	// Start login node discovery loop and usage flush loop (for non-login nodes)
 	if !p.isLoginNode {
-		go p.loginNodeDiscoveryLoop(ctx)
-		go p.usageFlushLoop(ctx)
+		wg.Add(2)
+		go func() { defer wg.Done(); p.loginNodeDiscoveryLoop(ctx) }()
+		go func() { defer wg.Done(); p.usageFlushLoop(ctx) }()
 	}
-
-	common.LogInfo("proxy server ready",
-		"http2", p.HTTP2Addr,
-		"http3", p.HTTP3Addr,
-		"internal_grpc", p.config.InternalGRPCPort,
-		"domain", p.Domain,
-		"env", p.config.Environment)
 
 	// Wait for either an error or context cancellation
 	select {
@@ -641,17 +661,6 @@ func (p *ProxyServer) Run(ctx context.Context) error {
 	case <-ctx.Done():
 		common.LogInfo("shutting down proxy server")
 
-		// Shutdown mock OIDC server if running
-		if p.mockOIDC != nil {
-			common.LogInfo("shutting down mock OIDC server")
-			_ = p.mockOIDC.Shutdown()
-		}
-
-		// Shutdown internal gRPC server
-		common.LogInfo("shutting down internal gRPC server")
-		p.internalGRPCServer.Stop() // Use Stop() instead of GracefulStop() to avoid hanging
-
-		wg.Wait()
 		return ctx.Err()
 	}
 }
@@ -687,15 +696,23 @@ func (p *ProxyServer) startHTTP2Server(ctx context.Context, handler http.Handler
 		ln = sshfront.Share(ctx, ln, p.sshServer.ServeConn)
 	}
 	tlsLn := tls.NewListener(ln, p.tlsConfig)
+	p.listenerStarted(listenerHTTP2)
+	defer p.listenerState.And(^uint32(listenerHTTP2))
 
 	// Start server in a goroutine
-	go func() {
-		<-ctx.Done()
+	shutdownDone := make(chan struct{})
+	stopShutdown := context.AfterFunc(ctx, func() {
+		defer close(shutdownDone)
 		common.LogInfo("shutting down HTTP/2 server")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 		if err := srv.Shutdown(shutdownCtx); err != nil {
 			_ = srv.Close()
+		}
+	})
+	defer func() {
+		if !stopShutdown() {
+			<-shutdownDone
 		}
 	}()
 
@@ -715,15 +732,22 @@ func (p *ProxyServer) startHTTP3Server(ctx context.Context, handler http.Handler
 	}
 
 	common.LogInfo("starting HTTP/3 server", "addr", p.HTTP3Addr)
+	conn, err := net.ListenPacket("udp", p.HTTP3Addr)
+	if err != nil {
+		return fmt.Errorf("failed to listen on %s: %w", p.HTTP3Addr, err)
+	}
+	defer conn.Close()
+	p.listenerStarted(listenerHTTP3)
+	defer p.listenerState.And(^uint32(listenerHTTP3))
 
 	// Start server in a goroutine
-	go func() {
-		<-ctx.Done()
+	stopShutdown := context.AfterFunc(ctx, func() {
 		common.LogInfo("shutting down HTTP/3 server")
 		_ = srv.Close()
-	}()
+	})
+	defer stopShutdown()
 
-	if err := srv.ListenAndServeTLS(p.CertFile, p.KeyFile); err != nil && err != http.ErrServerClosed {
+	if err := srv.Serve(conn); err != nil && err != http.ErrServerClosed {
 		return err
 	}
 
@@ -738,12 +762,14 @@ func (p *ProxyServer) startInternalServer(ctx context.Context) error {
 	}
 
 	common.LogInfo("starting internal gRPC server", "addr", p.config.InternalGRPCPort)
+	p.listenerStarted(listenerInternal)
+	defer p.listenerState.And(^uint32(listenerInternal))
 
-	go func() {
-		<-ctx.Done()
+	stopShutdown := context.AfterFunc(ctx, func() {
 		common.LogInfo("shutting down internal gRPC server")
-		p.internalGRPCServer.GracefulStop()
-	}()
+		p.internalGRPCServer.Stop()
+	})
+	defer stopShutdown()
 
 	if err := p.internalGRPCServer.Serve(lis); err != nil && err != grpc.ErrServerStopped {
 		return err
@@ -794,10 +820,9 @@ func (p *ProxyServer) createHandler() http.Handler {
 	mux := http.NewServeMux()
 
 	// Health check endpoint (no auth required)
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = fmt.Fprint(w, "ok")
-	})
+	mux.HandleFunc("/health", p.handleHealth)
+	mux.HandleFunc("/healthz", p.handleHealth)
+	mux.HandleFunc("/readyz", p.handleHealth)
 
 	// Install script endpoint
 	mux.HandleFunc("/install.sh", p.handleInstallScript)

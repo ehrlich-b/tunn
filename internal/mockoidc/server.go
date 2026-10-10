@@ -3,6 +3,7 @@
 package mockoidc
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
@@ -64,6 +65,11 @@ func New(cfg Config) (*Server, error) {
 
 // Start starts the mock OIDC server
 func (s *Server) Start() error {
+	return s.StartContext(context.Background())
+}
+
+// StartContext ties startup and shutdown to the relay lifecycle.
+func (s *Server) StartContext(ctx context.Context) error {
 	mux := http.NewServeMux()
 
 	// OIDC discovery endpoint
@@ -78,12 +84,17 @@ func (s *Server) Start() error {
 	// Device verification endpoint (user visits this)
 	mux.HandleFunc("/device", s.handleDeviceVerification)
 
-	s.httpServer = &http.Server{
+	server := &http.Server{
 		Addr:    s.addr,
 		Handler: mux,
 	}
+	s.mu.Lock()
+	s.httpServer = server
+	s.mu.Unlock()
+	stopShutdown := context.AfterFunc(ctx, func() { _ = server.Close() })
+	defer stopShutdown()
 
-	err := s.httpServer.ListenAndServe()
+	err := server.ListenAndServe()
 	if err == http.ErrServerClosed {
 		return nil
 	}
@@ -92,8 +103,11 @@ func (s *Server) Start() error {
 
 // Shutdown gracefully shuts down the mock OIDC server
 func (s *Server) Shutdown() error {
-	if s.httpServer != nil {
-		return s.httpServer.Close()
+	s.mu.RLock()
+	server := s.httpServer
+	s.mu.RUnlock()
+	if server != nil {
+		return server.Close()
 	}
 	return nil
 }

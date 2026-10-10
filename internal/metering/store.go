@@ -21,10 +21,14 @@ import (
 )
 
 const (
-	MaxEvents       = 10000
-	MaxUsageRows    = 100000
-	MaxGrants       = 10000
-	RetentionMonths = 13
+	MaxEvents                 = 10000
+	MaxUsageRows              = 100000
+	MaxGrants                 = 10000
+	RetentionMonths           = 13
+	FreeMonthlyRequests int64 = 100000
+	ProMonthlyRequests  int64 = 1000000
+	FreeMonthlyBytes    int64 = 1000000000
+	ProMonthlyBytes     int64 = 50000000000
 )
 
 var ErrCapacity = errors.New("metering storage capacity reached")
@@ -49,15 +53,20 @@ type Store struct {
 	// Fixed hard caps, reduced in retention tests.
 	maxEvents, maxUsage, maxGrants int
 	ownerRequests, ownerBytes      int64
+	accountPlans                   bool
 }
 
 type Option func(*Store)
 
-// WithOwnerBudgets caps all HTTP callers and endpoints belonging to an owner.
+// WithOwnerBudgets caps all callers, transports and endpoints belonging to an owner.
 // Zero means unlimited; the login node applies these limits atomically.
 func WithOwnerBudgets(requests, bytes int64) Option {
 	return func(s *Store) { s.ownerRequests, s.ownerBytes = requests, bytes }
 }
+
+// WithAccountPlans enforces current account entitlements at the shared authority.
+// Account lookup errors fail closed; relay-supplied plan strings are never trusted.
+func WithAccountPlans() Option { return func(s *Store) { s.accountPlans = true } }
 
 func New(db *sql.DB, options ...Option) (*Store, error) {
 	s := &Store{db: db, now: time.Now, maxEvents: MaxEvents, maxUsage: MaxUsageRows, maxGrants: MaxGrants}
@@ -119,6 +128,30 @@ func New(db *sql.DB, options ...Option) (*Store, error) {
 		e.DurationMs = max(0, s.now().UnixMilli()-e.StartedAt)
 		data, _ := json.Marshal(e)
 		if _, err = db.Exec(`UPDATE meter_events SET finished=1,data=? WHERE id=?`, data, e.RequestId); err != nil {
+			return nil, err
+		}
+	}
+	if s.accountPlans {
+		// Import only unaccounted legacy bytes, once. Completion mirrors in the
+		// old account_usage table must not be imported again after a restart.
+		if err := s.transaction(context.Background(), func(tx *sql.Tx) error {
+			if _, err := tx.Exec(`CREATE TABLE IF NOT EXISTS meter_migrations (name TEXT PRIMARY KEY)`); err != nil {
+				return err
+			}
+			var done int
+			if err := tx.QueryRow(`SELECT count(*) FROM meter_migrations WHERE name='account_plans'`).Scan(&done); err != nil {
+				return err
+			}
+			if done != 0 {
+				return nil
+			}
+			if _, err := tx.Exec(`INSERT INTO meter_usage(owner,endpoint,caller,month,request_bytes)
+SELECT account_id,'legacy','legacy',month,max(0,bytes_used-coalesce((SELECT sum(request_bytes+response_bytes) FROM meter_usage WHERE owner=account_id AND meter_usage.month=account_usage.month),0)) FROM account_usage`); err != nil {
+				return err
+			}
+			_, err := tx.Exec(`INSERT INTO meter_migrations(name) VALUES('account_plans')`)
+			return err
+		}); err != nil {
 			return nil, err
 		}
 	}
@@ -305,18 +338,35 @@ func tighterLimit(a, b int64) int64 {
 	return min(a, b)
 }
 func (s *Store) ownerRemaining(tx *sql.Tx, e *pb.Event, d *pb.Decision) error {
-	if e.Owner == "" || s.ownerRequests == 0 && s.ownerBytes == 0 {
+	if e.Owner == "" || !s.accountPlans && s.ownerRequests == 0 && s.ownerBytes == 0 {
 		return nil
+	}
+	requestLimit, byteLimit := s.ownerRequests, s.ownerBytes
+	if s.accountPlans {
+		var plan string
+		if err := tx.QueryRow(`SELECT plan FROM accounts WHERE id=?`, e.Owner).Scan(&plan); err != nil {
+			return fmt.Errorf("verify account entitlement: %w", err)
+		}
+		planRequests, planBytes := FreeMonthlyRequests, FreeMonthlyBytes
+		if plan == "pro" {
+			planRequests, planBytes = ProMonthlyRequests, ProMonthlyBytes
+		}
+		if requestLimit == 0 || requestLimit > planRequests {
+			requestLimit = planRequests
+		}
+		if byteLimit == 0 || byteLimit > planBytes {
+			byteLimit = planBytes
+		}
 	}
 	var requests, bytes int64
 	if err := tx.QueryRow(`SELECT coalesce(sum(admitted),0),coalesce(sum(request_bytes+response_bytes),0) FROM meter_usage WHERE owner=? AND month=?`, e.Owner, e.Month).Scan(&requests, &bytes); err != nil {
 		return err
 	}
-	if s.ownerRequests > 0 {
-		d.RequestsRemaining = tighterLimit(d.RequestsRemaining, max(0, s.ownerRequests-requests))
+	if requestLimit > 0 {
+		d.RequestsRemaining = tighterLimit(d.RequestsRemaining, max(0, requestLimit-requests))
 	}
-	if s.ownerBytes > 0 {
-		available := max(0, s.ownerBytes-bytes)
+	if byteLimit > 0 {
+		available := max(0, byteLimit-bytes)
 		if d.BytesRemaining < 0 || available < d.BytesRemaining {
 			d.ByteBudgetReason = "owner_byte_budget"
 		}

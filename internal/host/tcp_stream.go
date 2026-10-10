@@ -19,7 +19,7 @@ func (p *ProxyServer) proxyTCPOverGRPC(w http.ResponseWriter, r *http.Request, t
 		return err
 	}
 	defer tunnel.removePendingConnection(connectionID, pending)
-	defer sendConnectionClose(r.Context(), tunnel, connectionID, "")
+	defer sendConnectionClose(tunnel.Stream.Context(), tunnel, connectionID, "")
 
 	// HTTP/1 servers otherwise may consume the entire request body before they
 	// permit response writes. CONNECT needs both directions concurrently.
@@ -86,6 +86,9 @@ func (p *ProxyServer) writeTCPStream(
 	requestResult <-chan requestBodyResult,
 ) error {
 	w.Header().Set("Content-Type", "application/octet-stream")
+	if meterForRequest(r) != nil {
+		w.Header().Add("Trailer", "Tunn-Limit-Reason")
+	}
 	w.WriteHeader(http.StatusOK)
 	if flusher, ok := w.(http.Flusher); ok {
 		flusher.Flush()

@@ -85,6 +85,9 @@ func (p *ProxyServer) proxyWebSocketOverGRPC(w http.ResponseWriter, r *http.Requ
 	if !common.ValidWebSocketResponse(headers, r.Header.Get("Sec-WebSocket-Key")) {
 		return fmt.Errorf("invalid WebSocket acceptance")
 	}
+	if err := checkMeteredResponse(r, 0); err != nil {
+		return err
+	}
 	conn, buffered, err := http.NewResponseController(w).Hijack()
 	if err != nil {
 		return fmt.Errorf("WebSocket ingress requires HTTP/1.1: %w", err)
@@ -130,7 +133,7 @@ func (p *ProxyServer) proxyWebSocketOverGRPC(w http.ResponseWriter, r *http.Requ
 	var requestBytes atomic.Int64
 	var responseBytes int64
 	defer func() {
-		if tunnel.AccountID != "" {
+		if tunnel.AccountID != "" && meterForRequest(r) == nil {
 			p.RecordUsage(r.Context(), tunnel.AccountID, requestBytes.Load()+responseBytes)
 		}
 	}()
@@ -142,12 +145,17 @@ func (p *ProxyServer) proxyWebSocketOverGRPC(w http.ResponseWriter, r *http.Requ
 			n, readErr := buffered.Read(buffer)
 			if n > 0 {
 				requestBytes.Add(int64(n))
+				chunk, err := chargeWebSocket(r, true, buffer[:n])
+				if err != nil {
+					inputDone <- err
+					return
+				}
 				if !tunnel.CheckRateLimit(n) {
 					inputDone <- fmt.Errorf("WebSocket bandwidth limit exceeded")
 					return
 				}
 				if err := tunnel.SendMessage(&pb.TunnelMessage{Message: &pb.TunnelMessage_ConnectionData{
-					ConnectionData: &pb.ConnectionData{ConnectionId: id, Data: append([]byte(nil), buffer[:n]...)},
+					ConnectionData: &pb.ConnectionData{ConnectionId: id, Data: append([]byte(nil), chunk...)},
 				}}); err != nil {
 					inputDone <- err
 					return
@@ -164,12 +172,18 @@ func (p *ProxyServer) proxyWebSocketOverGRPC(w http.ResponseWriter, r *http.Requ
 		case event := <-pending.events:
 			switch {
 			case event.data != nil:
+				chunk, err := chargeWebSocket(r, false, event.data)
+				if err != nil {
+					return &responseStartedError{err}
+				}
 				if !tunnel.CheckRateLimit(len(event.data)) {
 					return &responseStartedError{fmt.Errorf("WebSocket bandwidth limit exceeded")}
 				}
 				responseBytes += int64(len(event.data))
 				_ = conn.SetWriteDeadline(time.Now().Add(30 * time.Second))
-				if _, err := conn.Write(event.data); err != nil {
+				n, err := conn.Write(chunk)
+				recordWebSocketWrite(r, n)
+				if err != nil {
 					return &responseStartedError{err}
 				}
 			case event.halfClose, event.close != nil:

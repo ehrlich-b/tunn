@@ -318,6 +318,12 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 	if !session.admit(r.Context(), w, r) {
 		return
 	}
+	if p.meter != nil {
+		ctx, cancel := context.WithCancelCause(r.Context())
+		defer cancel(nil)
+		r = r.WithContext(ctx)
+		go session.watch(ctx, cancel)
+	}
 	r = r.WithContext(context.WithValue(r.Context(), meterContextKey{}, session))
 	if p.meter != nil {
 		r.Body = &meterRequestBody{ReadCloser: r.Body, meter: session, ctx: r.Context()}
@@ -340,6 +346,20 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 	}
 
 	if proxyErr != nil {
+		if cause := context.Cause(r.Context()); cause != nil && cause != context.Canceled && cause != context.DeadlineExceeded {
+			proxyErr = &responseStartedError{cause}
+			if !meterWriter.started {
+				proxyErr = cause
+			}
+		}
+		var limit *ingressLimitError
+		if errors.As(proxyErr, &limit) {
+			w.Header().Set("Tunn-Limit-Reason", limit.decision.Reason)
+		}
+		var unavailable *meterUnavailableError
+		if errors.As(proxyErr, &unavailable) {
+			w.Header().Set("Tunn-Limit-Reason", "meter_unavailable")
+		}
 		meterWriter.bodyMeter = false
 		session.recordError(proxyErr, r.Context())
 		common.LogError("failed to proxy request", "error", proxyErr, "tunnel_id", tunnelID)

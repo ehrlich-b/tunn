@@ -33,7 +33,7 @@ func (p *ProxyServer) proxyStreamingHTTPOverGRPC(w http.ResponseWriter, r *http.
 		return err
 	}
 	defer tunnel.removePendingConnection(connectionID, pending)
-	defer sendConnectionClose(r.Context(), tunnel, connectionID, "")
+	defer sendConnectionClose(tunnel.Stream.Context(), tunnel, connectionID, "")
 
 	open := &pb.ConnectionOpen{
 		ConnectionId:  connectionID,

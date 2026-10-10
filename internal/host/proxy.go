@@ -119,7 +119,7 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 			return nil, fmt.Errorf("failed to initialize database: %w", err)
 		}
 		localStorage = storage.NewLocalStorage(db)
-		localMeter, err = metering.New(db, metering.WithOwnerBudgets(cfg.OwnerMonthlyRequests, cfg.OwnerMonthlyBytes))
+		localMeter, err = metering.New(db, metering.WithAccountPlans(), metering.WithOwnerBudgets(cfg.OwnerMonthlyRequests, cfg.OwnerMonthlyBytes))
 		if err != nil {
 			return nil, fmt.Errorf("initialize ingress meter: %w", err)
 		}

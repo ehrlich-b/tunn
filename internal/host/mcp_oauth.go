@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"html"
 	"io"
+	"mime"
 	"net"
 	"net/http"
 	"net/url"
@@ -165,7 +166,8 @@ func (p *ProxyServer) handleMCPRegistration(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "Method not allowed", 405)
 		return
 	}
-	if !strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "application/json") {
+	mediaType, _, contentTypeErr := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if contentTypeErr != nil || mediaType != "application/json" {
 		oauthProblem(w, 400, "invalid_client_metadata", "Expected JSON client metadata")
 		return
 	}
@@ -429,7 +431,8 @@ func (p *ProxyServer) handleMCPToken(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", 405)
 		return
 	}
-	if !strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "application/x-www-form-urlencoded") {
+	mediaType, _, contentTypeErr := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if contentTypeErr != nil || mediaType != "application/x-www-form-urlencoded" {
 		oauthProblem(w, 400, "invalid_request", "Expected form-encoded token request")
 		return
 	}

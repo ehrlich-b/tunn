@@ -1,5 +1,11 @@
 # Durable credential validation
 
+The unsandboxed security-fix validation supersedes the native REQUIRED-UNRUN
+status below. See [durable security validation](docs/durable-security-validation.md)
+for the `11ae780` comparison, failing-before/passing-after regressions, executed
+full-suite and race gates, and remaining inherited failures. The remainder of
+this file is the historical validation for `11ae780`.
+
 Validated on Go 1.27.2 in `/work/lanes/tunn-refresh/tunn`, using only clone-local caches. The committed copy is `/work/lanes/tunn-refresh/committed-tunn` on `codex/tunn-durable-credentials-20261011`; the original checkout's `.git` is mounted read-only. Implementation files are copied byte-for-byte into the committed checkout.
 
 Set up these environment variables from the tested source checkout (or seed the equivalent caches in another checkout):

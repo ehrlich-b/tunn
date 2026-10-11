@@ -468,7 +468,8 @@ func TestOpsLoopbackShutdownWithLivePublisherAndRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := stream.Send(&pb.TunnelMessage{Message: &pb.TunnelMessage_RegisterClient{RegisterClient: &pb.RegisterClient{TunnelId: "restart-fixture", TunnelKey: p.config.ClientSecret}}}); err != nil {
+	// Self-hosted client secrets authenticate publishers through AuthToken.
+	if err := stream.Send(&pb.TunnelMessage{Message: &pb.TunnelMessage_RegisterClient{RegisterClient: &pb.RegisterClient{TunnelId: "restart-fixture", AuthToken: p.config.ClientSecret}}}); err != nil {
 		t.Fatal(err)
 	}
 	response, err := stream.Recv()
@@ -507,7 +508,7 @@ func TestOpsLoopbackShutdownWithLivePublisherAndRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := nextStream.Send(&pb.TunnelMessage{Message: &pb.TunnelMessage_RegisterClient{RegisterClient: &pb.RegisterClient{TunnelId: "restart-fixture", TunnelKey: next.config.ClientSecret}}}); err != nil {
+	if err := nextStream.Send(&pb.TunnelMessage{Message: &pb.TunnelMessage_RegisterClient{RegisterClient: &pb.RegisterClient{TunnelId: "restart-fixture", AuthToken: next.config.ClientSecret}}}); err != nil {
 		t.Fatal(err)
 	}
 	response, err = nextStream.Recv()

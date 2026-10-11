@@ -335,6 +335,7 @@ func protoAccountToStorage(resp *internalv1.AccountResponse) *Account {
 	}
 	return &Account{
 		BillingState:       resp.BillingState,
+		BillingNotice:      resp.BillingNotice,
 		OperationalState:   resp.OperationalState,
 		OperationalVersion: resp.OperationalVersion,
 		ID:                 resp.Id,

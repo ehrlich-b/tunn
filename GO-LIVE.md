@@ -194,9 +194,15 @@ intent. Further completions commit `duplicate_payment_refund_needed` in both
 `ops_checkout_payments` and `ops_billing_events`, return HTTP 200, and cannot bind
 or grant Pro, even with a different customer or a later lifecycle receipt.
 Exact retries remain idempotent; the original accepted grant stays effective.
-A first completion after local expiry is `checkout_expired_review_required` and
-also cannot grant. Audit outstanding quarantine rows with read-only DB tooling;
-`billing-status` does not list unbound duplicate subscriptions. Bryan must
+Provider completion time is retained separately from receipt delivery time;
+on-time payments delivered after local redirect expiry remain reviewable.
+Actual late/unknown-time payments use `checkout_expired_review_required` and
+can be explicitly approved with audited `payment-review`, then fulfilled using
+a fresh reviewed snapshot. Missing/unknown references persist by provider IDs;
+additional purchases require an explicit decision. `payment-queue` includes
+unbound entries, and `billing-status` includes payment review records. Customer
+notices remain visible independently of active Pro. Follow the exact
+[round-3 payment and rollback runbook](docs/revenue/round3-fixes.md). Bryan must
 review the actual Stripe objects and perform any cancellation/refund himself.
 No automatic Stripe mutation occurs. Never clear a hold or sell a replacement
 while its prior Payment Link remains payable. Resuming a Payment Link carries
@@ -372,9 +378,14 @@ fly deploy --app tunn --config fly.revenue.rollback.toml --image "$TUNN_PREVIOUS
 Confirm the old release's sales route cannot resume charging: remove checkout
 URLs from the approved rollback environment or keep Stripe links deactivated;
 the old binary does not understand the new disable flag. Preserve SQLite and
-billing audits and the legacy entitlement snapshot; schema installation changes
-no plans or reservations, so an image-only rollback before explicit cutover
-retains every old benefit. There is no destructive schema rollback to perform.
+billing audits, compatibility triggers and the legacy entitlement snapshot.
+Use the [round-3 rollback contract](docs/revenue/round3-fixes.md#rollback-runbook):
+110485c serving rollback is supported only in the no-sales stage after installing
+that compatibility schema. Old-code revocations/merges are journaled; positive
+cache writes require a global reviewed grant decision on re-upgrade. Existing
+4416eff rollback history requires the documented bootstrap/inventory review.
+Once payable Links exist, keep a modern receipt/review authority. There is no
+destructive schema rollback to perform.
 An explicit legacy cutover changes data: restoring a Pro grant with a fresh
 versioned decision does not recreate released reservations. Keep their ownership
 inventory before cutover; Bryan must check current name conflicts before repair.

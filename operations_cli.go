@@ -19,13 +19,15 @@ import (
 
 const operationsUsage = `tunn admin <action> --db PATH --admin-config PATH --token-file PATH
 Actions: status, suspend, resume, billing-bind, billing-status, billing-events, reconcile,
-         report-intake, report-respond, fixture-init, migrate, reconcile-legacy
+         report-intake, report-respond, fixture-init, migrate, reconcile-legacy, payment-queue, payment-review
 Account operations: --account UUID --expect-version N --reason TEXT
 Billing bind: --account UUID --provider NAME --customer ID --subscription ID
 Billing fixtures: --events PATH (disposable fixture databases only)
 Reconcile: --snapshots PATH [--apply-fixture | --apply-reviewed] (default: read-only dry run)
 Reviewed apply requires fresh Stripe evidence and receipts; see GO-LIVE.md.
 Legacy reconciliation: --snapshots PATH (explicit decisions; requires accounts:["*"])
+Payment queue: [--after provider/subscription] (100 records per page)
+Payment review: --snapshots PATH (one reasoned CAS decision; see docs/revenue/round3-fixes.md)
 Reports: --account UUID --category abuse|billing|availability --endpoint NAME
 Response: --report ID --response triaged|action_taken|closed --expect-version N
 Fixture init: --email fixture@example.invalid (creates a new disposable database)
@@ -109,8 +111,10 @@ func executeOperations(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("admin", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	var dbPath, configPath, tokenPath, account, reason, provider, customer, subscription, input, email, category, endpoint, report, response string
+	var after string
 	var expected int64
 	var apply, applyReviewed bool
+	fs.StringVar(&after, "after", "", "payment queue cursor")
 	fs.StringVar(&dbPath, "db", "", "explicit local database path")
 	fs.StringVar(&configPath, "admin-config", "", "operator-owned configuration")
 	fs.StringVar(&tokenPath, "token-file", "", "administration token")
@@ -138,6 +142,7 @@ func executeOperations(args []string, out io.Writer) error {
 	valid := map[string]bool{"status": true, "suspend": true, "resume": true, "billing-bind": true, "billing-events": true, "reconcile": true, "report-intake": true, "report-respond": true, "fixture-init": true, "migrate": true}
 	valid["billing-status"] = true
 	valid["reconcile-legacy"] = true
+	valid["payment-queue"], valid["payment-review"] = true, true
 	if !valid[action] || dbPath == "" || configPath == "" || tokenPath == "" {
 		return fmt.Errorf("require an action, explicit database and administration credentials")
 	}
@@ -192,7 +197,7 @@ func executeOperations(args []string, out io.Writer) error {
 		return fmt.Errorf("database must be an existing regular file")
 	}
 	dbMode := "rw"
-	if action == "status" || action == "billing-status" || action == "reconcile" && !apply && !applyReviewed {
+	if action == "payment-queue" || action == "status" || action == "billing-status" || action == "reconcile" && !apply && !applyReviewed {
 		dbMode = "ro"
 	}
 	dsn := (&url.URL{Scheme: "file", Path: abs, RawQuery: "mode=" + dbMode}).String()
@@ -208,6 +213,15 @@ func executeOperations(args []string, out io.Writer) error {
 	ops := store.NewOperationsStore(db, nil)
 	var result any
 	switch action {
+	case "payment-queue":
+		result, err = ops.PaymentReviewQueue(ctx, principal, after)
+	case "payment-review":
+		var decision store.PaymentReview
+		if err = readBoundedJSON(input, &decision); err != nil {
+			return err
+		}
+		err = ops.ReviewCheckoutPayment(ctx, principal, decision)
+		result = map[string]string{"state": "payment_review_recorded"}
 	case "reconcile-legacy":
 		var decisions []store.LegacyEntitlementDecision
 		if err = readBoundedJSON(input, &decisions); err != nil {

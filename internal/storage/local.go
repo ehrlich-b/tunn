@@ -432,6 +432,7 @@ func storeAccountToStorage(acc *store.Account) *Account {
 	}
 	return &Account{
 		BillingState:       acc.BillingState,
+		BillingNotice:      acc.BillingNotice,
 		OperationalState:   acc.OperationalState,
 		OperationalVersion: acc.OperationalVersion,
 		ID:                 acc.ID,

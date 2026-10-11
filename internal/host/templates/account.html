@@ -261,6 +261,13 @@ h1 {
     </div>
   </div>
 
+  {{if .BillingNotice}}
+  <div class="card" role="status" aria-live="polite">
+    <div class="card-title">Payment review</div>
+    <p>{{if eq .BillingNotice "duplicate_payment_refund_needed"}}An additional payment needs review for cancellation and refund. {{if eq .Plan "pro"}}Your Pro service remains available.{{end}}{{else}}Your payment needs review. If the purchase cannot be fulfilled, support will review cancellation and refund.{{end}}</p>
+    <p>Do not pay again. <a href="mailto:support@tunn.to">Contact support</a> for help with this payment.</p>
+  </div>
+  {{end}}
   {{if .BillingReturn}}
   <div class="card" role="status" aria-live="polite">
     <div class="card-title">Subscription status</div>
@@ -277,6 +284,7 @@ h1 {
         const response = await fetch('/api/billing/status', {cache: 'no-store'});
         if (!response.ok || response.redirected) throw new Error('unavailable');
         const status = await response.json();
+        if (status.notice) { message.textContent = status.notice === 'duplicate_payment_refund_needed' ? 'An additional payment needs review for cancellation and refund. Do not pay again; contact support.' : 'Your payment needs review. Do not pay again; contact support for activation or refund.'; return; }
         if (status.state === 'active') { message.textContent = 'Pro is active on this account. Refresh the account page to see your new limits.'; return; }
         if (status.state === 'suspended') { message.textContent = 'Your account is suspended. Contact support before making a payment.'; return; }
         message.textContent = 'Pro activation is pending. If you have paid, do not pay again. Contact support if your plan remains Free.';

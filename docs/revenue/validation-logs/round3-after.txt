@@ -1,0 +1,21 @@
+Final identical regressions: PASS in portable-delivery.json.
+
+=== RUN   TestR3DelayedOnTimeCompletionCanBeFulfilled
+--- PASS: TestR3DelayedOnTimeCompletionCanBeFulfilled (0.10s)
+=== RUN   TestR3RedeployAfterOldMergeAndRevocation
+=== RUN   TestR3RedeployAfterOldMergeAndRevocation/ON
+--- PASS: TestR3RedeployAfterOldMergeAndRevocation/ON (0.03s)
+=== RUN   TestR3RedeployAfterOldMergeAndRevocation/OFF
+--- PASS: TestR3RedeployAfterOldMergeAndRevocation/OFF (0.04s)
+=== RUN   TestR3RedeployAfterOldMergeAndRevocation/pre-journal
+--- PASS: TestR3RedeployAfterOldMergeAndRevocation/pre-journal (0.07s)
+--- PASS: TestR3RedeployAfterOldMergeAndRevocation (0.13s)
+=== RUN   TestR3EditedReferenceBypassesQuarantine
+    billing_round3_test.go:46: one issued intent, second signed checkout has deleted reference: active_subscriptions=1 quarantine=1
+--- PASS: TestR3EditedReferenceBypassesQuarantine (0.02s)
+=== RUN   TestR3DelayedSignedOnTimePaymentAcceptance
+    billing_round3_test.go:73: freshly signed on-time Stripe event first delivered +25h: HTTP=200 receipt={"event_id":"evt_signed_delay","account_id":"c6702677-9f28-495f-8163-a91730dcfd06","state":"reconciliation_required","duplicate":false} binding=<nil> customer={"plan":"pro","state":"active"}
+--- PASS: TestR3DelayedSignedOnTimePaymentAcceptance (0.02s)
+=== RUN   TestR3QuarantineCustomerAndOperatorVisibility
+    billing_round3_test.go:106: durable duplicate rows=1; accepted-sub pending=[]; duplicate billing-status=<nil>; customer API={"plan":"pro","state":"active","notice":"duplicate_payment_refund_needed"}; customer duplicate warning=true
+--- PASS: TestR3QuarantineCustomerAndOperatorVisibility (0.03s)

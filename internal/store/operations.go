@@ -149,6 +149,10 @@ func NewOperationsStore(db *sql.DB, now func() time.Time) *OperationsStore {
 	return &OperationsStore{db, now}
 }
 func MigrateOperations(db *sql.DB) error {
+	return migrateOperations(db, true)
+}
+
+func migrateOperations(db *sql.DB, projectRollback bool) error {
 	tx, err := db.Begin()
 	if err != nil {
 		return err
@@ -163,13 +167,24 @@ func MigrateOperations(db *sql.DB) error {
 	}
 	// Install schema without changing any plan or reservation. Snapshot legacy
 	// grants exactly once, before the new reducer reads accounts. Existing verified
-	// projections are not legacy grants. Only an audited global operator action
-	// may end these preserved entitlements; restarts never re-import revoked ones.
+	// projections are not legacy grants. Global decisions and audited rollback
+	// compatibility revocations end grants; restarts never re-import revoked ones.
 	if !installed {
 		if _, err = tx.Exec(`INSERT INTO ops_legacy_entitlements(original_account_id,account_id,plan)
  SELECT id,id,'pro' FROM accounts WHERE plan='pro' AND NOT EXISTS(
  SELECT 1 FROM ops_billing_mappings m JOIN ops_billing_states s USING(provider,subscription_id)
  WHERE m.account_id=accounts.id)`); err != nil {
+			return err
+		}
+	}
+	if err = migratePaymentReview(tx); err != nil {
+		return err
+	}
+	if err = migrateRollbackCompatibility(tx, installed); err != nil {
+		return err
+	}
+	if projectRollback {
+		if err = projectRollbackAccounts(tx); err != nil {
 			return err
 		}
 	}
@@ -224,7 +239,19 @@ func (s *OperationsStore) AdminMigrate(ctx context.Context, p AdminPrincipal, id
 	if err = p.authorize(canonical); err != nil {
 		return err
 	}
-	return MigrateOperations(s.db)
+	// Installing compatibility over an existing 4416eff snapshot can recover
+	// old-code revocations for other accounts. Scoped migration cannot authorize
+	// this one-time global recovery; ordinary host startup owns release migration.
+	var recovery bool
+	if err = s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='ops_legacy_entitlements') AND NOT EXISTS(SELECT 1 FROM sqlite_master WHERE name='ops_rollback_revocations')`).Scan(&recovery); err != nil {
+		return err
+	}
+	if recovery {
+		if err = p.authorize("*"); err != nil {
+			return err
+		}
+	}
+	return migrateOperations(s.db, p.authorize("*") == nil)
 }
 
 // Transition is compare-and-swap. Resume is suspended -> active and increments
@@ -293,12 +320,18 @@ func mergeAccountOperations(tx *sql.Tx, from, to string) error {
 			return err
 		}
 	}
-	for _, table := range []string{"ops_account_audit", "ops_billing_mappings", "ops_billing_events", "ops_checkout_intents", "ops_legacy_entitlements", "ops_reports"} {
+	if _, err = tx.Exec(`INSERT OR IGNORE INTO ops_billing_merged_purchases SELECT provider,subscription_id FROM ops_billing_mappings WHERE account_id IN(?,?)`, from, to); err != nil {
+		return err
+	}
+	for _, table := range []string{"ops_account_audit", "ops_billing_mappings", "ops_billing_events", "ops_checkout_intents", "ops_checkout_payments", "ops_legacy_entitlements", "ops_reports"} {
 		if _, err = tx.Exec("UPDATE "+table+" SET account_id=? WHERE account_id=?", to, from); err != nil {
 			return err
 		}
 	}
 	if _, err = tx.Exec("DELETE FROM ops_account_state WHERE account_id=?", from); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`INSERT OR IGNORE INTO ops_rollback_revocations SELECT ?,changed_at FROM ops_rollback_revocations WHERE account_id=?; DELETE FROM ops_rollback_revocations WHERE account_id=?`, to, from, from); err != nil {
 		return err
 	}
 	return projectBillingAccount(ctx, tx, to)

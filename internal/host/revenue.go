@@ -214,7 +214,8 @@ func (p *ProxyServer) handleBillingStatus(w http.ResponseWriter, r *http.Request
 		state = "suspended"
 	}
 	_ = json.NewEncoder(w).Encode(struct {
-		Plan  string `json:"plan"`
-		State string `json:"state"`
-	}{a.Plan, state})
+		Plan   string `json:"plan"`
+		State  string `json:"state"`
+		Notice string `json:"notice,omitempty"`
+	}{a.Plan, state, a.BillingNotice})
 }

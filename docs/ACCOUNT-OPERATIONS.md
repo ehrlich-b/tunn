@@ -115,8 +115,13 @@ merged intents block redirects. Expiry retains the hold and never creates a
 replacement while a saved Payment Link remains payable. The store consumes one
 subscription per intent and durably quarantines additional payments as
 `duplicate_payment_refund_needed`; binding and Pro review reject those
-subscriptions even if later receipts are selected. Late first completions use
-`checkout_expired_review_required`. Receipts are acknowledged only after the
+subscriptions even if later receipts are selected. The signed provider completion time is independent of webhook delivery:
+on-time payments delivered late remain fulfillable. Actual late or unknown-time
+completions use `checkout_expired_review_required`, with a versioned audited
+`payment-review` approval path. `payment-queue` includes unbound missing-reference
+and duplicate completions; active Pro does not hide customer billing notices.
+The [round-3 runbook](revenue/round3-fixes.md) specifies scoped ownership review,
+explicit additional-purchase decisions, and recorded refund/cancellation closure. Receipts are acknowledged only after the
 payment ledger and receipt commit together. This fallback prevents duplicate
 fulfillment, not duplicate provider charges: the tree has no Stripe Session API
 integration. Bryan must review and perform any required provider refund or

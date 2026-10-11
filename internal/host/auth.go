@@ -860,6 +860,7 @@ func (p *ProxyServer) handleLogout(w http.ResponseWriter, r *http.Request) {
 // AccountPageData holds data for the account page template
 type AccountPageData struct {
 	revenuePageData
+	BillingNotice            string
 	BillingReturn            bool
 	BillingSupport           bool
 	BillingResumable         bool
@@ -938,6 +939,7 @@ func (p *ProxyServer) handleAccount(w http.ResponseWriter, r *http.Request) {
 
 	data := AccountPageData{
 		revenuePageData:  revenue,
+		BillingNotice:    account.BillingNotice,
 		BillingReturn:    r.URL.Query().Get("billing") == "return" || account.BillingState == "pending",
 		BillingSupport:   account.BillingState != "available" && account.Plan == "free",
 		BillingResumable: account.BillingState == "resumable" && r.URL.Query().Get("billing") != "return",

@@ -253,6 +253,7 @@ func accountToProto(acc *storage.Account) *internalv1.AccountResponse {
 	}
 	return &internalv1.AccountResponse{
 		BillingState:       acc.BillingState,
+		BillingNotice:      acc.BillingNotice,
 		OperationalState:   acc.OperationalState,
 		OperationalVersion: acc.OperationalVersion,
 		Found:              true,

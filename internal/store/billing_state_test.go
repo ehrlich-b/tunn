@@ -209,7 +209,10 @@ func TestBillingMissingVerifiedStateFailsClosed(t *testing.T) {
 	if err = accounts.UpdatePlan(a.ID, "pro"); err == nil {
 		t.Fatal("direct production plan grant accepted")
 	}
-	if _, err = db.Exec(`UPDATE accounts SET plan='pro' WHERE id=?`, a.ID); err != nil {
+	// Simulate corruption in a new-code projection, not an old-code grant
+	// request. Preserve this test's unjournaled-cache/no-import assertions;
+	// journaled old writes and quota cache repair have separate R3 coverage.
+	if _, err = db.Exec(`INSERT INTO ops_projection_guard VALUES(?); UPDATE accounts SET plan='pro' WHERE id=?; DELETE FROM ops_projection_guard WHERE account_id=?`, a.ID, a.ID, a.ID); err != nil {
 		t.Fatal(err)
 	}
 	requirePlan(t, db, a.ID, "free")
@@ -228,7 +231,7 @@ func TestBillingMissingVerifiedStateFailsClosed(t *testing.T) {
 		t.Fatal("customer replacement bypassed binding protection")
 	}
 
-	if _, err = db.Exec(`UPDATE ops_billing_mappings SET plan='pro'; UPDATE accounts SET plan='pro'; INSERT INTO reserved_subdomains VALUES('legacy-name',?,1)`, a.ID); err != nil {
+	if _, err = db.Exec(`INSERT INTO ops_projection_guard VALUES(?); UPDATE ops_billing_mappings SET plan='pro'; UPDATE accounts SET plan='pro'; INSERT INTO reserved_subdomains VALUES('legacy-name',?,1); DELETE FROM ops_projection_guard WHERE account_id=?`, a.ID, a.ID, a.ID); err != nil {
 		t.Fatal(err)
 	}
 	if err = MigrateOperations(db); err != nil {

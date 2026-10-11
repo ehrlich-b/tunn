@@ -13,6 +13,7 @@ import (
 
 // Account represents a user account (email bucket)
 type Account struct {
+	BillingNotice      string
 	BillingState       string
 	OperationalState   string
 	OperationalVersion int64
@@ -151,6 +152,9 @@ func (s *AccountStore) FindOrCreateByEmails(emails []string, verifiedVia string)
 	}
 	account.OperationalState, account.OperationalVersion = status.State, status.Version
 	account.Plan, account.BillingState, err = billingAccountState(context.Background(), tx, account.ID)
+	if err == nil {
+		account.BillingNotice, err = billingNotice(context.Background(), tx, account.ID)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -536,5 +540,8 @@ func (s *AccountStore) loadOperationalState(account *Account) error {
 	}
 	account.OperationalState, account.OperationalVersion = status.State, status.Version
 	account.Plan, account.BillingState, err = billingAccountState(context.Background(), s.db, account.ID)
+	if err == nil {
+		account.BillingNotice, err = billingNotice(context.Background(), s.db, account.ID)
+	}
 	return err
 }

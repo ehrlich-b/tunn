@@ -71,6 +71,7 @@ type DeviceCode struct {
 
 // Account represents a user account (email bucket)
 type Account struct {
+	BillingNotice      string
 	BillingState       string
 	OperationalState   string
 	OperationalVersion int64

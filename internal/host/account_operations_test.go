@@ -320,6 +320,9 @@ func TestAccountOperationsStripeAdapterAndDurableIntake(t *testing.T) {
 				t.Fatal(err)
 			}
 			want := "reconciliation_required"
+			if strings.Contains(body, `"checkout"`) {
+				want = "checkout_ownership_review_required"
+			}
 			if strings.Contains(body, `"unknown"`) {
 				want = "ignored"
 			}

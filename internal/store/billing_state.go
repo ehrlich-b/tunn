@@ -19,11 +19,11 @@ var ErrCheckoutBlocked = errors.New("checkout requires billing review")
 func billingAccountState(ctx context.Context, q operationQuery, id string) (plan, checkout string, err error) {
 	var eligible, legacy, bound, pending, paid bool
 	err = q.QueryRowContext(ctx, `SELECT
- EXISTS(SELECT 1 FROM ops_billing_mappings m JOIN ops_billing_states s USING(provider,subscription_id) WHERE m.account_id=? AND s.plan='pro' AND NOT EXISTS(SELECT 1 FROM ops_checkout_payments p WHERE p.provider=m.provider AND p.subscription_id=m.subscription_id AND p.outcome!='accepted')),
+ EXISTS(SELECT 1 FROM ops_billing_mappings m JOIN ops_billing_states s USING(provider,subscription_id) WHERE m.account_id=? AND s.plan='pro' AND NOT EXISTS(SELECT 1 FROM ops_rollback_subscription_holds h WHERE h.provider=m.provider AND h.subscription_id=m.subscription_id) AND NOT EXISTS(SELECT 1 FROM ops_checkout_payments p WHERE p.provider=m.provider AND p.subscription_id=m.subscription_id AND (p.outcome!='accepted' AND p.resolution!='approved' OR p.resolution='approved' AND (m.version<=p.approval_version OR s.provider_read_at<p.approved_at)))),
  EXISTS(SELECT 1 FROM ops_legacy_entitlements WHERE account_id=? AND plan='pro'),
  EXISTS(SELECT 1 FROM ops_billing_mappings WHERE account_id=?),
  EXISTS(SELECT 1 FROM ops_checkout_intents WHERE account_id=?),
- EXISTS(SELECT 1 FROM ops_checkout_intents i JOIN ops_checkout_payments p USING(reference) WHERE i.account_id=?)`, id, id, id, id, id).Scan(&eligible, &legacy, &bound, &pending, &paid)
+ EXISTS(SELECT 1 FROM ops_checkout_intents i JOIN ops_checkout_payments p USING(reference) WHERE i.account_id=?) OR EXISTS(SELECT 1 FROM ops_checkout_payments WHERE account_id=?)`, id, id, id, id, id, id).Scan(&eligible, &legacy, &bound, &pending, &paid)
 	plan, checkout = "free", "available"
 	switch {
 	case eligible:
@@ -47,7 +47,13 @@ func projectBillingAccount(ctx context.Context, tx *sql.Tx, id string) error {
 	if err != nil {
 		return err
 	}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO ops_projection_guard VALUES(?)`, id); err != nil {
+		return err
+	}
 	if _, err = tx.ExecContext(ctx, `UPDATE accounts SET plan=? WHERE id=?`, plan, id); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `DELETE FROM ops_projection_guard WHERE account_id=?`, id); err != nil {
 		return err
 	}
 	if plan == "free" {

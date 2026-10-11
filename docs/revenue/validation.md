@@ -1,5 +1,8 @@
 # Revenue change validation — 2026-10-11
 
+Current clone results and REQUIRED-UNRUN are in
+[round-3 validation](round3-validation.md); the record below is historical.
+
 Carrier: `codex/tunn-revenue-20261011`, baseline `110485c`. All implementation
 and commits are in `tunn/.scratch/carrier`; the parent checkout is unchanged.
 No external writes or deployment were used for validation.

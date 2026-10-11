@@ -125,6 +125,7 @@ message AccountResponse {
   string operational_state = 7;
   int64 operational_version = 8;
   string billing_state = 9;
+  string billing_notice = 10;
 }
 
 message AccountEmail {

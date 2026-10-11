@@ -700,6 +700,7 @@ type AccountResponse struct {
 	OperationalState   string                 `protobuf:"bytes,7,opt,name=operational_state,json=operationalState,proto3" json:"operational_state,omitempty"`
 	OperationalVersion int64                  `protobuf:"varint,8,opt,name=operational_version,json=operationalVersion,proto3" json:"operational_version,omitempty"`
 	BillingState       string                 `protobuf:"bytes,9,opt,name=billing_state,json=billingState,proto3" json:"billing_state,omitempty"`
+	BillingNotice      string                 `protobuf:"bytes,10,opt,name=billing_notice,json=billingNotice,proto3" json:"billing_notice,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
@@ -793,6 +794,13 @@ func (x *AccountResponse) GetOperationalVersion() int64 {
 func (x *AccountResponse) GetBillingState() string {
 	if x != nil {
 		return x.BillingState
+	}
+	return ""
+}
+
+func (x *AccountResponse) GetBillingNotice() string {
+	if x != nil {
+		return x.BillingNotice
 	}
 	return ""
 }
@@ -2014,7 +2022,7 @@ const file_proto_internal_proto_rawDesc = "" +
 	"\x04code\x18\x01 \x01(\tR\x04code\x12\x14\n" +
 	"\x05email\x18\x02 \x01(\tR\x05email\"7\n" +
 	"\x1bAuthorizeDeviceCodeResponse\x12\x18\n" +
-	"\asuccess\x18\x01 \x01(\bR\asuccess\"\xc2\x02\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\"\xe9\x02\n" +
 	"\x0fAccountResponse\x12\x14\n" +
 	"\x05found\x18\x01 \x01(\bR\x05found\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12#\n" +
@@ -2025,7 +2033,9 @@ const file_proto_internal_proto_rawDesc = "" +
 	"\x06emails\x18\x06 \x03(\v2\x16.internal.AccountEmailR\x06emails\x12+\n" +
 	"\x11operational_state\x18\a \x01(\tR\x10operationalState\x12/\n" +
 	"\x13operational_version\x18\b \x01(\x03R\x12operationalVersion\x12#\n" +
-	"\rbilling_state\x18\t \x01(\tR\fbillingState\"b\n" +
+	"\rbilling_state\x18\t \x01(\tR\fbillingState\x12%\n" +
+	"\x0ebilling_notice\x18\n" +
+	" \x01(\tR\rbillingNotice\"b\n" +
 	"\fAccountEmail\x12\x14\n" +
 	"\x05email\x18\x01 \x01(\tR\x05email\x12!\n" +
 	"\fverified_via\x18\x02 \x01(\tR\vverifiedVia\x12\x19\n" +

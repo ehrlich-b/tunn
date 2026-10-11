@@ -1,5 +1,8 @@
 # Billing re review fixes for October 11 2026
 
+The current deploy/rollback contract and additional four findings are in
+[round-3 fixes](round3-fixes.md). The results below describe round 2.
+
 All five confirmed findings are addressed, including preservation of every legacy
 Pro grant and reservation through startup. The Payment Link fallback quarantines
 duplicate payments for manual refunds; it cannot prevent duplicate provider

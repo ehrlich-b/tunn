@@ -1,0 +1,27 @@
+Final portable validation: all 17 packages with tests PASS.
+Native socket fixtures excluded: 35; memory transport flags used for WebSocket/proxy dogfood.
+Go: go1.26.2 darwin/arm64; taskpolicy -b nice -n 15; clone-local caches.
+
+PASS github.com/ehrlich-b/tunn/internal/cliopts (0.627s)
+PASS github.com/ehrlich-b/tunn/internal/common (0.543s)
+PASS github.com/ehrlich-b/tunn/internal/config (0.231s)
+PASS github.com/ehrlich-b/tunn/internal/domains (1.8319999999999999s)
+PASS github.com/ehrlich-b/tunn/internal/hostmode (0.783s)
+PASS github.com/ehrlich-b/tunn/internal/mockoidc (0.257s)
+PASS github.com/ehrlich-b/tunn/internal/mcpbridge (0.697s)
+PASS github.com/ehrlich-b/tunn/internal/relaytransport (0.238s)
+PASS github.com/ehrlich-b/tunn/internal/metering (0.805s)
+PASS github.com/ehrlich-b/tunn/pkg/proto/tunnelv1 (0.599s)
+PASS github.com/ehrlich-b/tunn/internal/storage (1.2429999999999999s)
+PASS github.com/ehrlich-b/tunn/internal/client (5.16s)
+PASS github.com/ehrlich-b/tunn/sdk (1.476s)
+PASS github.com/ehrlich-b/tunn/internal/store (5.666s)
+PASS github.com/ehrlich-b/tunn/internal/sshfront (6.49s)
+PASS github.com/ehrlich-b/tunn (12.755s)
+PASS github.com/ehrlich-b/tunn/internal/host (21.646s)
+
+Automatic skips:
+TestNormalizeEmailCyrillicHomograph
+TestNewProxyServer
+TestNewProxyServerDevMode
+TestProxyServerRun

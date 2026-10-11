@@ -157,7 +157,7 @@ test-lifecycle-contract:
 
 # Memory TLS/gRPC lifecycle fixtures, plus a genuinely separate Go importer.
 # No registry resolution: dependencies must already exist in the offline cache.
-.PHONY: test-sdk-unit test-sdk-contract test-sdk-consumer
+.PHONY: test-sdk-unit test-sdk-contract test-sdk-consumer test-http-fidelity
 test-sdk-unit:
 	GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go test -race -count=1 -timeout=45s ./sdk
 
@@ -168,6 +168,10 @@ test-sdk-consumer:
 	cp go.sum .scratch/sdk-consumer/go.sum
 	cd .scratch/sdk-consumer && GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go test -mod=mod -race -count=1 -timeout=20s ./...
 	GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go test ./examples/sdk-handler ./examples/sdk-origin
+
+# Memory HTTP semantics and explicit protobuf old/new compatibility fixtures.
+test-http-fidelity:
+	GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go test $(GO_TEST_FLAGS) -race -count=1 -v -parallel=2 -timeout=60s -run '^TestHTTPFidelity' ./sdk ./internal/common ./internal/client ./internal/host ./pkg/proto/tunnelv1
 
 # Acceptance includes the actual relay/auth/HTTP/WS loopback stack. Never
 # skip or substitute the unit target when TCP listeners are unavailable.

@@ -164,6 +164,34 @@ core using the established independent WebSocket wire fixture. A socket denial
 leaves full acceptance REQUIRED/UNRUN; memory fixtures are local evidence only.
 Existing build, vet, full test/race, lifecycle and WebSocket gates remain intact.
 
+## HTTP response wire compatibility
+
+The response wire contract has an additive `header_fields` list in both
+`HttpResponse` (buffered) and `HttpResponseHead` (streaming). Each entry carries
+one name and one value. A nonempty list replaces the entire legacy `headers`
+map; receivers never consume both representations. An absent or empty list
+uses the map. The map remains available for older peers and joins repeated
+values with `, `. Exact multiplicity needs both upgraded endpoints. The legacy
+host cookie-splitting heuristic cannot recover all valid cookie values.
+
+The transport matrix at the pinned base is:
+
+| Handler behavior | Buffered path | Streaming path |
+| --- | --- | --- |
+| Repeated ordinary fields | Collapsed in the map | Collapsed in the map |
+| Two cookies, including a comma in a value | Legacy cookie splitting is ambiguous | Same ambiguity |
+| HEAD, 204 and 304 | Upstream net/http suppresses body | Same upstream behavior |
+| Empty or status-only response | Entire response collected before sending | Metadata followed by half-close |
+| Known or unknown body length | Limited body read to EOF | Chunks read to EOF |
+| Response trailers | Not serialized | Not serialized in terminal frame |
+| Flush | Buffered until EOF | Metadata/chunks become visible before EOF |
+| Body-reader error or early close | Error response before headers | Error close after accepted metadata |
+| Informational 1xx before final status | Upstream client consumes 1xx | Same; only final metadata serialized |
+
+`make test-http-fidelity` uses the existing memory TLS/gRPC SDK fixture, an
+independent direct net/http handler-pipe reference, host reconstruction tests
+and independent old protobuf descriptors. It requires no listening sockets.
+
 ## Unsupported features and later language boundary
 
 This API exposes HTTP publishing only. Public raw TCP, Unix endpoints, raw TLS,

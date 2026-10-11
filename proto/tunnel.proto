@@ -141,6 +141,15 @@ message HttpResponse {
   map<string, string> headers = 3;
   // body is the HTTP response body
   bytes body = 4;
+  // If nonempty, header_fields replaces the entire legacy headers map.
+  // Senders also populate headers for old receivers, which lose multiplicity.
+  repeated HttpHeader header_fields = 5;
+}
+
+// HttpHeader is one HTTP field line; values are never comma-split.
+message HttpHeader {
+  string name = 1;
+  string value = 2;
 }
 
 // StreamClosed is sent by either side to indicate a connection has closed.
@@ -182,6 +191,8 @@ message ConnectionAccept {
 message HttpResponseHead {
   int32 status_code = 1;
   map<string, string> headers = 2;
+  // Same whole-list precedence and legacy fallback as HttpResponse.
+  repeated HttpHeader header_fields = 3;
 }
 
 // ConnectionData carries an ordered chunk. Direction is implicit from which

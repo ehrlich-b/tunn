@@ -96,3 +96,13 @@ func (r *Remote) Export(ctx context.Context, in *pb.ExportRequest) (*pb.ExportRe
 	defer cancel()
 	return c.Export(ctx, in, grpc.MaxCallRecvMsgSize(128<<20))
 }
+
+func (r *Remote) Sharing(ctx context.Context, in *pb.SharingRequest) (*pb.SharingResponse, error) {
+	c, err := r.client()
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := rpcContext(ctx)
+	defer cancel()
+	return c.Sharing(ctx, in)
+}

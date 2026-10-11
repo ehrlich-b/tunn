@@ -176,7 +176,7 @@ func TestHTTPFidelityReconnectNegotiation(t *testing.T) {
 				if g != 3 {
 					caps = append(caps, common.CapabilityHTTPResponseTrailersV1)
 				}
-				if err = stream.Send(&pb.TunnelMessage{Message: &pb.TunnelMessage_RegisterResponse{RegisterResponse: &pb.RegisterResponse{Success: true, PublicUrl: "https://" + reg.TunnelId + ".sdk.test", Capabilities: caps}}}); err != nil {
+				if err = stream.Send(&pb.TunnelMessage{Message: &pb.TunnelMessage_RegisterResponse{RegisterResponse: &pb.RegisterResponse{Success: true, PublicUrl: "https://" + reg.TunnelId + ".sdk.test", Capabilities: append([]string{"web-sharing-v1"}, caps...)}}}); err != nil {
 					return err
 				}
 				traces := map[string]*responseTrace{"left": {}, "right": {}}

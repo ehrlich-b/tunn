@@ -24,8 +24,8 @@ import (
 )
 
 // Credentials are supplied by the caller. The SDK never reads or writes an
-// account cache and never launches a login flow. Empty values permit the same
-// relay-controlled public mode as the CLI; they do not bypass authentication.
+// account cache and never launches a login flow. Empty values follow the
+// relay's publisher authentication configuration; they do not bypass it.
 type Credentials struct {
 	AuthToken     string // tunn login JWT or self-hosted client secret/per-user token
 	TunnelKey     string // relay's tunnel creation key
@@ -59,6 +59,7 @@ type Options struct {
 	Name                string // blank generates a name once, retained through reconnects
 	ServerAddr          string // host:port; blank uses tunn.to:443
 	Credentials         Credentials
+	Public              bool          // Explicit anonymous HTTP exposure; defaults to owner-only.
 	AllowedEmails       []string      // existing relay allow-list semantics, including @domain
 	TLSConfig           *tls.Config   // relay TLS; nil uses verified system trust
 	OriginTLSConfig     *tls.Config   // HTTPS origin TLS; nil uses verified system trust
@@ -279,6 +280,9 @@ func (t *Tunnel) emit(event Event) {
 }
 
 func publisher(o Options) (*client.ServeClient, string, error) {
+	if o.Public && (len(o.AllowedEmails) > 0 || o.Credentials.EndpointToken != "") {
+		return nil, "", invalid("public exposure cannot be combined with private access credentials")
+	}
 	u, err := url.Parse(o.Origin)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.User != nil ||
 		(u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" {
@@ -347,6 +351,7 @@ func publisher(o Options) (*client.ServeClient, string, error) {
 		digest = hash[:]
 	}
 	return &client.ServeClient{
+		Public: o.Public, RequireSharing: o.Public || len(o.AllowedEmails) == 0 && len(digest) == 0,
 		TunnelID: o.Name, TargetURL: strings.TrimSuffix(o.Origin, "/"), ServerAddr: o.ServerAddr,
 		AuthToken: o.Credentials.AuthToken, TunnelKey: o.Credentials.TunnelKey, AccessTokenSHA256: digest,
 		AllowedEmails: append([]string(nil), o.AllowedEmails...), RelayTLSConfig: cloneTLS(o.TLSConfig), LocalTLSConfig: cloneTLS(o.OriginTLSConfig),

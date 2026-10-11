@@ -87,14 +87,15 @@ type ProxyServer struct {
 	mockOIDC *mockoidc.Server
 
 	// Unified storage interface (local for login node, proxy for others)
-	storage        storage.Storage
-	meter          metering.Backend
-	planMeter      bool
-	domains        domains.Backend
-	domainRegistry *domains.Registry
-	operations     operationalCounters
-	mcpOAuth       *mcpOAuthStore
-	devices        *deviceCredentialStore
+	storage          storage.Storage
+	meter            metering.Backend
+	planMeter        bool
+	domains          domains.Backend
+	domainRegistry   *domains.Registry
+	operations       operationalCounters
+	googleHTTPClient *http.Client // Optional provider transport for tests.
+	mcpOAuth         *mcpOAuthStore
+	devices          *deviceCredentialStore
 
 	// Proxy storage reference (non-login node only, to update connection on discovery)
 	proxyStorage *storage.ProxyStorage
@@ -279,6 +280,7 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 		}}
 	}
 
+	tunnelServer.sharing, _ = proxy.meter.(metering.SharingBackend)
 	if cfg.CustomDomainsEnabled {
 		if cfg.LoginNode {
 			key, err := base64.StdEncoding.DecodeString(cfg.DomainKeySecret)
@@ -850,6 +852,8 @@ func (p *ProxyServer) createHandler() http.Handler {
 	// Auth endpoints (no auth required on these)
 	mux.HandleFunc("/auth/login", p.handleLogin)
 	mux.HandleFunc("/auth/github", p.handleGitHubLogin)
+	mux.HandleFunc("/auth/google", p.handleGoogleLogin)
+	mux.HandleFunc("/auth/google/callback", p.handleGoogleCallback)
 	mux.HandleFunc("/auth/mock", p.handleMockLogin)
 	mux.HandleFunc("/auth/callback", p.handleCallback)
 	mux.HandleFunc("/auth/magic", p.handleMagicLinkRequest)
@@ -873,6 +877,9 @@ func (p *ProxyServer) createHandler() http.Handler {
 	mux.HandleFunc("/api/device/refresh", p.handleDeviceRefresh)
 	mux.HandleFunc("/account/devices", p.handleDevices)
 	mux.HandleFunc("/api/endpoints/", p.handleMeteringAPI)
+	mux.HandleFunc("/api/sharing", p.handleSharingAPI)
+	mux.HandleFunc("/api/sharing/", p.handleSharingAPI)
+	mux.HandleFunc("/account/sharing", p.handleSharingPage)
 	mux.HandleFunc("/api/usage", p.handleMeteringAPI)
 	mux.HandleFunc("/api/grants", p.handleMeteringAPI)
 	mux.HandleFunc("/api/domains", p.handleDomainsAPI)

@@ -181,6 +181,18 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 	}
 	defer session.complete(r.Context(), meterWriter)
 	grantAuthenticated := false
+	var webResource *meterpb.WebResource
+	var webEmails []string
+	if tunnel.ResourceID != "" {
+		var err error
+		webResource, err = p.webResource(r.Context(), tunnel)
+		if err != nil {
+			session.reason = "permission_authority_unavailable"
+			http.Error(w, "Web permission authority unavailable", 503)
+			return nil
+		}
+	}
+
 	// A known suspension rejects every credential path. Unresolved ownership
 	// still follows authentication and the existing fail-closed quota check.
 	if !tunnel.accountQuotaExempt && accountErr == nil && account != nil && account.OperationalState != "" && account.OperationalState != "active" {
@@ -237,9 +249,8 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		"path", r.URL.Path,
 		"method", r.Method)
 
-	// Auth is only required if the tunnel has an allow-list (--allow was specified)
-	// If no allow-list, the tunnel is open to the internet (URLs are random, act like strong passwords)
-	if (len(tunnel.AllowedEmails) > 0 || len(tunnel.accessTokenDigest()) > 0) && !grantAuthenticated {
+	// Modern web admission uses live permissions, including an empty owner-only list.
+	if (webResource != nil && webResource.Mode == "private" || len(tunnel.AllowedEmails) > 0 || len(tunnel.accessTokenDigest()) > 0) && !grantAuthenticated {
 		// Browsers authenticate with the platform cookie. Agents and other
 		// machine clients may use a signed tunn token in a bearer header.
 		userEmail, platformAuthHeader, capabilityAuthenticated, authenticated := p.getAuthFromTunnelBearer(r, tunnel)
@@ -262,7 +273,7 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 			// Build full return URL including the tunnel subdomain
 			returnTo := fmt.Sprintf("https://%s%s", r.Host, r.URL.RequestURI())
 			loginURL := fmt.Sprintf("https://%s/auth/login?return_to=%s&tunnel=%s",
-				p.config.Domain, url.QueryEscape(returnTo), url.QueryEscape(tunnelID))
+				p.loginAuthority(), url.QueryEscape(returnTo), url.QueryEscape(tunnelID))
 
 			common.LogInfo("unauthenticated tunnel access, redirecting to login",
 				"tunnel_id", tunnelID,
@@ -299,7 +310,12 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 			// Check if any email in user's bucket is on the tunnel's allow-list.
 			// Creator is implicitly always allowed.
 			allowListWithCreator := append(append([]string(nil), tunnel.AllowedEmails...), tunnel.CreatorEmail)
-			allowed = isEmailBucketAllowed(userEmails, allowListWithCreator)
+			if webResource != nil {
+				webEmails = append([]string(nil), userEmails...)
+				allowed = webPersonAllowed(webResource, userEmails, tunnel.CreatorEmail, time.Now())
+			} else {
+				allowed = isEmailBucketAllowed(userEmails, allowListWithCreator)
+			}
 		}
 
 		if !allowed {
@@ -373,6 +389,11 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 			r = clonedRequest
 		}
 	}
+	if webResource != nil {
+		var stop func()
+		r, stop = p.watchWebPermission(r, tunnel, webEmails, webResource.Mode != "private" && !grantAuthenticated)
+		defer stop()
+	}
 	// Check quota before proxying
 	if !tunnel.accountQuotaExempt && (tunnel.CreatorEmail != "" || tunnel.AccountID != "") {
 		if accountErr == nil && account != nil && account.OperationalState == "" {
@@ -431,7 +452,12 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 
 	if proxyErr != nil {
 		if cause := context.Cause(r.Context()); cause != nil && cause != context.Canceled && cause != context.DeadlineExceeded {
-			proxyErr = &responseStartedError{cause}
+			var truncated *truncatedHTTPResponseError
+			if errors.As(proxyErr, &truncated) {
+				proxyErr = &responseStartedError{truncatedHTTPResponse(cause)}
+			} else {
+				proxyErr = &responseStartedError{cause}
+			}
 			if !meterWriter.started {
 				proxyErr = cause
 			}

@@ -68,6 +68,9 @@ message RegisterClient {
   // endpoint_protocol is "http" by default. "tcp" endpoints accept only the
   // authenticated tunn CONNECT transport.
   string endpoint_protocol = 11;
+  // Version 1 makes new web publications private unless explicitly public.
+  uint32 exposure_version = 12;
+  string exposure_mode = 13; // "private" or "public"; legacy version 0 is unchanged.
 }
 
 // RegisterResponse is sent by the server to acknowledge tunnel registration.

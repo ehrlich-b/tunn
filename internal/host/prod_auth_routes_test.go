@@ -40,6 +40,14 @@ type prodAuthRoute struct {
 // their own proof (OAuth code, email link, webhook signature, or CSRF); a 400
 // below means account credentials do not substitute for that missing proof.
 var prodAuthRoutes = []prodAuthRoute{
+	{"GET", "/auth/google", "/auth/google", "", [11]int{503, 503, 503, 503, 503, 503, 503, 503, 503, 503, 503}},
+	{"GET", "/auth/google/callback", "/auth/google/callback", "", [11]int{503, 503, 503, 503, 503, 503, 503, 503, 503, 503, 503}},
+	{"GET", "/api/sharing", "/api/sharing", "", [11]int{401, 200, 200, 200, 401, 401, 401, 401, 401, 401, 401}},
+	{"GET", "/api/sharing/unknown", "/api/sharing/", "", [11]int{401, 400, 400, 400, 401, 401, 401, 401, 401, 401, 401}},
+	{"POST", "/api/sharing/unknown", "/api/sharing/", `{"email":"alice@example.com"}`, [11]int{401, 400, 400, 400, 401, 401, 401, 401, 401, 401, 401}},
+	{"GET", "/account/sharing", "/account/sharing", "", [11]int{302, 302, 302, 302, 200, 200, 302, 302, 302, 302, 302}},
+	{"POST", "/account/sharing?tunnel=unknown", "/account/sharing", "", [11]int{302, 302, 302, 302, 403, 403, 302, 302, 302, 302, 302}},
+
 	{"GET", "/", "/", "", [11]int{200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200}},
 	{"GET", "/privacy", "/", "", [11]int{200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200}},
 	{"GET", "/terms", "/", "", [11]int{200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200}},
@@ -159,7 +167,8 @@ func newProdAuthFixture(t *testing.T) *prodAuthFixture {
 		"consumer-grant": "tunn_gr_route-fixture", "mcp-oauth": client.accessToken(t),
 		"expired-jwt": prodAuthSigned(t, f.p, jwt.MapClaims{"type": "access", "email": "owner@example.com", "exp": time.Now().Add(-time.Hour).Unix()}, nil, nil),
 	}
-	credentials["owner-cookie"] = securityCookie(t, f.p, "owner@example.com").Value
+	// Consent proofs must use the exact cookie used to render that consent.
+	credentials["owner-cookie"] = client.cookie.Value
 	credentials["other-cookie"] = securityCookie(t, f.p, "other@example.com").Value
 	credentials["login-proof"], err = f.p.generateMagicLinkToken("owner@example.com")
 	if err != nil {

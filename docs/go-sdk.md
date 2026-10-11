@@ -107,6 +107,16 @@ mutate TLS configurations concurrently with the startup call.
 
 ## Authentication and private data
 
+An HTTP publisher with no access settings now defaults to owner-only exposure.
+It requires a relay with `web-sharing-v1` and an authenticated owner account;
+older relays are refused before readiness. Set `Options.Public = true` for
+intentional anonymous access. Public exposure cannot be combined with an
+allow-list or endpoint token. Existing explicitly configured allow-lists and
+endpoint credentials keep their private compatibility path. Live people sharing
+and removal use the same dashboard/CLI as ordinary HTTP publication; see
+[the user journey](../USER-JOURNEY.md).
+
+
 Pass credentials as Go values. `AuthToken` accepts the existing tunn login JWT,
 self-hosted master secret or configured per-user token. `TunnelKey` is the
 relay's creation key. `EndpointToken` optionally accepts an existing
@@ -116,8 +126,8 @@ flow and performs no control-plane writes. An application may read its existing
 credential storage and supply the value explicitly.
 
 `AllowedEmails`, including `@domain` entries, retain the relay's access-control
-semantics. An empty allow-list without an endpoint token permits anonymous
-visitors under the current HTTP publisher rules. Empty publisher credentials
+semantics. An empty allow-list without an endpoint token defaults to owner-only
+visitors; anonymous access requires `Public: true`. Empty publisher credentials
 work only when the relay itself permits them. Hosted account verification,
 ownership, admission limits and quota enforcement still belong to the relay.
 The SDK never treats a name or successful import as proof of authorization.

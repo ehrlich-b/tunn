@@ -51,6 +51,8 @@ type Config struct {
 	HostModeEnabled bool
 
 	// GitHub OAuth configuration
+	GoogleClientID     string
+	GoogleClientSecret string
 	GitHubClientID     string
 	GitHubClientSecret string
 	JWTSecret          string // Secret for signing our own JWTs
@@ -122,6 +124,8 @@ func LoadConfig() (*Config, error) {
 		*budget.value = value
 	}
 
+	cfg.GoogleClientID = os.Getenv("TUNN_GOOGLE_CLIENT_ID")
+	cfg.GoogleClientSecret = os.Getenv("TUNN_GOOGLE_CLIENT_SECRET")
 	cfg.CustomDomainsEnabled = os.Getenv("TUNN_CUSTOM_DOMAINS") == "true"
 	cfg.HTTP01Addr = getEnvOrDefault("TUNN_HTTP01_ADDR", ":80")
 	cfg.ACMEDirectory = getEnvOrDefault("TUNN_ACME_DIRECTORY", "https://acme-v02.api.letsencrypt.org/directory")

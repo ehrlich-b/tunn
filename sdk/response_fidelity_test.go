@@ -63,7 +63,7 @@ func observeResponseCell(t *testing.T, cell httpconformance.Cell, method string,
 			return err
 		}
 		if cell.Relay == httpconformance.Legacy {
-			err = stream.Send(&pb.TunnelMessage{Message: &pb.TunnelMessage_RegisterResponse{RegisterResponse: &pb.RegisterResponse{Success: true, PublicUrl: "https://" + reg.TunnelId + ".sdk.test", Capabilities: []string{"http-stream-v1", "connection-stream-v1", "websocket-v1"}}}})
+			err = stream.Send(&pb.TunnelMessage{Message: &pb.TunnelMessage_RegisterResponse{RegisterResponse: &pb.RegisterResponse{Success: true, PublicUrl: "https://" + reg.TunnelId + ".sdk.test", Capabilities: []string{"web-sharing-v1", "http-stream-v1", "connection-stream-v1", "websocket-v1"}}}})
 		} else {
 			err = acceptRegistration(stream, reg)
 		}

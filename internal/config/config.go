@@ -293,8 +293,6 @@ func IsLoginNode() bool {
 func getEnvironment() Environment {
 	env := os.Getenv("TUNN_ENV")
 	switch env {
-	case "":
-		return EnvDev
 	case "dev", "development":
 		return EnvDev
 	case "", "prod", "production":

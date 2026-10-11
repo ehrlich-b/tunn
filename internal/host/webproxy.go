@@ -395,7 +395,7 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		session.reason = "request_body_too_large"
 		session.event.ContentLength = r.ContentLength
 		writeIngressError(w, &requestBodyTooLargeError{MaxBodySize})
-		return
+		return nil
 	}
 	if !session.admit(r.Context(), w, r) {
 		return nil

@@ -27,7 +27,7 @@ func TestOpsEnvironmentAliasesAndDefaults(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			prod := env == "prod" || env == "production"
+			prod := env == "" || env == "prod" || env == "production"
 			if cfg.IsProd() != prod || cfg.IsDev() == prod || cfg.Insecure == prod {
 				t.Fatalf("wrong environment defaults: %+v", cfg)
 			}

@@ -340,6 +340,16 @@ func validateOrgClaims(org config.OIDCOrg, token *oidc.IDToken, now time.Time) (
 	if token.Claims(&claims) != nil || token.Subject == "" || len(token.Subject) > 255 || strings.ContainsAny(token.Subject, "\x00\r\n") || token.IssuedAt.Unix() <= 0 || token.IssuedAt.After(now.Add(time.Minute)) || !token.Expiry.After(token.IssuedAt) || !token.Expiry.After(now) || len(token.Audience) > 1 && claims.AuthorizedParty == "" || claims.AuthorizedParty != "" && claims.AuthorizedParty != org.ClientID {
 		return "", claims, fmt.Errorf("invalid organization claims")
 	}
+	// The verifier checks that our client occurs in aud, not that every audience
+	// is trusted. This configuration trusts only its one registered client ID.
+	if len(token.Audience) == 0 {
+		return "", claims, fmt.Errorf("missing organization audience")
+	}
+	for _, audience := range token.Audience {
+		if audience != org.ClientID {
+			return "", claims, fmt.Errorf("untrusted organization audience")
+		}
+	}
 	if claims.EmailVerified != nil && !*claims.EmailVerified {
 		return "", claims, fmt.Errorf("unverified email")
 	}

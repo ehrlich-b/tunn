@@ -13,7 +13,7 @@ import (
 )
 
 func main() {
-	root := flag.String("root", "", "absolute canonical fixture root (required)")
+	root := flag.String("root", "", "absolute fixture root, canonicalized at startup (required)")
 	flag.Parse()
 	if flag.NArg() != 0 {
 		fmt.Fprintln(os.Stderr, "project-reader: unexpected_argument")

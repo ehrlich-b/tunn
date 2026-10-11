@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -221,22 +222,72 @@ func TestPathArgumentsAndSnapshot(t *testing.T) {
 		t.Fatal("snapshot changed")
 	}
 }
+func TestRootWithSymlinkedParent(t *testing.T) {
+	base := t.TempDir()
+	parent := filepath.Join(base, "parent")
+	root := filepath.Join(parent, "project")
+	if err := os.MkdirAll(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	data := []byte("Project through a parent alias\n")
+	if err := os.WriteFile(filepath.Join(root, "README.md"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(base, "parent-alias")
+	if err := os.Symlink(parent, alias); err != nil {
+		t.Fatal(err)
+	}
+	aliasedRoot := filepath.Join(alias, "project")
+	r, err := reader.Open(aliasedRoot)
+	if err != nil {
+		t.Fatalf("open root through symlinked parent: %v", err)
+	}
+	manifest := r.Manifest()
+	if len(manifest) != 1 || manifest[0].Path != "README.md" {
+		t.Fatalf("aliased root manifest: %+v", manifest)
+	}
+	out, err := r.Call(context.Background(), "project_read", json.RawMessage(`{"path":"README.md","firstLine":1,"lastLine":1}`))
+	if err != nil || len(out.Spans) != 1 || out.Spans[0].Text != string(data) {
+		t.Fatalf("read through aliased root: %+v, %v", out, err)
+	}
+	validateSpan(t, root, out.Spans[0])
+
+	outside := filepath.Join(base, "secret.md")
+	if err := os.WriteFile(outside, []byte("Outside the project\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "escape.md")); err != nil {
+		t.Fatal(err)
+	}
+	_, err = reader.Open(aliasedRoot)
+	var typed *reader.Error
+	if !errors.As(err, &typed) || typed.Code != "symlink_rejected" {
+		t.Fatalf("escaping project symlink through aliased root: want symlink_rejected, got %v", err)
+	}
+}
+
 func TestSymlinkAndLimits(t *testing.T) {
 	for _, target := range []string{"outside", "inside"} {
 		t.Run(target, func(t *testing.T) {
 			root := t.TempDir()
 			file := filepath.Join(root, "ok.md")
-			os.WriteFile(file, []byte("data"), 0600)
+			if err := os.WriteFile(file, []byte("data"), 0600); err != nil {
+				t.Fatal(err)
+			}
 			destination := file
 			if target == "outside" {
 				destination = filepath.Join(t.TempDir(), "secret")
-				os.WriteFile(destination, []byte("private"), 0600)
+				if err := os.WriteFile(destination, []byte("private"), 0600); err != nil {
+					t.Fatal(err)
+				}
 			}
 			if err := os.Symlink(destination, filepath.Join(root, "link.md")); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := reader.Open(root); err == nil || !strings.Contains(err.Error(), "symlink_rejected") {
-				t.Fatalf("symlink accepted: %v", err)
+			_, err := reader.Open(root)
+			var typed *reader.Error
+			if !errors.As(err, &typed) || typed.Code != "symlink_rejected" {
+				t.Fatalf("project symlink: want symlink_rejected, got %v", err)
 			}
 		})
 	}

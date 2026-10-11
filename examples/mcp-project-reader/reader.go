@@ -67,17 +67,18 @@ type Reader struct {
 	manifest []File
 }
 
-// Open freezes a root without following symbolic links. os.Root confines reads
-// even if a source changes during startup. No open filesystem handles survive.
+// Open canonicalizes the configured root once, then freezes its contents without
+// following symbolic links inside the project. os.Root confines reads to that
+// canonical root even if a source changes during startup. No handles survive.
 func Open(root string) (*Reader, error) {
 	if !filepath.IsAbs(root) || filepath.Clean(root) != root {
 		return nil, failure("invalid_root")
 	}
 	canonical, err := filepath.EvalSymlinks(root)
-	if err != nil || canonical != root {
+	if err != nil {
 		return nil, failure("invalid_root")
 	}
-	confined, err := os.OpenRoot(root)
+	confined, err := os.OpenRoot(canonical)
 	if err != nil {
 		return nil, failure("invalid_root")
 	}

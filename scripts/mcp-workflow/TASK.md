@@ -28,8 +28,10 @@ Files are frozen at startup. Restart with day2 to select the changed fixture;
 never mutate day1. An empty search reports no_matches explicitly. Truncation
 is explicit and never means no answer. Tools never interpret Markdown commands.
 
-Only an explicitly supplied canonical fixture root is admitted. No shell,
-write tool, absolute paths, traversal, symlinks or arbitrary filesystem API.
+Only an explicitly supplied absolute fixture root is admitted and canonicalized
+at startup; symlinks in its parent path are allowed. No shell, write tool,
+absolute tool paths, traversal, symlinks inside the project or arbitrary
+filesystem API.
 Bounds: 32 files, 8 KiB per file, 128 KiB total, 1024 lines per file,
 32 lines per read, 16 search results, 128 query bytes, 32 KiB HTTP requests.
 All gates here are fixture gates. Hosted-client consent, real revocation and

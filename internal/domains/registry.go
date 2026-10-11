@@ -59,7 +59,7 @@ type Registry struct {
 
 func New(db *sql.DB, base string, key []byte, dns DNSResolver, issuer Issuer) (*Registry, error) {
 	normalizedBase, nameErr := NormalizeName(base, "")
-	if db == nil || len(key) != 32 || nameErr != nil || len(normalizedBase) > 217 {
+	if db == nil || len(key) != 32 || nameErr != nil || strings.HasPrefix(normalizedBase, "*.") || len(normalizedBase) > 217 {
 		return nil, fmt.Errorf("domains require a database, relay DNS name and 32-byte encryption key")
 	}
 	block, err := aes.NewCipher(key)
@@ -81,6 +81,9 @@ func New(db *sql.DB, base string, key []byte, dns DNSResolver, issuer Issuer) (*
  certificate BLOB NOT NULL DEFAULT '',key BLOB NOT NULL DEFAULT '',not_after INTEGER NOT NULL DEFAULT 0,last_error TEXT NOT NULL DEFAULT '');
  CREATE INDEX IF NOT EXISTS custom_domains_owner ON custom_domains(owner);
  CREATE TABLE IF NOT EXISTS domain_challenges(name TEXT PRIMARY KEY,target TEXT NOT NULL,token TEXT NOT NULL,value TEXT NOT NULL,expires INTEGER NOT NULL);
+ CREATE TABLE IF NOT EXISTS wildcard_certificates(name TEXT PRIMARY KEY,parent TEXT NOT NULL,target TEXT NOT NULL,certificate BLOB NOT NULL,key BLOB NOT NULL,not_after INTEGER NOT NULL);
+ CREATE TABLE IF NOT EXISTS domain_issue_attempts(owner TEXT NOT NULL,name TEXT NOT NULL,at INTEGER NOT NULL);
+ CREATE INDEX IF NOT EXISTS domain_issue_attempts_owner ON domain_issue_attempts(owner,at);
  CREATE TABLE IF NOT EXISTS domain_settings(name TEXT PRIMARY KEY,value BLOB NOT NULL);`)
 	return r, err
 }
@@ -100,7 +103,8 @@ func (r *Registry) decrypt(name string, data []byte) ([]byte, error) {
 }
 func (r *Registry) Add(ctx context.Context, in *pb.Domain) (*pb.Domain, error) {
 	name, err := NormalizeName(in.Name, r.base)
-	if err != nil || !ValidLabel(in.Tunnel) || common.IsReservedTunnelName(in.Tunnel) || in.Owner == "" {
+	wildcard := strings.HasPrefix(name, "*.")
+	if err != nil || (!wildcard && (!ValidLabel(in.Tunnel) || common.IsReservedTunnelName(in.Tunnel))) || (wildcard && in.Tunnel != "" && (!ValidLabel(in.Tunnel) || common.IsReservedTunnelName(in.Tunnel))) || in.Owner == "" {
 		return nil, status.Error(codes.InvalidArgument, "require a customer DNS name and reserved tunnel name")
 	}
 	tx, err := r.db.BeginTx(ctx, nil)
@@ -115,13 +119,20 @@ func (r *Registry) Add(ctx context.Context, in *pb.Domain) (*pb.Domain, error) {
 	if plan != "pro" {
 		return nil, status.Error(codes.PermissionDenied, "custom domains require a Pro plan")
 	}
+	if wildcard && in.Tunnel != "" {
+		if err := reserveWildcardApp(ctx, tx, in.Owner, in.Tunnel, r.now()); err != nil {
+			return nil, err
+		}
+	}
 	var owner, tunnel string
 	err = tx.QueryRowContext(ctx, `SELECT owner,tunnel FROM custom_domains WHERE name=?`, name).Scan(&owner, &tunnel)
 	if err == nil {
-		if owner != in.Owner || tunnel != in.Tunnel {
+		if owner != in.Owner || (!wildcard && tunnel != in.Tunnel) {
 			return nil, status.Error(codes.AlreadyExists, "domain already claimed")
 		}
-		_ = tx.Rollback()
+		if err := tx.Commit(); err != nil {
+			return nil, err
+		}
 		return r.owned(ctx, &pb.Domain{Name: name, Owner: in.Owner})
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
@@ -134,23 +145,28 @@ func (r *Registry) Add(ctx context.Context, in *pb.Domain) (*pb.Domain, error) {
 	if count >= MaxDomains {
 		return nil, status.Error(codes.ResourceExhausted, "custom domain limit reached")
 	}
-	// Reuse the central reservation table, including the same paid slot limit.
-	err = tx.QueryRowContext(ctx, `SELECT account_id FROM reserved_subdomains WHERE subdomain=?`, in.Tunnel).Scan(&owner)
-	if err == nil && owner != in.Owner {
-		return nil, status.Error(codes.PermissionDenied, "tunnel name belongs to another account")
-	}
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+	if err := rejectOverlap(ctx, tx, name); err != nil {
 		return nil, err
 	}
-	if errors.Is(err, sql.ErrNoRows) {
-		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM reserved_subdomains WHERE account_id=?`, in.Owner).Scan(&count); err != nil {
+	if !wildcard {
+		// Reuse the central reservation table, including the same paid slot limit.
+		err = tx.QueryRowContext(ctx, `SELECT account_id FROM reserved_subdomains WHERE subdomain=?`, in.Tunnel).Scan(&owner)
+		if err == nil && owner != in.Owner {
+			return nil, status.Error(codes.PermissionDenied, "tunnel name belongs to another account")
+		}
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return nil, err
 		}
-		if count >= store.MaxReservedSubdomains {
-			return nil, status.Error(codes.ResourceExhausted, "reserved tunnel name limit reached")
-		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO reserved_subdomains(subdomain,account_id,created_at) VALUES(?,?,?)`, in.Tunnel, in.Owner, r.now().Unix()); err != nil {
-			return nil, err
+		if errors.Is(err, sql.ErrNoRows) {
+			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM reserved_subdomains WHERE account_id=?`, in.Owner).Scan(&count); err != nil {
+				return nil, err
+			}
+			if count >= store.MaxReservedSubdomains {
+				return nil, status.Error(codes.ResourceExhausted, "reserved tunnel name limit reached")
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT INTO reserved_subdomains(subdomain,account_id,created_at) VALUES(?,?,?)`, in.Tunnel, in.Owner, r.now().Unix()); err != nil {
+				return nil, err
+			}
 		}
 	}
 	token := make([]byte, 16)
@@ -158,7 +174,11 @@ func (r *Registry) Add(ctx context.Context, in *pb.Domain) (*pb.Domain, error) {
 		return nil, err
 	}
 	target := "dv-" + hex.EncodeToString(token) + "." + r.base
-	if _, err := tx.ExecContext(ctx, `INSERT INTO custom_domains(name,owner,tunnel,target) VALUES(?,?,?,?)`, name, in.Owner, in.Tunnel, target); err != nil {
+	bindingTunnel := in.Tunnel
+	if wildcard {
+		bindingTunnel = ""
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO custom_domains(name,owner,tunnel,target) VALUES(?,?,?,?)`, name, in.Owner, bindingTunnel, target); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -208,6 +228,16 @@ func (r *Registry) owned(ctx context.Context, in *pb.Domain) (*pb.Domain, error)
 	return d, err
 }
 func (r *Registry) entitled(ctx context.Context, d *pb.Domain) error {
+	if strings.HasPrefix(d.Name, "*.") {
+		var plan string
+		if err := r.db.QueryRowContext(ctx, `SELECT plan FROM accounts WHERE id=?`, d.Owner).Scan(&plan); err != nil {
+			return err
+		}
+		if plan != "pro" {
+			return status.Error(codes.PermissionDenied, "domain entitlement lost")
+		}
+		return nil
+	}
 	var plan, owner string
 	err := r.db.QueryRowContext(ctx, `SELECT a.plan,s.account_id FROM accounts a JOIN reserved_subdomains s ON s.subdomain=? WHERE a.id=?`, d.Tunnel, d.Owner).Scan(&plan, &owner)
 	if err != nil {
@@ -219,6 +249,9 @@ func (r *Registry) entitled(ctx context.Context, d *pb.Domain) error {
 	return nil
 }
 func (r *Registry) prove(ctx context.Context, d *pb.Domain) error {
+	if strings.HasPrefix(d.Name, "*.") {
+		return r.proveWildcard(ctx, d)
+	}
 	resolved, err := r.dns.LookupCNAME(ctx, d.Name)
 	if err != nil {
 		return fmt.Errorf("DNS lookup failed: %w", err)
@@ -245,6 +278,17 @@ func (r *Registry) Verify(ctx context.Context, in *pb.Domain) (*pb.Domain, error
 	if err := r.prove(ctx, d); err != nil {
 		r.fail(context.WithoutCancel(ctx), d, "dns_verification_failed")
 		return nil, status.Error(codes.FailedPrecondition, "DNS verification failed; set the exact CNAME target and retry")
+	}
+	if strings.HasPrefix(d.Name, "*.") {
+		result, err := r.db.ExecContext(ctx, `UPDATE custom_domains SET state='ready',verified_until=?,last_error='' WHERE name=? AND owner=? AND target=?`, r.now().Add(DNSLease).Unix(), d.Name, d.Owner, d.CnameTarget)
+		if err != nil {
+			return nil, err
+		}
+		n, err := result.RowsAffected()
+		if err != nil || n != 1 {
+			return nil, status.Error(codes.Aborted, "domain claim changed during verification")
+		}
+		return r.read(ctx, d.Name)
 	}
 	if r.issuer == nil {
 		return nil, status.Error(codes.Unavailable, "certificate issuer unavailable")
@@ -322,7 +366,10 @@ func (r *Registry) Delete(ctx context.Context, in *pb.Domain) (*emptypb.Empty, e
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.ExecContext(ctx, `DELETE FROM domain_challenges WHERE name=? AND target=?`, d.Name, d.CnameTarget); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM wildcard_certificates WHERE parent=? AND target=?`, d.Name, d.CnameTarget); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM domain_challenges WHERE target=?`, d.CnameTarget); err != nil {
 		return nil, err
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM custom_domains WHERE name=? AND owner=? AND target=?`, d.Name, d.Owner, d.CnameTarget); err != nil {
@@ -336,17 +383,35 @@ func (r *Registry) Route(ctx context.Context, in *pb.Domain) (*pb.Domain, error)
 		return nil, status.Error(codes.NotFound, "unknown customer domain")
 	}
 	d, err := r.read(ctx, name)
+	wildcard := false
+	if errors.Is(err, sql.ErrNoRows) {
+		if dot := strings.IndexByte(name, '.'); dot > 0 {
+			d, err = r.read(ctx, "*."+name[dot+1:])
+			wildcard = err == nil
+		}
+	}
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, status.Error(codes.NotFound, "unknown customer domain")
 	}
 	if err != nil {
 		return nil, err
 	}
-	if d.State != "ready" || d.VerifiedUntil <= r.now().Unix() || d.CertificateExpires <= r.now().Unix() {
+	if d.State != "ready" || d.VerifiedUntil <= r.now().Unix() || !strings.HasPrefix(d.Name, "*.") && d.CertificateExpires <= r.now().Unix() {
 		return nil, status.Error(codes.FailedPrecondition, "domain DNS or certificate is not ready")
 	}
 	if err := r.entitled(ctx, d); err != nil {
 		return nil, err
+	}
+	if wildcard {
+		label := strings.SplitN(name, ".", 2)[0]
+		if !ValidLabel(label) || common.IsReservedTunnelName(label) {
+			return nil, status.Error(codes.NotFound, "invalid app name")
+		}
+		var owner string
+		if err := r.db.QueryRowContext(ctx, `SELECT account_id FROM reserved_subdomains WHERE subdomain=?`, label).Scan(&owner); err != nil || owner != d.Owner {
+			return nil, status.Error(codes.PermissionDenied, "app name must be reserved by domain owner")
+		}
+		d.Tunnel = label
 	}
 	return d, nil
 }
@@ -354,6 +419,9 @@ func (r *Registry) Certificate(ctx context.Context, in *pb.Domain) (*pb.Certific
 	d, err := r.Route(ctx, in)
 	if err != nil {
 		return nil, err
+	}
+	if strings.HasPrefix(d.Name, "*.") {
+		return r.wildcardCertificate(ctx, d, in.Name)
 	}
 	var cert, key []byte
 	if err := r.db.QueryRowContext(ctx, `SELECT certificate,key FROM custom_domains WHERE name=? AND owner=? AND target=?`, d.Name, d.Owner, d.CnameTarget).Scan(&cert, &key); err != nil {
@@ -371,7 +439,7 @@ func (r *Registry) Challenge(ctx context.Context, in *pb.ChallengeRequest) (*pb.
 		return nil, status.Error(codes.NotFound, "challenge not found")
 	}
 	var value string
-	err = r.db.QueryRowContext(ctx, `SELECT c.value FROM domain_challenges c JOIN custom_domains d ON d.name=c.name AND d.target=c.target JOIN accounts a ON a.id=d.owner JOIN reserved_subdomains s ON s.subdomain=d.tunnel AND s.account_id=d.owner WHERE c.name=? AND c.token=? AND c.expires>? AND a.plan='pro'`, name, in.Token, r.now().Unix()).Scan(&value)
+	err = r.db.QueryRowContext(ctx, `SELECT c.value FROM domain_challenges c JOIN custom_domains d ON d.target=c.target JOIN accounts a ON a.id=d.owner WHERE c.name=? AND c.token=? AND c.expires>? AND a.plan='pro' AND (d.tunnel='' OR EXISTS(SELECT 1 FROM reserved_subdomains s WHERE s.subdomain=d.tunnel AND s.account_id=d.owner))`, name, in.Token, r.now().Unix()).Scan(&value)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, status.Error(codes.NotFound, "challenge not found")
 	}
@@ -381,7 +449,7 @@ func (r *Registry) Challenge(ctx context.Context, in *pb.ChallengeRequest) (*pb.
 // Refresh rechecks DNS hourly, renews 30 days before expiry, and leaves no stale
 // routing lease after a DNS error. Only the login node runs this worker.
 func (r *Registry) Refresh(ctx context.Context) error {
-	rows, err := r.db.QueryContext(ctx, `SELECT `+domainColumns+` FROM custom_domains WHERE not_after>0 ORDER BY name`)
+	rows, err := r.db.QueryContext(ctx, `SELECT `+domainColumns+` FROM custom_domains WHERE not_after>0 OR name LIKE '*.%' ORDER BY name`)
 	if err != nil {
 		return err
 	}
@@ -409,14 +477,14 @@ func (r *Registry) Refresh(ctx context.Context) error {
 			cancel()
 			continue
 		}
-		if d.CertificateExpires <= r.now().Add(RenewBefore).Unix() {
+		if !strings.HasPrefix(d.Name, "*.") && d.CertificateExpires <= r.now().Add(RenewBefore).Unix() {
 			_, _ = r.Verify(probe, d)
 		} else {
 			_, _ = r.db.ExecContext(probe, `UPDATE custom_domains SET state='ready',verified_until=?,last_error='' WHERE name=? AND owner=? AND target=?`, r.now().Add(DNSLease).Unix(), d.Name, d.Owner, d.CnameTarget)
 		}
 		cancel()
 	}
-	return nil
+	return r.refreshWildcardCertificates(ctx)
 }
 func (r *Registry) Run(ctx context.Context) {
 	_ = r.Refresh(ctx)

@@ -86,7 +86,7 @@ func fakeCert(t *testing.T, name string, now time.Time) ([]byte, []byte) {
 func TestDomainClaimsEntitlementsAndReservations(t *testing.T) {
 	r, _, db := domainFixture(t, nil)
 	ctx := context.Background()
-	for _, bad := range []string{"relay.test", "a.relay.test", "*.example.com", "https://work.example.com", "a.example.com:443", "127.0.0.1", "bad_name.example.com", "a..example.com", "foo.123", "日本.example.com"} {
+	for _, bad := range []string{"relay.test", "a.relay.test", "*.*.example.com", "https://work.example.com", "a.example.com:443", "127.0.0.1", "bad_name.example.com", "a..example.com", "foo.123", "日本.example.com"} {
 		if _, err := r.Add(ctx, &pb.Domain{Name: bad, Tunnel: "site", Owner: "one"}); status.Code(err) != codes.InvalidArgument {
 			t.Fatalf("accepted %s: %v", bad, err)
 		}

@@ -30,6 +30,7 @@ import (
 	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/ehrlich-b/tunn/internal/config"
 	"github.com/ehrlich-b/tunn/internal/domains"
+	"github.com/ehrlich-b/tunn/internal/identity"
 	"github.com/ehrlich-b/tunn/internal/metering"
 	"github.com/ehrlich-b/tunn/internal/mockoidc"
 	"github.com/ehrlich-b/tunn/internal/sshfront"
@@ -282,6 +283,9 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 
 	tunnelServer.sharing, _ = proxy.meter.(metering.SharingBackend)
 	if cfg.CustomDomainsEnabled {
+		if _, err := identity.Load(cfg.IdentityKeysFile); err != nil {
+			return nil, fmt.Errorf("TUNN_IDENTITY_KEYS_FILE: %w", err)
+		}
 		if cfg.LoginNode {
 			key, err := base64.StdEncoding.DecodeString(cfg.DomainKeySecret)
 			if err != nil || len(key) != 32 {
@@ -695,7 +699,7 @@ func (p *ProxyServer) startHTTP2Server(ctx context.Context, handler http.Handler
 	srv := &http.Server{
 		Addr:      p.HTTP2Addr,
 		Handler:   router,
-		TLSConfig: p.tlsConfig,
+		TLSConfig: p.tlsConfig.Clone(),
 		// Timeouts - ReadTimeout/WriteTimeout disabled for gRPC streaming support
 		// gRPC streams are long-lived and use application-level health checks
 		ReadHeaderTimeout: 10 * time.Second,  // Max time to read headers specifically
@@ -750,7 +754,7 @@ func (p *ProxyServer) startHTTP3Server(ctx context.Context, handler http.Handler
 	srv := &http3.Server{
 		Addr:      p.HTTP3Addr,
 		Handler:   handler,
-		TLSConfig: p.tlsConfig,
+		TLSConfig: p.tlsConfig.Clone(),
 	}
 
 	common.LogInfo("starting HTTP/3 server", "addr", p.HTTP3Addr)
@@ -850,6 +854,8 @@ func (p *ProxyServer) createHandler() http.Handler {
 	mux.HandleFunc("/install.sh", p.handleInstallScript)
 
 	// Auth endpoints (no auth required on these)
+	mux.HandleFunc("/auth/domain", p.handleDomainLogin)
+	mux.HandleFunc("/.well-known/tunn-jwks.json", p.handleIdentityJWKS)
 	mux.HandleFunc("/auth/login", p.handleLogin)
 	mux.HandleFunc("/auth/github", p.handleGitHubLogin)
 	mux.HandleFunc("/auth/google", p.handleGoogleLogin)
@@ -897,6 +903,10 @@ func (p *ProxyServer) createHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Publishers own every path on their tunnel origin. Serving platform
 		// forms there would let their scripts read session-bound CSRF tokens.
+		if p.customerHost(r.Host) && r.URL.Path == appCallback {
+			p.handleDomainCallback(w, r)
+			return
+		}
 		if p.customerHost(r.Host) || extractTunnelID(requestHostname(r.Host), p.Domain) != "" {
 			if !p.customerHost(r.Host) && (r.URL.Path == "/.well-known/oauth-protected-resource/mcp" || r.URL.Path == "/.well-known/oauth-protected-resource") {
 				p.handleMCPResourceMetadata(w, r, extractTunnelID(requestHostname(r.Host), p.Domain))

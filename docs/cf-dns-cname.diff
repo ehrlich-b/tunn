@@ -1,0 +1,49 @@
+--- a/scripts/cf-dns.sh
++++ b/scripts/cf-dns.sh
+@@ -4,6 +4,7 @@
+ #   cf-dns.sh show NAME          # the A record for one name (or "(none)")
+ #   cf-dns.sh add NAME [IP]      # upsert a proxied A record (default droplet IP)
+ #   PROXIED=false cf-dns.sh add NAME IP  # DNS-only A record (LAN/private IPs)
++#   cf-dns.sh cname NAME TARGET  # upsert a DNS-only CNAME
+ #   cf-dns.sh rm NAME            # delete the A record(s) for NAME
+ # Token: secrets/cloudflare.env (Mac) or ~/.config/infra/cloudflare.env (box).
+ # Exit status reflects the Cloudflare outcome: nonzero on any API failure.
+@@ -38,8 +39,8 @@
+ 
+ # Print "id|content|proxied" for the exact A record NAME, or empty.
+ record_of() {
+-  local name=$1 zid=$2
+-  cf "$API/zones/$zid/dns_records?type=A&name=$name" | jqcf "
++  local name=$1 zid=$2 type=${3:-A}
++  cf "$API/zones/$zid/dns_records?type=$type&name=$name" | jqcf "
+ r=d['result']
+ print('|'.join([r[0]['id'], r[0]['content'], str(r[0]['proxied'])]) if r else '')"
+ }
+@@ -85,6 +86,27 @@
+     fi
+     ;;
+ 
++  cname) # Routing to tunn must remain DNS-only for edge TLS and HTTP-01.
++    name=${2:?usage: cf-dns.sh cname NAME TARGET}
++    target=${3:?usage: cf-dns.sh cname NAME TARGET}
++    zid=$(zone_id "$(zone_of "$name")")
++    [ -n "$zid" ] || { echo "no zone for $name" >&2; exit 1; }
++    body=$(python3 -c 'import json,sys; print(json.dumps(dict(type="CNAME",name=sys.argv[1],content=sys.argv[2],proxied=False,ttl=1)))' "$name" "$target")
++    rec=$(record_of "$name" "$zid" CNAME)
++    if [ -z "$rec" ]; then
++      cf -X POST "$API/zones/$zid/dns_records" -d "$body" \
++        | jqcf "print('created:', d['result']['name'], '->', d['result']['content'])"
++    else
++      IFS='|' read -r rid content proxied <<<"$rec"
++      if [ "$content" = "$target" ] && [ "$proxied" = False ]; then
++        echo "unchanged: $name -> $target (proxied=false)"
++      else
++        cf -X PUT "$API/zones/$zid/dns_records/$rid" -d "$body" \
++          | jqcf "print('updated:', d['result']['name'], '->', d['result']['content'])"
++      fi
++    fi
++    ;;
++
+   rm)
+     name=${2:?usage: cf-dns.sh rm NAME}
+     zid=$(zone_id "$(zone_of "$name")")

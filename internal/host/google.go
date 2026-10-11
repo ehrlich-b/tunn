@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/golang-jwt/jwt/v4"
 )
 
@@ -133,7 +132,11 @@ func (p *ProxyServer) handleGoogleCallback(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "A verified Google email is required", 403)
 		return
 	}
-	email := common.NormalizeEmail(identity.Email)
+	if !validGoogleEmail(identity.Email) {
+		http.Error(w, "Invalid Google email", 403)
+		return
+	}
+	email := strings.ToLower(identity.Email)
 	if p.storage == nil || !p.storage.Available() {
 		http.Error(w, "Account authority unavailable", 503)
 		return
@@ -142,7 +145,7 @@ func (p *ProxyServer) handleGoogleCallback(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "Account authority unavailable", 503)
 		return
 	}
-	if err = p.setAuthCookie(w, email); err != nil {
+	if err = p.signedSession(w, jwt.MapClaims{"email": email, "sub": identity.Sub, "provider": "google", "email_verified": true}, authCookieName, "."+p.config.Domain, authCookieLifetime); err != nil {
 		http.Error(w, "Login unavailable", 500)
 		return
 	}
@@ -155,4 +158,18 @@ func (p *ProxyServer) handleGoogleCallback(w http.ResponseWriter, r *http.Reques
 		target = "/account"
 	}
 	http.Redirect(w, r, target, 302)
+}
+
+// Google emails must be ASCII; normalization must not turn a lookalike into an owner.
+func validGoogleEmail(email string) bool {
+	if strings.Count(email, "@") != 1 || strings.TrimSpace(email) != email {
+		return false
+	}
+	for _, c := range email {
+		if c <= 32 || c >= 127 {
+			return false
+		}
+	}
+	parts := strings.Split(email, "@")
+	return parts[0] != "" && strings.Contains(parts[1], ".")
 }

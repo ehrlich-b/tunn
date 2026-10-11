@@ -118,7 +118,8 @@ func (i *ACMEIssuer) Issue(ctx context.Context, name string, present PresentChal
 			return nil, nil, err
 		}
 	}
-	order, err = i.Client.WaitOrder(ctx, order.URI)
+	orderURI := order.URI
+	order, err = i.Client.WaitOrder(ctx, orderURI)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -131,6 +132,19 @@ func (i *ACMEIssuer) Issue(ctx context.Context, name string, present PresentChal
 		return nil, nil, err
 	}
 	chain, _, err := i.Client.CreateOrderCert(ctx, order.FinalizeURL, csr, true)
+	// Some CAs (including Pebble) omit Location on the processing response.
+	// x/crypto then tries to poll an empty URI after successful finalization.
+	// Resume with the original order using only the library's ACME operations.
+	var pollError *url.Error
+	if errors.As(err, &pollError) && pollError.URL == "" {
+		pending, lookupErr := i.Client.GetOrder(ctx, orderURI)
+		if lookupErr == nil && (pending.Status == acme.StatusProcessing || pending.Status == acme.StatusValid) {
+			pending, err = i.Client.WaitOrder(ctx, orderURI)
+			if err == nil {
+				chain, err = i.Client.FetchCert(ctx, pending.CertURL, true)
+			}
+		}
+	}
 	if err != nil {
 		return nil, nil, err
 	}

@@ -34,6 +34,7 @@ type fakeDirectory struct {
 	authorized bool
 	name       string
 	cert       []byte
+	async      bool
 	fail       bool
 }
 
@@ -128,6 +129,7 @@ func (f *fakeDirectory) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if len(request.Identifiers) != 1 || request.Identifiers[0].Type != "dns" {
 			f.t.Fatal("unexpected identifiers")
 		}
+		f.cert = nil
 		f.name = request.Identifiers[0].Value
 		f.authorized = false
 		w.Header().Set("Location", origin+"/order/1")
@@ -148,7 +150,11 @@ func (f *fakeDirectory) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, `{"type":"http-01","url":"https://acme.invalid/challenge/1","token":"fake-http01-token","status":"valid"}`)
 	case "/order/1":
 		w.Header().Set("Location", origin+"/order/1")
-		f.order(w, "ready")
+		state := "ready"
+		if f.async && len(f.cert) > 0 {
+			state = "valid"
+		}
+		f.order(w, state)
 	case "/finalize/1":
 		if !f.authorized {
 			f.t.Fatal("finalized unverified identifier")
@@ -179,8 +185,12 @@ func (f *fakeDirectory) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			f.t.Fatal(err)
 		}
 		f.cert = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: signed})
-		w.Header().Set("Location", origin+"/order/1")
-		f.order(w, "valid")
+		if f.async {
+			f.order(w, "processing")
+		} else {
+			w.Header().Set("Location", origin+"/order/1")
+			f.order(w, "valid")
+		}
 	case "/cert/1":
 		w.Header().Set("Content-Type", "application/pem-certificate-chain")
 		_, _ = w.Write(f.cert)
@@ -260,5 +270,18 @@ func TestFakeACMEDirectoryIssueRenewAndRestart(t *testing.T) {
 	}
 	if err := wrong.ConfigureACME("https://acme.invalid/directory", "operator@example.com", &http.Client{Transport: fake}); err == nil {
 		t.Fatal("wrong encryption key accepted")
+	}
+}
+
+func TestACMEProcessingWithoutLocationResumesOriginalOrder(t *testing.T) {
+	r, dns, _ := domainFixture(t, nil)
+	d := addDomain(t, r, "work.example.com", "site", "one")
+	dns.records[d.Name] = d.CnameTarget
+	directory := &fakeDirectory{t: t, authority: r, async: true}
+	if err := r.ConfigureACME("https://acme.invalid/directory", "operator@example.com", &http.Client{Transport: directory}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Verify(context.Background(), d); err != nil || directory.issued != 1 {
+		t.Fatalf("order finalization lost: issued=%d err=%v", directory.issued, err)
 	}
 }

@@ -34,6 +34,7 @@ const (
 
 // setAuthCookie creates and sets a signed JWT auth cookie
 func (p *ProxyServer) setAuthCookie(w http.ResponseWriter, email string) error {
+	email = common.NormalizeEmail(email)
 	// Create JWT claims
 	claims := jwt.MapClaims{
 		"email": email,

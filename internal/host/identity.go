@@ -20,6 +20,7 @@ func identityEmail(claims jwt.MapClaims) (string, error) {
 		return "", fmt.Errorf("invalid identity token purpose")
 	}
 	email, ok := claims["email"].(string)
+	email = common.NormalizeEmail(email)
 	if !ok || email == "" {
 		return "", fmt.Errorf("missing email claim")
 	}

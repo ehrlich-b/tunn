@@ -298,6 +298,7 @@ func writeDeviceCodeRecoveryPage(w http.ResponseWriter) {
 
 // generateJWT creates a signed JWT for the user
 func (p *ProxyServer) generateJWT(email string) (string, error) {
+	email = common.NormalizeEmail(email)
 	claims := jwt.MapClaims{
 		"email": email,
 		"type":  "access",

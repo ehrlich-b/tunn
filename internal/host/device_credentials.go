@@ -67,6 +67,8 @@ func (s *deviceCredentialStore) issue(code, name string, now time.Time) (*durabl
 	if err != nil {
 		return nil, "", err
 	}
+	// Also covers authorized codes persisted before canonicalization was added.
+	email = common.NormalizeEmail(email)
 	digest := sha256.Sum256([]byte(secret))
 	d := &durableDevice{ID: id, Email: email, Name: name, Created: now.Unix(), LastUsed: now.Unix()}
 	_, err = tx.Exec(`INSERT INTO durable_devices(id,email,name,digest,created,last_used) VALUES(?,?,?,?,?,?)`, id, email, name, digest[:], d.Created, d.LastUsed)
@@ -99,6 +101,7 @@ func (s *deviceCredentialStore) rotate(secret, request string, key []byte, now t
 		if err != nil {
 			return nil, "", err
 		}
+		d.Email = common.NormalizeEmail(d.Email)
 		if d.Revoked != 0 {
 			return nil, "", errDeviceCredential
 		}
@@ -118,6 +121,7 @@ func (s *deviceCredentialStore) rotate(secret, request string, key []byte, now t
 	if err != nil {
 		return nil, "", err
 	}
+	d.Email = common.NormalizeEmail(d.Email)
 	if d.Revoked != 0 {
 		return nil, "", errDeviceCredential
 	}
@@ -165,6 +169,7 @@ func (p *ProxyServer) forwardDeviceService(w http.ResponseWriter, r *http.Reques
 }
 
 func (p *ProxyServer) writeDurableToken(w http.ResponseWriter, r *http.Request, d *durableDevice, secret string) {
+	d.Email = common.NormalizeEmail(d.Email)
 	// Suspension/account lookup errors fail closed before any token is returned.
 	a, err := p.storage.GetAccountByEmail(r.Context(), d.Email)
 	if err != nil || a == nil || a.OperationalState != "active" {
@@ -275,12 +280,15 @@ func (p *ProxyServer) handleDevices(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	owned := func(owner string) bool {
+		// Compatibility for devices already issued with mixed-case owners. Use
+		// the account policy (including Unicode folding), without rewriting rows.
+		owner = common.NormalizeEmail(owner)
 		for _, e := range emails {
-			if e == owner {
+			if common.NormalizeEmail(e) == owner {
 				return true
 			}
 		}
-		return owner == account.PrimaryEmail
+		return owner == common.NormalizeEmail(account.PrimaryEmail)
 	}
 	if r.Method == http.MethodPost {
 		if !p.requireCSRFToken(w, r, "/account/devices") {

@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"time"
+
+	"github.com/ehrlich-b/tunn/internal/common"
 )
 
 const (
@@ -84,7 +86,7 @@ func (s *DeviceCodeStore) Get(deviceCode string) *DeviceCode {
 	code.Authorized = authorized == 1
 	code.Interval = deviceCodeInterval
 	if email.Valid {
-		code.Email = email.String
+		code.Email = common.NormalizeEmail(email.String)
 	}
 
 	// Check expiration
@@ -114,7 +116,7 @@ func (s *DeviceCodeStore) GetByUserCode(userCode string) *DeviceCode {
 	code.Authorized = authorized == 1
 	code.Interval = deviceCodeInterval
 	if email.Valid {
-		code.Email = email.String
+		code.Email = common.NormalizeEmail(email.String)
 	}
 
 	// Check expiration
@@ -127,6 +129,7 @@ func (s *DeviceCodeStore) GetByUserCode(userCode string) *DeviceCode {
 
 // Authorize marks a device code as authorized with the user's email
 func (s *DeviceCodeStore) Authorize(deviceCode, email string) bool {
+	email = common.NormalizeEmail(email)
 	result, err := s.db.Exec(
 		"UPDATE device_codes SET authorized = 1, email = ? WHERE code = ? AND expires_at > ? AND authorized = 0",
 		email, deviceCode, time.Now().Unix(),

@@ -177,6 +177,15 @@ using [account operations](docs/ACCOUNT-OPERATIONS.md). Scope the actor to the
 reviewed account UUID; token/config permissions 0600, private parent directory.
 Never use a publisher token or an unrestricted web administration route.
 
+The first authenticated checkout creates a durable opaque intent before the
+Payment Link redirect. Ordinary account navigation and login-node restarts keep
+that account pending; another checkout returns 409. The reference is a routing
+hint tied to that intent, not proof of account ownership. Intents do not expire
+because the generic Payment Link remains payable. Abandoned purchases and
+previously bound accounts use support review; do not send another Payment Link
+or delete holds without resolving the existing purchase. A returning customer
+with an old binding cannot use self-service checkout in this release.
+
 For a paid checkout, the operator performs a fresh read of the Stripe Session,
 Customer, Subscription, exact Price and latest invoice, using Stripe dashboard
 or restricted read-only API credentials. Verify environment, real account
@@ -187,7 +196,8 @@ Email and `client_reference_id` from the Payment Link are **advisory**; the
 checkout browser can edit them. A signed completion event alone cannot prove
 account ownership or confirmed current payment. Do not auto-bind aliases.
 
-Bind only after that review, then read mapping version and queued receipt IDs:
+Bind only after ownership review. Read the mapping version and queued receipt
+IDs, **then perform the fresh provider read** used for the snapshot:
 
 ```bash
 /app/tunn admin billing-bind --db /data/tunn.db --admin-config /data/ops/admins.json --token-file /data/ops/token --account ACCOUNT_UUID --provider stripe --customer cus_APPROVED --subscription sub_APPROVED
@@ -195,17 +205,23 @@ Bind only after that review, then read mapping version and queued receipt IDs:
 ```
 
 Missing receipts mean wait for/fix webhook delivery; do not synthesize a
-production event with the fixture command. Mappings are deliberately unique
-and cannot be rebound by this workflow. A previously cancelled customer buying
-a new subscription can conflict: direct resubscription to support and review
-the existing mapping before accepting another checkout. No automatic mapping
-migration is implemented.
+production event with the fixture command. Customer and subscription mappings are unique and cannot be rebound by this
+workflow. A scoped operator may bind distinct verified customers to the same
+account, including purchases whose pending accounts merged before fulfillment.
+Checkout blocks previously bound Free accounts and directs them to support.
+No automatic replacement-binding workflow is implemented. Verified-email merges
+retain every binding: review each subscription independently at its own version.
+Pro remains while any binding has verified active, payment-eligible state; the
+last revocation/cancellation makes the account Free.
 
 Store provider evidence privately, hash it with SHA-256, and write an owner-only
 snapshot array such as this, replacing **every** placeholder with reviewed
 values. `provider_read_at` is the time of the current provider read, not the
 event time, and must be no more than five minutes old. The `expected_version`
-comes from `billing-status`, not account suspension status. There is no backend
+comes from `billing-status`, not account suspension status. Never refresh only
+that version and reuse older evidence. The stored provider-read watermark rejects
+older reads even with current CAS; equal-time conflicting state is rejected.
+A newer read advances the watermark even when eligibility stays unchanged. There is no backend
 approved-price allowlist: **the scoped operator must verify the Price ID**.
 
 ```json
@@ -253,11 +269,24 @@ For renewals and queued events, read the provider again. Active plus confirmed
 current-period payment stays Pro even if `cancel_at_period_end=true`. At actual
 cancellation/delinquency use a fresh snapshot with `plan=free`, current version,
 matching receipts, and `provider_status` one of `canceled`, `unpaid`, `past_due`,
-`incomplete`, `incomplete_expired`, `paused`. No grace period is implemented by
-this workflow. A refund/dispute while status stays active requires an explicit
-support/operations decision; it is not automatically a supported Free snapshot.
+`incomplete`, `incomplete_expired`, `paused`, or `trialing`. No grace period is
+implemented by this workflow. A refund/dispute while status stays active requires
+an explicit operator review: use fresh evidence with `provider_status=active`,
+`payment_confirmed=false`, and `plan=free` when that review revokes payment
+eligibility. A refund receipt alone does not revoke entitlement. Pro is derived
+only from active status plus confirmed current payment; a conflicting `plan`
+is rejected. The last eligible subscription ending also releases paid name
+reservations in the same transaction. Existing online Free tunnels retain their
+ordinary live occupancy; offline names become available to other accounts.
 Decline trialing/unreviewed/unpaid activation. Receipt order never wins over a
-fresh current provider read. Operator audits active subscriptions daily and
+fresh current provider read. Legacy cached Pro bits and old hash-only reviews lack a verified ordering
+watermark. The new schema therefore fails closed on those grants: login-node
+startup/migration derives Free until fresh evidence is applied. Before rollout,
+prepare fresh reviews for existing subscribers and coordinate migration and
+review application; identity, bindings, event history, usage and suspension are
+retained. Never copy disposable fixture markers to a live database.
+
+Operator audits active subscriptions daily and
 around each billing boundary; invoice events are not a replacement adapter in
 this release. Review unresolved receipt metadata read-only using existing
 approved DB tooling; `billing-status` only lists receipts for a known binding.

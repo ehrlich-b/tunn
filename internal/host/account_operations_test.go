@@ -377,7 +377,7 @@ func TestAccountOperationsReplicaBillingReportsAndAuthentication(t *testing.T) {
 			}
 		}
 	}
-	for _, method := range []string{"/internal.LoginNodeDB/ProcessBillingEvent", "/internal.LoginNodeDB/IntakeReport"} {
+	for _, method := range []string{"/internal.LoginNodeDB/ProcessBillingEvent", "/internal.LoginNodeDB/IntakeReport", "/internal.LoginNodeDB/BeginBillingCheckout"} {
 		called := false
 		handler := func(context.Context, any) (any, error) { called = true; return nil, nil }
 		ctx := metadata.NewIncomingContext(ctx, metadata.Pairs("x-node-secret", ""))

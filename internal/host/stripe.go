@@ -159,11 +159,13 @@ func normalizeStripeEvent(event StripeEvent, body []byte) (store.BillingEvent, e
 			Customer     string `json:"customer"`
 			Subscription string `json:"subscription"`
 			Mode         string `json:"mode"`
+			Reference    string `json:"client_reference_id"`
 		}
 		if err := json.Unmarshal(event.Data.Object, &session); err != nil {
 			return out, err
 		}
 		out.CustomerID, out.SubscriptionID, out.Supported = session.Customer, session.Subscription, session.Mode == "subscription"
+		out.CheckoutReference = session.Reference
 	}
 	return out, nil
 }

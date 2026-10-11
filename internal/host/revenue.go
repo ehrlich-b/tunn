@@ -2,6 +2,7 @@ package host
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"net/http"
@@ -165,16 +166,32 @@ func (p *ProxyServer) handleUpgrade(w http.ResponseWriter, r *http.Request) {
 		writePageEnd(w)
 		return
 	}
+	checkout, ok := p.storage.(storage.BillingCheckout)
+	if !ok {
+		http.Error(w, "Billing authority unavailable. Please retry.", 503)
+		return
+	}
+	reference, err := checkout.BeginBillingCheckout(r.Context(), a.ID)
+	if err != nil {
+		if errors.Is(err, store.ErrCheckoutBlocked) {
+			http.Error(w, "A purchase or previous subscription needs review. Do not pay again. Contact support@tunn.to.", 409)
+		} else if errors.Is(err, store.ErrSuspended) {
+			http.Error(w, "Account suspended", 403)
+		} else {
+			http.Error(w, "Billing authority unavailable. Please retry.", 503)
+		}
+		return
+	}
 	u, _ := stripeURL(raw, "buy.stripe.com")
 	q := u.Query()
 	q.Set("prefilled_email", a.PrimaryEmail)
-	q.Set("client_reference_id", a.ID)
+	q.Set("client_reference_id", reference)
 	u.RawQuery = q.Encode()
 	http.Redirect(w, r, u.String(), http.StatusSeeOther)
 }
 
-// handleBillingStatus reads the committed account plan. Query parameters, a
-// Stripe return, checkout receipts and client supplied session IDs grant nothing.
+// handleBillingStatus reads derived committed entitlement. Return parameters,
+// checkout receipts and client-supplied session IDs grant nothing.
 func (p *ProxyServer) handleBillingStatus(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", 405)

@@ -71,6 +71,7 @@ type DeviceCode struct {
 
 // Account represents a user account (email bucket)
 type Account struct {
+	BillingState       string
 	OperationalState   string
 	OperationalVersion int64
 	ID                 string
@@ -93,4 +94,9 @@ type TunnelRegistration struct {
 	Reason       string
 	CurrentCount int32
 	MaxAllowed   int32
+}
+
+// BillingCheckout is implemented by the authoritative store and its node proxy.
+type BillingCheckout interface {
+	BeginBillingCheckout(context.Context, string) (string, error)
 }

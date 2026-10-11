@@ -116,8 +116,14 @@ func newProdAuthFixture(t *testing.T) *prodAuthFixture {
 	if _, err := f.p.storage.FindOrCreateByEmails(ctx, []string{"other@example.com"}, "test"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`UPDATE accounts SET plan='pro'`); err != nil {
-		t.Fatal(err)
+	for _, email := range []string{"owner@example.com", "other@example.com"} {
+		a, err := f.p.storage.GetAccountByEmail(ctx, email)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = f.p.storage.UpdatePlan(ctx, a.ID, "pro"); err != nil {
+			t.Fatal(err)
+		}
 	}
 	f.p.config.HostModeEnabled, f.p.config.LoginNode = true, true
 	f.p.config.StripeWebhookSecret = "offline-webhook-key"

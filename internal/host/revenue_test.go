@@ -62,7 +62,7 @@ func TestRevenueRoutesLimitsAndConfiguredCheckout(t *testing.T) {
 	}
 	w = revenueRequest(t, p, "/upgrade?period=monthly", true)
 	u, err := url.Parse(w.Header().Get("Location"))
-	if err != nil || w.Code != 303 || u.Host != "buy.stripe.com" || u.Query().Get("prefilled_email") != a.PrimaryEmail || u.Query().Get("client_reference_id") != a.ID || u.Query().Get("locale") != "en" {
+	if err != nil || w.Code != 303 || u.Host != "buy.stripe.com" || u.Query().Get("prefilled_email") != a.PrimaryEmail || u.Query().Get("client_reference_id") == "" || u.Query().Get("client_reference_id") == a.ID || u.Query().Get("locale") != "en" {
 		t.Fatal(w.Code, u, err)
 	}
 	p.config.ProMonthlyUSD = 8

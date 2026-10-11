@@ -29,9 +29,7 @@ func TestIntegrationAccountCutoffBillingReconciliationAndSuspension(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := local.UpdatePlan(ctx, account.ID, "pro"); err != nil {
-		t.Fatal(err)
-	}
+	reviewActivate(t, local, account, "cus_fixture", "sub_fixture")
 	if err := local.RecordUsage(ctx, account.ID, metering.FreeMonthlyBytes); err != nil {
 		t.Fatal(err)
 	}
@@ -44,12 +42,6 @@ func TestIntegrationAccountCutoffBillingReconciliationAndSuspension(t *testing.T
 	tunnel.AccountID, tunnel.Plan, tunnel.AllowedEmails = account.ID, "free", nil
 	ops := local.OperationsStore()
 	admin := accountOperationsAdmin(t, account.ID)
-	if err := ops.BindBilling(ctx, admin, store.BillingMapping{Provider: "stripe", CustomerID: "cus_fixture", SubscriptionID: "sub_fixture", AccountID: account.ID}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`CREATE TABLE ops_fixture(id INTEGER PRIMARY KEY,value TEXT); INSERT INTO ops_fixture VALUES(1,'disposable-local')`); err != nil {
-		t.Fatal(err)
-	}
 	request := func(want int) {
 		t.Helper()
 		stream.mu.Lock()
@@ -71,11 +63,11 @@ func TestIntegrationAccountCutoffBillingReconciliationAndSuspension(t *testing.T
 		}
 	}
 	request(200) // The authority's paid plan overrides the free publisher snapshot.
-	pending, err := ops.ProcessBillingEvent(ctx, store.BillingEvent{Provider: "stripe", ID: "evt_fixture", Type: "customer.subscription.deleted", CustomerID: "cus_fixture", SubscriptionID: "sub_fixture", Plan: "free", Supported: true})
+	pending, err := ops.ProcessBillingEvent(ctx, store.BillingEvent{Provider: "stripe", ID: "evt_fixture", Type: "customer.subscription.updated", CustomerID: "cus_fixture", SubscriptionID: "sub_fixture", Plan: "free", Supported: true})
 	if err != nil || pending.State != "reconciliation_required" {
 		t.Fatalf("unordered billing event: %v %v", pending, err)
 	}
-	snapshot := store.BillingSnapshot{Provider: "stripe", CustomerID: "cus_fixture", SubscriptionID: "sub_fixture", AccountID: account.ID, Plan: "free", EventIDs: []string{"evt_fixture"}}
+	snapshot := reviewSnapshot(account, "cus_fixture", "sub_fixture", "evt_fixture", 1, "free", "past_due")
 	if changes, err := ops.Reconcile(ctx, admin, []store.BillingSnapshot{snapshot}, false); err != nil || changes[0].State != "change_expected" {
 		t.Fatalf("reconciliation preview: %v %v", changes, err)
 	}
@@ -84,7 +76,7 @@ func TestIntegrationAccountCutoffBillingReconciliationAndSuspension(t *testing.T
 	if !session.admit(ctx, httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "https://api.tunn.test/", nil)) {
 		t.Fatal("active stream admission failed")
 	}
-	if changes, err := ops.Reconcile(ctx, admin, []store.BillingSnapshot{snapshot}, true); err != nil || changes[0].State != "applied" {
+	if changes, err := ops.ApplyReviewedBilling(ctx, admin, []store.BillingSnapshot{snapshot}); err != nil || changes[0].State != "applied" {
 		t.Fatalf("reconciliation apply: %v %v", changes, err)
 	}
 	request(429)
@@ -96,8 +88,9 @@ func TestIntegrationAccountCutoffBillingReconciliationAndSuspension(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	snapshot.Plan, snapshot.ExpectedVersion, snapshot.EventIDs = "pro", 1, nil
-	if _, err := ops.Reconcile(ctx, admin, []store.BillingSnapshot{snapshot}, true); err != nil {
+	reviewReceipt(t, local, "cus_fixture", "sub_fixture", "evt_recovered", "customer.subscription.updated")
+	snapshot = reviewSnapshot(account, "cus_fixture", "sub_fixture", "evt_recovered", 2, "pro", "active")
+	if _, err := ops.ApplyReviewedBilling(ctx, admin, []store.BillingSnapshot{snapshot}); err != nil {
 		t.Fatal(err)
 	}
 	request(403) // A paid upgrade cannot clear the operational hold.

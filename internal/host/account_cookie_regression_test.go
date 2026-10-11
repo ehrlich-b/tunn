@@ -349,9 +349,7 @@ func TestLiveBillingUpdatesQuota(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := local.UpdatePlan(ctx, acc.ID, transition.from); err != nil {
-				t.Fatal(err)
-			}
+
 			if err := local.RecordUsage(ctx, acc.ID, FreeQuotaBytes+1); err != nil {
 				t.Fatal(err)
 			}
@@ -372,7 +370,10 @@ func TestLiveBillingUpdatesQuota(t *testing.T) {
 			if err = ops.BindBilling(ctx, principal, store.BillingMapping{Provider: "fixture", CustomerID: "cus_local", SubscriptionID: "sub_local", AccountID: acc.ID}); err != nil {
 				t.Fatal(err)
 			}
-			if _, err = ops.ProcessBillingEvent(ctx, store.BillingEvent{Provider: "fixture", ID: "evt_live", Type: "subscription.updated", CustomerID: "cus_local", SubscriptionID: "sub_local", Revision: 1, Plan: transition.to, Supported: true}); err != nil {
+			if _, err = ops.ProcessBillingEvent(ctx, store.BillingEvent{Provider: "fixture", ID: "evt_initial", Type: "subscription.updated", CustomerID: "cus_local", SubscriptionID: "sub_local", Revision: 1, Plan: transition.from, Supported: true}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err = ops.ProcessBillingEvent(ctx, store.BillingEvent{Provider: "fixture", ID: "evt_live", Type: "subscription.updated", CustomerID: "cus_local", SubscriptionID: "sub_local", Revision: 2, Plan: transition.to, Supported: true}); err != nil {
 				t.Fatal(err)
 			}
 			updated, err := local.GetAccount(ctx, acc.ID)

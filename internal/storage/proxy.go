@@ -5,14 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/ehrlich-b/tunn/internal/store"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"sync"
 	"time"
 
 	internalv1 "github.com/ehrlich-b/tunn/pkg/proto/internalv1"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/connectivity"
+	"google.golang.org/grpc/status"
 )
 
 // ProxyStorage implements Storage by proxying to the login node via gRPC.
@@ -328,12 +328,19 @@ func protoAccountToStorage(resp *internalv1.AccountResponse) *Account {
 			AddedAt:     time.Unix(e.AddedAt, 0),
 		}
 	}
+	// Old authorities expose only a cached plan, without verified billing state.
+	// During a rolling upgrade, that reply cannot establish paid entitlement.
+	plan := "free"
+	if resp.BillingState == "active" && resp.Plan == "pro" {
+		plan = "pro"
+	}
 	return &Account{
+		BillingState:       resp.BillingState,
 		OperationalState:   resp.OperationalState,
 		OperationalVersion: resp.OperationalVersion,
 		ID:                 resp.Id,
 		PrimaryEmail:       resp.PrimaryEmail,
-		Plan:               resp.Plan,
+		Plan:               plan,
 		CreatedAt:          time.Unix(resp.CreatedAt, 0),
 		Emails:             emails,
 	}
@@ -388,4 +395,22 @@ func (s *ProxyStorage) IntakeReport(ctx context.Context, id, category, endpoint 
 		return nil, err
 	}
 	return &out, nil
+}
+
+func (s *ProxyStorage) BeginBillingCheckout(ctx context.Context, id string) (string, error) {
+	c := s.getClient()
+	if c == nil {
+		return "", ErrNotAvailable
+	}
+	r, err := c.BeginBillingCheckout(ctx, &internalv1.BeginBillingCheckoutRequest{AccountId: id})
+	if err != nil {
+		switch status.Code(err) {
+		case codes.FailedPrecondition:
+			return "", store.ErrCheckoutBlocked
+		case codes.PermissionDenied:
+			return "", store.ErrSuspended
+		}
+		return "", err
+	}
+	return r.Reference, nil
 }

@@ -232,6 +232,10 @@ func TestHostStreamCrossNodeReservationGuard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := accounts.UpdatePlan(owner.ID, "pro"); err != nil {
+		t.Fatal(err)
+	}
+
 	registry, err := store.NewHostStore(db)
 	if err != nil {
 		t.Fatal(err)

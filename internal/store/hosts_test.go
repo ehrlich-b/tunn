@@ -85,6 +85,13 @@ func TestHostStoreSurvivesRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := db.Exec(`CREATE TABLE ops_fixture(id INTEGER PRIMARY KEY,value TEXT); INSERT INTO ops_fixture VALUES(1,'disposable-local')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := NewAccountStore(db).UpdatePlan(owner.ID, "pro"); err != nil {
+		t.Fatal(err)
+	}
+
 	s, err := NewHostStore(db)
 	if err != nil {
 		t.Fatal(err)

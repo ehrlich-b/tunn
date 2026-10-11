@@ -31,20 +31,25 @@ Local filesystem/database access remains an operator privilege.
 | Account dashboard, usage/grant reads and revoke, authenticated report intake | Existing account credentials | Retained for visibility, remediation and reporting |
 | Explicit anonymous public mode / shared self-host master secret without host mode | Operator chooses accountless relay authentication | No account to suspend; these are unsuitable for hosted account controls |
 
-`FindOrCreateByEmails` retains the strongest plan and adds usage, preserves grant
+`FindOrCreateByEmails` derives the merged plan from all verified subscriptions,
+adds usage, preserves grant
 state and redirects old UUIDs. Operational merge uses suspension OR: any suspended
 component suspends the survivor and increments its control version. Previous
 reasons/actors and original account UUIDs remain in audit history; the merge itself records a system actor.
-Billing mappings and event metadata follow the survivor. Multiple surviving
-subscription mappings require explicit reconciliation rather than choosing one.
+Billing mappings and event metadata follow the survivor. Each surviving subscription can be reconciled independently; the newest
+verified state of every subscription contributes to the account entitlement.
 
 ## Billing events and snapshots
 
 `ops_billing_mappings` binds provider customer/subscription identifiers to an
 existing account under admin authorization. Conflicting account/customer or
-subscription mappings fail. The adapter never establishes ownership from a
-webhook email or client-supplied metadata. A supported unbound event remains
-`reconciliation_required` and cannot create an account.
+subscription mappings fail. An account may own several distinct customer and
+subscription bindings; provider/customer and provider/subscription identity
+remain unique. The adapter never establishes ownership from a
+webhook email or client-supplied metadata. A supported unbound event remains `reconciliation_required` and cannot create
+an account. An issued opaque checkout intent may associate its receipt with an
+account for review; arbitrary account UUIDs in editable references are ignored.
+Neither association nor a pending purchase grants Pro.
 
 `ops_billing_events` atomically commits a metadata digest and processing result
 with any entitlement change. The durable key is `(provider,event_id)`; exact
@@ -64,7 +69,15 @@ Non-login nodes forward only normalized metadata through the authenticated
 internal `LoginNodeDB.ProcessBillingEvent` RPC. Do not infer automatic Stripe paid
 pilot readiness from passing local provider fixtures. An operator must supply
 current authoritative snapshots; automatic snapshot retrieval is outside this
-change.
+change. `ops_billing_states` persists the newest verified state per binding,
+ordered by authoritative provider revision or the time of the verified current
+provider read. Arrival order and refreshed local CAS cannot override its
+watermark. Equal-order conflicting state fails; equal-state replay does not
+advance versions or append audits. Newer unchanged-state reads still advance
+the watermark. The account plan is a projection of these states: any eligible
+subscription grants Pro, and no eligible subscription means Free. Final downgrade
+releases paid reservations atomically with billing state, receipt resolution,
+plan and audit. Operational suspension remains independent.
 
 `tunn admin reconcile --snapshots FILE` opens the explicit database read-only and
 returns `current`, `change_expected`, `stale`, `version_conflict`, or
@@ -84,14 +97,22 @@ pending receipt IDs. `--apply-reviewed` is the separate production-capable
 operator path: it requires Stripe revision 0, matching receipts, a SHA-256
 evidence digest, a provider read no more than five minutes old, and an explicitly
 reviewed Price ID. Pro requires `provider_status=active` and
-`payment_confirmed=true`; reviewed cancellation/delinquency may restore Free.
+`payment_confirmed=true`; all other reviewed eligibility derives Free. An
+explicit refund/dispute revocation can use `provider_status=active` with
+`payment_confirmed=false`. Refund webhooks alone do not make that decision.
 The backend does not independently retrieve evidence or enforce an approved
 Price allowlist: the scoped operator must verify actual ownership, Price and
 current-period payment. Both apply modes are mutually exclusive; default is
 still read-only. CAS, complete-batch validation, audit, suspension and usage
 preservation apply to reviewed writes as well. See [GO-LIVE.md](../GO-LIVE.md)
-for the exact evidence, activation, renewal and cancellation procedure. Checkout
-defaults disabled until that workflow has passed acceptance and is staffed.
+for the exact evidence, activation, renewal and cancellation procedure. Checkout defaults disabled until that workflow has passed acceptance and is
+staffed. `BeginBillingCheckout` persists a random intent on the login authority
+before redirect, preventing concurrent duplicate purchases and keeping pending
+state across navigation, merges and restarts. Holds do not expire while a
+reusable Payment Link remains payable. Accounts with pending intents or existing
+bindings cannot buy another subscription; support must resolve the prior
+purchase. A canceled binding blocks returning self-service checkout because
+replacement binding is not yet supported.
 
 `--apply-fixture` requires a database created by `tunn admin fixture-init`, carrying
 `ops_fixture(id=1,value='disposable-local')`. It validates the complete bounded
@@ -123,16 +144,27 @@ work.
 
 ## Migration and integration hooks
 
-`store.MigrateOperations` runs the idempotent `OperationsSchema` from
+`store.MigrateOperations` installs the idempotent `OperationsSchema` from
 `internal/store/operations.go`, automatically called after the existing account
 schema. Additions are isolated `ops_account_state`, `ops_account_audit`,
-`ops_billing_mappings`, `ops_billing_events`, and `ops_reports`. They do not alter
-account/quota/domain columns or replace existing migrations. Account merges call
+`ops_billing_mappings`, `ops_billing_states`, `ops_checkout_intents`,
+`ops_billing_events`, and `ops_reports`. Migration projects the plan cache and
+releases unentitled reservations. Legacy Pro bits and digest-only audits cannot
+establish ordered verified state, so they fail closed until fresh provider
+reviews are applied. Preserve identity, billing history, usage and suspension;
+coordinate existing-subscriber reviews with rollout. Legacy review commit times
+provide a conservative ordering floor so older evidence cannot undo a prior
+cancellation during migration; replacement provider reads must follow that floor. Direct `UpdatePlan` grants
+are restricted to marked disposable fixtures and become synthetic sequenced
+subscriptions; production uses reviewed billing. Account merges call
 `mergeAccountOperations` in the same inventory/accounting transaction. Migration
 rerun and rollback fixtures retain all state.
 
-Account replies add `operational_state` (field 7) and `operational_version` (field
-8) in `proto/internal.proto`. `storage.AccountStatusLookup` is implemented by local
+Account replies include `operational_state` (field 7), `operational_version`
+(field 8), and `billing_state` (field 9) in `proto/internal.proto`. The new
+`BeginBillingCheckout` RPC uses the existing authenticated internal node gate
+and returns a reference only after durable authority commit. Replica decoding
+ignores Pro cache bits from older authorities without verified billing state. `storage.AccountStatusLookup` is implemented by local
 and proxy storage; it resolves aliases and returns status/version without trusting
 a request account ID. Empty state from an old login authority fails closed at
 hosted admission. Upgrade the login authority before replicas. The new billing
@@ -173,9 +205,88 @@ test-metering-contract`, `make -j1 test`, `make -j1 test-race`,
 `make -j1 test-account-operations` and `git diff --check` on the combined head.
 No real-host, production billing or deployed-service evidence is asserted.
 
-The installed Homebrew `protoc` could not load
-`libabsl_die_if_null.2601.0.0.dylib`. Checked-in protobuf files were produced offline
-by the installed Go generators from the existing descriptor plus the additive
-fields/messages/methods. After repairing that external toolchain, the coordinator
-should regenerate with `make -j1 proto-internal` and review source/generated
-consistency. No dependency was downloaded or installed here.
+The installed Homebrew `protoc` cannot load
+`libabsl_die_if_null.2601.0.0.dylib`. These checked-in internal protobuf files were
+generated from `proto/internal.proto` using installed Buf 1.67.0 and the local
+`protoc-gen-go` / `protoc-gen-go-grpc` generators, without remote plugins. The
+usual `make -j1 proto-internal` command remains available after repairing that
+external `protoc` installation.
+
+
+## Billing regression validation — 2026-10-11
+
+The independent review's six reproductions are committed in
+`internal/host/billing_review_regression_test.go`. Running that file against an
+untouched archive of `578f52a` produced exactly six expected failures. All six
+pass with the ordered verified-state implementation. Additional scenarios cover
+unchanged-state watermark advancement, equal-time conflicts, restart and replay,
+legacy review ordering and receipt digest compatibility, multi-subscription
+aggregation, atomic reservation release/retention, checkout commit failures,
+concurrent and merged checkout holds, proxy fulfillment, and legacy authorities.
+
+All Go commands used clone-local `GOCACHE`, `GOMODCACHE` and `GOTMPDIR`, with
+`taskpolicy -b nice -n 15`. Final `go vet ./...` passed. Focused race tests passed
+57 tests/subtests across store, storage and host, including the quota,
+delinquency/recovery and suspension integration case.
+
+The ordinary `go test ./...` invocation was attempted: this environment rejects
+TCP loopback binds with `operation not permitted`, and panic-based HTTP fixtures
+stop their packages at the first unavailable listener. The complete portable
+rerun used `-p 1`, the repository's native `-websocket-memory` option for host and
+`-dogfood-proxy-memory` option for client, and excluded only the 35 named
+listener cases below. It passed 3210 tests/subtests across
+17 packages, with 4 existing skips: one documented Unicode
+normalization gap and three missing certificate fixtures. No test was changed
+to silently skip listener failures. One earlier concurrent run exceeded the
+MCP initialization deadline test's timing allowance; the final sequential run
+passed that test and the rest of the portable suite.
+
+These exact cases still require a host permitting local listeners. The two
+`UnixSocket` cases also require Unix listeners; the operational HTTP/3 cases
+require UDP. WebSocket and proxy memory fixtures prove their assertions without
+certifying real loopback behavior.
+
+```text
+TestInspectorCapturesAndReplaysToLocalTarget
+TestInspectorStreamingCaptureAndReplayProtection
+TestInspectorStartsOnLoopbackWithSessionSecret
+TestHandleHttpRequest
+TestHandleHttpRequestRewritesAdapterPath
+TestInboundConnectionStreamsHTTP
+TestHandleHttpRequestMultiValueHeaders
+TestHandleHttpRequestConcurrent
+TestHandleHttpRequestTimeout
+TestProcessMessagesHttpRequest
+TestInboundConnectionStreamsTCP
+TestInboundConnectionStreamsUnixSocket
+TestInboundConnectionServesHTTPOverUnixSocket
+TestConnectClientOverHTTP2CONNECT
+TestLoopbackEdgeOpenSSHAndHTTPSSharePort
+TestLoopbackHostMode
+TestBridgeMCPFlow
+TestBridgeOfficialGoSDKClient
+TestBridgeModernHeadersAndSessionlessCalls
+TestBridgeCarriesFiniteSSENotifications
+TestBridgeRejectsChildRequestsWithoutDeadlock
+TestBridgeEnforcesLocalToolAllowList
+TestBridgeValidatesHTTPEnvelope
+TestBridgeReportsChildExit
+TestBridgeFailsRequestWhenChildExits
+TestOpsLoopbackReadinessLifecycleAndDependency
+TestOpsLoopbackStartupFailureReleasesSiblingListeners
+TestOpsLoopbackShutdownWithLivePublisherAndRestart
+TestProdAuthLoopbackHTTPSOAuthLifecycle
+TestSDKResponseConformance
+TestSDKResponseControllerConformance
+TestSDKCLIHTTPAndWebSocketContract
+TestSDKActiveWebSocketClose
+TestSDKExternalResponseConsumer
+TestStreamingHTTPAcrossRealGRPCTunnel
+```
+
+Validation receipts and exact commands are clone-local in
+`.scratch/billing/final-checks.json`, `summary.json`, `portable.json`,
+`race-final.json`, `baseline-578f52a.json`, and `full-final.json`. These are
+ignored scratch artifacts, not repository contents. Internal protobuf bindings
+were regenerated from source with installed Buf and local Go generators.
+No production mutation, push, deployment, or external comment was performed.

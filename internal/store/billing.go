@@ -8,23 +8,25 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/google/uuid"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // BillingEvent contains provider-normalized metadata, never a webhook body.
 // Revision is used only by adapters with an authoritative monotonic revision.
 // Stripe timestamps and event IDs do not meet that contract (Revision=0).
 type BillingEvent struct {
-	Provider       string `json:"provider"`
-	ID             string `json:"id"`
-	Type           string `json:"type"`
-	CustomerID     string `json:"customer_id"`
-	SubscriptionID string `json:"subscription_id"`
-	Revision       int64  `json:"revision"`
-	Plan           string `json:"plan"`
-	Supported      bool   `json:"supported"`
-	PayloadSHA256  string `json:"payload_sha256"`
+	Provider          string `json:"provider"`
+	ID                string `json:"id"`
+	Type              string `json:"type"`
+	CustomerID        string `json:"customer_id"`
+	SubscriptionID    string `json:"subscription_id"`
+	Revision          int64  `json:"revision"`
+	Plan              string `json:"plan"`
+	Supported         bool   `json:"supported"`
+	PayloadSHA256     string `json:"payload_sha256"`
+	CheckoutReference string `json:"checkout_reference,omitempty"`
 }
 type BillingResult struct {
 	EventID   string `json:"event_id"`
@@ -33,13 +35,15 @@ type BillingResult struct {
 	Duplicate bool   `json:"duplicate"`
 }
 type BillingMapping struct {
-	Provider       string `json:"provider"`
-	CustomerID     string `json:"customer_id"`
-	SubscriptionID string `json:"subscription_id"`
-	AccountID      string `json:"account_id"`
-	Version        int64  `json:"version"`
-	Revision       int64  `json:"revision"`
-	Plan           string `json:"plan"`
+	Provider       string    `json:"provider"`
+	CustomerID     string    `json:"customer_id"`
+	SubscriptionID string    `json:"subscription_id"`
+	AccountID      string    `json:"account_id"`
+	Version        int64     `json:"version"`
+	Revision       int64     `json:"revision"`
+	Plan           string    `json:"plan"`
+	ProviderReadAt time.Time `json:"provider_read_at,omitempty"`
+	stateDigest    string
 }
 
 func validMapping(m BillingMapping) bool {
@@ -66,7 +70,7 @@ func (s *OperationsStore) BindBilling(ctx context.Context, p AdminPrincipal, m B
 	}
 	m.AccountID = id
 	var conflicts int
-	err = tx.QueryRowContext(ctx, `SELECT count(*) FROM ops_billing_mappings WHERE provider=? AND (customer_id=? OR subscription_id=? OR account_id=?) AND NOT (customer_id=? AND subscription_id=? AND account_id=?)`, m.Provider, m.CustomerID, m.SubscriptionID, id, m.CustomerID, m.SubscriptionID, id).Scan(&conflicts)
+	err = tx.QueryRowContext(ctx, `SELECT count(*) FROM ops_billing_mappings WHERE provider=? AND (customer_id=? OR subscription_id=?) AND NOT (customer_id=? AND subscription_id=? AND account_id=?)`, m.Provider, m.CustomerID, m.SubscriptionID, m.CustomerID, m.SubscriptionID, id).Scan(&conflicts)
 	if err != nil {
 		return err
 	}
@@ -77,17 +81,24 @@ func (s *OperationsStore) BindBilling(ctx context.Context, p AdminPrincipal, m B
 	if err != nil {
 		return err
 	}
+	if err = projectBillingAccount(ctx, tx, id); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 func readBillingMapping(ctx context.Context, q operationQuery, provider, sub string) (*BillingMapping, error) {
 	m := &BillingMapping{Provider: provider, SubscriptionID: sub}
-	err := q.QueryRowContext(ctx, `SELECT customer_id,account_id,version,revision,plan FROM ops_billing_mappings WHERE provider=? AND subscription_id=?`, provider, sub).Scan(&m.CustomerID, &m.AccountID, &m.Version, &m.Revision, &m.Plan)
+	var stamp int64
+	var legacyReviewedAt string
+	err := q.QueryRowContext(ctx, `SELECT m.customer_id,m.account_id,m.version,COALESCE(s.revision,0),COALESCE(s.plan,''),COALESCE(s.provider_read_at,0),COALESCE(s.digest,''),COALESCE((SELECT received_at FROM ops_billing_events e WHERE e.provider=m.provider AND e.subscription_id=m.subscription_id AND e.event_type='snapshot.reconciled' ORDER BY e.rowid DESC LIMIT 1),'') FROM ops_billing_mappings m LEFT JOIN ops_billing_states s USING(provider,subscription_id) WHERE m.provider=? AND m.subscription_id=?`, provider, sub).Scan(&m.CustomerID, &m.AccountID, &m.Version, &m.Revision, &m.Plan, &stamp, &m.stateDigest, &legacyReviewedAt)
+	if stamp > 0 {
+		m.ProviderReadAt = time.Unix(0, stamp).UTC()
+	} else if err == nil && provider == "stripe" && legacyReviewedAt != "" {
+		// Hash-only legacy reviews cannot confer Pro. Their commit time is a
+		// conservative ordering floor: fresh evidence must follow that review.
+		m.ProviderReadAt, err = time.Parse(time.RFC3339Nano, legacyReviewedAt)
+	}
 	return m, err
-}
-func billingMappingCount(ctx context.Context, q operationQuery, id string) (int, error) {
-	var count int
-	err := q.QueryRowContext(ctx, `SELECT count(*) FROM ops_billing_mappings WHERE account_id=?`, id).Scan(&count)
-	return count, err
 }
 
 type BillingStatus struct {
@@ -121,7 +132,7 @@ func (s *OperationsStore) AdminBillingStatus(ctx context.Context, p AdminPrincip
 	return out, rows.Err()
 }
 func (s *OperationsStore) ProcessBillingEvent(ctx context.Context, e BillingEvent) (*BillingResult, error) {
-	if !boundedText(e.Provider, 32) || !boundedText(e.ID, 128) || !boundedText(e.Type, 128) || len(e.CustomerID) > 128 || len(e.SubscriptionID) > 128 || e.Revision < 0 || e.Plan != "" && e.Plan != "free" && e.Plan != "pro" {
+	if !boundedText(e.Provider, 32) || !boundedText(e.ID, 128) || !boundedText(e.Type, 128) || len(e.CustomerID) > 128 || len(e.SubscriptionID) > 128 || len(e.CheckoutReference) > 128 || e.Revision < 0 || e.Plan != "" && e.Plan != "free" && e.Plan != "pro" {
 		return nil, fmt.Errorf("invalid billing metadata")
 	}
 	if e.PayloadSHA256 != "" {
@@ -129,7 +140,17 @@ func (s *OperationsStore) ProcessBillingEvent(ctx context.Context, e BillingEven
 			return nil, fmt.Errorf("invalid payload digest")
 		}
 	}
-	data, _ := json.Marshal(e)
+	// Stripe receipts are never an authoritative sequenced entitlement adapter.
+	if e.Provider == "stripe" && e.Revision != 0 {
+		return nil, fmt.Errorf("Stripe requires reviewed provider state")
+	}
+	fingerprint := e
+	// The verified body digest already covers editable checkout references.
+	// Excluding this new advisory field preserves legacy signed-receipt replay.
+	if e.PayloadSHA256 != "" {
+		fingerprint.CheckoutReference = ""
+	}
+	data, _ := json.Marshal(fingerprint)
 	hash := sha256.Sum256(data)
 	digest := hex.EncodeToString(hash[:])
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -158,26 +179,31 @@ func (s *OperationsStore) ProcessBillingEvent(ctx context.Context, e BillingEven
 		}
 		if lookupErr == nil {
 			out.AccountID = m.AccountID
-			count, err := billingMappingCount(ctx, tx, m.AccountID)
-			if err != nil {
-				return nil, err
-			}
-			if e.CustomerID == m.CustomerID && count == 1 && e.Revision > 0 && e.Plan != "" {
+			if e.CustomerID == m.CustomerID && e.Revision > 0 && e.Plan != "" {
 				switch {
 				case e.Revision < m.Revision:
 					out.State = "stale"
 				case e.Revision == m.Revision && e.Plan == m.Plan:
 					out.State = "current"
 				case e.Revision > m.Revision:
-					if _, err = tx.ExecContext(ctx, `UPDATE accounts SET plan=? WHERE id=?`, e.Plan, m.AccountID); err != nil {
+					if err = writeBillingState(ctx, tx, e.Provider, e.SubscriptionID, e.Plan, e.Revision, time.Time{}, digest); err != nil {
 						return nil, err
 					}
 					if _, err = tx.ExecContext(ctx, `UPDATE ops_billing_mappings SET revision=?,plan=?,version=version+1 WHERE provider=? AND subscription_id=?`, e.Revision, e.Plan, e.Provider, e.SubscriptionID); err != nil {
 						return nil, err
 					}
+					if err = projectBillingAccount(ctx, tx, m.AccountID); err != nil {
+						return nil, err
+					}
 					out.State = "applied"
 				}
 			}
+		}
+	}
+	if out.AccountID == "" && e.Provider == "stripe" && e.Type == "checkout.session.completed" && e.Supported && e.CheckoutReference != "" {
+		err = tx.QueryRowContext(ctx, `SELECT account_id FROM ops_checkout_intents WHERE reference=?`, e.CheckoutReference).Scan(&out.AccountID)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return nil, err
 		}
 	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO ops_billing_events(provider,event_id,digest,event_type,subscription_id,customer_id,account_id,revision,plan,outcome,received_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, e.Provider, e.ID, digest, e.Type, e.SubscriptionID, e.CustomerID, out.AccountID, e.Revision, e.Plan, out.State, s.now().UTC().Format(time.RFC3339Nano))
@@ -230,7 +256,8 @@ func reconciliationChange(ctx context.Context, tx *sql.Tx, p AdminPrincipal, sna
 		return nil, err
 	}
 	out.AccountID = id
-	if err = tx.QueryRowContext(ctx, `SELECT plan FROM accounts WHERE id=?`, id).Scan(&out.CurrentPlan); err != nil {
+	out.CurrentPlan, _, err = billingAccountState(ctx, tx, id)
+	if err != nil {
 		return nil, err
 	}
 	m, err := readBillingMapping(ctx, tx, snap.Provider, snap.SubscriptionID)
@@ -240,16 +267,26 @@ func reconciliationChange(ctx context.Context, tx *sql.Tx, p AdminPrincipal, sna
 	if err != nil {
 		return nil, err
 	}
-	count, err := billingMappingCount(ctx, tx, id)
-	if err != nil {
-		return nil, err
-	}
-	if m.CustomerID != snap.CustomerID || m.AccountID != id || count != 1 {
+	if m.CustomerID != snap.CustomerID || m.AccountID != id {
 		return out, nil
 	}
 	if m.Version != snap.ExpectedVersion {
 		out.State = "version_conflict"
 		return out, nil
+	}
+	if snap.Provider == "stripe" {
+		if snap.ProviderReadAt.IsZero() {
+			return nil, fmt.Errorf("Stripe snapshot requires provider read time")
+		}
+		if !m.ProviderReadAt.IsZero() {
+			if snap.ProviderReadAt.Before(m.ProviderReadAt) {
+				out.State = "stale"
+				return out, nil
+			}
+			if snap.ProviderReadAt.Equal(m.ProviderReadAt) && billingSnapshotStateDigest(snap) != m.stateDigest {
+				return out, nil
+			}
+		}
 	}
 	if snap.Revision < m.Revision {
 		out.State = "stale"
@@ -284,7 +321,7 @@ func reconciliationChange(ctx context.Context, tx *sql.Tx, p AdminPrincipal, sna
 		}
 	}
 	out.State = "change_expected"
-	if out.CurrentPlan == snap.Plan && m.Plan == snap.Plan && m.Revision == snap.Revision && !pending {
+	if m.Plan == snap.Plan && m.Revision == snap.Revision && m.ProviderReadAt.Equal(snap.ProviderReadAt) && !pending {
 		out.State = "current"
 	}
 	return out, nil
@@ -296,7 +333,7 @@ func (s *OperationsStore) Reconcile(ctx context.Context, p AdminPrincipal, snaps
 // ApplyReviewedBilling is a local, authenticated operator action, never a
 // webhook adapter. The operator must verify ownership and an approved price
 // against a fresh Stripe read. Evidence is hashed into the immutable audit.
-// CAS prevents overwriting another review; Stripe event order is not a revision.
+// CAS and a durable provider-read watermark prevent older reviews from winning.
 func (s *OperationsStore) ApplyReviewedBilling(ctx context.Context, p AdminPrincipal, snapshots []BillingSnapshot) ([]ReconciliationChange, error) {
 	for _, snap := range snapshots {
 		digest, err := hex.DecodeString(snap.EvidenceSHA256)
@@ -304,16 +341,8 @@ func (s *OperationsStore) ApplyReviewedBilling(ctx context.Context, p AdminPrinc
 		if snap.Provider != "stripe" || snap.Revision != 0 || len(snap.EventIDs) == 0 || err != nil || len(digest) != sha256.Size || snap.ProviderReadAt.IsZero() || age < 0 || age > 5*time.Minute || !boundedText(snap.PriceID, 128) {
 			return nil, fmt.Errorf("reviewed apply requires fresh Stripe evidence, price and event receipts; revision must be zero")
 		}
-		if snap.Plan == "pro" {
-			if snap.ProviderStatus != "active" || !snap.PaymentConfirmed {
-				return nil, fmt.Errorf("Pro requires reviewed active subscription and confirmed payment")
-			}
-		} else {
-			switch snap.ProviderStatus {
-			case "canceled", "unpaid", "past_due", "incomplete", "incomplete_expired", "paused":
-			default:
-				return nil, fmt.Errorf("Free requires reviewed inactive or delinquent subscription")
-			}
+		if err := validateStripeEntitlement(snap); err != nil {
+			return nil, err
 		}
 	}
 	return s.reconcile(ctx, p, snapshots, false, true)
@@ -342,6 +371,13 @@ func (s *OperationsStore) reconcile(ctx context.Context, p AdminPrincipal, snaps
 			return nil, fmt.Errorf("duplicate subscription snapshot")
 		}
 		seen[key] = true
+		if snap.Provider == "stripe" {
+			if err := validateStripeEntitlement(snap); err != nil {
+				return nil, err
+			}
+		} else if (applyFixture || applyReviewed) && snap.Revision == 0 {
+			return nil, fmt.Errorf("verified billing requires an authoritative revision or provider read")
+		}
 		change, err := reconciliationChange(ctx, tx, p, snap)
 		if err != nil {
 			return nil, err
@@ -359,7 +395,7 @@ func (s *OperationsStore) reconcile(ctx context.Context, p AdminPrincipal, snaps
 		if c.State == "current" {
 			continue
 		}
-		if _, err = tx.ExecContext(ctx, `UPDATE accounts SET plan=? WHERE id=?`, c.Plan, c.AccountID); err != nil {
+		if err = writeBillingState(ctx, tx, c.Provider, c.SubscriptionID, c.Plan, c.Revision, c.ProviderReadAt, billingSnapshotStateDigest(c.BillingSnapshot)); err != nil {
 			return nil, err
 		}
 		if _, err = tx.ExecContext(ctx, `UPDATE ops_billing_mappings SET plan=?,revision=?,version=version+1 WHERE provider=? AND subscription_id=?`, c.Plan, c.Revision, c.Provider, c.SubscriptionID); err != nil {
@@ -379,8 +415,43 @@ func (s *OperationsStore) reconcile(ctx context.Context, p AdminPrincipal, snaps
 		}
 		c.State = "applied"
 	}
+	accounts := map[string]bool{}
+	for _, c := range out {
+		accounts[c.AccountID] = true
+	}
+	for id := range accounts {
+		if err = projectBillingAccount(ctx, tx, id); err != nil {
+			return nil, err
+		}
+	}
 	if err = tx.Commit(); err != nil {
 		return nil, err
 	}
 	return out, nil
+}
+
+// The fingerprint excludes local CAS, receipt selection and account UUID, which
+// can change during a merge. Equal provider order may only confirm equal state.
+func billingSnapshotStateDigest(s BillingSnapshot) string {
+	s.ExpectedVersion, s.AccountID, s.EventIDs = 0, "", nil
+	s.ProviderReadAt = s.ProviderReadAt.UTC()
+	data, _ := json.Marshal(s)
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+func validateStripeEntitlement(s BillingSnapshot) error {
+	switch s.ProviderStatus {
+	case "active", "trialing", "canceled", "unpaid", "past_due", "incomplete", "incomplete_expired", "paused":
+	default:
+		return fmt.Errorf("unknown reviewed subscription status")
+	}
+	plan := "free"
+	if s.ProviderStatus == "active" && s.PaymentConfirmed {
+		plan = "pro"
+	}
+	if s.Plan != plan {
+		return fmt.Errorf("plan must match reviewed subscription and payment eligibility")
+	}
+	return nil
 }

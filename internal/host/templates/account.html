@@ -286,6 +286,11 @@ h1 {
     check();
   })();
   </script>
+  {{else if .BillingSupport}}
+  <div class="card" role="status">
+    <div class="card-title">Subscription review</div>
+    <p>Your account is Free. Contact <a href="mailto:support@tunn.to">support</a> before starting another subscription.</p>
+  </div>
   {{else if eq .Plan "free"}}
   <div class="card upgrade-card">
     <div class="card-title">Upgrade to Pro</div>

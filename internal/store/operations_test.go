@@ -55,6 +55,10 @@ func requirePlan(t *testing.T, db *sql.DB, id, plan string) {
 }
 func TestAccountOperationsTransitionsRestartAndRollback(t *testing.T) {
 	db, ops, a, path := operationsFixture(t)
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS ops_fixture(id INTEGER PRIMARY KEY,value TEXT); INSERT OR IGNORE INTO ops_fixture VALUES(1,'disposable-local')`); err != nil {
+		t.Fatal(err)
+	}
+
 	ctx := context.Background()
 	p := operationsPrincipal(t, a.ID)
 	if _, err := ops.Transition(ctx, AdminPrincipal{}, a.ID, "suspended", "fixture", 0); !errors.Is(err, ErrDenied) {
@@ -116,6 +120,10 @@ func TestAccountOperationsTransitionsRestartAndRollback(t *testing.T) {
 }
 func TestAccountOperationsMergePreservesControlsAndUsage(t *testing.T) {
 	db, ops, a, _ := operationsFixture(t)
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS ops_fixture(id INTEGER PRIMARY KEY,value TEXT); INSERT OR IGNORE INTO ops_fixture VALUES(1,'disposable-local')`); err != nil {
+		t.Fatal(err)
+	}
+
 	ctx := context.Background()
 	accounts := NewAccountStore(db)
 	b, err := accounts.FindOrCreateByEmails([]string{"second@example.invalid"}, "fixture")
@@ -252,10 +260,10 @@ func TestAccountOperationsBillingFailureAndAmbiguity(t *testing.T) {
 		t.Fatal(err)
 	}
 	r, err = ops.ProcessBillingEvent(ctx, fixtureEvent("after-conflicting-merge", 2, "free"))
-	if err != nil || r.State != "reconciliation_required" || r.AccountID != merged.ID {
+	if err != nil || r.State != "applied" || r.AccountID != merged.ID {
 		t.Fatal(r, err)
 	}
-	requirePlan(t, db, merged.ID, "pro")
+	requirePlan(t, db, merged.ID, "free")
 }
 func TestAccountOperationsReconciliationDryRunAndAtomicApply(t *testing.T) {
 	db, ops, a, _ := operationsFixture(t)
@@ -402,6 +410,10 @@ func TestAccountOperationsReconciliationResolvesOnlyReviewedEvents(t *testing.T)
 }
 func TestAccountOperationsConcurrentVersionAndMergeRollback(t *testing.T) {
 	db, ops, a, _ := operationsFixture(t)
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS ops_fixture(id INTEGER PRIMARY KEY,value TEXT); INSERT OR IGNORE INTO ops_fixture VALUES(1,'disposable-local')`); err != nil {
+		t.Fatal(err)
+	}
+
 	ctx := context.Background()
 	p := operationsPrincipal(t, a.ID)
 	results := make(chan error, 2)

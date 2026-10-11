@@ -73,6 +73,9 @@ func TestReviewedStripeBillingActivationCancellationAndCAS(t *testing.T) {
 	if _, err = ops.ProcessBillingEvent(ctx, event); err != nil {
 		t.Fatal(err)
 	}
+	cancelTime := ops.now().Add(time.Second)
+	ops.now = func() time.Time { return cancelTime }
+	snap.ProviderReadAt = cancelTime
 	snap.ExpectedVersion, snap.Plan, snap.ProviderStatus, snap.EventIDs = 1, "free", "canceled", []string{event.ID}
 	changes, err = ops.ApplyReviewedBilling(ctx, p, []BillingSnapshot{snap})
 	if err != nil || changes[0].State != "applied" {

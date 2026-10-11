@@ -21,6 +21,7 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// Node information for login node discovery
 type NodeInfoRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -154,13 +155,17 @@ func (x *FindTunnelRequest) GetTunnelId() string {
 }
 
 type FindTunnelResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Found         bool                   `protobuf:"varint,1,opt,name=found,proto3" json:"found,omitempty"`
-	NodeAddress   string                 `protobuf:"bytes,2,opt,name=node_address,json=nodeAddress,proto3" json:"node_address,omitempty"`
-	AccountId     string                 `protobuf:"bytes,3,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
-	CreatorEmail  string                 `protobuf:"bytes,4,opt,name=creator_email,json=creatorEmail,proto3" json:"creator_email,omitempty"`
-	EndpointKind  string                 `protobuf:"bytes,5,opt,name=endpoint_kind,json=endpointKind,proto3" json:"endpoint_kind,omitempty"`
-	AllowedEmails []string               `protobuf:"bytes,6,rep,name=allowed_emails,json=allowedEmails,proto3" json:"allowed_emails,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Found bool                   `protobuf:"varint,1,opt,name=found,proto3" json:"found,omitempty"`
+	// The address of the node handling the tunnel.
+	// If found is true, this will be the address of the node.
+	// The caller can then use this address to forward the request.
+	NodeAddress string `protobuf:"bytes,2,opt,name=node_address,json=nodeAddress,proto3" json:"node_address,omitempty"`
+	// Live publisher ownership for the login node's MCP consent checks.
+	AccountId     string   `protobuf:"bytes,3,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	CreatorEmail  string   `protobuf:"bytes,4,opt,name=creator_email,json=creatorEmail,proto3" json:"creator_email,omitempty"`
+	EndpointKind  string   `protobuf:"bytes,5,opt,name=endpoint_kind,json=endpointKind,proto3" json:"endpoint_kind,omitempty"`
+	AllowedEmails []string `protobuf:"bytes,6,rep,name=allowed_emails,json=allowedEmails,proto3" json:"allowed_emails,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -237,6 +242,7 @@ func (x *FindTunnelResponse) GetAllowedEmails() []string {
 	return nil
 }
 
+// Usage tracking messages
 type RecordUsageRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	AccountId     string                 `protobuf:"bytes,1,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
@@ -413,6 +419,7 @@ func (x *GetMonthlyUsageResponse) GetBytesUsed() int64 {
 	return 0
 }
 
+// Device code messages
 type CreateDeviceCodeRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -544,7 +551,7 @@ func (x *DeviceCodeResponse) GetFound() bool {
 type GetDeviceCodeRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Code          string                 `protobuf:"bytes,1,opt,name=code,proto3" json:"code,omitempty"`
-	UserCode      string                 `protobuf:"bytes,2,opt,name=user_code,json=userCode,proto3" json:"user_code,omitempty"`
+	UserCode      string                 `protobuf:"bytes,2,opt,name=user_code,json=userCode,proto3" json:"user_code,omitempty"` // If set, lookup by user_code instead
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -689,6 +696,7 @@ func (x *AuthorizeDeviceCodeResponse) GetSuccess() bool {
 	return false
 }
 
+// Account messages
 type AccountResponse struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
 	Found              bool                   `protobuf:"varint,1,opt,name=found,proto3" json:"found,omitempty"`
@@ -699,6 +707,7 @@ type AccountResponse struct {
 	Emails             []*AccountEmail        `protobuf:"bytes,6,rep,name=emails,proto3" json:"emails,omitempty"`
 	OperationalState   string                 `protobuf:"bytes,7,opt,name=operational_state,json=operationalState,proto3" json:"operational_state,omitempty"`
 	OperationalVersion int64                  `protobuf:"varint,8,opt,name=operational_version,json=operationalVersion,proto3" json:"operational_version,omitempty"`
+	BillingState       string                 `protobuf:"bytes,9,opt,name=billing_state,json=billingState,proto3" json:"billing_state,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
@@ -787,6 +796,13 @@ func (x *AccountResponse) GetOperationalVersion() int64 {
 		return x.OperationalVersion
 	}
 	return 0
+}
+
+func (x *AccountResponse) GetBillingState() string {
+	if x != nil {
+		return x.BillingState
+	}
+	return ""
 }
 
 type AccountEmail struct {
@@ -1165,6 +1181,7 @@ func (*UpdatePlanResponse) Descriptor() ([]byte, []int) {
 	return file_proto_internal_proto_rawDescGZIP(), []int{21}
 }
 
+// Tunnel tracking messages
 type RegisterTunnelRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	TunnelId      string                 `protobuf:"bytes,1,opt,name=tunnel_id,json=tunnelId,proto3" json:"tunnel_id,omitempty"`
@@ -1461,10 +1478,11 @@ func (x *GetTunnelCountResponse) GetCount() int32 {
 	return 0
 }
 
+// Magic link replay protection messages
 type MarkMagicTokenUsedRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Jti           string                 `protobuf:"bytes,1,opt,name=jti,proto3" json:"jti,omitempty"`
-	ExpiryUnix    int64                  `protobuf:"varint,2,opt,name=expiry_unix,json=expiryUnix,proto3" json:"expiry_unix,omitempty"`
+	ExpiryUnix    int64                  `protobuf:"varint,2,opt,name=expiry_unix,json=expiryUnix,proto3" json:"expiry_unix,omitempty"` // When the token expires (for cleanup)
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1515,7 +1533,7 @@ func (x *MarkMagicTokenUsedRequest) GetExpiryUnix() int64 {
 
 type MarkMagicTokenUsedResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	WasUnused     bool                   `protobuf:"varint,1,opt,name=was_unused,json=wasUnused,proto3" json:"was_unused,omitempty"`
+	WasUnused     bool                   `protobuf:"varint,1,opt,name=was_unused,json=wasUnused,proto3" json:"was_unused,omitempty"` // true if token was unused and is now marked, false if already used
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1557,6 +1575,7 @@ func (x *MarkMagicTokenUsedResponse) GetWasUnused() bool {
 	return false
 }
 
+// Magic link rate limiting messages
 type CheckMagicLinkRateLimitRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Email         string                 `protobuf:"bytes,1,opt,name=email,proto3" json:"email,omitempty"`
@@ -1603,9 +1622,9 @@ func (x *CheckMagicLinkRateLimitRequest) GetEmail() string {
 
 type CheckMagicLinkRateLimitResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Allowed       bool                   `protobuf:"varint,1,opt,name=allowed,proto3" json:"allowed,omitempty"`
-	Remaining     int32                  `protobuf:"varint,2,opt,name=remaining,proto3" json:"remaining,omitempty"`
-	ResetAtUnix   int64                  `protobuf:"varint,3,opt,name=reset_at_unix,json=resetAtUnix,proto3" json:"reset_at_unix,omitempty"`
+	Allowed       bool                   `protobuf:"varint,1,opt,name=allowed,proto3" json:"allowed,omitempty"`                              // true if request is allowed
+	Remaining     int32                  `protobuf:"varint,2,opt,name=remaining,proto3" json:"remaining,omitempty"`                          // requests remaining in window
+	ResetAtUnix   int64                  `protobuf:"varint,3,opt,name=reset_at_unix,json=resetAtUnix,proto3" json:"reset_at_unix,omitempty"` // when the rate limit resets
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1853,6 +1872,94 @@ func (x *IntakeReportResponse) GetReportJson() []byte {
 	return nil
 }
 
+type BeginBillingCheckoutRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	AccountId     string                 `protobuf:"bytes,1,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BeginBillingCheckoutRequest) Reset() {
+	*x = BeginBillingCheckoutRequest{}
+	mi := &file_proto_internal_proto_msgTypes[36]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BeginBillingCheckoutRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BeginBillingCheckoutRequest) ProtoMessage() {}
+
+func (x *BeginBillingCheckoutRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[36]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BeginBillingCheckoutRequest.ProtoReflect.Descriptor instead.
+func (*BeginBillingCheckoutRequest) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{36}
+}
+
+func (x *BeginBillingCheckoutRequest) GetAccountId() string {
+	if x != nil {
+		return x.AccountId
+	}
+	return ""
+}
+
+type BeginBillingCheckoutResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Reference     string                 `protobuf:"bytes,1,opt,name=reference,proto3" json:"reference,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BeginBillingCheckoutResponse) Reset() {
+	*x = BeginBillingCheckoutResponse{}
+	mi := &file_proto_internal_proto_msgTypes[37]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BeginBillingCheckoutResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BeginBillingCheckoutResponse) ProtoMessage() {}
+
+func (x *BeginBillingCheckoutResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[37]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BeginBillingCheckoutResponse.ProtoReflect.Descriptor instead.
+func (*BeginBillingCheckoutResponse) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{37}
+}
+
+func (x *BeginBillingCheckoutResponse) GetReference() string {
+	if x != nil {
+		return x.Reference
+	}
+	return ""
+}
+
 var File_proto_internal_proto protoreflect.FileDescriptor
 
 const file_proto_internal_proto_rawDesc = "" +
@@ -1902,7 +2009,7 @@ const file_proto_internal_proto_rawDesc = "" +
 	"\x04code\x18\x01 \x01(\tR\x04code\x12\x14\n" +
 	"\x05email\x18\x02 \x01(\tR\x05email\"7\n" +
 	"\x1bAuthorizeDeviceCodeResponse\x12\x18\n" +
-	"\asuccess\x18\x01 \x01(\bR\asuccess\"\x9d\x02\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\"\xc2\x02\n" +
 	"\x0fAccountResponse\x12\x14\n" +
 	"\x05found\x18\x01 \x01(\bR\x05found\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12#\n" +
@@ -1912,7 +2019,8 @@ const file_proto_internal_proto_rawDesc = "" +
 	"created_at\x18\x05 \x01(\x03R\tcreatedAt\x12.\n" +
 	"\x06emails\x18\x06 \x03(\v2\x16.internal.AccountEmailR\x06emails\x12+\n" +
 	"\x11operational_state\x18\a \x01(\tR\x10operationalState\x12/\n" +
-	"\x13operational_version\x18\b \x01(\x03R\x12operationalVersion\"b\n" +
+	"\x13operational_version\x18\b \x01(\x03R\x12operationalVersion\x12#\n" +
+	"\rbilling_state\x18\t \x01(\tR\fbillingState\"b\n" +
 	"\fAccountEmail\x12\x14\n" +
 	"\x05email\x18\x01 \x01(\tR\x05email\x12!\n" +
 	"\fverified_via\x18\x02 \x01(\tR\vverifiedVia\x12\x19\n" +
@@ -1965,23 +2073,30 @@ const file_proto_internal_proto_rawDesc = "" +
 	"\x1fCheckMagicLinkRateLimitResponse\x12\x18\n" +
 	"\aallowed\x18\x01 \x01(\bR\aallowed\x12\x1c\n" +
 	"\tremaining\x18\x02 \x01(\x05R\tremaining\x12\"\n" +
-	"\rreset_at_unix\x18\x03 \x01(\x03R\vresetAtUnix\"0\n" +
-	"\x1aProcessBillingEventRequest\x12\x12\n" +
+	"\rreset_at_unix\x18\x03 \x01(\x03R\vresetAtUnix\";\n" +
+	"\x1aProcessBillingEventRequest\x12\x1d\n" +
 	"\n" +
-	"event_json\x18\x01 \x01(\f\"2\n" +
-	"\x1bProcessBillingEventResponse\x12\x13\n" +
-	"\vresult_json\x18\x01 \x01(\f\"M\n" +
-	"\x13IntakeReportRequest\x12\x12\n" +
+	"event_json\x18\x01 \x01(\fR\teventJson\">\n" +
+	"\x1bProcessBillingEventResponse\x12\x1f\n" +
+	"\vresult_json\x18\x01 \x01(\fR\n" +
+	"resultJson\"l\n" +
+	"\x13IntakeReportRequest\x12\x1d\n" +
 	"\n" +
-	"account_id\x18\x01 \x01(\t\x12\x10\n" +
-	"\bcategory\x18\x02 \x01(\t\x12\x10\n" +
-	"\bendpoint\x18\x03 \x01(\t\"+\n" +
-	"\x14IntakeReportResponse\x12\x13\n" +
-	"\vreport_json\x18\x01 \x01(\f2\xa0\x01\n" +
+	"account_id\x18\x01 \x01(\tR\taccountId\x12\x1a\n" +
+	"\bcategory\x18\x02 \x01(\tR\bcategory\x12\x1a\n" +
+	"\bendpoint\x18\x03 \x01(\tR\bendpoint\"7\n" +
+	"\x14IntakeReportResponse\x12\x1f\n" +
+	"\vreport_json\x18\x01 \x01(\fR\n" +
+	"reportJson\"<\n" +
+	"\x1bBeginBillingCheckoutRequest\x12\x1d\n" +
+	"\n" +
+	"account_id\x18\x01 \x01(\tR\taccountId\"<\n" +
+	"\x1cBeginBillingCheckoutResponse\x12\x1c\n" +
+	"\treference\x18\x01 \x01(\tR\treference2\xa0\x01\n" +
 	"\x0fInternalService\x12G\n" +
 	"\n" +
 	"FindTunnel\x12\x1b.internal.FindTunnelRequest\x1a\x1c.internal.FindTunnelResponse\x12D\n" +
-	"\vGetNodeInfo\x12\x19.internal.NodeInfoRequest\x1a\x1a.internal.NodeInfoResponse2\xd4\v\n" +
+	"\vGetNodeInfo\x12\x19.internal.NodeInfoRequest\x1a\x1a.internal.NodeInfoResponse2\xbb\f\n" +
 	"\vLoginNodeDB\x12J\n" +
 	"\vRecordUsage\x12\x1c.internal.RecordUsageRequest\x1a\x1d.internal.RecordUsageResponse\x12V\n" +
 	"\x0fGetMonthlyUsage\x12 .internal.GetMonthlyUsageRequest\x1a!.internal.GetMonthlyUsageResponse\x12S\n" +
@@ -2001,7 +2116,8 @@ const file_proto_internal_proto_rawDesc = "" +
 	"\x12MarkMagicTokenUsed\x12#.internal.MarkMagicTokenUsedRequest\x1a$.internal.MarkMagicTokenUsedResponse\x12n\n" +
 	"\x17CheckMagicLinkRateLimit\x12(.internal.CheckMagicLinkRateLimitRequest\x1a).internal.CheckMagicLinkRateLimitResponse\x12b\n" +
 	"\x13ProcessBillingEvent\x12$.internal.ProcessBillingEventRequest\x1a%.internal.ProcessBillingEventResponse\x12M\n" +
-	"\fIntakeReport\x12\x1d.internal.IntakeReportRequest\x1a\x1e.internal.IntakeReportResponseB0Z.github.com/ehrlich-b/tunn/pkg/proto/internalv1b\x06proto3"
+	"\fIntakeReport\x12\x1d.internal.IntakeReportRequest\x1a\x1e.internal.IntakeReportResponse\x12e\n" +
+	"\x14BeginBillingCheckout\x12%.internal.BeginBillingCheckoutRequest\x1a&.internal.BeginBillingCheckoutResponseB0Z.github.com/ehrlich-b/tunn/pkg/proto/internalv1b\x06proto3"
 
 var (
 	file_proto_internal_proto_rawDescOnce sync.Once
@@ -2015,7 +2131,7 @@ func file_proto_internal_proto_rawDescGZIP() []byte {
 	return file_proto_internal_proto_rawDescData
 }
 
-var file_proto_internal_proto_msgTypes = make([]protoimpl.MessageInfo, 36)
+var file_proto_internal_proto_msgTypes = make([]protoimpl.MessageInfo, 38)
 var file_proto_internal_proto_goTypes = []any{
 	(*NodeInfoRequest)(nil),                 // 0: internal.NodeInfoRequest
 	(*NodeInfoResponse)(nil),                // 1: internal.NodeInfoResponse
@@ -2053,6 +2169,8 @@ var file_proto_internal_proto_goTypes = []any{
 	(*ProcessBillingEventResponse)(nil),     // 33: internal.ProcessBillingEventResponse
 	(*IntakeReportRequest)(nil),             // 34: internal.IntakeReportRequest
 	(*IntakeReportResponse)(nil),            // 35: internal.IntakeReportResponse
+	(*BeginBillingCheckoutRequest)(nil),     // 36: internal.BeginBillingCheckoutRequest
+	(*BeginBillingCheckoutResponse)(nil),    // 37: internal.BeginBillingCheckoutResponse
 }
 var file_proto_internal_proto_depIdxs = []int32{
 	14, // 0: internal.AccountResponse.emails:type_name -> internal.AccountEmail
@@ -2075,27 +2193,29 @@ var file_proto_internal_proto_depIdxs = []int32{
 	30, // 17: internal.LoginNodeDB.CheckMagicLinkRateLimit:input_type -> internal.CheckMagicLinkRateLimitRequest
 	32, // 18: internal.LoginNodeDB.ProcessBillingEvent:input_type -> internal.ProcessBillingEventRequest
 	34, // 19: internal.LoginNodeDB.IntakeReport:input_type -> internal.IntakeReportRequest
-	3,  // 20: internal.InternalService.FindTunnel:output_type -> internal.FindTunnelResponse
-	1,  // 21: internal.InternalService.GetNodeInfo:output_type -> internal.NodeInfoResponse
-	5,  // 22: internal.LoginNodeDB.RecordUsage:output_type -> internal.RecordUsageResponse
-	7,  // 23: internal.LoginNodeDB.GetMonthlyUsage:output_type -> internal.GetMonthlyUsageResponse
-	9,  // 24: internal.LoginNodeDB.CreateDeviceCode:output_type -> internal.DeviceCodeResponse
-	9,  // 25: internal.LoginNodeDB.GetDeviceCode:output_type -> internal.DeviceCodeResponse
-	12, // 26: internal.LoginNodeDB.AuthorizeDeviceCode:output_type -> internal.AuthorizeDeviceCodeResponse
-	13, // 27: internal.LoginNodeDB.GetAccount:output_type -> internal.AccountResponse
-	13, // 28: internal.LoginNodeDB.GetAccountByEmail:output_type -> internal.AccountResponse
-	13, // 29: internal.LoginNodeDB.FindOrCreateByEmails:output_type -> internal.AccountResponse
-	19, // 30: internal.LoginNodeDB.GetEmailBucket:output_type -> internal.GetEmailBucketResponse
-	21, // 31: internal.LoginNodeDB.UpdatePlan:output_type -> internal.UpdatePlanResponse
-	23, // 32: internal.LoginNodeDB.RegisterTunnel:output_type -> internal.RegisterTunnelResponse
-	25, // 33: internal.LoginNodeDB.UnregisterTunnel:output_type -> internal.UnregisterTunnelResponse
-	27, // 34: internal.LoginNodeDB.GetTunnelCount:output_type -> internal.GetTunnelCountResponse
-	29, // 35: internal.LoginNodeDB.MarkMagicTokenUsed:output_type -> internal.MarkMagicTokenUsedResponse
-	31, // 36: internal.LoginNodeDB.CheckMagicLinkRateLimit:output_type -> internal.CheckMagicLinkRateLimitResponse
-	33, // 37: internal.LoginNodeDB.ProcessBillingEvent:output_type -> internal.ProcessBillingEventResponse
-	35, // 38: internal.LoginNodeDB.IntakeReport:output_type -> internal.IntakeReportResponse
-	20, // [20:39] is the sub-list for method output_type
-	1,  // [1:20] is the sub-list for method input_type
+	36, // 20: internal.LoginNodeDB.BeginBillingCheckout:input_type -> internal.BeginBillingCheckoutRequest
+	3,  // 21: internal.InternalService.FindTunnel:output_type -> internal.FindTunnelResponse
+	1,  // 22: internal.InternalService.GetNodeInfo:output_type -> internal.NodeInfoResponse
+	5,  // 23: internal.LoginNodeDB.RecordUsage:output_type -> internal.RecordUsageResponse
+	7,  // 24: internal.LoginNodeDB.GetMonthlyUsage:output_type -> internal.GetMonthlyUsageResponse
+	9,  // 25: internal.LoginNodeDB.CreateDeviceCode:output_type -> internal.DeviceCodeResponse
+	9,  // 26: internal.LoginNodeDB.GetDeviceCode:output_type -> internal.DeviceCodeResponse
+	12, // 27: internal.LoginNodeDB.AuthorizeDeviceCode:output_type -> internal.AuthorizeDeviceCodeResponse
+	13, // 28: internal.LoginNodeDB.GetAccount:output_type -> internal.AccountResponse
+	13, // 29: internal.LoginNodeDB.GetAccountByEmail:output_type -> internal.AccountResponse
+	13, // 30: internal.LoginNodeDB.FindOrCreateByEmails:output_type -> internal.AccountResponse
+	19, // 31: internal.LoginNodeDB.GetEmailBucket:output_type -> internal.GetEmailBucketResponse
+	21, // 32: internal.LoginNodeDB.UpdatePlan:output_type -> internal.UpdatePlanResponse
+	23, // 33: internal.LoginNodeDB.RegisterTunnel:output_type -> internal.RegisterTunnelResponse
+	25, // 34: internal.LoginNodeDB.UnregisterTunnel:output_type -> internal.UnregisterTunnelResponse
+	27, // 35: internal.LoginNodeDB.GetTunnelCount:output_type -> internal.GetTunnelCountResponse
+	29, // 36: internal.LoginNodeDB.MarkMagicTokenUsed:output_type -> internal.MarkMagicTokenUsedResponse
+	31, // 37: internal.LoginNodeDB.CheckMagicLinkRateLimit:output_type -> internal.CheckMagicLinkRateLimitResponse
+	33, // 38: internal.LoginNodeDB.ProcessBillingEvent:output_type -> internal.ProcessBillingEventResponse
+	35, // 39: internal.LoginNodeDB.IntakeReport:output_type -> internal.IntakeReportResponse
+	37, // 40: internal.LoginNodeDB.BeginBillingCheckout:output_type -> internal.BeginBillingCheckoutResponse
+	21, // [21:41] is the sub-list for method output_type
+	1,  // [1:21] is the sub-list for method input_type
 	1,  // [1:1] is the sub-list for extension type_name
 	1,  // [1:1] is the sub-list for extension extendee
 	0,  // [0:1] is the sub-list for field type_name
@@ -2112,7 +2232,7 @@ func file_proto_internal_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_internal_proto_rawDesc), len(file_proto_internal_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   36,
+			NumMessages:   38,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

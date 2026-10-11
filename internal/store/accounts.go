@@ -13,6 +13,7 @@ import (
 
 // Account represents a user account (email bucket)
 type Account struct {
+	BillingState       string
 	OperationalState   string
 	OperationalVersion int64
 	ID                 string
@@ -149,6 +150,10 @@ func (s *AccountStore) FindOrCreateByEmails(emails []string, verifiedVia string)
 		return nil, err
 	}
 	account.OperationalState, account.OperationalVersion = status.State, status.Version
+	account.Plan, account.BillingState, err = billingAccountState(context.Background(), tx, account.ID)
+	if err != nil {
+		return nil, err
+	}
 	if err = tx.Commit(); err != nil {
 		return nil, err
 	}
@@ -203,19 +208,18 @@ func (s *AccountStore) GetEmailBucket(email string) ([]string, error) {
 	return emails, nil
 }
 
-// UpdatePlan updates an account's plan
+// UpdatePlan changes a synthetic subscription in a marked disposable fixture.
 func (s *AccountStore) UpdatePlan(accountID, plan string) error {
-	_, err := s.db.Exec("UPDATE accounts SET plan = ? WHERE id = COALESCE((SELECT account_id FROM account_merges WHERE old_id = ?), ?)", plan, accountID, accountID)
-	return err
+	return s.updateFixturePlan(accountID, plan)
 }
 
-// mergeAccounts merges multiple accounts into one, keeping the best plan
+// mergeAccounts combines verified identities and reduces their billing state.
 func (s *AccountStore) mergeAccounts(tx *sql.Tx, accounts []*Account) (*Account, error) {
 	if len(accounts) == 0 {
 		return nil, sql.ErrNoRows
 	}
 
-	// Find the account with the best plan (pro > free)
+	// Prefer a paid survivor to preserve existing identity selection.
 	var primary *Account
 	for _, acc := range accounts {
 		if primary == nil || acc.Plan == "pro" {
@@ -278,6 +282,11 @@ ON CONFLICT(account_id, machine) DO UPDATE SET last_seen=MAX(host_machines.last_
 			return nil, err
 		}
 	}
+	plan, checkout, err := billingAccountState(context.Background(), tx, primary.ID)
+	if err != nil {
+		return nil, err
+	}
+	primary.Plan, primary.BillingState = plan, checkout
 	return primary, nil
 }
 
@@ -344,7 +353,7 @@ func (s *AccountStore) ReserveSubdomain(accountID, subdomain string) error {
 
 	// Check if account is Pro
 	var plan string
-	err = tx.QueryRow("SELECT plan FROM accounts WHERE id = ?", accountID).Scan(&plan)
+	plan, _, err = billingAccountState(context.Background(), tx, accountID)
 	if err != nil {
 		return err
 	}
@@ -392,7 +401,7 @@ func (s *AccountStore) GetSubdomainOwner(subdomain string) (string, error) {
 	subdomain = strings.ToLower(strings.TrimSpace(subdomain))
 
 	var accountID string
-	err := s.db.QueryRow("SELECT account_id FROM reserved_subdomains WHERE subdomain = ?", subdomain).Scan(&accountID)
+	err := s.db.QueryRow(`SELECT r.account_id FROM reserved_subdomains r WHERE r.subdomain=? AND EXISTS(SELECT 1 FROM ops_billing_mappings m JOIN ops_billing_states s USING(provider,subscription_id) WHERE m.account_id=r.account_id AND s.plan='pro')`, subdomain).Scan(&accountID)
 	if err == sql.ErrNoRows {
 		return "", nil
 	}
@@ -519,5 +528,6 @@ func (s *AccountStore) loadOperationalState(account *Account) error {
 		return err
 	}
 	account.OperationalState, account.OperationalVersion = status.State, status.Version
-	return nil
+	account.Plan, account.BillingState, err = billingAccountState(context.Background(), s.db, account.ID)
+	return err
 }

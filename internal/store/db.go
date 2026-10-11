@@ -88,6 +88,10 @@ func InitForTest() (*sql.DB, error) {
 	if err := initSchema(testDB); err != nil {
 		return nil, err
 	}
+	if _, err := testDB.Exec(`CREATE TABLE ops_fixture(id INTEGER PRIMARY KEY,value TEXT); INSERT INTO ops_fixture VALUES(1,'disposable-local')`); err != nil {
+		_ = testDB.Close()
+		return nil, err
+	}
 	return testDB, nil
 }
 

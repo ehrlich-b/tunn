@@ -861,6 +861,7 @@ func (p *ProxyServer) handleLogout(w http.ResponseWriter, r *http.Request) {
 type AccountPageData struct {
 	revenuePageData
 	BillingReturn            bool
+	BillingSupport           bool
 	Email                    string
 	Plan                     string
 	UsageBytes               int64
@@ -917,6 +918,9 @@ func (p *ProxyServer) handleAccount(w http.ResponseWriter, r *http.Request) {
 
 	stripeMonthly, stripeYearly := "", ""
 	revenue := p.revenueData()
+	if account.BillingState != "available" {
+		revenue.MonthlyAvailable, revenue.YearlyAvailable = false, false
+	}
 	if revenue.MonthlyAvailable {
 		stripeMonthly = "/upgrade?period=monthly"
 	}
@@ -933,7 +937,8 @@ func (p *ProxyServer) handleAccount(w http.ResponseWriter, r *http.Request) {
 
 	data := AccountPageData{
 		revenuePageData: revenue,
-		BillingReturn:   r.URL.Query().Get("billing") == "return",
+		BillingReturn:   r.URL.Query().Get("billing") == "return" || account.BillingState == "pending",
+		BillingSupport:  account.BillingState != "available" && account.Plan == "free",
 		Email:           email,
 		RequestsUsed:    requestsUsed, RequestsLimit: requestsLimit, UsageAvailable: usageAvailable,
 		Plan:                     plan,

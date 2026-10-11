@@ -19,7 +19,7 @@ var ErrVersionConflict = errors.New("account version conflict")
 var ErrDenied = errors.New("administration denied")
 
 // OperationsSchema uses isolated tables so domain/quota migrations can coexist.
-// It never changes plans, prices, usage, or existing account rows.
+// Verified billing state is authoritative; account plans are its projection.
 const OperationsSchema = `
 CREATE TABLE IF NOT EXISTS ops_account_state (
  account_id TEXT PRIMARY KEY REFERENCES accounts(id),
@@ -40,6 +40,18 @@ CREATE TABLE IF NOT EXISTS ops_billing_mappings (
  PRIMARY KEY(provider,subscription_id), UNIQUE(provider,customer_id)
 );
 CREATE INDEX IF NOT EXISTS ops_billing_account ON ops_billing_mappings(account_id);
+CREATE TABLE IF NOT EXISTS ops_billing_states (
+ provider TEXT NOT NULL, subscription_id TEXT NOT NULL,
+ plan TEXT NOT NULL CHECK(plan IN ('free','pro')), revision INTEGER NOT NULL,
+ provider_read_at INTEGER NOT NULL, digest TEXT NOT NULL,
+ PRIMARY KEY(provider,subscription_id),
+ FOREIGN KEY(provider,subscription_id) REFERENCES ops_billing_mappings(provider,subscription_id),
+ CHECK(revision > 0 OR provider_read_at > 0)
+);
+CREATE TABLE IF NOT EXISTS ops_checkout_intents (
+ reference TEXT PRIMARY KEY, account_id TEXT NOT NULL REFERENCES accounts(id), created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ops_checkout_account ON ops_checkout_intents(account_id);
 CREATE TABLE IF NOT EXISTS ops_billing_events (
  provider TEXT NOT NULL, event_id TEXT NOT NULL, digest TEXT NOT NULL,
  event_type TEXT NOT NULL, subscription_id TEXT NOT NULL, customer_id TEXT NOT NULL,
@@ -115,7 +127,27 @@ func NewOperationsStore(db *sql.DB, now func() time.Time) *OperationsStore {
 	}
 	return &OperationsStore{db, now}
 }
-func MigrateOperations(db *sql.DB) error { _, err := db.Exec(OperationsSchema); return err }
+func MigrateOperations(db *sql.DB) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err = tx.Exec(OperationsSchema); err != nil {
+		return err
+	}
+	// Legacy plan bits and digest-only audits cannot establish ordered, verified
+	// billing state. Fail closed until fresh provider evidence is reviewed.
+	if _, err = tx.Exec(`UPDATE accounts SET plan=CASE WHEN EXISTS(
+ SELECT 1 FROM ops_billing_mappings m JOIN ops_billing_states s USING(provider,subscription_id)
+ WHERE m.account_id=accounts.id AND s.plan='pro') THEN 'pro' ELSE 'free' END`); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`DELETE FROM reserved_subdomains WHERE account_id IN (SELECT id FROM accounts WHERE plan='free')`); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
 
 type operationQuery interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
@@ -234,11 +266,13 @@ func mergeAccountOperations(tx *sql.Tx, from, to string) error {
 			return err
 		}
 	}
-	for _, table := range []string{"ops_account_audit", "ops_billing_mappings", "ops_billing_events", "ops_reports"} {
+	for _, table := range []string{"ops_account_audit", "ops_billing_mappings", "ops_billing_events", "ops_checkout_intents", "ops_reports"} {
 		if _, err = tx.Exec("UPDATE "+table+" SET account_id=? WHERE account_id=?", to, from); err != nil {
 			return err
 		}
 	}
-	_, err = tx.Exec("DELETE FROM ops_account_state WHERE account_id=?", from)
-	return err
+	if _, err = tx.Exec("DELETE FROM ops_account_state WHERE account_id=?", from); err != nil {
+		return err
+	}
+	return projectBillingAccount(ctx, tx, to)
 }

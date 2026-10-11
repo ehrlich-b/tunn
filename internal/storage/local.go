@@ -431,6 +431,7 @@ func storeAccountToStorage(acc *store.Account) *Account {
 		}
 	}
 	return &Account{
+		BillingState:       acc.BillingState,
 		OperationalState:   acc.OperationalState,
 		OperationalVersion: acc.OperationalVersion,
 		ID:                 acc.ID,
@@ -452,4 +453,8 @@ func (s *LocalStorage) ProcessBillingEvent(ctx context.Context, e store.BillingE
 }
 func (s *LocalStorage) IntakeReport(ctx context.Context, id, category, endpoint string) (*store.IncidentReport, error) {
 	return s.OperationsStore().IntakeReport(ctx, id, category, endpoint)
+}
+
+func (s *LocalStorage) BeginBillingCheckout(ctx context.Context, id string) (string, error) {
+	return s.OperationsStore().BeginBillingCheckout(ctx, id)
 }

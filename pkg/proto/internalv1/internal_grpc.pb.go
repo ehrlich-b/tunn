@@ -176,29 +176,41 @@ const (
 	LoginNodeDB_CheckMagicLinkRateLimit_FullMethodName = "/internal.LoginNodeDB/CheckMagicLinkRateLimit"
 	LoginNodeDB_ProcessBillingEvent_FullMethodName     = "/internal.LoginNodeDB/ProcessBillingEvent"
 	LoginNodeDB_IntakeReport_FullMethodName            = "/internal.LoginNodeDB/IntakeReport"
+	LoginNodeDB_BeginBillingCheckout_FullMethodName    = "/internal.LoginNodeDB/BeginBillingCheckout"
 )
 
 // LoginNodeDBClient is the client API for LoginNodeDB service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// LoginNodeDB is the service that only the login node implements.
+// Non-login nodes proxy these calls to the login node.
 type LoginNodeDBClient interface {
+	// Usage tracking
 	RecordUsage(ctx context.Context, in *RecordUsageRequest, opts ...grpc.CallOption) (*RecordUsageResponse, error)
 	GetMonthlyUsage(ctx context.Context, in *GetMonthlyUsageRequest, opts ...grpc.CallOption) (*GetMonthlyUsageResponse, error)
+	// Device codes for CLI login
 	CreateDeviceCode(ctx context.Context, in *CreateDeviceCodeRequest, opts ...grpc.CallOption) (*DeviceCodeResponse, error)
 	GetDeviceCode(ctx context.Context, in *GetDeviceCodeRequest, opts ...grpc.CallOption) (*DeviceCodeResponse, error)
 	AuthorizeDeviceCode(ctx context.Context, in *AuthorizeDeviceCodeRequest, opts ...grpc.CallOption) (*AuthorizeDeviceCodeResponse, error)
+	// Account management
 	GetAccount(ctx context.Context, in *GetAccountRequest, opts ...grpc.CallOption) (*AccountResponse, error)
 	GetAccountByEmail(ctx context.Context, in *GetAccountByEmailRequest, opts ...grpc.CallOption) (*AccountResponse, error)
 	FindOrCreateByEmails(ctx context.Context, in *FindOrCreateByEmailsRequest, opts ...grpc.CallOption) (*AccountResponse, error)
 	GetEmailBucket(ctx context.Context, in *GetEmailBucketRequest, opts ...grpc.CallOption) (*GetEmailBucketResponse, error)
 	UpdatePlan(ctx context.Context, in *UpdatePlanRequest, opts ...grpc.CallOption) (*UpdatePlanResponse, error)
+	// Active tunnel tracking (cross-node)
 	RegisterTunnel(ctx context.Context, in *RegisterTunnelRequest, opts ...grpc.CallOption) (*RegisterTunnelResponse, error)
 	UnregisterTunnel(ctx context.Context, in *UnregisterTunnelRequest, opts ...grpc.CallOption) (*UnregisterTunnelResponse, error)
 	GetTunnelCount(ctx context.Context, in *GetTunnelCountRequest, opts ...grpc.CallOption) (*GetTunnelCountResponse, error)
+	// Magic link replay protection (cross-node)
 	MarkMagicTokenUsed(ctx context.Context, in *MarkMagicTokenUsedRequest, opts ...grpc.CallOption) (*MarkMagicTokenUsedResponse, error)
+	// Magic link rate limiting (per-email throttle)
 	CheckMagicLinkRateLimit(ctx context.Context, in *CheckMagicLinkRateLimitRequest, opts ...grpc.CallOption) (*CheckMagicLinkRateLimitResponse, error)
+	// Durable payment intake, authenticated by the existing internal node gate.
 	ProcessBillingEvent(ctx context.Context, in *ProcessBillingEventRequest, opts ...grpc.CallOption) (*ProcessBillingEventResponse, error)
 	IntakeReport(ctx context.Context, in *IntakeReportRequest, opts ...grpc.CallOption) (*IntakeReportResponse, error)
+	BeginBillingCheckout(ctx context.Context, in *BeginBillingCheckoutRequest, opts ...grpc.CallOption) (*BeginBillingCheckoutResponse, error)
 }
 
 type loginNodeDBClient struct {
@@ -379,27 +391,48 @@ func (c *loginNodeDBClient) IntakeReport(ctx context.Context, in *IntakeReportRe
 	return out, nil
 }
 
+func (c *loginNodeDBClient) BeginBillingCheckout(ctx context.Context, in *BeginBillingCheckoutRequest, opts ...grpc.CallOption) (*BeginBillingCheckoutResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(BeginBillingCheckoutResponse)
+	err := c.cc.Invoke(ctx, LoginNodeDB_BeginBillingCheckout_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // LoginNodeDBServer is the server API for LoginNodeDB service.
 // All implementations must embed UnimplementedLoginNodeDBServer
 // for forward compatibility.
+//
+// LoginNodeDB is the service that only the login node implements.
+// Non-login nodes proxy these calls to the login node.
 type LoginNodeDBServer interface {
+	// Usage tracking
 	RecordUsage(context.Context, *RecordUsageRequest) (*RecordUsageResponse, error)
 	GetMonthlyUsage(context.Context, *GetMonthlyUsageRequest) (*GetMonthlyUsageResponse, error)
+	// Device codes for CLI login
 	CreateDeviceCode(context.Context, *CreateDeviceCodeRequest) (*DeviceCodeResponse, error)
 	GetDeviceCode(context.Context, *GetDeviceCodeRequest) (*DeviceCodeResponse, error)
 	AuthorizeDeviceCode(context.Context, *AuthorizeDeviceCodeRequest) (*AuthorizeDeviceCodeResponse, error)
+	// Account management
 	GetAccount(context.Context, *GetAccountRequest) (*AccountResponse, error)
 	GetAccountByEmail(context.Context, *GetAccountByEmailRequest) (*AccountResponse, error)
 	FindOrCreateByEmails(context.Context, *FindOrCreateByEmailsRequest) (*AccountResponse, error)
 	GetEmailBucket(context.Context, *GetEmailBucketRequest) (*GetEmailBucketResponse, error)
 	UpdatePlan(context.Context, *UpdatePlanRequest) (*UpdatePlanResponse, error)
+	// Active tunnel tracking (cross-node)
 	RegisterTunnel(context.Context, *RegisterTunnelRequest) (*RegisterTunnelResponse, error)
 	UnregisterTunnel(context.Context, *UnregisterTunnelRequest) (*UnregisterTunnelResponse, error)
 	GetTunnelCount(context.Context, *GetTunnelCountRequest) (*GetTunnelCountResponse, error)
+	// Magic link replay protection (cross-node)
 	MarkMagicTokenUsed(context.Context, *MarkMagicTokenUsedRequest) (*MarkMagicTokenUsedResponse, error)
+	// Magic link rate limiting (per-email throttle)
 	CheckMagicLinkRateLimit(context.Context, *CheckMagicLinkRateLimitRequest) (*CheckMagicLinkRateLimitResponse, error)
+	// Durable payment intake, authenticated by the existing internal node gate.
 	ProcessBillingEvent(context.Context, *ProcessBillingEventRequest) (*ProcessBillingEventResponse, error)
 	IntakeReport(context.Context, *IntakeReportRequest) (*IntakeReportResponse, error)
+	BeginBillingCheckout(context.Context, *BeginBillingCheckoutRequest) (*BeginBillingCheckoutResponse, error)
 	mustEmbedUnimplementedLoginNodeDBServer()
 }
 
@@ -460,6 +493,9 @@ func (UnimplementedLoginNodeDBServer) ProcessBillingEvent(context.Context, *Proc
 }
 func (UnimplementedLoginNodeDBServer) IntakeReport(context.Context, *IntakeReportRequest) (*IntakeReportResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method IntakeReport not implemented")
+}
+func (UnimplementedLoginNodeDBServer) BeginBillingCheckout(context.Context, *BeginBillingCheckoutRequest) (*BeginBillingCheckoutResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method BeginBillingCheckout not implemented")
 }
 func (UnimplementedLoginNodeDBServer) mustEmbedUnimplementedLoginNodeDBServer() {}
 func (UnimplementedLoginNodeDBServer) testEmbeddedByValue()                     {}
@@ -788,6 +824,24 @@ func _LoginNodeDB_IntakeReport_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _LoginNodeDB_BeginBillingCheckout_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BeginBillingCheckoutRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LoginNodeDBServer).BeginBillingCheckout(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LoginNodeDB_BeginBillingCheckout_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LoginNodeDBServer).BeginBillingCheckout(ctx, req.(*BeginBillingCheckoutRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // LoginNodeDB_ServiceDesc is the grpc.ServiceDesc for LoginNodeDB service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -862,6 +916,10 @@ var LoginNodeDB_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "IntakeReport",
 			Handler:    _LoginNodeDB_IntakeReport_Handler,
+		},
+		{
+			MethodName: "BeginBillingCheckout",
+			Handler:    _LoginNodeDB_BeginBillingCheckout_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

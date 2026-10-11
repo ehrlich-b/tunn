@@ -1,0 +1,25 @@
+// Compiled only through the rehearsal overlay. This selects the existing SDK
+// dial seam and CLI MCP resource path; it is never part of an installed runtime.
+package tunn
+
+import (
+	"context"
+	"net"
+	"net/http"
+)
+
+func Wave8ReaderPublish(ctx context.Context, handler http.Handler, options Options, dial func(context.Context, string, string) (net.Conn, error), unavailable bool) (*Tunnel, error) {
+	options.Origin = "http://sdk-handler.invalid"
+	core, name, err := publisher(options)
+	if err != nil {
+		return nil, err
+	}
+	core.DialContext = dial
+	core.PublicPath = "/mcp"
+	if unavailable {
+		core.LocalDialContext = func(context.Context, string, string) (net.Conn, error) { return nil, net.ErrClosed }
+		return startTunnel(ctx, options, core, name, nil)
+	}
+	origin := &handlerOrigin{handler: handler, incoming: make(chan net.Conn), done: make(chan struct{}), served: make(chan struct{})}
+	return startTunnel(ctx, options, core, name, origin)
+}

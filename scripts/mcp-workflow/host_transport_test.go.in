@@ -1,0 +1,454 @@
+// Test-only overlay: the checked-in production host and SDK remain unchanged.
+package host
+
+import (
+	"bytes"
+	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"math/big"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	reader "github.com/ehrlich-b/tunn/examples/mcp-project-reader"
+	"github.com/ehrlich-b/tunn/internal/common"
+	meterpb "github.com/ehrlich-b/tunn/pkg/proto/meteringv1"
+	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
+	"github.com/ehrlich-b/tunn/scripts/mcp-workflow/client"
+	tunn "github.com/ehrlich-b/tunn/sdk"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/test/bufconn"
+)
+
+type wave8Transport struct {
+	handler http.Handler
+	sse     *atomic.Int32
+}
+
+func (m wave8Transport) RoundTrip(r *http.Request) (*http.Response, error) {
+	if err := r.Context().Err(); err != nil {
+		return nil, err
+	}
+	w := httptest.NewRecorder()
+	m.handler.ServeHTTP(w, r)
+	if err := r.Context().Err(); err != nil {
+		return nil, err
+	}
+	response := w.Result()
+	if m.sse != nil && strings.HasPrefix(response.Header.Get("Content-Type"), "text/event-stream") {
+		m.sse.Add(1)
+	}
+	return response, nil
+}
+
+type wave8Relay struct {
+	pb.UnimplementedTunnelServiceServer
+	server *TunnelServer
+	done   chan struct{}
+	opens  atomic.Int32
+}
+
+func (r *wave8Relay) EstablishTunnel(stream pb.TunnelService_EstablishTunnelServer) error {
+	defer close(r.done)
+	return r.server.EstablishTunnel(&wave8ServerStream{TunnelService_EstablishTunnelServer: stream, relay: r})
+}
+
+type wave8ServerStream struct {
+	pb.TunnelService_EstablishTunnelServer
+	relay *wave8Relay
+}
+
+func (s *wave8ServerStream) Send(msg *pb.TunnelMessage) error {
+	if msg.GetConnectionOpen() != nil {
+		s.relay.opens.Add(1)
+	}
+	return s.TunnelService_EstablishTunnelServer.Send(msg)
+}
+
+type wave8Stack struct {
+	relay         *wave8Relay
+	fixture       *mcpOAuthFixture
+	publisher     *tunn.Tunnel
+	reader        *reader.Reader
+	handler       http.Handler
+	calls         atomic.Int32
+	sseResponses  atomic.Int32
+	stream        bool
+	privatePrompt string
+}
+
+func newWave8Stack(t *testing.T, sse bool, wrap func(http.Handler) http.Handler) *wave8Stack {
+	return newWave8StackMode(t, sse, wrap, false)
+}
+func newWave8StackMode(t *testing.T, sse bool, wrap func(http.Handler) http.Handler, unavailable bool) *wave8Stack {
+	t.Helper()
+	// Static production logging is deliberately suppressed in fixture receipts.
+	oldLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	t.Cleanup(func() { slog.SetDefault(oldLogger) })
+	fixtureName := os.Getenv("WAVE8_READER_FIXTURE")
+	if fixtureName == "" {
+		fixtureName = "harbor/day1"
+	}
+	if fixtureName != "harbor/day1" && fixtureName != "harbor/day2" && fixtureName != "ridge" {
+		t.Fatal("invalid fixture selection")
+	}
+	root, err := filepath.Abs("../../examples/mcp-project-reader/fixtures/" + fixtureName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := reader.Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := newMCPOAuthFixture(t)
+	f.p.tunnelServer.mu.Lock()
+	delete(f.p.tunnelServer.tunnels, "tools")
+	f.p.tunnelServer.mu.Unlock()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert := &x509.Certificate{SerialNumber: big.NewInt(1), DNSNames: []string{"tunn.test"}, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour), KeyUsage: x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, IsCA: true, BasicConstraintsValid: true}
+	der, err := x509.CreateCertificate(rand.Reader, cert, cert, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool := x509.NewCertPool()
+	pool.AddCert(parsed)
+	listener := bufconn.Listen(1 << 20)
+	gs := grpc.NewServer(grpc.Creds(credentials.NewTLS(&tls.Config{Certificates: []tls.Certificate{{Certificate: [][]byte{der}, PrivateKey: key}}, MinVersion: tls.VersionTLS12})))
+	relay := &wave8Relay{server: f.p.tunnelServer, done: make(chan struct{})}
+	pb.RegisterTunnelServiceServer(gs, relay)
+	served := make(chan struct{})
+	go func() { defer close(served); _ = gs.Serve(listener) }()
+	t.Cleanup(func() { gs.Stop(); _ = listener.Close(); <-served })
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	stack := &wave8Stack{relay: relay, fixture: f, reader: r, stream: sse, privatePrompt: "PRIVATE-PROMPT-SENTINEL-DO-NOT-LOG"}
+	local := r.Handler(!sse)
+	if wrap != nil {
+		local = wrap(local)
+	}
+	handler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		stack.calls.Add(1)
+		if req.Header.Get("Authorization") != "" || req.Header.Get("Cookie") != "" || req.Header.Get("Tunn-Authorization") != "" {
+			t.Error("platform credential reached application")
+		}
+		local.ServeHTTP(w, req)
+	})
+	publisher, err := tunn.Wave8ReaderPublish(ctx, handler, tunn.Options{Name: "tools", ServerAddr: "127.0.0.1:10443", Credentials: tunn.Credentials{AuthToken: relayJWT(t, f.p, "owner@example.com"), TunnelKey: f.p.config.WellKnownKey}, AllowedEmails: []string{"owner@example.com"}, TLSConfig: &tls.Config{RootCAs: pool, ServerName: "tunn.test", MinVersion: tls.VersionTLS12}, ConnectTimeout: time.Second, Reconnect: &tunn.ReconnectPolicy{MaxAttempts: 0}}, func(ctx context.Context, _, _ string) (net.Conn, error) { return listener.DialContext(ctx) }, unavailable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stack.publisher = publisher
+	t.Cleanup(func() { _ = publisher.Close() })
+	ready, stop := context.WithTimeout(ctx, 3*time.Second)
+	defer stop()
+	if url, err := publisher.WaitReady(ready); err != nil || url != "https://tools.tunn.test/mcp" {
+		t.Fatalf("publisher readiness failed: %v", err)
+	}
+	actual, ok := f.p.tunnelServer.GetTunnel("tools")
+	if !ok || actual.TargetURL != "mcp" || actual.AccountID == "" || !actual.Supports(common.CapabilityHTTPStreamV1) {
+		t.Fatal("production MCP registration not preserved")
+	}
+	f.tunnel = actual
+	stack.handler = f.p.createHandler()
+	return stack
+}
+func (s *wave8Stack) consumer(token string) client.Consumer {
+	return client.Consumer{HTTP: &http.Client{Transport: wave8Transport{s.handler, &s.sseResponses}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, Endpoint: "https://tools.tunn.test/mcp", Bearer: token}
+}
+func wave8Structured(t *testing.T, raw json.RawMessage) reader.Result {
+	t.Helper()
+	var envelope struct {
+		StructuredContent reader.Result `json:"structuredContent"`
+	}
+	if json.Unmarshal(raw, &envelope) != nil || envelope.StructuredContent.Status == "" {
+		t.Fatal("missing structured result")
+	}
+	return envelope.StructuredContent
+}
+func wave8Failure(t *testing.T, err error, code string) {
+	t.Helper()
+	var failure *client.Failure
+	if !errors.As(err, &failure) || failure.Code != code || failure.Instruction == "" {
+		t.Fatalf("failure was not classified as %s", code)
+	}
+}
+func TestWave8ReaderAuthorizedTransport(t *testing.T) {
+	for _, sse := range []bool{false, true} {
+		t.Run(fmt.Sprintf("sse=%v", sse), func(t *testing.T) {
+			s := newWave8Stack(t, sse, nil)
+			// DCR, discovery, email verification, PKCE and consent use existing production
+			// handlers via the pre-existing specification-client fixture. No grant insert.
+			spec := discoverMCPClient(t, s.fixture)
+			token := spec.accessToken(t)
+			c := s.consumer(token)
+			init, err := c.RPC(context.Background(), 1, "initialize", map[string]any{"protocolVersion": "2025-11-25", "capabilities": map[string]any{}, "clientInfo": map[string]string{"name": "wave8-independent", "version": "1"}})
+			if err != nil || !bytes.Contains(init, []byte("mcp-project-reader")) {
+				t.Fatal("initialize through tunn failed")
+			}
+			if err := c.Initialized(context.Background()); err != nil {
+				t.Fatal("initialized notification through tunn failed")
+			}
+			listed, err := c.RPC(context.Background(), 2, "tools/list", map[string]any{})
+			if err != nil || !bytes.Contains(listed, []byte("project_search")) {
+				t.Fatal("discovery through tunn failed")
+			}
+			operations := []struct {
+				name string
+				args map[string]any
+			}{
+				{"project_list", map[string]any{}},
+				{"project_read", map[string]any{"path": "ISSUES.md", "firstLine": 8, "lastLine": 11}},
+				{"project_search", map[string]any{"query": "Café 🌊"}},
+			}
+			for i, op := range operations {
+				raw, err := c.Tool(context.Background(), 3+i, op.name, op.args)
+				if err != nil {
+					t.Fatal("authorized tool failed")
+				}
+				got := wave8Structured(t, raw)
+				args, _ := json.Marshal(op.args)
+				want, err := s.reader.Call(context.Background(), op.name, args)
+				if err != nil || !reflect.DeepEqual(got, want) {
+					t.Fatal("direct/tunneled result, source hash or citation differs")
+				}
+			}
+			_, err = c.Tool(context.Background(), 6, "project_read", map[string]any{"path": "../outside", "firstLine": 1, "lastLine": 1})
+			wave8Failure(t, err, "tool_error")
+			events, err := s.fixture.p.meter.Export(context.Background(), &meterpb.ExportRequest{Owner: s.fixture.tunnel.AccountID, Endpoint: "tools", Month: time.Now().UTC().Format("2006-01")})
+			if err != nil {
+				t.Fatal(err)
+			}
+			admitted := 0
+			for _, e := range events.Events {
+				if e.Allowed && e.Forwarded {
+					admitted++
+					if e.AuthMethod != "mcp_oauth" || e.GrantId == "" || !e.Finished {
+						t.Fatal("transport bypassed authorization/audit")
+					}
+				}
+			}
+			if admitted != 7 || s.calls.Load() != 7 || s.relay.opens.Load() != 7 {
+				t.Fatalf("authorized calls=%d local=%d", admitted, s.calls.Load())
+			}
+			// The protobuf connection path is used in both modes; the second mode also
+			// preserves an actual SDK-generated finite text/event-stream response.
+			if sse && s.sseResponses.Load() != 6 {
+				t.Fatal("finite SSE responses were not preserved through tunn")
+			}
+			if err := s.publisher.Close(); err != nil {
+				t.Fatal(err)
+			}
+			t.Logf("7 authorized requests; 3 direct/tunneled results equal; sse=%v", sse)
+		})
+	}
+}
+func TestWave8ReaderFailureJourney(t *testing.T) {
+	s := newWave8Stack(t, false, nil)
+	spec := discoverMCPClient(t, s.fixture)
+	token := spec.accessToken(t)
+	c := s.consumer(token)
+	// Wrong resource and wrong path use real audience and resource checks.
+	for _, endpoint := range []string{"https://tools.tunn.test/other", "https://other.tunn.test/mcp"} {
+		// A distinct actual MCP endpoint makes the wrong-audience result independent
+		// of missing-endpoint routing. It has the same owner but no new grant.
+		s.fixture.p.tunnelServer.mu.Lock()
+		s.fixture.p.tunnelServer.tunnels["other"] = &TunnelConnection{TunnelID: "other", TargetURL: "mcp", AccountID: s.fixture.tunnel.AccountID, CreatorEmail: "owner@example.com", Stream: s.fixture.tunnel.Stream}
+		s.fixture.p.tunnelServer.mu.Unlock()
+		wrong := c
+		wrong.Endpoint = endpoint
+		_, err := wrong.Tool(context.Background(), 10, "project_list", map[string]any{})
+		wave8Failure(t, err, "access_denied")
+	}
+	if s.calls.Load() != 0 {
+		t.Fatal("invalid audience reached reader")
+	}
+	// The actual owner API revokes the real fixture consent grant.
+	owner := relayJWT(t, s.fixture.p, "owner@example.com")
+	revoked := s.fixture.request("DELETE", "https://tunn.test/api/mcp/clients?tunnel=tools&client_id="+spec.clientID, "", "", owner, nil)
+	if revoked.Code != 204 {
+		t.Fatal("fixture revocation failed")
+	}
+	_, err := c.Tool(context.Background(), 11, "project_list", map[string]any{})
+	wave8Failure(t, err, "access_denied")
+	if s.calls.Load() != 0 {
+		t.Fatal("revoked grant reached reader")
+	}
+	token = spec.accessToken(t)
+	c = s.consumer(token)
+	digest := sha256.Sum256([]byte(token))
+	grant, err := s.fixture.p.meter.Resolve(context.Background(), &meterpb.ResolveRequest{Owner: s.fixture.tunnel.AccountID, Endpoint: "tools", TokenSha256: digest[:]})
+	if err != nil {
+		t.Fatal(err)
+	}
+	grant.ExpiresAt = time.Now().Add(-time.Second).UnixMilli()
+	data, _ := json.Marshal(grant)
+	if _, err = s.fixture.p.mcpOAuth.db.Exec(`UPDATE meter_grants SET expires=?, data=? WHERE id=?`, grant.ExpiresAt, data, grant.Id); err != nil {
+		t.Fatal(err)
+	}
+	_, err = c.Tool(context.Background(), 12, "project_list", map[string]any{})
+	wave8Failure(t, err, "access_denied")
+	if s.calls.Load() != 0 {
+		t.Fatal("expired grant reached reader")
+	}
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err = c.Tool(canceled, 13, "project_list", map[string]any{})
+	wave8Failure(t, err, "canceled")
+	if err = s.publisher.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-s.relay.done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("relay did not complete disconnect")
+	}
+	_, err = c.Tool(context.Background(), 14, "project_list", map[string]any{})
+	wave8Failure(t, err, "service_unavailable")
+	t.Log("revoked/expired/wrong audience rejected before application; offline publisher is HTTP 503")
+}
+func TestWave8ReaderTruncatedResponse(t *testing.T) {
+	s := newWave8Stack(t, false, func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"jsonrpc":"2.0","id":21,"result":{"structuredContent":`)
+		})
+	})
+	spec := discoverMCPClient(t, s.fixture)
+	token := spec.accessToken(t)
+	_, err := s.consumer(token).Tool(context.Background(), 21, "project_list", map[string]any{})
+	wave8Failure(t, err, "incomplete_response")
+	if s.calls.Load() != 1 {
+		t.Fatal("truncated response did not traverse application")
+	}
+}
+func TestWave8ReaderConcurrentCancellation(t *testing.T) {
+	blocked := make(chan struct{})
+	ended := make(chan struct{})
+	s := newWave8Stack(t, true, func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			data, _ := io.ReadAll(r.Body)
+			r.Body = io.NopCloser(bytes.NewReader(data))
+			var req struct {
+				ID int `json:"id"`
+			}
+			_ = json.Unmarshal(data, &req)
+			if req.ID == 31 {
+				close(blocked)
+				<-r.Context().Done()
+				close(ended)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	})
+	spec := discoverMCPClient(t, s.fixture)
+	token := spec.accessToken(t)
+	c := s.consumer(token)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	result := make(chan error, 1)
+	go func() { _, err := c.Tool(ctx, 31, "project_search", map[string]any{"query": "Unicode"}); result <- err }()
+	select {
+	case <-blocked:
+	case <-time.After(3 * time.Second):
+		t.Fatal("first call did not arrive")
+	}
+	raw, err := c.Tool(context.Background(), 32, "project_read", map[string]any{"path": "ISSUES.md", "firstLine": 8, "lastLine": 11})
+	if err != nil || !strings.Contains(string(raw), "HN-104") {
+		t.Fatal("second call failed while first active")
+	}
+	cancel()
+	select {
+	case err := <-result:
+		wave8Failure(t, err, "canceled")
+	case <-time.After(3 * time.Second):
+		t.Fatal("caller cancellation did not finish")
+	}
+	select {
+	case <-ended:
+	case <-time.After(3 * time.Second):
+		t.Fatal("cancellation failed to reach handler")
+	}
+	again, err := c.Tool(context.Background(), 33, "project_list", map[string]any{})
+	if err != nil || len(wave8Structured(t, again).Files) != 3 {
+		t.Fatal("cancellation broke sibling/session")
+	}
+	t.Log("IDs 31 and 32 overlapped; 31 canceled at handler, 32 and subsequent 33 completed")
+}
+
+// Write only source-fixture outputs; authorization material never enters this
+// receipt. The Python oracle independently derives the answer from these reads.
+func TestWave8ReaderReceipt(t *testing.T) {
+	destination := os.Getenv("WAVE8_READER_OUTPUT")
+	if destination == "" {
+		t.Fatal("REQUIRED-UNRUN: explicit scratch receipt destination missing")
+	}
+	s := newWave8Stack(t, true, nil)
+	spec := discoverMCPClient(t, s.fixture)
+	token := spec.accessToken(t)
+	c := s.consumer(token)
+	manifestRaw, err := c.Tool(context.Background(), 41, "project_list", map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := wave8Structured(t, manifestRaw)
+	var reads []reader.Span
+	for i, file := range manifest.Files {
+		raw, err := c.Tool(context.Background(), 42+i, "project_read", map[string]any{"path": file.Path, "firstLine": 1, "lastLine": file.Lines})
+		if err != nil {
+			t.Fatal(err)
+		}
+		reads = append(reads, wave8Structured(t, raw).Spans...)
+	}
+	receipt := map[string]any{"scope": "fixture-only", "transport": "TLS/gRPC bufconn + SDK net.Pipe + production MCP OAuth ingress", "files": manifest.Files, "reads": reads, "protocol": "2025-11-25"}
+	data, err := json.MarshalIndent(receipt, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, private := range []string{token, s.privatePrompt, "Bearer ", "csrf_token", "authorization\""} {
+		if bytes.Contains(data, []byte(private)) {
+			t.Fatal("private authorization or prompt reached receipt")
+		}
+	}
+	if err := os.WriteFile(destination, append(data, '\n'), 0600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestWave8ReaderNoLocalService(t *testing.T) {
+	s := newWave8StackMode(t, false, nil, true)
+	spec := discoverMCPClient(t, s.fixture)
+	token := spec.accessToken(t)
+	_, err := s.consumer(token).Tool(context.Background(), 51, "project_list", map[string]any{})
+	wave8Failure(t, err, "service_unavailable")
+	if s.calls.Load() != 0 || s.relay.opens.Load() != 1 {
+		t.Fatal("unavailable service gate bypassed real transport")
+	}
+	t.Log("active authenticated publisher, missing origin: service_unavailable; no successful empty answer")
+}

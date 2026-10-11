@@ -84,9 +84,14 @@ func Open(root string) (*Reader, error) {
 	defer confined.Close()
 	r := &Reader{files: make(map[string]source)}
 	total := 0
+	entries := 0
 	err = fs.WalkDir(confined.FS(), ".", func(name string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return failure("unreadable_fixture")
+		}
+		entries++
+		if entries > 128 || len(name) > 256 || strings.Count(name, "/") > 8 {
+			return failure("fixture_limit")
 		}
 		if entry.Type()&os.ModeSymlink != 0 {
 			return failure("symlink_rejected")
@@ -105,9 +110,10 @@ func Open(root string) (*Reader, error) {
 			return failure("unreadable_fixture")
 		}
 		stat, statErr := f.Stat()
+		pathStat, pathErr := confined.Lstat(name)
 		data, readErr := io.ReadAll(io.LimitReader(f, MaxFileBytes+1))
 		closeErr := f.Close()
-		if statErr != nil || !stat.Mode().IsRegular() || readErr != nil || closeErr != nil {
+		if statErr != nil || pathErr != nil || !stat.Mode().IsRegular() || !pathStat.Mode().IsRegular() || !os.SameFile(stat, pathStat) || readErr != nil || closeErr != nil {
 			return failure("unreadable_fixture")
 		}
 		if len(data) > MaxFileBytes || total+len(data) > MaxTotalBytes {
@@ -157,6 +163,9 @@ func (s source) span(first, last int) Span {
 	return Span{s.Path, s.SHA256, first, last, start, end, string(s.data[start:end])}
 }
 func strictArgs(raw json.RawMessage, into any) error {
+	if !utf8.Valid(raw) {
+		return failure("invalid_arguments")
+	}
 	// Reject duplicate keys as well as unknown fields and non-object input.
 	d := json.NewDecoder(bytes.NewReader(raw))
 	token, err := d.Token()

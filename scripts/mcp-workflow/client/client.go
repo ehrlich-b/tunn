@@ -11,6 +11,7 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"time"
 )
 
 type Failure struct {
@@ -42,6 +43,11 @@ type Consumer struct {
 // RPC never puts endpoint URLs, arguments, prompts, remote bodies or bearer
 // values in errors. Bearer is used only for the outgoing Authorization header.
 func (c Consumer) RPC(ctx context.Context, id int, method string, params any) (json.RawMessage, error) {
+	if ctx == nil {
+		return nil, Fail("protocol_error", 0)
+	}
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
 	body, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params})
 	if err != nil {
 		return nil, Fail("protocol_error", 0)
@@ -59,7 +65,9 @@ func (c Consumer) RPC(ctx context.Context, id int, method string, params any) (j
 	if c.HTTP == nil {
 		return nil, Fail("service_unavailable", 0)
 	}
-	resp, err := c.HTTP.Do(req)
+	httpClient := *c.HTTP
+	httpClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return nil, Fail("canceled", 0)
@@ -79,6 +87,9 @@ func (c Consumer) RPC(ctx context.Context, id int, method string, params any) (j
 		return nil, Fail("protocol_error", resp.StatusCode)
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, (1<<20)+1))
+	if ctx.Err() != nil {
+		return nil, Fail("canceled", 0)
+	}
 	if err != nil || len(data) > 1<<20 {
 		return nil, Fail("incomplete_response", resp.StatusCode)
 	}
@@ -146,5 +157,70 @@ func (c Consumer) RPC(ctx context.Context, id int, method string, params any) (j
 	return envelope.Result, nil
 }
 func (c Consumer) Tool(ctx context.Context, id int, name string, args any) (json.RawMessage, error) {
-	return c.RPC(ctx, id, "tools/call", map[string]any{"name": name, "arguments": args})
+	raw, err := c.RPC(ctx, id, "tools/call", map[string]any{"name": name, "arguments": args})
+	if err != nil {
+		return nil, err
+	}
+	var envelope struct {
+		StructuredContent struct {
+			Status    string `json:"status"`
+			Truncated bool   `json:"truncated"`
+		} `json:"structuredContent"`
+	}
+	if json.Unmarshal(raw, &envelope) != nil || (envelope.StructuredContent.Status != "ok" && envelope.StructuredContent.Status != "no_matches") {
+		return nil, Fail("incomplete_response", 200)
+	}
+	return raw, nil
+}
+
+// Initialized completes the negotiated MCP handshake with a notification. The
+// finite reader needs no client-side sampling, elicitation or standalone SSE.
+func (c Consumer) Initialized(ctx context.Context) error {
+	if ctx == nil {
+		return Fail("protocol_error", 0)
+	}
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.Endpoint, bytes.NewReader([]byte(`{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}`)))
+	if err != nil {
+		return Fail("wrong_endpoint", 0)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	req.Header.Set("Mcp-Protocol-Version", "2025-11-25")
+	if c.Bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+c.Bearer)
+	}
+	if c.HTTP == nil {
+		return Fail("service_unavailable", 0)
+	}
+	hc := *c.HTTP
+	hc.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	response, err := hc.Do(req)
+	if err != nil {
+		if ctx.Err() != nil {
+			return Fail("canceled", 0)
+		}
+		return Fail("service_unavailable", 0)
+	}
+	defer response.Body.Close()
+	switch response.StatusCode {
+	case 202:
+	case 401, 403:
+		return Fail("access_denied", response.StatusCode)
+	case 404:
+		return Fail("wrong_endpoint", response.StatusCode)
+	case 502, 503, 504:
+		return Fail("service_unavailable", response.StatusCode)
+	default:
+		return Fail("protocol_error", response.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, 1))
+	if ctx.Err() != nil {
+		return Fail("canceled", 0)
+	}
+	if err != nil || len(body) != 0 {
+		return Fail("protocol_error", response.StatusCode)
+	}
+	return nil
 }

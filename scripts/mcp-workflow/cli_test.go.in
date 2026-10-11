@@ -1,0 +1,24 @@
+// Exact operator command parse gate; never launches the child or a publisher.
+package main
+
+import (
+	"path/filepath"
+	"reflect"
+	"testing"
+)
+
+func TestWave8ReaderCommand(t *testing.T) {
+	root, err := filepath.Abs("examples/mcp-project-reader/fixtures/harbor/day1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	child := []string{".scratch/mcp-workflow/bin/mcp-project-reader", "--root", root}
+	args := append([]string{"--name", "project-reader", "--tools", "project_list,project_read,project_search", "--"}, child...)
+	opts, err := parseMCPFlags(normalizeMCPArgs(args))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.tunnelID != "project-reader" || opts.public || opts.targetURL != "" || !reflect.DeepEqual(opts.command, child) || !reflect.DeepEqual(opts.allowedTools, []string{"project_list", "project_read", "project_search"}) {
+		t.Fatal("documented stdio command compatibility changed")
+	}
+}

@@ -528,8 +528,9 @@ test-edge-openssh:
 .PHONY: test-mcp-project-reader build-mcp-project-reader mcp-workflow
 test-mcp-project-reader:
 	go test $(GO_TEST_FLAGS) -p 2 -count=1 ./examples/mcp-project-reader/...
+MCP_READER_BINARY ?= .scratch/mcp-workflow/bin/mcp-project-reader
 build-mcp-project-reader:
-	mkdir -p .scratch/mcp-workflow/bin
-	go build -o .scratch/mcp-workflow/bin/mcp-project-reader ./examples/mcp-project-reader/cmd
+	mkdir -p "$(dir $(MCP_READER_BINARY))"
+	go build -o "$(MCP_READER_BINARY)" ./examples/mcp-project-reader/cmd
 mcp-workflow:
 	PYTHONDONTWRITEBYTECODE=1 python3 scripts/mcp-workflow/rehearse.py --mode in-memory

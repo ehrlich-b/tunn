@@ -124,6 +124,9 @@ func TestDirectProtocolIndependentOracle(t *testing.T) {
 				if err != nil || !bytes.Contains(initialized, []byte("mcp-project-reader")) {
 					t.Fatalf("initialize: %s %v", initialized, err)
 				}
+				if err := c.Initialized(context.Background()); err != nil {
+					t.Fatal("initialized notification failed")
+				}
 				listed, err := c.RPC(context.Background(), 2, "tools/list", map[string]any{})
 				if err != nil {
 					t.Fatal(err)
@@ -295,4 +298,47 @@ func TestHTTPBoundary(t *testing.T) {
 		}
 		_ = w.Result().Body.Close()
 	}
+}
+
+func TestSecondProjectDuplicatePathsUnicodeAndNoAnswer(t *testing.T) {
+	root, err := filepath.Abs("fixtures/ridge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := reader.Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := consumer(r, true)
+	manifest := call(t, c, 1, "project_list", map[string]any{})
+	if len(manifest.Files) != 4 {
+		t.Fatal("second-project manifest differs")
+	}
+	text := map[string]string{}
+	for i, f := range manifest.Files {
+		out := call(t, c, i+2, "project_read", map[string]any{"path": f.Path, "firstLine": 1, "lastLine": f.Lines})
+		if len(out.Spans) != 1 {
+			t.Fatal("missing source span")
+		}
+		validateSpan(t, root, out.Spans[0])
+		text[f.Path] = out.Spans[0].Text
+	}
+	if text["README.md"] == text["docs/README.md"] || text["docs/README.md"] == "" {
+		t.Fatal("duplicate basenames collided")
+	}
+	if choose(t, text) != "no_actionable_issue" {
+		t.Fatal("absent answer was invented")
+	}
+	search := call(t, c, 7, "project_search", map[string]any{"query": "naïve café 🌲"})
+	if len(search.Spans) != 2 || search.Spans[0].Path == search.Spans[1].Path {
+		t.Fatal("unicode search conflated files")
+	}
+	for _, span := range search.Spans {
+		validateSpan(t, root, span)
+	}
+	absent := call(t, c, 8, "project_search", map[string]any{"query": "Readiness: urgent"})
+	if absent.Status != "no_matches" || absent.Truncated || len(absent.Spans) != 0 {
+		t.Fatal("missing evidence not explicit")
+	}
+	t.Log("independent answer=no_actionable_issue; 4 files; duplicate paths and 2 Unicode spans checked")
 }

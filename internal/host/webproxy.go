@@ -553,13 +553,17 @@ func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, 
 			writer.bodyMeter = false
 		}
 		// Write response headers
-		copyApplicationResponseHeaders(w.Header(), httpResp.Headers)
+		copyApplicationResponseHeaderFields(w.Header(), httpResp.Headers, httpResp.HeaderFields)
 
 		// Write status code
 		w.WriteHeader(int(httpResp.StatusCode))
 
 		// Write body
-		n, writeErr := w.Write(httpResp.Body)
+		var n int
+		var writeErr error
+		if common.HTTPResponseHasBody(r.Method, int(httpResp.StatusCode)) {
+			n, writeErr = w.Write(httpResp.Body)
+		}
 		if meterForRequest(r) != nil {
 			recordMeteredWrite(r, n)
 		}

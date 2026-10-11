@@ -174,13 +174,13 @@ uses the map. The map remains available for older peers and joins repeated
 values with `, `. Exact multiplicity needs both upgraded endpoints. The legacy
 host cookie-splitting heuristic cannot recover all valid cookie values.
 
-The transport matrix at the pinned base is:
+The supported response matrix is:
 
 | Handler behavior | Buffered path | Streaming path |
 | --- | --- | --- |
-| Repeated ordinary fields | Collapsed in the map | Collapsed in the map |
-| Two cookies, including a comma in a value | Legacy cookie splitting is ambiguous | Same ambiguity |
-| HEAD, 204 and 304 | Upstream net/http suppresses body | Same upstream behavior |
+| Repeated ordinary fields | Exact field list; joined legacy fallback | Same |
+| Two cookies, including a comma in a value | Exact fields and platform-cookie filtering | Same; legacy fallback remains ambiguous |
+| HEAD, 204 and 304 | No body read or forwarded bytes | Same; metadata completes without waiting for body frames |
 | Empty or status-only response | Entire response collected before sending | Metadata followed by half-close |
 | Known or unknown body length | Limited body read to EOF | Chunks read to EOF |
 | Response trailers | Not serialized | Not serialized in terminal frame |
@@ -198,7 +198,7 @@ This API exposes HTTP publishing only. Public raw TCP, Unix endpoints, raw TLS,
 MCP child supervision, host-mode/service installation, inspector/replay APIs,
 control-plane provisioning, account caches/login, token rotation, custom-domain
 management and JS/Python/Rust wrappers are outside this SDK. Existing HTTP
-transport limits also remain: map-based header multiplicity, trailers, gRPC
+transport limits also remain: trailers, gRPC
 application forwarding and WebSocket compression have no new fidelity promise.
 
 A later JS/Python/Rust binding needs only typed publisher options/credentials,

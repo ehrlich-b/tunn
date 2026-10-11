@@ -3,6 +3,8 @@ package host
 import (
 	"net/http"
 	"strings"
+
+	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
 )
 
 // Reserve the same cookie namespaces in both directions. Parent-domain login
@@ -51,4 +53,32 @@ func splitSetCookies(value string) []string {
 		start = i + 1
 	}
 	return append(cookies, strings.TrimSpace(value[start:]))
+}
+
+// A nonempty additive list replaces the entire map. Cookie values in the list
+// are already individual fields and must never pass through comma splitting.
+func copyApplicationResponseHeaderFields(dst http.Header, legacy map[string]string, fields []*pb.HttpHeader) {
+	if len(fields) == 0 {
+		copyApplicationResponseHeaders(dst, legacy)
+		return
+	}
+	seen := make(map[string]bool)
+	for _, field := range fields {
+		if field == nil || strings.HasPrefix(strings.ToLower(field.Name), "tunn-") {
+			continue
+		}
+		name := http.CanonicalHeaderKey(field.Name)
+		if strings.EqualFold(name, "Set-Cookie") {
+			cookie, err := http.ParseSetCookie(field.Value)
+			if err == nil && !isPlatformCookie(cookie.Name) {
+				dst.Add("Set-Cookie", field.Value)
+			}
+			continue
+		}
+		if !seen[name] {
+			dst.Del(name)
+			seen[name] = true
+		}
+		dst.Add(name, field.Value)
+	}
 }

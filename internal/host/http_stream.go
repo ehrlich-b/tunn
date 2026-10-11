@@ -88,7 +88,8 @@ func (p *ProxyServer) proxyStreamingHTTPOverGRPC(w http.ResponseWriter, r *http.
 			}
 			var responseSize int64
 			if r.Method != http.MethodHead && event.accept.HttpResponse.StatusCode != 204 && event.accept.HttpResponse.StatusCode != 304 {
-				for key, value := range event.accept.HttpResponse.Headers {
+				for key, values := range common.DecodeHTTPResponseHeaders(event.accept.HttpResponse.Headers, event.accept.HttpResponse.HeaderFields) {
+					value := strings.Join(values, ", ")
 					if strings.EqualFold(key, "Content-Length") {
 						responseSize, _ = strconv.ParseInt(value, 10, 64)
 					}
@@ -167,7 +168,7 @@ func (p *ProxyServer) writeStreamingHTTPResponse(
 	requestResult <-chan requestBodyResult,
 	requestFinished *bool,
 ) error {
-	copyApplicationResponseHeaders(w.Header(), head.Headers)
+	copyApplicationResponseHeaderFields(w.Header(), head.Headers, head.HeaderFields)
 	if meterForRequest(r) != nil && r.Method != http.MethodHead && head.StatusCode != 204 && head.StatusCode != 304 {
 		// HTTP/1 trailers require chunked framing. The upstream length was already
 		// checked, but a concurrent upload/revocation may still terminate egress.
@@ -185,6 +186,9 @@ func (p *ProxyServer) writeStreamingHTTPResponse(
 		}
 	}()
 
+	if !common.HTTPResponseHasBody(r.Method, int(head.StatusCode)) {
+		return nil
+	}
 	for {
 		select {
 		case event := <-pending.events:

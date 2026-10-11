@@ -385,18 +385,16 @@ func (s *ServeClient) handleStreamingHTTPRequest(ctx context.Context, sender mes
 		capture.setProtocol("sse")
 	}
 
-	headers := make(map[string]string, len(response.Header))
-	for key, values := range response.Header {
-		headers[key] = strings.Join(values, ", ")
-	}
+	headers, fields := common.EncodeHTTPResponseHeaders(response.Header)
 	if err := sender.Send(&pb.TunnelMessage{
 		Message: &pb.TunnelMessage_ConnectionAccept{
 			ConnectionAccept: &pb.ConnectionAccept{
 				ConnectionId: open.ConnectionId,
 				Success:      true,
 				HttpResponse: &pb.HttpResponseHead{
-					StatusCode: int32(response.StatusCode),
-					Headers:    headers,
+					StatusCode:   int32(response.StatusCode),
+					Headers:      headers,
+					HeaderFields: fields,
 				},
 			},
 		},
@@ -405,6 +403,12 @@ func (s *ServeClient) handleStreamingHTTPRequest(ctx context.Context, sender mes
 		return
 	}
 
+	if !common.HTTPResponseHasBody(head.Method, response.StatusCode) {
+		if err := sender.Send(&pb.TunnelMessage{Message: &pb.TunnelMessage_ConnectionHalfClose{ConnectionHalfClose: &pb.ConnectionHalfClose{ConnectionId: open.ConnectionId}}}); err != nil {
+			reason = "relay_error"
+		}
+		return
+	}
 	buffer := make([]byte, common.StreamChunkSize)
 	for {
 		n, readErr := response.Body.Read(buffer)

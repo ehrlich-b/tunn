@@ -611,7 +611,10 @@ func (s *ServeClient) handleHTTPRequestContext(ctx context.Context, sender messa
 
 	// Read response body with size limit to prevent memory exhaustion
 	// Read one extra byte to detect if body exceeds limit
-	limitedBody, err := io.ReadAll(io.LimitReader(resp.Body, MaxResponseBodySize+1))
+	var limitedBody []byte
+	if common.HTTPResponseHasBody(httpReq.Method, resp.StatusCode) {
+		limitedBody, err = io.ReadAll(io.LimitReader(resp.Body, MaxResponseBodySize+1))
+	}
 	if err != nil {
 		status, reason = http.StatusBadGateway, "response_error"
 		responseBytes = int64(len(limitedBody))
@@ -629,17 +632,15 @@ func (s *ServeClient) handleHTTPRequestContext(ctx context.Context, sender messa
 	body := limitedBody
 	responseBytes = int64(len(body))
 
-	// Convert headers to map (join multi-value headers per HTTP spec)
-	headers := make(map[string]string)
-	for key, values := range resp.Header {
-		headers[key] = strings.Join(values, ", ")
-	}
+	// Keep exact field lines as well as the explicit legacy fallback.
+	headers, fields := common.EncodeHTTPResponseHeaders(resp.Header)
 
 	// Send HttpResponse back
 	httpResp := &pb.HttpResponse{
 		ConnectionId: httpReq.ConnectionId,
 		StatusCode:   int32(resp.StatusCode),
 		Headers:      headers,
+		HeaderFields: fields,
 		Body:         body,
 	}
 

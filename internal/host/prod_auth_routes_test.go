@@ -71,7 +71,7 @@ var prodAuthRoutes = []prodAuthRoute{
 	{"GET", "/api/hosts", "/api/hosts", "", [11]int{401, 200, 200, 200, 401, 401, 401, 401, 401, 401, 401}},
 	{"POST", "/api/hosts", "/api/hosts", `{"machine":"workstation","tunnels":[{"name":"tools","kind":"mcp"}]}`, [11]int{401, 200, 409, 200, 401, 401, 401, 401, 401, 401, 401}},
 	{"GET", "/api/ssh/keys", "/api/ssh/keys", "", [11]int{401, 200, 200, 200, 401, 401, 401, 401, 401, 401, 401}},
-	{"POST", "/api/ssh/keys", "/api/ssh/keys", "key", [11]int{401, 200, 409, 200, 401, 401, 401, 401, 401, 401, 401}},
+	{"POST", "/api/ssh/keys", "/api/ssh/keys", "key", [11]int{401, 202, 202, 202, 401, 401, 401, 401, 401, 401, 401}},
 	{"DELETE", "/api/ssh/keys", "/api/ssh/keys", "", [11]int{401, 200, 404, 200, 401, 401, 401, 401, 401, 401, 401}},
 	{"GET", "/auth/ssh-key", "/auth/ssh-key", "", [11]int{400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400}},
 	{"POST", "/api/device/code", "/api/device/code", "", [11]int{200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200}},

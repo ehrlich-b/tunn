@@ -272,7 +272,7 @@ func TestLoopbackNativeSSHJump(t *testing.T) {
 	stranger := jumpKey(t, strangerFile)
 	selectedKey = strangerFile
 	output, err := native(current.Username, "forge-ssh")
-	if err == nil || !bytes.Contains(output, []byte("linked key required")) {
+	if err == nil || !bytes.Contains(output, []byte("SSH endpoint access denied")) {
 		t.Fatalf("unknown key admitted: %s %v", output, err)
 	}
 	if _, err := p.sshKeys.Add(context.Background(), "stranger@example.com", string(ssh.MarshalAuthorizedKey(stranger.PublicKey()))); err != nil {

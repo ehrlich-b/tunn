@@ -158,12 +158,16 @@ func (s *AccountStore) FindOrCreateByEmails(emails []string, verifiedVia string)
 // GetByEmail finds an account by any email in its bucket.
 // Uses NFKC normalization to prevent Unicode homograph attacks.
 func (s *AccountStore) GetByEmail(email string) (*Account, error) {
+	return s.GetByEmailContext(context.Background(), email)
+}
+
+func (s *AccountStore) GetByEmailContext(ctx context.Context, email string) (*Account, error) {
 	email = common.NormalizeEmail(email)
 
 	var account Account
 	var createdAtUnix int64
 
-	err := s.db.QueryRow(`
+	err := s.db.QueryRowContext(ctx, `
 		SELECT a.id, a.primary_email, a.plan, a.created_at
 		FROM accounts a
 		JOIN account_emails ae ON a.id = ae.account_id
@@ -174,12 +178,15 @@ func (s *AccountStore) GetByEmail(email string) (*Account, error) {
 	}
 
 	account.CreatedAt = time.Unix(createdAtUnix, 0)
-	account.Emails, err = s.getAccountEmails(account.ID)
+	account.Emails, err = getAccountEmailsContext(ctx, s.db, account.ID)
 	if err != nil {
 		return nil, err
 	}
 
-	if err = s.loadOperationalState(&account); err != nil {
+	if err = s.loadOperationalStateContext(ctx, &account); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	return &account, nil
@@ -187,7 +194,11 @@ func (s *AccountStore) GetByEmail(email string) (*Account, error) {
 
 // GetEmailBucket returns all emails associated with an account containing the given email
 func (s *AccountStore) GetEmailBucket(email string) ([]string, error) {
-	account, err := s.GetByEmail(email)
+	return s.GetEmailBucketContext(context.Background(), email)
+}
+
+func (s *AccountStore) GetEmailBucketContext(ctx context.Context, email string) ([]string, error) {
+	account, err := s.GetByEmailContext(ctx, email)
 	if err != nil {
 		// If no account found, return just the email itself
 		if err == sql.ErrNoRows {
@@ -287,9 +298,15 @@ func (s *AccountStore) getAccountEmails(accountID string) ([]AccountEmail, error
 }
 
 func getAccountEmails(q interface {
-	Query(string, ...any) (*sql.Rows, error)
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
 }, accountID string) ([]AccountEmail, error) {
-	rows, err := q.Query(
+	return getAccountEmailsContext(context.Background(), q, accountID)
+}
+
+func getAccountEmailsContext(ctx context.Context, q interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}, accountID string) ([]AccountEmail, error) {
+	rows, err := q.QueryContext(ctx,
 		"SELECT email, verified_via, added_at FROM account_emails WHERE account_id = ?",
 		accountID,
 	)
@@ -489,10 +506,14 @@ func (s *AccountStore) GetMonthlyUsage(accountID string) (int64, error) {
 
 // GetByID retrieves an account by its ID
 func (s *AccountStore) GetByID(accountID string) (*Account, error) {
+	return s.GetByIDContext(context.Background(), accountID)
+}
+
+func (s *AccountStore) GetByIDContext(ctx context.Context, accountID string) (*Account, error) {
 	var account Account
 	var createdAtUnix int64
 
-	err := s.db.QueryRow(`
+	err := s.db.QueryRowContext(ctx, `
 		SELECT id, primary_email, plan, created_at
 		FROM accounts
 		WHERE id = COALESCE((SELECT account_id FROM account_merges WHERE old_id = ?), ?)
@@ -502,19 +523,26 @@ func (s *AccountStore) GetByID(accountID string) (*Account, error) {
 	}
 
 	account.CreatedAt = time.Unix(createdAtUnix, 0)
-	account.Emails, err = s.getAccountEmails(account.ID)
+	account.Emails, err = getAccountEmailsContext(ctx, s.db, account.ID)
 	if err != nil {
 		return nil, err
 	}
 
-	if err = s.loadOperationalState(&account); err != nil {
+	if err = s.loadOperationalStateContext(ctx, &account); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	return &account, nil
 }
 
 func (s *AccountStore) loadOperationalState(account *Account) error {
-	status, err := NewOperationsStore(s.db, nil).LookupAccountStatus(context.Background(), account.ID)
+	return s.loadOperationalStateContext(context.Background(), account)
+}
+
+func (s *AccountStore) loadOperationalStateContext(ctx context.Context, account *Account) error {
+	status, err := NewOperationsStore(s.db, nil).LookupAccountStatus(ctx, account.ID)
 	if err != nil {
 		return err
 	}

@@ -2,7 +2,6 @@ package client
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"io"
 	"net"
@@ -11,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/ehrlich-b/tunn/internal/common"
+	"github.com/ehrlich-b/tunn/internal/relaytransport"
 )
 
 // ConnectClient turns a remote tunn CONNECT endpoint into a local TCP
@@ -40,10 +40,7 @@ func (c *ConnectClient) Run(ctx context.Context) error {
 	}
 	_, _ = fmt.Fprintf(output, "tcp://%s -> %s\n", listener.Addr(), c.EndpointURL)
 
-	transport := &http.Transport{
-		TLSClientConfig:   &tls.Config{InsecureSkipVerify: c.Insecure},
-		ForceAttemptHTTP2: true,
-	}
+	transport := relaytransport.Transport(c.Insecure)
 	defer transport.CloseIdleConnections()
 	httpClient := &http.Client{Transport: transport}
 

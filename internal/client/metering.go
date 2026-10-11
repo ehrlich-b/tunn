@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/ehrlich-b/tunn/internal/relaytransport"
 )
 
 // ManagementClient talks to the relay's owner API. The caller supplies the owner
@@ -67,9 +69,11 @@ func (c *ManagementClient) callPath(ctx context.Context, method, path, query str
 	}
 	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(c.OwnerToken))
 	req.Header.Set("Content-Type", "application/json")
-	hc := http.DefaultClient
-	if c.HTTPClient != nil {
-		hc = c.HTTPClient
+	hc := c.HTTPClient
+	if hc == nil {
+		transport := relaytransport.Transport(false)
+		defer transport.CloseIdleConnections()
+		hc = &http.Client{Transport: transport}
 	}
 	copyClient := *hc
 	copyClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }

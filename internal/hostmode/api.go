@@ -3,7 +3,6 @@ package hostmode
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ehrlich-b/tunn/internal/common"
+	"github.com/ehrlich-b/tunn/internal/relaytransport"
 )
 
 type API struct {
@@ -50,7 +50,7 @@ func (a API) request(ctx context.Context, method string, manifest *common.HostMa
 	r.Header.Set("Content-Type", "application/json")
 	h := a.Client
 	if h == nil {
-		tr := &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: a.Insecure}}
+		tr := relaytransport.Transport(a.Insecure)
 		defer tr.CloseIdleConnections()
 		h = &http.Client{Timeout: 10 * time.Second, Transport: tr, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	}

@@ -107,9 +107,15 @@ func TestLoadConfigDefault(t *testing.T) {
 		t.Fatalf("Failed to load config: %v", err)
 	}
 
-	// Should default to dev
-	if cfg.Environment != EnvDev {
-		t.Errorf("Expected default to dev environment, got %s", cfg.Environment)
+	if cfg.Environment != EnvProd || cfg.Insecure || cfg.MockOIDCAddr != "" || cfg.JWTSecret != "" || cfg.NodeSecret != "" {
+		t.Errorf("Default must verify TLS and omit development services/secrets: %+v", cfg)
+	}
+}
+
+func TestLoadConfigRejectsUnknownEnvironment(t *testing.T) {
+	t.Setenv("TUNN_ENV", "prd")
+	if _, err := LoadConfig(); err == nil {
+		t.Fatal("unknown environment must not enable dev mode")
 	}
 }
 

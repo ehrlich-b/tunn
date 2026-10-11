@@ -33,6 +33,7 @@ import (
 var (
 	verbosity = flag.String("verbosity", "request", "log level: none, error, request, trace")
 	insecure  = flag.Bool("insecure", false, "skip TLS verification for proxy gRPC connection (insecure)")
+	dev       = flag.Bool("dev", false, "use development configuration (or set TUNN_ENV=dev)")
 
 	// Hidden flag for server operators
 	mode = flag.String("mode", "", "internal: host mode for server operators")
@@ -90,6 +91,9 @@ Options:
 	// Parse global flags first, but stop at first non-flag
 	flag.Parse()
 	args := flag.Args()
+	if *dev {
+		_ = os.Setenv("TUNN_ENV", "dev")
+	}
 
 	// Setup logging
 	logLevel := common.ParseLogLevel(*verbosity)

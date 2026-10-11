@@ -291,11 +291,10 @@ func getEnvironment() Environment {
 	switch env {
 	case "dev", "development":
 		return EnvDev
-	case "prod", "production":
+	case "", "prod", "production":
 		return EnvProd
 	default:
-		// Default to dev for safety
-		return EnvDev
+		return Environment(env)
 	}
 }
 

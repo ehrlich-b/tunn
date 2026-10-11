@@ -4,6 +4,7 @@ from contextlib import closing
 import json
 import os
 from pathlib import Path
+import random
 import shutil
 import sqlite3
 import ssl
@@ -167,6 +168,112 @@ class ArtifactTests(unittest.TestCase):
         result = subprocess.run([*command, "check", "--config", str(profile)], capture_output=True, timeout=10)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn(b"version must be 1", result.stderr)
+
+    def test_seeded_artifact_transitions_preserve_identity_and_selection(self):
+        rng = random.Random(20261010)
+        binaries = [self.first, self.second, self.fixture_binary("v3")]
+        digests = {artifacts.digest(binary): binary for binary in binaries}
+        profile = self.installation.root / "host.yaml"
+        profile.write_text("version: 1\nmachine: stable-edge-fixture\n")
+        credential = self.installation.root / "token"
+        credential.write_text("fixture-owner-identity")
+        credential.chmod(0o600)
+        model = {"version": 1, "current": None, "previous": None}
+        for step in range(100):
+            action = rng.choice(("install", "rollback", "remove", "reconcile"))
+            with self.subTest(seed=20261010, step=step, action=action):
+                with self.installation.locked():
+                    if action == "install":
+                        binary = rng.choice(binaries)
+                        checksum = artifacts.digest(binary)
+                        result = self.installation.install(binary, checksum)
+                        if model["current"] != checksum:
+                            model = {"version": 1, "current": checksum, "previous": model["current"]}
+                    elif action == "rollback" and model["previous"] is None:
+                        with self.assertRaisesRegex(ValueError, "no previous"):
+                            self.installation.rollback()
+                        result = self.installation.inspect()
+                    else:
+                        result = getattr(self.installation, action)()
+                        if action == "rollback":
+                            model = {"version": 1, "current": model["previous"], "previous": model["current"]}
+                        elif action == "remove" and model["current"] is not None:
+                            model = {"version": 1, "current": None, "previous": model["current"]}
+                self.assertEqual(result, model)
+                self.assertEqual(self.installation.inspect(), model)
+                self.assertFalse(self.installation.pending.exists())
+                if model["current"] is None:
+                    self.assertFalse(self.installation.binary.exists())
+                else:
+                    self.assertEqual(self.installation.binary.read_bytes(), digests[model["current"]].read_bytes())
+                self.assertEqual(profile.read_text(), "version: 1\nmachine: stable-edge-fixture\n")
+                self.assertEqual(credential.read_text(), "fixture-owner-identity")
+                self.assertEqual(credential.stat().st_mode & 0o777, 0o600)
+
+    def test_interrupted_first_install_rollback_and_remove_reconcile(self):
+        for action in ("first install", "rollback", "remove"):
+            for boundary in ("journal", "selection", "state"):
+                with self.subTest(action=action, boundary=boundary):
+                    installation = artifacts.Installation(self.root / f"{action}-{boundary}", create=True)
+                    with installation.locked():
+                        if action != "first install":
+                            installation.install(self.first, artifacts.digest(self.first))
+                        if action == "rollback":
+                            installation.install(self.second, artifacts.digest(self.second))
+                        original = installation.inspect()
+                        if action == "first install":
+                            selected = artifacts.digest(self.first)
+                            new = {"version": 1, "current": selected, "previous": None}
+                            # Stage through the actual installer, including candidate checks.
+                            change = lambda checkpoint: installation.install(self.first, selected, checkpoint)
+                        else:
+                            selected = original["previous"] if action == "rollback" else None
+                            new = {"version": 1, "current": selected, "previous": original["current"]}
+                            change = lambda checkpoint: installation.transition(original, new, checkpoint)
+
+                        def interrupt(phase):
+                            if phase == boundary:
+                                raise Interrupted()
+
+                        with self.assertRaises(Interrupted):
+                            change(interrupt)
+                        with self.assertRaisesRegex(ValueError, "interrupted"):
+                            installation.inspect()
+                        self.assertEqual(installation.reconcile(), original)
+                        self.assertEqual(installation.reconcile(), original)
+                        self.assertFalse(installation.pending.exists())
+                        if original["current"] is None:
+                            self.assertFalse(installation.binary.exists())
+                        else:
+                            self.assertEqual(artifacts.digest(installation.binary), original["current"])
+
+    def test_competing_install_lock_retains_selection(self):
+        original = self.install(self.first)
+        contender = artifacts.Installation(self.installation.root)
+        with self.installation.locked():
+            with self.assertRaises(OSError):
+                with contender.locked():
+                    self.fail("competing installation acquired an owned lock")
+        self.assertEqual(self.installation.inspect(), original)
+        with contender.locked():
+            self.assertEqual(contender.inspect(), original)
+
+    def test_symlink_candidate_and_selected_binary_are_refused(self):
+        candidate = self.root / "candidate alias"
+        candidate.symlink_to(self.first)
+        with self.installation.locked():
+            with self.assertRaisesRegex(ValueError, "non-symlink"):
+                self.installation.install(candidate, artifacts.digest(self.first))
+        self.assertIsNone(self.installation.inspect()["current"])
+        original = self.install(self.first)
+        selected = self.installation.binary
+        selected.unlink()
+        selected.symlink_to(self.first)
+        with self.assertRaisesRegex(ValueError, "non-symlink"):
+            self.installation.inspect()
+        self.assertTrue(selected.is_symlink())
+        self.assertEqual(artifacts.read_json(self.installation.marker), original)
+        self.assertEqual(self.first.read_text().splitlines()[1], "# v1")
 
 
 class SelfhostTests(unittest.TestCase):

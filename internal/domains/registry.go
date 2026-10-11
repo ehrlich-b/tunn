@@ -269,7 +269,11 @@ func (r *Registry) Verify(ctx context.Context, in *pb.Domain) (*pb.Domain, error
 		}, nil
 	})
 	if err != nil {
-		if d.CertificateExpires > r.now().Unix() {
+		// Issuance may take minutes. Recheck DNS before extending the lease
+		// for an old certificate, just as successful issuance does below.
+		if proofErr := r.prove(ctx, d); proofErr != nil {
+			r.fail(context.WithoutCancel(ctx), d, "dns_verification_failed")
+		} else if d.CertificateExpires > r.now().Unix() {
 			_, _ = r.db.ExecContext(context.WithoutCancel(ctx), `UPDATE custom_domains SET state='ready',verified_until=?,last_error='certificate_issuance_failed' WHERE name=? AND owner=? AND target=?`, r.now().Add(DNSLease).Unix(), d.Name, d.Owner, d.CnameTarget)
 		} else {
 			r.fail(context.WithoutCancel(ctx), d, "certificate_issuance_failed")

@@ -46,6 +46,33 @@ with `make test-websocket-memory WS_TESTS=TestWebSocketPartialFrameIdle`.
 Real OpenClaw and mobile-client acceptance remain manual; see the
 [OpenClaw guide draft](docs/guides/openclaw.md).
 
+## Offline edge correctness
+
+With the Go toolchain and modules already cached, run:
+
+```bash
+GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off GOFLAGS=-p=2 make -j1 test-edge-contract
+```
+
+This retains the SSH, domain and install/recovery gates and adds protocol
+fragmentation/shutdown, literal SSH command parsing, independent forwards,
+termination/EOF, MCP path rewriting, host authority routing, TLS loading and
+HTTP-01 failure coverage. Concurrent Go paths run under the race detector.
+Recovery checks use disposable roots, seeded artifact transitions and fake
+service managers. Wildcard renewal tests replace every network, credential and
+publication command with fixture executables; `make test-edge-renewal` runs
+those shell-workflow checks alone. Neither target invokes native services,
+live DNS/ACME, credential stores or Fly publication.
+
+These fixtures complement loopback integration gates and the separately
+documented native acceptance steps; they do not establish a live deployment's
+certificate or OS service behavior.
+
+The separate `make test-edge-openssh` acceptance test requires native OpenSSH
+and real loopback TCP listeners. It uses a generated client key, a pinned fixture
+host key, `-T -R0` publication and verified HTTPS on the same listener. Run it
+only where executing `ssh` is permitted; it never contacts an external host.
+
 ## Manual Testing
 
 ### Terminal 1: Start the proxy

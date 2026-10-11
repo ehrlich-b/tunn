@@ -195,6 +195,12 @@ func (s *Server) ServeConn(parent context.Context, raw net.Conn) {
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 	id := Identity{Fingerprint: conn.Permissions.Extensions["fingerprint"], PublicKey: conn.Permissions.Extensions["public"], IP: ip}
+	resolveCtx, stopResolve := context.WithTimeout(ctx, 10*time.Second)
+	id.Email, err = s.cfg.Resolve(resolveCtx, id.Fingerprint)
+	stopResolve()
+	if err != nil {
+		return
+	}
 	state := &connection{server: s, ssh: conn, ctx: ctx, id: id, forwards: map[forwardSpec]*forward{}, cancel: cancel, directSlots: make(chan struct{}, 32), sessionDone: make(chan struct{})}
 	startupTimeout := s.cfg.StartupTimeout
 	if startupTimeout <= 0 {
@@ -440,7 +446,9 @@ func (c *connection) run(args []string, in ssh.Channel) error {
 	if err != nil {
 		return err
 	}
-	c.id.Email = email
+	if email != c.id.Email {
+		return fmt.Errorf("SSH key ownership changed; reconnect")
+	}
 	protocol := "http"
 	kind := "serve"
 	if len(args) > 0 {
@@ -896,8 +904,10 @@ func (c *connection) direct(channel ssh.NewChannel) {
 		Origin     string
 		OriginPort uint32
 	}
-	if ssh.Unmarshal(channel.ExtraData(), &spec) != nil || spec.Port != 80 || len(spec.Address) > 63 {
-		_ = channel.Reject(ssh.Prohibited, "use -L LOCALPORT:TUNNEL:80 for a named raw endpoint")
+	// Both ports select the publisher's configured target; neither permits
+	// dialing the relay's network. 80 remains the legacy forwarding sentinel.
+	if ssh.Unmarshal(channel.ExtraData(), &spec) != nil || (spec.Port != 22 && spec.Port != 80) || len(spec.Address) > 63 {
+		_ = channel.Reject(ssh.Prohibited, "use a named raw endpoint on port 22 (or legacy port 80)")
 		return
 	}
 	ctx, cancel := context.WithCancel(c.ctx)

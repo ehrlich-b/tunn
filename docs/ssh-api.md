@@ -62,7 +62,10 @@ ssh -T -p 443 -i ~/.ssh/id_ed25519 tunn.to -- login --email you@example.com
 ```
 
 The session prints the destination email and account page. Open the one-time
-magic link sent to your inbox within five minutes, then reconnect. The email
+magic link sent to your inbox within five minutes, compare the displayed key
+fingerprint with the terminal, click **Link SSH key**, then reconnect. Opening
+the email link only shows a confirmation page; enrollment requires its POST.
+The email
 proof itself is never printed in SSH output: exposing it to an unknown key
 would let that key claim someone else's account. SMTP must be configured on
 the relay. A key already owned by another identity cannot be overwritten.
@@ -158,11 +161,41 @@ ssh -T -p 443 tunn.to -- grant revoke demo GRANT_ID
 ssh -T -p 443 tunn.to -- hosts --json
 ```
 
-TCP `-L` targets are tunnel names at logical port 80, never arbitrary relay-side
+TCP `-L` targets are tunnel names at logical port 22 or legacy port 80, never arbitrary relay-side
 hosts. The endpoint must be online on this SSH relay. The connection goes
 through authenticated HTTP CONNECT ingress, including allow-lists, quotas,
 metering and half-close handling. `-N` is appropriate for this consuming
 connection. Public raw endpoints are prohibited.
+
+### Native OpenSSH jump pilot
+
+With a key linked to the invited email and already authorized by the origin
+sshd, recipients need only OpenSSH:
+
+```sh
+# Publisher (tunn installed and logged in; keep this process running):
+tunn tcp --account-only --name forge-ssh --allow alice@example.com 127.0.0.1:22
+# Recipient, after one-time email/key linking and verifying both host keys:
+ssh -J tunn@tunn.to:443 deploy@forge-ssh
+sftp -J tunn@tunn.to:443 deploy@forge-ssh
+```
+
+The jump host resolves `forge-ssh:22` to the publisher's configured target. It
+terminates only the outer SSH transport; the inner host key, login and encrypted
+session belong to the origin. A relay grant does not authorize an OS user.
+Registered keys still need a matching endpoint email grant (or ownership),
+including for public TCP publications consumed through SSH.
+
+The pilot requires publishers and the SSH entry point on the same login node;
+cross-node routing is not implemented. Host-key persistence and raw TCP/443
+routing are opt-in as described below. Raw SSH on 443 can be blocked by HTTPS-only
+networks. See [USER-JOURNEY.md](../USER-JOURNEY.md) for trust checks, precise
+enrollment commands, repeat use and revocation. Removing a key denies new channels
+even on an existing jump transport and closes active streams within five seconds
+(one-second polling, three-second authority query timeout). To revoke a person's
+endpoint grant in this pilot, stop its publisher and restart with a revised
+`--allow` list; the stop cuts existing sessions. There is no live people editor
+in this increment.
 
 Inspection and replay require the owner and `--inspect` at publication time.
 The bounded history and SSH-managed tokens live only as long as the forward.

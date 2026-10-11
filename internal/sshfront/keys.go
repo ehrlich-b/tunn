@@ -145,6 +145,14 @@ func (r *Registry) LinkEmail(ctx context.Context, token string) (string, error) 
 	return email, nil
 }
 
+// LinkKey exposes only the public fingerprint for deliberate email confirmation.
+// Reading a challenge must never enroll a key or consume the challenge.
+func (r *Registry) LinkKey(ctx context.Context, token string) (Key, error) {
+	var k Key
+	err := r.db.QueryRowContext(ctx, "SELECT fingerprint, public_key FROM ssh_key_links WHERE digest=? AND expires>?", linkDigest(token), time.Now().Unix()).Scan(&k.Fingerprint, &k.PublicKey)
+	return k, err
+}
+
 func (r *Registry) CompleteLink(ctx context.Context, token string) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {

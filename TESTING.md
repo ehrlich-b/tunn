@@ -73,6 +73,28 @@ and real loopback TCP listeners. It uses a generated client key, a pinned fixtur
 host key, `-T -R0` publication and verified HTTPS on the same listener. Run it
 only where executing `ssh` is permitted; it never contacts an external host.
 
+## Native SSH jump pilot
+
+The full suite includes `TestLoopbackNativeSSHJump`, which requires Linux
+OpenSSH clients (`ssh`, `sftp`), `/usr/sbin/sshd`, and unrestricted loopback TCP.
+It starts an unprivileged disposable sshd in inetd mode for the current OS user,
+using generated keys and an isolated authorized_keys file. No system sshd
+configuration or origin account is changed, and no external email is sent.
+
+```bash
+umask 022
+go test -p=1 ./... -count=1
+go test -race ./internal/host ./internal/sshfront \
+  -run 'TestLoopbackNativeSSHJump|TestSSHJump|TestSSHKeyLinkRequires|TestSSHRawForward|TestSSHEmail|TestKeyLink' -count=1
+```
+
+The explicit umask matters to existing tests: `0002` creates group-writable
+credential directories rejected by host mode, while `0077` makes the existing
+symlink-lock test's expected `0644` victim file `0600`. These are baseline test
+environment assumptions, not changes to credential handling in the SSH pilot.
+The exact publisher/recipient journey and acceptance limits are in
+[USER-JOURNEY.md](USER-JOURNEY.md).
+
 ## Manual Testing
 
 ### Terminal 1: Start the proxy

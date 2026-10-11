@@ -825,6 +825,9 @@ func isLikelyBot(ua string) bool {
 
 // handleApexDomain handles requests to the apex domain (e.g., tunn.to)
 func (p *ProxyServer) handleApexDomain(w http.ResponseWriter, r *http.Request) {
+	if p.serveDistributionPage(w, r) {
+		return
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
 	switch r.URL.Path {

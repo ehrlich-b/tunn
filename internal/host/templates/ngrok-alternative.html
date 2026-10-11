@@ -1,5 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>An ngrok alternative for sharing localhost with email access | tunn</title>
+<meta name="description" content="Compare tunn and ngrok for local HTTP tunnels and visitor authentication, with commands and links to ngrok documentation.">
+<link rel="canonical" href="https://tunn.to/ngrok-alternative">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="tunn">
+<meta property="og:title" content="An ngrok alternative for sharing localhost with email access">
+<meta property="og:description" content="Compare tunn and ngrok for local HTTP tunnels and visitor authentication, with commands and links to ngrok documentation.">
+<meta property="og:url" content="https://tunn.to/ngrok-alternative">
+<link rel="stylesheet" href="/guides.css">
+</head>
+<body>
+<header class="header"><div class="header-inner"><a class="header-logo" href="/">tunn</a><nav aria-label="Guides"><a href="/ngrok-alternative">ngrok alternative</a><a href="/mcp-to-claude">MCP to Claude</a><a href="/share-dev-server-oauth">OAuth sharing</a></nav></div></header>
+<main><h1>An ngrok alternative for sharing localhost with email access</h1>
+<p class="lead">Use tunn to send someone a link to your local app and choose who can open it by email.</p>
+<p>For a dev server already running on port 3000, install tunn and sign in once, then start a shared tunnel:</p>
+<pre><code>curl -fsSL https://tunn.to/install.sh | sh
+tunn login
+tunn 3000 --allow=alice@example.com</code></pre>
+<p>Replace the email with your teammate's verified address. Copy the HTTPS URL printed by the CLI. Your teammate opens it in a browser and signs in; the tunnel creator also has access. Keep tunn and the local server running.</p>
+<h2>Compare the workflows</h2>
+<div class="table-scroll"><table><caption>Local app sharing and access control</caption><thead><tr><th scope="col">Task</th><th scope="col">tunn</th><th scope="col">ngrok</th></tr></thead><tbody>
+<tr><th scope="row">Forward a local HTTP server</th><td><code>tunn 3000</code> prints an HTTPS URL. Updated CLI web tunnels are owner-only by default; use <code>--public</code> for anonymous visitors.</td><td><code>ngrok http 3000</code> forwards a local server through an endpoint. See the <a href="https://ngrok.com/docs/gateway/agent/cli#ngrok-http">HTTP CLI reference</a>.</td></tr>
+<tr><th scope="row">Require visitor sign-in</th><td>Pass <code>--allow=alice@example.com</code>. Browser visitors sign in through tunn's configured login provider, including GitHub OAuth or email links.</td><td>The <a href="https://ngrok.com/docs/gateway/traffic-policy/actions/oauth">OAuth Traffic Policy action</a> authenticates visitors through an identity provider, including managed apps.</td></tr>
+<tr><th scope="row">Limit access by email or domain</th><td>Use <code>--allow=alice@example.com</code> or <code>--allow=@example.com</code>.</td><td>The <a href="https://ngrok.com/docs/gateway/traffic-policy/actions/oauth#restricting-access-by-email">OAuth examples</a> combine authentication with expressions and a deny action for an email list or domain.</td></tr>
+</tbody></table></div>
+<p class="note">ngrok sources: <a href="https://ngrok.com/docs/gateway/agent/cli#ngrok-http">HTTP CLI reference</a>, <a href="https://ngrok.com/docs/gateway/traffic-policy/actions/oauth">OAuth documentation</a>, and <a href="https://ngrok.com/pricing">pricing</a>. Accessed October 11, 2026. Check the current pricing page for plan limits before choosing a service.</p>
+<h2>Which workflow fits?</h2>
+<p>Consider tunn when you want to express a sharing rule in a CLI flag. Consider ngrok's documented Traffic Policy workflow when you want to compose authentication and request rules. Both provide visitor authentication; the table compares how you configure it.</p>
+<h2>Also expose local MCP tools</h2>
+<p>tunn can bridge a stdio MCP server or publish an existing HTTP MCP endpoint at <code>/mcp</code>. MCP endpoints require authentication by default. Follow the <a href="/mcp-to-claude">local MCP connector walkthrough</a> or the <a href="/share-dev-server-oauth">OAuth sharing guide</a>.</p>
 <style>.page-container{max-width:960px}h2,p,table{margin-bottom:20px}table{width:100%;border-collapse:collapse}th,td{padding:12px;text-align:left;border-bottom:1px solid #d1d9e0}.comparison{overflow-x:auto}</style>
-<h1 class="page-title">An ngrok alternative for local MCP and webhooks</h1>
+<h2>An ngrok alternative for local MCP and webhooks</h2>
 <p>tunn gives your local server an HTTPS URL, with private MCP OAuth, email sharing and account quotas. Choose it when you want local tools and a fixed subscription bill.</p>
 <p>Competitor facts checked <strong>2026-10-11</strong>. Prices are USD before tax. Recheck the linked sources before deciding.</p>
 <div class="comparison"><table>
@@ -17,3 +52,8 @@
 <p>ngrok's broader gateway, policy, compliance and enterprise offerings may fit your requirements better. Its free endpoints have no session timeout and already include a stable dev domain. tunn has no published enterprise SLA, and local MCP connector acceptance must be verified in your client. Your laptop and server must remain online.</p>
 <p>Other options deserve a look: <a href="https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/">Cloudflare Quick Tunnels</a> are free but have a 200 in-flight limit and no SSE; named Cloudflare Tunnel is a separate setup. <a href="https://pinggy.io/#prices">Pinggy Pro</a> advertises $3/month or $30/year per seat, cheaper than tunn. These sources were fetched 2026-10-11.</p>
 <p><a class="btn btn-primary" href="/docs/mcp-to-claude">Connect your MCP server to Claude.ai</a><a class="btn btn-secondary" href="/pricing">See tunn plans</a></p>
+
+</main>
+<footer><a href="https://github.com/ehrlich-b/tunn">Source and documentation</a> · <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></footer>
+</body>
+</html>

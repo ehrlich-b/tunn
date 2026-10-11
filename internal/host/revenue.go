@@ -77,14 +77,7 @@ func (p *ProxyServer) handlePricing(w http.ResponseWriter, r *http.Request) {
 }
 
 func (p *ProxyServer) handleComparison(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		http.Error(w, "Method not allowed", 405)
-		return
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	writePageStart(w, "tunn - An ngrok alternative for MCP and webhooks")
-	p.renderRevenuePage(w, ngrokAlternativeHTML)
-	writePageEnd(w)
+	p.serveDistributionPage(w, r)
 }
 
 func (p *ProxyServer) handleDocs(w http.ResponseWriter, r *http.Request) {

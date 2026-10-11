@@ -22,8 +22,5 @@ var pricingHTML string
 //go:embed templates/docs.html
 var docsHTML string
 
-//go:embed templates/mcp-to-claude.html
+//go:embed templates/revenue-mcp-to-claude.html
 var mcpTutorialHTML string
-
-//go:embed templates/ngrok-alternative.html
-var ngrokAlternativeHTML string

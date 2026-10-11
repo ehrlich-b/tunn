@@ -165,6 +165,9 @@ test:
 .PHONY: test-sso
 test-sso:
 	go test $(GO_TEST_FLAGS) -race -count=1 -timeout=120s -run '^Test(OrgOIDC|OIDC|OrgGroup)' ./internal/host ./internal/config ./internal/metering .
+.PHONY: test-distribution
+test-distribution:
+	go test $(GO_TEST_FLAGS) -count=1 -timeout=90s -run '^TestDistribution' . ./internal/host
 
 test-verbose:
 	@echo "Running tests with verbose output..."

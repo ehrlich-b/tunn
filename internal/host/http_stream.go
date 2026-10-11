@@ -242,13 +242,13 @@ func (p *ProxyServer) writeStreamingHTTPResponse(
 			if !*requestFinished {
 				*requestFinished = true
 				if result.err != nil {
-					return result.err
+					return truncatedHTTPResponse(result.err)
 				}
 			}
 		case <-pending.done:
 			return truncatedHTTPResponse(fmt.Errorf("tunnel disconnected during streamed HTTP response"))
 		case <-r.Context().Done():
-			return r.Context().Err()
+			return truncatedHTTPResponse(r.Context().Err())
 		}
 	}
 }

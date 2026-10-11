@@ -40,5 +40,9 @@ def verify():
 if __name__=='__main__':
  parser=argparse.ArgumentParser();parser.add_argument('--verify',action='store_true');parser.add_argument('--output',type=pathlib.Path);args=parser.parse_args()
  result=verify();data=json.dumps(result,indent=2)+'\n'
- if args.output:args.output.parent.mkdir(parents=True,exist_ok=True);args.output.write_text(data)
+ if args.output:
+  args.output.parent.mkdir(parents=True,exist_ok=True)
+  if args.output.exists():
+   assert args.output.read_text()==data,'immutable receipt already exists with different contents'
+  else:args.output.write_text(data)
  print(data)

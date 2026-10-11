@@ -585,7 +585,7 @@ format-candidate:
 test-candidate-cli:
 	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=60s -run '^TestCandidate' .
 test-candidate-provenance:
-	PYTHONDONTWRITEBYTECODE=1 python3 scripts/candidate-inventory.py --verify --output .scratch/receipts/provenance.json
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/candidate-inventory.py --verify --output ".scratch/receipts/provenance-$$(git rev-parse HEAD).json"
 test-candidate-dogfix:
 	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=60s -run '^TestDogfood' ./internal/client -args -dogfood-proxy-memory
 	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=60s -run '^TestDogfood' ./internal/host ./internal/store
@@ -598,7 +598,7 @@ test-candidate-consumer:
 	@set -eu; consumer_dir=$$(PYTHONDONTWRITEBYTECODE=1 python3 scripts/candidate-stage-consumer.py); \
 	$(MAKE) -j1 -C "$$consumer_dir" test GOFLAGS="$(GOFLAGS) -tags=candidatefixture"; \
 	$(MAKE) -j1 -C "$$consumer_dir" verify-module; \
-	printf '%s\n' "$$consumer_dir" > .scratch/receipts/second-consumer-path
+	printf '%s\n' "$$consumer_dir" > .scratch/sdk-response-consumer/second-consumer-path
 
 # Safe baseline witnesses for account/billing, edge and startup lanes. Config
 # witnesses run in test-candidate-dogfix; auth runs in test-auth-contract.
@@ -607,3 +607,8 @@ test-candidate-baseline:
 	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=120s -run '^(TestAccounts|TestBilling|TestReservations|TestMerge|TestAccountOperations)' ./internal/store ./internal/storage
 	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=120s ./internal/metering
 	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=120s -run '^(TestEdgeHostRouting|TestEdgeHTTP01|TestEdgeTLS|TestStripeSignature|TestStripeSignedPayload|TestStripeLifecycle|TestGitHubComplete|TestGitHubProvider|TestGitHubInvalid|TestMagicLinkComplete|TestMagicLinkRequestValidation|TestMagicLinkMailFailure|TestMagicLinkReplayAuthority|TestOpsRelayOfflineReadiness|TestOpsRelayReadinessRejects|TestOpsRelayHealth)' ./internal/host
+
+# Smallest memory-only reproducer of the finished-input upload/response conflict.
+.PHONY: test-candidate-upload-contract
+test-candidate-upload-contract:
+	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=45s -run '^(TestHTTPFidelityUploadTerminalSchedules|TestHTTPFidelityUploadFailureAbortsResponse)$$' ./internal/host

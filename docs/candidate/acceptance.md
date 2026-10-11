@@ -131,3 +131,13 @@ and independently preserve the last accepted deployed artifact and config.
 Production mutation commands are outside this row; local commits/bundles are
 not rollback evidence for a deployed machine. No production or installed
 runtime was changed here.
+
+## Current product readiness
+
+The pinned integration's unknown-length upload/response contract is a local
+**FAIL**, not an unavailable external gate. `test-http-fidelity` must pass
+before promotion; current acceptance is **HOLD**. The complete useful task,
+authorization matrix, source build, installer preparation and independent
+importers remain separate local evidence. The machine handoff retains the
+failing cells and the pinned-source comparison, and no green native or deployed
+cell substitutes for that failure.

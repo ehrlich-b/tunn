@@ -42,14 +42,17 @@ def counts(log):
   elif event.get('Action')=='skip':skipped.append(item)
  # Immutable consumer Makefile emits verbose output rather than JSON.
  for line in log.splitlines():
+  line=line.lstrip()
   if line.startswith('--- PASS:'):passed.append(line.split()[2])
+  elif line.startswith('--- FAIL:'):failed.append(line.split()[2])
+  elif line.startswith('--- SKIP:'):skipped.append(line.split()[2])
  return {'passed':len(passed),'failed':failed,'skipped':skipped,'top_level_passed':sum('/' not in p.split(':',1)[-1] for p in passed)}
 
 def run_gate(name,env,run,extra=None):
  cmd=['git','diff','--check'] if name=='diff-check' else ['make','-j1',name,'BUILD_OUTPUT=.scratch/tunn']
  if extra:cmd+=extra
  resource=['taskpolicy','-b','nice','-n','15'] if platform.system()=='Darwin' else ['nice','-n','15']
- started=time.monotonic();logpath=run/(name.replace('/','_')+'.log')
+ started=time.monotonic();logpath=run/(str(len(list(run.glob('*.log')))).zfill(2)+'-'+name.replace('/','_')+'.log')
  try:
   with logpath.open('w') as out:p=subprocess.run(resource+cmd,cwd=ROOT,env=env,stdout=out,stderr=subprocess.STDOUT,timeout=900)
   code=p.returncode
@@ -61,7 +64,8 @@ def run_gate(name,env,run,extra=None):
  return {'gate':name,'status':status,'command':cmd,'exit_code':code,'elapsed_seconds':round(time.monotonic()-started,3),'counts':c,'log':str(logpath),'log_sha256':hashlib.sha256(logpath.read_bytes()).hexdigest()}
 
 def main():
- p=argparse.ArgumentParser();p.add_argument('--output',type=pathlib.Path,default=SCRATCH/'receipts/result.json');p.add_argument('--gates',nargs='+',choices=GATES);p.add_argument('--install-layout',action='store_true');a=p.parse_args()
+ p=argparse.ArgumentParser();p.add_argument('--output',type=pathlib.Path,default=None);p.add_argument('--gates',nargs='+',choices=GATES);p.add_argument('--install-layout',action='store_true');a=p.parse_args()
+ if a.output is not None and a.output.exists():raise SystemExit('receipt already exists; select a new path to preserve it')
  now=datetime.datetime.now(datetime.timezone.utc);run=SCRATCH/'logs'/('acceptance-'+now.strftime('%Y%m%dT%H%M%S%fZ'));run.mkdir(parents=True)
  result={'schema':1,'started_utc':now.isoformat(),'pins':PINS,'candidate_source_sha':subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip(),'gates':[],'required_unrun':[{'gate':gate,'status':'REQUIRED-UNRUN','command':cmd,'reason':reason} for gate,cmd,reason in OUTSIDE],'limits':{'threads':2,'one_heavy_command':True,'offline':True,'native_process_acceptance':False},'run_directory':str(run)}
  env=environment()
@@ -78,7 +82,10 @@ def main():
     result['gates'].append(receipt);print(receipt['gate']+': '+receipt['status'],flush=True)
  binary=SCRATCH/'tunn'
  if binary.exists():result['binary']={'path':str(binary),'sha256':hashlib.sha256(binary.read_bytes()).hexdigest(),'bytes':binary.stat().st_size,'runtime_executed':False}
- result['finished_utc']=datetime.datetime.now(datetime.timezone.utc).isoformat();result['outcome']='ready-local-externally-pending' if result['gates'] and all(g['status']=='PASS' for g in result['gates']) else 'partial'
- a.output=a.output.resolve();assert a.output.is_relative_to(SCRATCH.resolve());a.output.parent.mkdir(parents=True,exist_ok=True);a.output.write_text(json.dumps(result,indent=2)+'\n');print('receipt: '+str(a.output),flush=True)
- return 0 if result['outcome']=='ready-local-externally-pending' else 1
+ result['finished_utc']=datetime.datetime.now(datetime.timezone.utc).isoformat();selected_pass=bool(result['gates']) and all(g['status']=='PASS' for g in result['gates'])
+ selected={g['gate'] for g in result['gates']}
+ result['unselected_local_gates']=[{'gate':g,'status':'REQUIRED-UNRUN','reason':'not selected in this checkpoint invocation'} for g in GATES if g not in selected]
+ result['outcome']='ready-local-externally-pending' if selected_pass and not result['unselected_local_gates'] else 'checkpoint-pass' if selected_pass else 'partial'
+ a.output=(a.output or SCRATCH/'receipts'/('result-'+now.strftime('%Y%m%dT%H%M%S%fZ')+'.json')).resolve();assert a.output.is_relative_to(SCRATCH.resolve());a.output.parent.mkdir(parents=True,exist_ok=True);a.output.write_text(json.dumps(result,indent=2)+'\n');print('receipt: '+str(a.output),flush=True)
+ return 0 if selected_pass else 1
 if __name__=='__main__':raise SystemExit(main())

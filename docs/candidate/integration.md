@@ -35,3 +35,25 @@ an input was edited, and no input ref was moved. No deployment files, tags,
 main branch, production state or installed runtime were changed. Scratch
 caches, binaries, logs and receipts are deliberately untracked. The final
 handoff receipt, bundle and digests identify the local artifact Bryan can test.
+
+## Remaining compatibility refusal
+
+The integrated fidelity gate exposes an incompatibility between the two
+finished inputs. Dogfix `b557bb262f9e5b0d2382ee40e07864b56f93cf09` makes
+`proxyStreamingHTTPOverGRPC` wait for an unknown-length request body to finish
+before committing response metadata. W7's upload-after-prefix/terminal and
+failed-upload consumers require a response prefix while the request upload is
+still active. Each side passes its own intended fixture, but the integrated
+candidate cannot satisfy both contracts as written. The combined tests retain
+the failure; no timeout was raised and no assertion or input pin was weakened.
+
+The smallest reproducer is `make -j1 test-candidate-upload-contract`, a
+memory-only upload/response selector; its evidence is recorded in
+`.scratch/receipts/compatibility-finding.json`. The full gate is
+`make -j1 test-http-fidelity`. Local implementation readiness is **HOLD** while
+this fidelity gate fails. Bryan/coordinator needs to choose whether
+unknown-length uploads may receive a streaming prefix (requiring an aborted
+response if the cap is exceeded after headers), or whether all unknown-length
+uploads must finish before a response can start. Updating either externally
+promised behavior needs a reviewed contract and its consumers; this row does
+not silently rewrite the pinned inputs to obtain a green candidate.

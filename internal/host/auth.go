@@ -277,12 +277,19 @@ func (p *ProxyServer) visitorJWTConfigured() bool {
 // Allows relative paths starting with "/" or absolute URLs on the same domain.
 // Returns "/" if the input is empty or invalid.
 func (p *ProxyServer) sanitizeReturnTo(returnTo string) string {
-	if returnTo == "" {
+	if returnTo == "" || unsafeReturnCharacters(returnTo) {
 		return "/"
 	}
-
-	// Allow relative paths
-	if strings.HasPrefix(returnTo, "/") && !strings.HasPrefix(returnTo, "//") {
+	parsed, err := url.Parse(returnTo)
+	if err != nil || unsafeReturnCharacters(parsed.Path) {
+		return "/"
+	}
+	// Browser URL parsing treats backslashes as separators and removes ASCII
+	// controls. Reject those before deciding whether this is a local path.
+	if strings.HasPrefix(returnTo, "/") {
+		if parsed.IsAbs() || parsed.Host != "" || parsed.User != nil || parsed.Opaque != "" || strings.HasPrefix(parsed.Path, "//") {
+			return "/"
+		}
 		return returnTo
 	}
 
@@ -312,6 +319,15 @@ func (p *ProxyServer) sanitizeReturnTo(returnTo string) string {
 	}
 
 	return "/"
+}
+
+func unsafeReturnCharacters(value string) bool {
+	for _, c := range value {
+		if c == '\\' || c < 0x20 || c == 0x7f {
+			return true
+		}
+	}
+	return false
 }
 
 // handleLogin shows the login page with OAuth and email options

@@ -478,6 +478,10 @@ func TestOrgOIDCWorkspaceHostedDomainAndDirectoryFailures(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			f := newOrgOIDCFixture(t, "google")
 			f.googleError = mode == "directory_denied"
+			if mode == "spoofed_token_group" {
+				f.org.Groups = append(f.org.Groups, config.OIDCGroup{ID: "attackers", Name: "Attackers", Claim: "groups", Value: "attacker-group"})
+				f.p.config.OIDCOrgs[0] = f.org
+			}
 			r, _ := f.begin(t, func(c jwt.MapClaims) {
 				switch mode {
 				case "missing_hd":
@@ -504,6 +508,14 @@ func TestOrgOIDCWorkspaceHostedDomainAndDirectoryFailures(t *testing.T) {
 			}
 			if w.Code != want {
 				t.Fatalf("Workspace %s: %d %s", mode, w.Code, w.Body.String())
+			}
+			if mode == "spoofed_token_group" {
+				request := httptest.NewRequest("GET", "https://tunn.test/", nil)
+				request.AddCookie(orgResponseCookie(t, w))
+				session, ok := f.p.getOrgSession(request)
+				if !ok || len(session.Groups) != 1 || session.Groups[0] != "group:company:engineering" {
+					t.Fatal("token groups overrode Directory membership", session)
+				}
 			}
 		})
 	}

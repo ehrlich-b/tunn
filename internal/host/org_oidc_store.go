@@ -91,7 +91,10 @@ func (s *orgLoginStore) begin(ctx context.Context, state string, login orgLogin,
 		return err
 	}
 	var count, orgCount, sourceCount int
-	if err = tx.QueryRowContext(ctx, `SELECT count(*), coalesce(sum(org=?),0), coalesce(sum(org=? AND source=?),0) FROM org_oidc_logins`, login.Org, login.Org, login.Source).Scan(&count, &orgCount, &sourceCount); err != nil {
+	if err = tx.QueryRowContext(ctx, `SELECT
+  (SELECT count(*) FROM org_oidc_logins),
+  (SELECT count(*) FROM org_oidc_logins WHERE org=?),
+  (SELECT count(*) FROM org_oidc_logins WHERE org=? AND source=?)`, login.Org, login.Org, login.Source).Scan(&count, &orgCount, &sourceCount); err != nil {
 		return err
 	}
 	if count >= orgLoginGlobalLimit || orgCount >= orgLoginOrgLimit || sourceCount >= orgLoginSourceLimit {

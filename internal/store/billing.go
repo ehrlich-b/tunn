@@ -89,6 +89,37 @@ func billingMappingCount(ctx context.Context, q operationQuery, id string) (int,
 	err := q.QueryRowContext(ctx, `SELECT count(*) FROM ops_billing_mappings WHERE account_id=?`, id).Scan(&count)
 	return count, err
 }
+
+type BillingStatus struct {
+	Mapping         *BillingMapping `json:"mapping"`
+	PendingEventIDs []string        `json:"pending_event_ids"`
+}
+
+// AdminBillingStatus exposes mapping CAS state and up to 100 outstanding
+// receipts for a scoped operator review; it never exposes webhook payloads.
+func (s *OperationsStore) AdminBillingStatus(ctx context.Context, p AdminPrincipal, provider, subscription string) (*BillingStatus, error) {
+	m, err := readBillingMapping(ctx, s.db, provider, subscription)
+	if err != nil {
+		return nil, err
+	}
+	if err = p.authorize(m.AccountID); err != nil {
+		return nil, err
+	}
+	out := &BillingStatus{Mapping: m, PendingEventIDs: []string{}}
+	rows, err := s.db.QueryContext(ctx, `SELECT event_id FROM ops_billing_events WHERE provider=? AND subscription_id=? AND customer_id=? AND outcome='reconciliation_required' ORDER BY received_at,event_id LIMIT 100`, provider, subscription, m.CustomerID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var id string
+		if err = rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out.PendingEventIDs = append(out.PendingEventIDs, id)
+	}
+	return out, rows.Err()
+}
 func (s *OperationsStore) ProcessBillingEvent(ctx context.Context, e BillingEvent) (*BillingResult, error) {
 	if !boundedText(e.Provider, 32) || !boundedText(e.ID, 128) || !boundedText(e.Type, 128) || len(e.CustomerID) > 128 || len(e.SubscriptionID) > 128 || e.Revision < 0 || e.Plan != "" && e.Plan != "free" && e.Plan != "pro" {
 		return nil, fmt.Errorf("invalid billing metadata")
@@ -170,6 +201,12 @@ type BillingSnapshot struct {
 	Revision        int64    `json:"revision"`
 	Plan            string   `json:"plan"`
 	EventIDs        []string `json:"event_ids,omitempty"`
+	// Explicit operator evidence for the production reviewed-apply path.
+	ProviderReadAt   time.Time `json:"provider_read_at,omitempty"`
+	EvidenceSHA256   string    `json:"evidence_sha256,omitempty"`
+	PriceID          string    `json:"price_id,omitempty"`
+	ProviderStatus   string    `json:"provider_status,omitempty"`
+	PaymentConfirmed bool      `json:"payment_confirmed,omitempty"`
 }
 type ReconciliationChange struct {
 	BillingSnapshot
@@ -253,6 +290,36 @@ func reconciliationChange(ctx context.Context, tx *sql.Tx, p AdminPrincipal, sna
 	return out, nil
 }
 func (s *OperationsStore) Reconcile(ctx context.Context, p AdminPrincipal, snapshots []BillingSnapshot, applyFixture bool) ([]ReconciliationChange, error) {
+	return s.reconcile(ctx, p, snapshots, applyFixture, false)
+}
+
+// ApplyReviewedBilling is a local, authenticated operator action, never a
+// webhook adapter. The operator must verify ownership and an approved price
+// against a fresh Stripe read. Evidence is hashed into the immutable audit.
+// CAS prevents overwriting another review; Stripe event order is not a revision.
+func (s *OperationsStore) ApplyReviewedBilling(ctx context.Context, p AdminPrincipal, snapshots []BillingSnapshot) ([]ReconciliationChange, error) {
+	for _, snap := range snapshots {
+		digest, err := hex.DecodeString(snap.EvidenceSHA256)
+		age := s.now().Sub(snap.ProviderReadAt)
+		if snap.Provider != "stripe" || snap.Revision != 0 || len(snap.EventIDs) == 0 || err != nil || len(digest) != sha256.Size || snap.ProviderReadAt.IsZero() || age < 0 || age > 5*time.Minute || !boundedText(snap.PriceID, 128) {
+			return nil, fmt.Errorf("reviewed apply requires fresh Stripe evidence, price and event receipts; revision must be zero")
+		}
+		if snap.Plan == "pro" {
+			if snap.ProviderStatus != "active" || !snap.PaymentConfirmed {
+				return nil, fmt.Errorf("Pro requires reviewed active subscription and confirmed payment")
+			}
+		} else {
+			switch snap.ProviderStatus {
+			case "canceled", "unpaid", "past_due", "incomplete", "incomplete_expired", "paused":
+			default:
+				return nil, fmt.Errorf("Free requires reviewed inactive or delinquent subscription")
+			}
+		}
+	}
+	return s.reconcile(ctx, p, snapshots, false, true)
+}
+
+func (s *OperationsStore) reconcile(ctx context.Context, p AdminPrincipal, snapshots []BillingSnapshot, applyFixture, applyReviewed bool) ([]ReconciliationChange, error) {
 	if len(snapshots) == 0 || len(snapshots) > 1000 {
 		return nil, fmt.Errorf("require 1..1000 snapshots")
 	}
@@ -280,11 +347,11 @@ func (s *OperationsStore) Reconcile(ctx context.Context, p AdminPrincipal, snaps
 			return nil, err
 		}
 		out = append(out, *change)
-		if applyFixture && change.State != "current" && change.State != "change_expected" {
+		if (applyFixture || applyReviewed) && change.State != "current" && change.State != "change_expected" {
 			return nil, fmt.Errorf("snapshot cannot apply: %s", change.State)
 		}
 	}
-	if !applyFixture {
+	if !applyFixture && !applyReviewed {
 		return out, nil
 	}
 	for i := range out {

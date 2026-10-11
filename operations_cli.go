@@ -18,12 +18,13 @@ import (
 )
 
 const operationsUsage = `tunn admin <action> --db PATH --admin-config PATH --token-file PATH
-Actions: status, suspend, resume, billing-bind, billing-events, reconcile,
+Actions: status, suspend, resume, billing-bind, billing-status, billing-events, reconcile,
          report-intake, report-respond, fixture-init, migrate
 Account operations: --account UUID --expect-version N --reason TEXT
 Billing bind: --account UUID --provider NAME --customer ID --subscription ID
 Billing fixtures: --events PATH (disposable fixture databases only)
-Reconcile: --snapshots PATH [--apply-fixture] (default: read-only dry run)
+Reconcile: --snapshots PATH [--apply-fixture | --apply-reviewed] (default: read-only dry run)
+Reviewed apply requires fresh Stripe evidence and receipts; see GO-LIVE.md.
 Reports: --account UUID --category abuse|billing|availability --endpoint NAME
 Response: --report ID --response triaged|action_taken|closed --expect-version N
 Fixture init: --email fixture@example.invalid (creates a new disposable database)
@@ -108,7 +109,7 @@ func executeOperations(args []string, out io.Writer) error {
 	fs.SetOutput(io.Discard)
 	var dbPath, configPath, tokenPath, account, reason, provider, customer, subscription, input, email, category, endpoint, report, response string
 	var expected int64
-	var apply bool
+	var apply, applyReviewed bool
 	fs.StringVar(&dbPath, "db", "", "explicit local database path")
 	fs.StringVar(&configPath, "admin-config", "", "operator-owned configuration")
 	fs.StringVar(&tokenPath, "token-file", "", "administration token")
@@ -121,6 +122,7 @@ func executeOperations(args []string, out io.Writer) error {
 	fs.StringVar(&input, "snapshots", "", "supplied provider snapshots")
 	fs.StringVar(&input, "events", "", "supplied fixture events")
 	fs.BoolVar(&apply, "apply-fixture", false, "apply only to a disposable local fixture database")
+	fs.BoolVar(&applyReviewed, "apply-reviewed", false, "commit explicitly reviewed Stripe snapshots to the local database")
 	fs.StringVar(&email, "email", "", "fixture account email")
 	fs.StringVar(&category, "category", "", "report category")
 	fs.StringVar(&endpoint, "endpoint", "", "report endpoint")
@@ -133,11 +135,12 @@ func executeOperations(args []string, out io.Writer) error {
 		return fmt.Errorf("unexpected positional argument")
 	}
 	valid := map[string]bool{"status": true, "suspend": true, "resume": true, "billing-bind": true, "billing-events": true, "reconcile": true, "report-intake": true, "report-respond": true, "fixture-init": true, "migrate": true}
+	valid["billing-status"] = true
 	if !valid[action] || dbPath == "" || configPath == "" || tokenPath == "" {
 		return fmt.Errorf("require an action, explicit database and administration credentials")
 	}
-	if apply && action != "reconcile" {
-		return fmt.Errorf("apply-fixture is only valid with reconcile")
+	if (apply || applyReviewed) && action != "reconcile" || apply && applyReviewed {
+		return fmt.Errorf("select one apply mode, only with reconcile")
 	}
 	principal, err := adminPrincipal(configPath, tokenPath)
 	if err != nil {
@@ -187,7 +190,7 @@ func executeOperations(args []string, out io.Writer) error {
 		return fmt.Errorf("database must be an existing regular file")
 	}
 	dbMode := "rw"
-	if action == "status" || action == "reconcile" && !apply {
+	if action == "status" || action == "billing-status" || action == "reconcile" && !apply && !applyReviewed {
 		dbMode = "ro"
 	}
 	dsn := (&url.URL{Scheme: "file", Path: abs, RawQuery: "mode=" + dbMode}).String()
@@ -217,6 +220,8 @@ func executeOperations(args []string, out io.Writer) error {
 	case "billing-bind":
 		err = ops.BindBilling(ctx, principal, store.BillingMapping{Provider: provider, CustomerID: customer, SubscriptionID: subscription, AccountID: account})
 		result = map[string]string{"state": "bound", "account_id": account}
+	case "billing-status":
+		result, err = ops.AdminBillingStatus(ctx, principal, provider, subscription)
 	case "billing-events":
 		var marker string
 		if err = db.QueryRowContext(ctx, "SELECT value FROM ops_fixture WHERE id=1").Scan(&marker); err != nil || marker != "disposable-local" {
@@ -251,7 +256,11 @@ func executeOperations(args []string, out io.Writer) error {
 		if err = readBoundedJSON(input, &snapshots); err != nil {
 			return err
 		}
-		result, err = ops.Reconcile(ctx, principal, snapshots, apply)
+		if applyReviewed {
+			result, err = ops.ApplyReviewedBilling(ctx, principal, snapshots)
+		} else {
+			result, err = ops.Reconcile(ctx, principal, snapshots, apply)
+		}
 	case "report-intake":
 		if _, err = ops.AdminStatus(ctx, principal, account); err != nil {
 			return err

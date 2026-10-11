@@ -136,3 +136,22 @@ func TestSDKResponseConformance(t *testing.T) {
 		}
 	}
 }
+
+func TestSDKResponseControllerConformance(t *testing.T) {
+	report := make(chan error, 1)
+	stack := startSDKContractStack(t, "handler", sdkResponseContract{Handler: httpconformance.ControllerHandler(report), Mode: httpconformance.Streaming})
+	request, _ := http.NewRequest(http.MethodGet, stack.relay.URL+"/", nil)
+	request.Host = "websocket-fixture.tunn.test"
+	request.Header.Set("Tunn-Authorization", "Bearer "+sdkEndpointToken)
+	response, err := stack.relay.Client().Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := httpconformance.Read(response)
+	if err = waitResponseSignal(t, report); err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != 202 || got.Body != "abc" || got.ReadErr != nil {
+		t.Fatalf("exported handler controller response=%+v", got)
+	}
+}

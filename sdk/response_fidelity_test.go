@@ -156,6 +156,15 @@ func observeResponseCell(t *testing.T, cell httpconformance.Cell, method string,
 // semantics over a private handler pipe, including HEAD and bodyless statuses.
 func directHandlerResponse(t *testing.T, method string, handler http.Handler, traces ...*httptrace.ClientTrace) (*http.Response, string) {
 	t.Helper()
+	response, body, err := directHandlerResult(t, method, handler, traces...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return response, body
+}
+
+func directHandlerResult(t *testing.T, method string, handler http.Handler, traces ...*httptrace.ClientTrace) (*http.Response, string, error) {
+	t.Helper()
 	origin := testHandlerOrigin(handler)
 	origin.start(context.Background())
 	defer origin.close()
@@ -174,10 +183,7 @@ func directHandlerResponse(t *testing.T, method string, handler http.Handler, tr
 	}
 	defer response.Body.Close()
 	body, err := io.ReadAll(response.Body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return response, string(body)
+	return response, string(body), err
 }
 
 func fidelityCookieHandler(w http.ResponseWriter, r *http.Request) {

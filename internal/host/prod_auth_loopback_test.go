@@ -70,7 +70,7 @@ func prodAuthHTTPSOAuthLifecycle(t *testing.T, memory bool) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer response.Body.Close()
+		defer func() { _ = response.Body.Close() }()
 		data, err := io.ReadAll(response.Body)
 		if err != nil {
 			t.Fatal(err)

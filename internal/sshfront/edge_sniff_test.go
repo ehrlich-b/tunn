@@ -22,7 +22,7 @@ func TestEdgeSniffFragmentedBytesRemainIntact(t *testing.T) {
 				listener := testnet.NewListener()
 				received := make(chan []byte, 1)
 				read := func(c net.Conn) {
-					defer c.Close()
+					defer func() { _ = c.Close() }()
 					_ = c.SetReadDeadline(time.Now().Add(2 * time.Second))
 					data := make([]byte, len(payload))
 					if _, err := io.ReadFull(c, data); err != nil {
@@ -31,7 +31,7 @@ func TestEdgeSniffFragmentedBytesRemainIntact(t *testing.T) {
 					received <- data
 				}
 				shared := Share(ctx, listener, func(_ context.Context, c net.Conn) { read(c) })
-				defer shared.Close()
+				defer func() { _ = shared.Close() }()
 				if payload[0] == 0x16 {
 					go func() {
 						c, err := shared.Accept()
@@ -46,7 +46,7 @@ func TestEdgeSniffFragmentedBytesRemainIntact(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				defer raw.Close()
+				defer func() { _ = raw.Close() }()
 				_ = raw.SetWriteDeadline(time.Now().Add(2 * time.Second))
 				rng := rand.New(rand.NewSource(seed))
 				for offset := 0; offset < len(payload); {
@@ -76,15 +76,15 @@ func TestEdgeSniffRejectsUnsupportedProtocols(t *testing.T) {
 			defer cancel()
 			listener := testnet.NewListener()
 			shared := Share(ctx, listener, func(_ context.Context, c net.Conn) {
-				defer c.Close()
+				defer func() { _ = c.Close() }()
 				t.Error("unsupported protocol dispatched to SSH")
 			})
-			defer shared.Close()
+			defer func() { _ = shared.Close() }()
 			raw, err := listener.Dial()
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer raw.Close()
+			defer func() { _ = raw.Close() }()
 			if _, err := io.WriteString(raw, payload); err != nil {
 				t.Fatal(err)
 			}

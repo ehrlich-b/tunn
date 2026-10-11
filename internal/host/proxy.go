@@ -749,7 +749,7 @@ func (p *ProxyServer) startHTTP3Server(ctx context.Context, handler http.Handler
 	if err != nil {
 		return fmt.Errorf("failed to listen on %s: %w", p.HTTP3Addr, err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	p.listenerStarted(listenerHTTP3)
 	defer p.listenerState.And(^uint32(listenerHTTP3))
 

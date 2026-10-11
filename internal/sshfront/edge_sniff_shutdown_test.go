@@ -45,12 +45,12 @@ func TestEdgeSniffShutdownClosesUnclassifiedConnections(t *testing.T) {
 			defer cancel()
 			listener := &edgeObservedListener{Listener: testnet.NewListener(), accepted: make(chan *edgeObservedConn, 1)}
 			shared := Share(ctx, listener, func(context.Context, net.Conn) { t.Error("incomplete banner dispatched") })
-			defer shared.Close()
+			defer func() { _ = shared.Close() }()
 			raw, err := listener.Dial()
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer raw.Close()
+			defer func() { _ = raw.Close() }()
 			if prefix != "" {
 				if _, err := io.WriteString(raw, prefix); err != nil {
 					t.Fatal(err)

@@ -33,7 +33,7 @@ func TestOpsPersistentStorageReadiness(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	s = NewLocalStorage(db)
 	if err := s.CheckHealth(context.Background()); err != nil {
 		t.Fatal("reopened persistent database not ready:", err)

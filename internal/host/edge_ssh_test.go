@@ -190,7 +190,7 @@ func TestSSHEdgeIndependentNamedForwards(t *testing.T) {
 					t.Error(err)
 					return
 				}
-				defer channel.Close()
+				defer func() { _ = channel.Close() }()
 				go ssh.DiscardRequests(requests)
 				request, err := http.ReadRequest(bufio.NewReader(channel))
 				if err != nil {

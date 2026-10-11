@@ -155,7 +155,7 @@ func TestEdgeTLSLoadingRejectsInvalidMaterial(t *testing.T) {
 				t.Fatal(err)
 			}
 			cfg := &config.Config{Environment: config.EnvProd, Domain: "tunn.test", CertFile: certFile, KeyFile: keyFile}
-			if _, err := NewProxyServer(cfg); err == nil || !strings.Contains(err.Error(), "failed to load certificates") {
+			if _, err := NewProxyServer(cfg); err == nil || !strings.Contains(err.Error(), "failed to load TUNN_CERT_FILE/TUNN_KEY_FILE") {
 				t.Fatalf("public TLS accepted invalid material or unclear error: %v", err)
 			}
 			if _, err := createInternalTLSConfig(cfg); err == nil || !strings.Contains(err.Error(), "failed to load server cert") {
@@ -176,8 +176,8 @@ func TestEdgeTLSLoadedCertificateNegotiatesHTTP(t *testing.T) {
 	for _, protocol := range []string{"h2", "http/1.1"} {
 		t.Run(protocol, func(t *testing.T) {
 			a, b := net.Pipe()
-			defer a.Close()
-			defer b.Close()
+			defer func() { _ = a.Close() }()
+			defer func() { _ = b.Close() }()
 			_ = a.SetDeadline(time.Now().Add(3 * time.Second))
 			_ = b.SetDeadline(time.Now().Add(3 * time.Second))
 			server := tls.Server(a, p.tlsConfig)

@@ -115,7 +115,7 @@ func TestOpsRelayReadinessRejectsUnconnectedLoginNode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	remote := storage.NewProxyStorage()
 	remote.SetConnection(conn)
 	p.storage, p.loginNodeConn = remote, conn
@@ -461,7 +461,7 @@ func TestOpsLoopbackShutdownWithLivePublisherAndRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	streamCtx, stopStream := context.WithTimeout(context.Background(), 10*time.Second)
 	defer stopStream()
 	stream, err := pb.NewTunnelServiceClient(conn).EstablishTunnel(streamCtx)
@@ -499,7 +499,7 @@ func TestOpsLoopbackShutdownWithLivePublisherAndRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer recovered.Close()
+	defer func() { _ = recovered.Close() }()
 	next.storage = storage.NewLocalStorage(recovered)
 	next.tunnelServer.storage = next.storage
 	nextCancel, nextDone := opsStart(t, next)

@@ -123,7 +123,7 @@ func TestOpsDBInitializationFailureRemainsFailure(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				defer db.Close()
+				defer func() { _ = db.Close() }()
 				var retained string
 				if err := db.QueryRow("SELECT incompatible FROM accounts").Scan(&retained); err != nil || retained != "retained" {
 					t.Fatal("migration failure replaced existing data")
@@ -147,7 +147,7 @@ func TestOpsDBRestartRecoversCommittedWAL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	account, err := NewAccountStore(db).GetByID("wal-owner")
 	if err != nil || account.PrimaryEmail != "wal@example.com" {
 		t.Fatalf("WAL recovery lost account: %v %v", account, err)

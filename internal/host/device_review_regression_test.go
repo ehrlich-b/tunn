@@ -140,6 +140,8 @@ func TestReviewProductionBaseDatabaseMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
+	// Other release components also install additive tables at store startup.
+	initialized := reviewDatabaseSnapshot(t, db)
 	p := securityProxy(storage.NewLocalStorage(db))
 	p.devices, err = newDeviceCredentialStore(db)
 	if err != nil {
@@ -149,8 +151,8 @@ func TestReviewProductionBaseDatabaseMigration(t *testing.T) {
 		t.Fatal("repeated startup", err)
 	}
 	after := reviewDatabaseSnapshot(t, db)
-	if len(before) != 20 || len(after) != 22 {
-		t.Fatalf("migration tables: before=%d after=%d, want 20/22", len(before), len(after))
+	if len(before) != 20 || len(after) != len(initialized)+2 {
+		t.Fatalf("migration tables: baseline=%d initialized=%d after=%d, want 20 baseline tables and exactly two new durable tables", len(before), len(initialized), len(after))
 	}
 	for name, original := range before {
 		if !reflect.DeepEqual(original, after[name]) {

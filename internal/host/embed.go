@@ -24,3 +24,6 @@ var docsHTML string
 
 //go:embed templates/mcp-to-claude.html
 var mcpTutorialHTML string
+
+//go:embed templates/ngrok-alternative.html
+var ngrokAlternativeHTML string

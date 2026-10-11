@@ -1,0 +1,19 @@
+<style>.page-container{max-width:960px}h2,p,table{margin-bottom:20px}table{width:100%;border-collapse:collapse}th,td{padding:12px;text-align:left;border-bottom:1px solid #d1d9e0}.comparison{overflow-x:auto}</style>
+<h1 class="page-title">An ngrok alternative for local MCP and webhooks</h1>
+<p>tunn gives your local server an HTTPS URL, with private MCP OAuth, email sharing and account quotas. Choose it when you want local tools and a fixed subscription bill.</p>
+<p>Competitor facts checked <strong>2026-10-11</strong>. Prices are USD before tax. Recheck the linked sources before deciding.</p>
+<div class="comparison"><table>
+<thead><tr><th>Dimension</th><th>tunn</th><th>ngrok</th></tr></thead>
+<tbody><tr><td>Free monthly usage</td><td>{{.FreeBytes}}, {{.FreeRequests}} admissions; {{.FreeTunnels}} concurrent tunnels</td><td>1 GB outbound, 20,000 HTTP requests; 3 online endpoints</td></tr>
+<tr><td>Solo paid plan</td><td>Pro ${{.MonthlyUSD}}/month or ${{.YearlyUSD}}/year; {{.ProBytes}}, {{.ProRequests}} admissions</td><td>Hobbyist $10/month or $96/year; 5 GB, 100k requests included plus usage credit</td></tr>
+<tr><td>Persistent name</td><td>Pro attempts to reserve the first {{.Reservations}} published names; Free names can be taken while offline</td><td>Assigned stable dev domain on Free; chosen ngrok-branded domains on Hobbyist</td></tr>
+<tr><td>Visitor warning</td><td>No extra warning on public endpoints; private endpoints require authentication</td><td>Free HTML browser interstitial, bypassable by suitable clients; no interstitial on paid plans</td></tr>
+<tr><td>Local MCP</td><td>Private stdio bridge or HTTP target, /mcp endpoint, OAuth consent and revocation; connector preview</td><td>Public ingress and gateway capabilities; see ngrok's documentation for MCP configuration</td></tr>
+<tr><td>Quota billing</td><td>Fixed allowance, hard stop, no automatic overage</td><td>Free/Hobbyist credit-limited; Pay-as-you-go $20 base plus metered usage</td></tr></tbody></table></div>
+<p>Sources: <a href="https://ngrok.com/pricing">ngrok pricing</a>, <a href="https://ngrok.com/docs/pricing-limits/free-plan-limits/">free limits and interstitial behavior</a>, <a href="https://ngrok.com/docs/pricing-limits/how-ngrok-charges/">usage metrics</a>. All fetched 2026-10-11.</p>
+<h2>Compare the actual units</h2>
+<p>tunn's transfer quota includes HTTP bodies in both directions, WebSocket wire frames and TCP payloads, excluding transport framing. Admissions include MCP/HTTP calls and connection opens. ngrok counts outbound transfer and HTTP requests. These figures are not a workload benchmark.</p>
+<h2>Choose the tool that fits</h2>
+<p>ngrok's broader gateway, policy, compliance and enterprise offerings may fit your requirements better. Its free endpoints have no session timeout and already include a stable dev domain. tunn has no published enterprise SLA, and local MCP connector acceptance must be verified in your client. Your laptop and server must remain online.</p>
+<p>Other options deserve a look: <a href="https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/">Cloudflare Quick Tunnels</a> are free but have a 200 in-flight limit and no SSE; named Cloudflare Tunnel is a separate setup. <a href="https://pinggy.io/#prices">Pinggy Pro</a> advertises $3/month or $30/year per seat, cheaper than tunn. These sources were fetched 2026-10-11.</p>
+<p><a class="btn btn-primary" href="/docs/mcp-to-claude">Connect your MCP server to Claude.ai</a><a class="btn btn-secondary" href="/pricing">See tunn plans</a></p>

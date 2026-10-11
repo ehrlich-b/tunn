@@ -39,7 +39,7 @@ func revenueRequest(t *testing.T, p *ProxyServer, path string, auth bool) *httpt
 
 func TestRevenueRoutesLimitsAndConfiguredCheckout(t *testing.T) {
 	p, _, a := revenueFixture(t)
-	for _, path := range []string{"/", "/pricing", "/docs", "/docs/mcp-to-claude"} {
+	for _, path := range []string{"/", "/pricing", "/docs", "/docs/mcp-to-claude", "/ngrok-alternative", "/terms"} {
 		w := revenueRequest(t, p, path, false)
 		if w.Code != 200 {
 			t.Fatal(path, w.Code, w.Body.String())

@@ -1,25 +1,29 @@
 # tunn
 
-The [SSH API](docs/ssh-api.md) exposes local services with OpenSSH, including
-private sharing, key linking, metered grants, TCP forwarding and stdio MCP.
-
-Share localhost like a Google Doc.
+Give local MCP tools and webhook handlers a public HTTPS URL.
 
 ```bash
-tunn 8080
+tunn login
+tunn http 8080                      # Public webhook/dev endpoint
+tunn mcp -- ./my-mcp-server         # Private MCP endpoint with OAuth consent
 ```
 
-```
-https://abc123.tunn.to → localhost:8080
-```
+Copy the printed `/mcp` URL to your cloud client's connector settings. Keep your
+local process running. [Connect to Claude.ai](docs/guides/mcp-to-claude.md),
+[compare with ngrok](https://tunn.to/ngrok-alternative), or see
+[pricing](https://tunn.to/pricing). Hosted pages describe this release after the
+coordinator deploys it; the local guides work from this checkout now.
 
-Share with specific people:
+Free: 3 concurrent tunnels, 100,000 admissions and 1 GB metered transfer per UTC
+month across your account. Proposed Pro: $6/month or $60/year, 10 tunnels,
+1,000,000 admissions, 50 GB and 4 reserved names. No automatic overage charges.
+Checkout opens only after billing acceptance; launch activation is reviewed by
+an operator. Existing subscriptions are not repriced by this change.
 
-```bash
-tunn 8080 --allow=alice@gmail.com,bob@company.com
-```
-
-Visitors log in with GitHub or a magic link. If they're on your list, they're in. Otherwise, access denied.
+Share a local app privately with `tunn 8080 --allow=alice@example.com`. Visitors
+sign in with GitHub or an email link. For webhook callbacks, keep the endpoint
+public and validate the sender's signatures in your application.
+The [SSH API](docs/ssh-api.md) also supports OpenSSH publication and forwarding.
 
 ## Install
 
@@ -159,8 +163,8 @@ Create prints the consumer token once; only its digest reaches the relay.
 Consumers send `Tunn-Authorization: Bearer <token>`. Request/byte exhaustion
 returns `429`; expiry and revocation return `403`. The durable ledger records
 caller usage and rejected ingress decisions across buffered and streamed HTTP.
-Optional shared monthly owner caps support an entry tier of about $12/year;
-per-user request and byte totals let us check that target against Fly.io costs.
+Optional shared monthly owner caps impose tighter account limits. The proposed
+$12/year entry tier is deferred; see [pricing economics](PRICING.md).
 See [the usage contract](docs/METERING.md) for units, retention, streaming limit
 trailers, local/self-hosted CLI options, and the boundary between metering and
 billable usage.

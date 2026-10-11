@@ -20,6 +20,7 @@ import (
 	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/ehrlich-b/tunn/internal/config"
 	"github.com/ehrlich-b/tunn/internal/storage"
+	"github.com/ehrlich-b/tunn/internal/testutil/httpconformance"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
 	tunn "github.com/ehrlich-b/tunn/sdk"
 	"google.golang.org/grpc"
@@ -37,13 +38,17 @@ type sdkContractStack struct {
 
 // Deliberately binds literal loopback: this is the SDK acceptance gate, not
 // the memory fixture fallback. It uses the established WebSocket wire fixture.
-func startSDKContractStack(t *testing.T, mode string) *sdkContractStack {
+func startSDKContractStack(t *testing.T, mode string, responseOptions ...sdkResponseContract) *sdkContractStack {
 	t.Helper()
 	fixture := &webSocketFixture{closes: make(chan []byte, 16)}
 	cfg := &config.Config{ClientSecret: "sdk-publisher-auth-fixture", Domain: "tunn.test", JWTSecret: "sdk-cookie-signing-fixture", NodeSecret: "sdk-node-fixture"}
 	server := NewTunnelServer(cfg, nil, nil, nil)
+	var relayImpl pb.TunnelServiceServer = server
+	if len(responseOptions) == 1 && responseOptions[0].Mode == httpconformance.Buffered {
+		relayImpl = &sdkBufferedRelay{TunnelServer: server}
+	}
 	gs := grpc.NewServer()
-	pb.RegisterTunnelServiceServer(gs, server)
+	pb.RegisterTunnelServiceServer(gs, relayImpl)
 	proxy := &ProxyServer{Domain: cfg.Domain, config: cfg, tunnelServer: server, grpcServer: gs, storage: storage.NewProxyStorage(), quotaCache: NewQuotaCache(time.Minute)}
 	relay := httptest.NewUnstartedServer(proxy.createHTTP2Router(http.HandlerFunc(proxy.handleWebProxy)))
 	relay.EnableHTTP2 = true
@@ -56,14 +61,18 @@ func startSDKContractStack(t *testing.T, mode string) *sdkContractStack {
 	t.Cleanup(cancel)
 	stack := &sdkContractStack{webSocketStack: &webSocketStack{relay: relay, proxy: proxy, fixture: fixture, cancel: cancel}, server: server}
 	o := tunn.Options{Name: "websocket-fixture", ServerAddr: relay.Listener.Addr().String(), Credentials: tunn.Credentials{AuthToken: cfg.ClientSecret, EndpointToken: sdkEndpointToken}, AllowedEmails: []string{"alice@example.com"}, TLSConfig: tlsConfig, Reconnect: &tunn.ReconnectPolicy{MaxAttempts: 3, InitialDelay: 5 * time.Millisecond, MaxDelay: 20 * time.Millisecond}, ConnectTimeout: time.Second}
+	var handler http.Handler = fixture
+	if len(responseOptions) > 0 {
+		handler = responseOptions[0].Handler
+	}
 	if mode == "handler" {
 		var err error
-		stack.tunnelSDK, err = tunn.PublishHandler(ctx, fixture, o)
+		stack.tunnelSDK, err = tunn.PublishHandler(ctx, handler, o)
 		if err != nil {
 			t.Fatal(err)
 		}
 	} else {
-		stack.local = httptest.NewServer(fixture)
+		stack.local = httptest.NewServer(handler)
 		t.Cleanup(stack.local.Close)
 		if mode == "origin" {
 			o.Origin = stack.local.URL
@@ -229,4 +238,16 @@ func TestSDKActiveWebSocketClose(t *testing.T) {
 		}
 	}
 	waitWebSocketsClosed(t, s.webSocketStack)
+}
+
+// sdkBufferedRelay changes only the synthetic registration before publication.
+type sdkBufferedRelay struct{ *TunnelServer }
+
+func (s *sdkBufferedRelay) EstablishTunnel(stream pb.TunnelService_EstablishTunnelServer) error {
+	return s.TunnelServer.EstablishTunnel(responseBufferedRegistration{stream})
+}
+
+type sdkResponseContract struct {
+	Handler http.Handler
+	Mode    httpconformance.Mode
 }

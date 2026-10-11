@@ -13,6 +13,7 @@ import (
 	"sync"
 
 	"github.com/ehrlich-b/tunn/internal/common"
+	"github.com/ehrlich-b/tunn/internal/testutil/httpconformance"
 	"strings"
 	"testing"
 	"time"
@@ -36,6 +37,16 @@ type observedResponse struct {
 
 func observeResponse(t *testing.T, mode, method string, handler http.Handler, relayTrailers ...bool) observedResponse {
 	t.Helper()
+	cell := httpconformance.Cell{Publisher: httpconformance.Current, Relay: httpconformance.Current, Mode: httpconformance.Mode(mode)}
+	if len(relayTrailers) > 0 && !relayTrailers[0] {
+		cell.Relay = httpconformance.Legacy
+	}
+	return observeResponseCell(t, cell, method, handler)
+}
+
+func observeResponseCell(t *testing.T, cell httpconformance.Cell, method string, handler http.Handler) observedResponse {
+	t.Helper()
+	mode := string(cell.Mode)
 	result := make(chan observedResponse, 1)
 	dial, tlsConfig := startFixture(t, func(stream pb.TunnelService_EstablishTunnelServer) (err error) {
 		var got observedResponse
@@ -51,7 +62,7 @@ func observeResponse(t *testing.T, mode, method string, handler http.Handler, re
 		if err != nil {
 			return err
 		}
-		if len(relayTrailers) > 0 && !relayTrailers[0] {
+		if cell.Relay == httpconformance.Legacy {
 			err = stream.Send(&pb.TunnelMessage{Message: &pb.TunnelMessage_RegisterResponse{RegisterResponse: &pb.RegisterResponse{Success: true, PublicUrl: "https://" + reg.TunnelId + ".sdk.test", Capabilities: []string{"http-stream-v1", "connection-stream-v1", "websocket-v1"}}}})
 		} else {
 			err = acceptRegistration(stream, reg)
@@ -96,9 +107,10 @@ func observeResponse(t *testing.T, mode, method string, handler http.Handler, re
 				if accept.HttpResponse == nil {
 					return fmt.Errorf("missing response metadata")
 				}
-				got.status, got.headers = int(accept.HttpResponse.StatusCode), accept.HttpResponse.Headers
-				got.fields = accept.HttpResponse.HeaderFields
-				got.trailerNames = accept.HttpResponse.TrailerNames
+				head := accept.HttpResponse
+				got.status, got.headers = int(head.StatusCode), head.Headers
+				got.fields = head.HeaderFields
+				got.trailerNames = head.TrailerNames
 			case message.GetConnectionData() != nil:
 				got.body += string(message.GetConnectionData().Data)
 			case message.GetConnectionHalfClose() != nil, message.GetConnectionClose() != nil:
@@ -125,6 +137,17 @@ func observeResponse(t *testing.T, mode, method string, handler http.Handler, re
 	}
 	if got.err != nil {
 		t.Fatal(got.err)
+	}
+	for _, frame := range got.frames {
+		if response := frame.GetHttpResponse(); response != nil {
+			decoded := httpconformance.WireResponse(t, response, cell).(*pb.HttpResponse)
+			got.status, got.headers, got.fields = int(decoded.StatusCode), decoded.Headers, decoded.HeaderFields
+			got.body, got.trailerNames, got.trailers = string(decoded.Body), decoded.TrailerNames, decoded.Trailers
+		}
+		if accept := frame.GetConnectionAccept(); accept != nil && accept.HttpResponse != nil {
+			decoded := httpconformance.WireResponse(t, accept.HttpResponse, cell).(*pb.HttpResponseHead)
+			got.status, got.headers, got.fields, got.trailerNames = int(decoded.StatusCode), decoded.Headers, decoded.HeaderFields, decoded.TrailerNames
+		}
 	}
 	return got
 }

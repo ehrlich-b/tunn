@@ -81,7 +81,7 @@ func (p *ProxyServer) proxyStreamingHTTPOverGRPC(w http.ResponseWriter, r *http.
 			if event.accept.HttpResponse == nil {
 				return fmt.Errorf("streamed HTTP response has no metadata")
 			}
-			if event.accept.HttpResponse.StatusCode < 100 || event.accept.HttpResponse.StatusCode > 599 {
+			if event.accept.HttpResponse.StatusCode < 200 || event.accept.HttpResponse.StatusCode > 599 {
 				return fmt.Errorf("local target returned invalid HTTP status %d", event.accept.HttpResponse.StatusCode)
 			}
 			if err := validateResponseTrailers(tunnel, event.accept.HttpResponse.TrailerNames, nil); err != nil {

@@ -385,6 +385,11 @@ func (s *ServeClient) handleStreamingHTTPRequest(ctx context.Context, sender mes
 		capture.setProtocol("sse")
 	}
 
+	if response.StatusCode == http.StatusSwitchingProtocols {
+		reason = "response_error"
+		sendConnectionRejection(sender, open.ConnectionId, "HTTP protocol upgrades require the WebSocket transport")
+		return
+	}
 	trailerNames, err := s.responseTrailerNames(response, head.Method)
 	if err != nil {
 		reason = "response_error"

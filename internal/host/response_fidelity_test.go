@@ -3,6 +3,7 @@ package host
 import (
 	"context"
 	"errors"
+	"fmt"
 	"github.com/ehrlich-b/tunn/internal/common"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
 	"google.golang.org/protobuf/proto"
@@ -251,5 +252,36 @@ func TestHTTPFidelityAbortDownstream(t *testing.T) {
 	body, err := io.ReadAll(response.Body)
 	if response.StatusCode != 202 || string(body) != "prefix" || !errors.Is(err, io.ErrUnexpectedEOF) {
 		t.Fatalf("downstream final response: %d %q %v", response.StatusCode, body, err)
+	}
+}
+
+func TestHTTPFidelityInvalidFinalMetadata(t *testing.T) {
+	for _, mode := range []string{"buffered", "streaming"} {
+		for _, status := range []int32{0, 101, 103, 600} {
+			t.Run(fmt.Sprintf("%s/%d", mode, status), func(t *testing.T) {
+				stream := &meteringFixtureStream{}
+				tunnel := &TunnelConnection{Stream: stream, pendingRequests: make(map[string]chan *pb.HttpResponse)}
+				if mode == "streaming" {
+					tunnel.Capabilities = map[string]bool{common.CapabilityHTTPStreamV1: true}
+				}
+				stream.hook = func(message *pb.TunnelMessage) error {
+					if req := message.GetHttpRequest(); req != nil {
+						tunnel.pendingMu.RLock()
+						ch := tunnel.pendingRequests[req.ConnectionId]
+						tunnel.pendingMu.RUnlock()
+						ch <- &pb.HttpResponse{StatusCode: status}
+					}
+					if open := message.GetConnectionOpen(); open != nil {
+						tunnel.routeConnectionMessage(&pb.TunnelMessage{Message: &pb.TunnelMessage_ConnectionAccept{ConnectionAccept: &pb.ConnectionAccept{ConnectionId: open.ConnectionId, Success: true, HttpResponse: &pb.HttpResponseHead{StatusCode: status}}}})
+					}
+					return nil
+				}
+				writer := httptest.NewRecorder()
+				err := (&ProxyServer{}).proxyHTTPOverGRPC(writer, httptest.NewRequest("GET", "http://fixture.invalid/", nil), tunnel)
+				if err == nil || responseHasStarted(err) || writer.Body.Len() != 0 || writer.Flushed {
+					t.Fatalf("invalid final metadata was committed: %d %v", status, err)
+				}
+			})
+		}
 	}
 }

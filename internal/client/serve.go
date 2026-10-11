@@ -614,6 +614,11 @@ func (s *ServeClient) handleHTTPRequestContext(ctx context.Context, sender messa
 		capture.setProtocol("sse")
 	}
 
+	if resp.StatusCode == http.StatusSwitchingProtocols {
+		status, reason = http.StatusBadGateway, "response_error"
+		s.sendErrorResponse(sender, httpReq.ConnectionId, http.StatusBadGateway, "HTTP protocol upgrades require the WebSocket transport")
+		return
+	}
 	trailerNames, err := s.responseTrailerNames(resp, httpReq.Method)
 	if err != nil {
 		status, reason = http.StatusBadGateway, "response_error"

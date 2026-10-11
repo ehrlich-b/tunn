@@ -60,6 +60,7 @@ proto:
 fmt:
 	@echo "Formatting Go code..."
 	go fmt ./...
+	gofmt -w sdk/testdata/consumer/*.go
 
 # Tidy dependencies
 tidy:

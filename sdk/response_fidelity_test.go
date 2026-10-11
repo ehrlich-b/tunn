@@ -7,6 +7,8 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptrace"
+	"net/textproto"
 	"reflect"
 	"sync"
 
@@ -129,7 +131,7 @@ func observeResponse(t *testing.T, mode, method string, handler http.Handler, re
 
 // This independent reference bypasses the tunnel and uses ordinary net/http
 // semantics over a private handler pipe, including HEAD and bodyless statuses.
-func directHandlerResponse(t *testing.T, method string, handler http.Handler) (*http.Response, string) {
+func directHandlerResponse(t *testing.T, method string, handler http.Handler, traces ...*httptrace.ClientTrace) (*http.Response, string) {
 	t.Helper()
 	origin := testHandlerOrigin(handler)
 	origin.start(context.Background())
@@ -139,6 +141,9 @@ func directHandlerResponse(t *testing.T, method string, handler http.Handler) (*
 	request, err := http.NewRequest(method, "http://sdk-handler.invalid/", nil)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(traces) > 0 {
+		request = request.WithContext(httptrace.WithClientTrace(request.Context(), traces[0]))
 	}
 	response, err := transport.RoundTrip(request)
 	if err != nil {
@@ -429,5 +434,65 @@ func TestHTTPFidelityEarlyFailure(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestHTTPFidelityInformationalLimit(t *testing.T) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Add("Link", "</one>; rel=preload")
+		w.Header().Add("Link", "</two>; rel=preload")
+		w.WriteHeader(http.StatusEarlyHints)
+		w.Header().Set("Link", "</final>; rel=canonical")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = io.WriteString(w, "done")
+	})
+	var codes []int
+	var hints textproto.MIMEHeader
+	reference, body := directHandlerResponse(t, "GET", handler, &httptrace.ClientTrace{Got1xxResponse: func(code int, header textproto.MIMEHeader) error {
+		codes = append(codes, code)
+		hints = header
+		return nil
+	}})
+	if !reflect.DeepEqual(codes, []int{103}) || len(hints.Values("Link")) != 2 {
+		t.Fatalf("reference did not emit real informational metadata: %v %v", codes, hints)
+	}
+	for _, mode := range []string{"buffered", "streaming"} {
+		t.Run(mode, func(t *testing.T) {
+			got := observeResponse(t, mode, "GET", handler)
+			headers := common.DecodeHTTPResponseHeaders(got.headers, got.fields)
+			if got.status != reference.StatusCode || got.body != body || !reflect.DeepEqual(headers.Values("Link"), reference.Header.Values("Link")) {
+				t.Fatalf("final response: %d %q %v", got.status, got.body, headers)
+			}
+			metadata := 0
+			for _, frame := range got.frames {
+				if frame.GetHttpResponse() != nil || frame.GetConnectionAccept() != nil {
+					metadata++
+				}
+			}
+			if metadata != 1 {
+				t.Fatalf("unexpected metadata frames: %d", metadata)
+			}
+			t.Log("direct pipe delivered 1/1 informational response; tunnel delivers 0/1 and preserves final 201 with 4 body bytes (unsupported 1xx forwarding)")
+		})
+	}
+}
+
+func TestHTTPFidelityUnsupportedUpgrade(t *testing.T) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Connection", "Upgrade")
+		w.Header().Set("Upgrade", "fixture")
+		w.WriteHeader(101)
+	})
+	for _, mode := range []string{"buffered", "streaming"} {
+		t.Run(mode, func(t *testing.T) {
+			got := observeResponse(t, mode, "GET", handler)
+			if mode == "buffered" {
+				if got.status != 502 || !strings.Contains(got.body, "WebSocket transport") {
+					t.Fatalf("unsupported upgrade: %d %q", got.status, got.body)
+				}
+			} else if !strings.Contains(got.rejection, "WebSocket transport") {
+				t.Fatalf("unsupported upgrade: %q", got.rejection)
+			}
+		})
 	}
 }

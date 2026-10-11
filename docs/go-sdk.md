@@ -136,6 +136,30 @@ validation uses `InvalidOptions`. Check the category with `errors.As`. Remote
 error text and wrapped transport errors are excluded because they may echo
 credentials. SDK logs contain no remote error text or private target data.
 
+A handler can set independent cookies, flush a prefix and finish with a declared
+trailer using ordinary net/http APIs:
+
+```go
+handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+    http.SetCookie(w, &http.Cookie{Name: "first", Value: "one", Path: "/"})
+    http.SetCookie(w, &http.Cookie{Name: "second", Value: "two", Path: "/"})
+    w.Header().Add("Trailer", "X-Stream-End")
+    _, _ = io.WriteString(w, "prefix\n")
+    if err := http.NewResponseController(w).Flush(); err != nil { return }
+    _, _ = io.WriteString(w, "suffix\n")
+    w.Header().Set("X-Stream-End", "complete")
+})
+publisher, err := tunn.PublishHandler(ctx, handler, options)
+```
+
+The standalone importer in `sdk/testdata/consumer` contains a tested version.
+Streaming prefix visibility requires the streaming transport; buffered peers
+receive the completed body. `ResponseController.SetWriteDeadline` and Flush
+work through the SDK handler pipes. Informational 1xx responses are consumed
+by the upstream HTTP client: the tunnel carries only the final status and
+headers. Generic HTTP 101 upgrades fail explicitly; supported WebSockets use
+the dedicated WebSocket path.
+
 ## Examples and offline validation
 
 Two complete examples live in `examples/sdk-handler` and `examples/sdk-origin`.
@@ -209,7 +233,8 @@ and independent old protobuf descriptors. It requires no listening sockets.
 This API exposes HTTP publishing only. Public raw TCP, Unix endpoints, raw TLS,
 MCP child supervision, host-mode/service installation, inspector/replay APIs,
 control-plane provisioning, account caches/login, token rotation, custom-domain
-management and JS/Python/Rust wrappers are outside this SDK. HTTP informational responses before the final status, request trailers,
+management and JS/Python/Rust wrappers are outside this SDK. HTTP informational
+responses before the final status, request trailers,
 undeclared response trailers, gRPC application forwarding and WebSocket
 compression have no fidelity promise.
 
@@ -218,5 +243,5 @@ start/cancel/close, a bounded event stream, retained ready/terminal results and
 the same transport conformance fixtures. An in-process handler needs a
 language-owned HTTP adapter with explicit ownership. Relay auth/quota state and
 tunnel protocol remain in the existing core; choose a release/FFI or local
-process boundary only after this Go contract earns full acceptance. No wrappers,
-new protocol or versioned release are implemented here.
+process boundary only after this Go contract earns full acceptance. No wrappers
+or versioned release are implemented here.

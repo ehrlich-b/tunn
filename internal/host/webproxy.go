@@ -539,6 +539,9 @@ func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, 
 	timeout := 30 * time.Second
 	select {
 	case httpResp := <-respChan:
+		if httpResp.StatusCode < 200 || httpResp.StatusCode > 599 {
+			return fmt.Errorf("local target returned invalid final HTTP status %d", httpResp.StatusCode)
+		}
 		if err := validateResponseTrailers(tunnel, httpResp.TrailerNames, httpResp.Trailers); err != nil {
 			return err
 		}

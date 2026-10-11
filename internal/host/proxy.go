@@ -851,6 +851,11 @@ func (p *ProxyServer) createHandler() http.Handler {
 
 	// Account page (requires auth)
 	mux.HandleFunc("/account", p.handleAccount)
+	mux.HandleFunc("/pricing", p.handlePricing)
+	mux.HandleFunc("/upgrade", p.handleUpgrade)
+	mux.HandleFunc("/api/billing/status", p.handleBillingStatus)
+	mux.HandleFunc("/docs", p.handleDocs)
+	mux.HandleFunc("/docs/", p.handleDocs)
 	mux.HandleFunc("/account/mcp", p.handleMCPOAuth)
 	mux.HandleFunc("/api/mcp/clients", p.handleMCPOAuth)
 	mux.HandleFunc("/.well-known/oauth-authorization-server", p.handleMCPOAuth)
@@ -889,7 +894,7 @@ func (p *ProxyServer) createHandler() http.Handler {
 			p.handleWebProxy(w, r)
 			return
 		}
-		if strings.HasPrefix(r.URL.Path, "/auth/") || r.URL.Path == "/login" || r.URL.Path == "/account" || strings.HasPrefix(r.URL.Path, "/api/device/") {
+		if strings.HasPrefix(r.URL.Path, "/auth/") || r.URL.Path == "/login" || r.URL.Path == "/account" || r.URL.Path == "/upgrade" || r.URL.Path == "/api/billing/status" || strings.HasPrefix(r.URL.Path, "/api/device/") {
 			if !p.isPlatformHost(r.Host) {
 				http.Error(w, "Invalid authentication host", http.StatusForbidden)
 				return

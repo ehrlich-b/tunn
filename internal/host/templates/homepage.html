@@ -357,7 +357,7 @@ input:checked + .slider:before { transform: translateX(20px); }
     <a href="/" class="header-logo">tunn</a>
     <nav class="header-nav">
       <a href="#features">Features</a>
-      <a href="#pricing">Pricing</a>
+      <a href="/pricing">Pricing</a>
       <a href="https://github.com/ehrlich-b/tunn">Code</a>
       <a href="/auth/login" class="header-btn">Login</a>
     </nav>
@@ -366,13 +366,14 @@ input:checked + .slider:before { transform: translateX(20px); }
 
 <div class="container">
   <section class="hero">
-    <h1>Share localhost instantly</h1>
-    <p class="subtitle">Expose local ports with email-based access control. Like sharing a Google Doc.</p>
+    <h1>Local MCP. Public HTTPS. Your control.</h1>
+    <p class="subtitle">Connect local MCP tools to Claude.ai, test webhooks, and share local apps.</p>
 
     <div class="command-showcase">
-<pre><span class="prompt">$</span> tunn 8080 --allow=alice@gmail.com
+<pre><span class="prompt">$</span> tunn login
+<span class="prompt">$</span> tunn http 8080
 <span class="output">https://abc123.tunn.to -> localhost:8080</span>
-<span class="output">Accessible by: you, alice@gmail.com</span></pre>
+<span class="output">Public endpoint. For private MCP: tunn mcp -- ./my-mcp-server</span></pre>
     </div>
 
     <div class="install-row">
@@ -381,7 +382,8 @@ input:checked + .slider:before { transform: translateX(20px); }
         <button class="copy-btn" onclick="navigator.clipboard.writeText('curl -fsSL https://tunn.to/install.sh | sh')">Copy</button>
       </div>
     </div>
-    <p class="install-note">macOS and Linux. No sudo required.</p>
+    <p class="install-note">macOS and Linux. No sudo required. Then run <code>tunn login</code>.</p>
+    <p><a href="/docs/mcp-to-claude">Connect your MCP server to Claude.ai →</a> · <a href="/docs">Quickstart</a> · <a href="/ngrok-alternative">Compare with ngrok</a></p>
   </section>
 </div>
 
@@ -456,50 +458,24 @@ input:checked + .slider:before { transform: translateX(20px); }
 <div class="container">
   <section class="pricing" id="pricing">
     <h2>Pricing</h2>
-    <p class="pricing-subtitle">Try for free. Go Pro or self-host for real use.</p>
-
-    <div class="billing-toggle">
-      <span>Monthly</span>
-      <label class="switch">
-        <input type="checkbox" id="yearly" checked onchange="toggleBilling()">
-        <span class="slider"></span>
-      </label>
-      <span>Yearly <span class="save-badge">Save 20%</span></span>
-    </div>
+    <p class="pricing-subtitle">Start free. Reserve your names and get more room with Pro.</p>
 
     <div class="pricing-grid">
       <div class="plan">
-        <div class="plan-name">Free</div>
-        <div class="plan-price">$0</div>
-        <div class="plan-note">Free forever</div>
-        <ul class="plan-features">
-          <li>1 GB / month</li>
-          <li>Random subdomains</li>
-          <li>Email allow-lists</li>
-          <li>Unlimited tunnels</li>
-        </ul>
+        <div class="plan-name">Free</div><div class="plan-price">$0</div>
+        <ul class="plan-features"><li>{{.FreeBytes}} / UTC month</li><li>{{.FreeRequests}} admissions / month</li><li>{{.FreeTunnels}} concurrent tunnels</li><li>Private MCP OAuth and email sharing</li></ul>
+        <a href="/docs" class="header-btn">Start free</a>
       </div>
       <div class="plan featured">
-        <div class="plan-name">Pro</div>
-        <div class="plan-price" id="pro-price">$4<span class="period">/mo</span></div>
-        <div class="plan-note" id="pro-note">Billed yearly ($48)</div>
-        <ul class="plan-features">
-          <li>50 GB / month</li>
-          <li>4 reserved *.tunn.to subdomains</li>
-          <li>Priority support</li>
-          <li>Everything in Free</li>
-        </ul>
+        <div class="plan-name">Pro</div><div class="plan-price">${{.MonthlyUSD}}<span class="period">/month</span></div>
+        <div class="plan-note">Or ${{.YearlyUSD}} / year</div>
+        <ul class="plan-features"><li>{{.ProBytes}} / UTC month</li><li>{{.ProRequests}} admissions / month</li><li>{{.ProTunnels}} concurrent tunnels</li><li>{{.Reservations}} reserved *.tunn.to names</li></ul>
+        <a href="/pricing" class="header-btn">See Pro plans</a>
       </div>
       <div class="plan">
-        <div class="plan-name">Enterprise</div>
-        <div class="plan-price">Custom</div>
-        <div class="plan-note">Contact us</div>
-        <ul class="plan-features">
-          <li>Unlimited bandwidth</li>
-          <li>Custom domains</li>
-          <li>SSO integration</li>
-          <li>SLA + dedicated support</li>
-        </ul>
+        <div class="plan-name">Predictable limits</div>
+        <ul class="plan-features"><li>Account-wide quotas</li><li>Hard stop at the limit</li><li>No automatic overage charges</li><li>No extra warning on public endpoints</li></ul>
+        <a href="/pricing">How usage works</a>
       </div>
     </div>
   </section>
@@ -508,7 +484,7 @@ input:checked + .slider:before { transform: translateX(20px); }
 <section class="opensource">
   <div class="container">
     <h2>Free Software</h2>
-    <p>Run your own tunn server. MIT licensed.</p>
+    <p>Run your own tunn server. Source and setup instructions on GitHub.</p>
     <div class="code-block">
 <pre><span class="comment"># Self-host on your infrastructure</span>
 tunn -mode=host -domain=tunnel.yourcompany.com</pre>
@@ -526,7 +502,7 @@ tunn -mode=host -domain=tunnel.yourcompany.com</pre>
     <div class="footer-col">
       <h4>Product</h4>
       <a href="#features">Features</a>
-      <a href="#pricing">Pricing</a>
+      <a href="/pricing">Pricing</a>
       <a href="https://github.com/ehrlich-b/tunn">Documentation</a>
     </div>
     <div class="footer-col">
@@ -542,21 +518,11 @@ tunn -mode=host -domain=tunnel.yourcompany.com</pre>
     </div>
   </div>
   <div class="footer-bottom">
-    &copy; 2025 tunn. Open source under MIT license.
+    &copy; 2026 tunn. Source on GitHub.
   </div>
 </footer>
 
-<script>
-function toggleBilling() {
-  const yearly = document.getElementById('yearly').checked;
-  document.getElementById('pro-price').innerHTML = yearly
-    ? '$4<span class="period">/mo</span>'
-    : '$5<span class="period">/mo</span>';
-  document.getElementById('pro-note').textContent = yearly
-    ? 'Billed yearly ($48)'
-    : 'Billed monthly';
-}
-</script>
+
 
 </body>
 </html>

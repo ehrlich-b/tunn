@@ -95,7 +95,9 @@ func TestLoopbackEdgeOpenSSHAndHTTPSSharePort(t *testing.T) {
 	if err := os.WriteFile(knownHosts, append([]byte("[127.0.0.1]:"+port+" "), ssh.MarshalAuthorizedKey(hostKey.PublicKey())...), 0600); err != nil {
 		t.Fatal(err)
 	}
-	command := exec.CommandContext(ctx, sshBinary, "-T", "-p", port, "-i", keyFile,
+	// All authentication/forwarding options are supplied by this fixture;
+	// machine-wide SSH config must not alter its local acceptance contract.
+	command := exec.CommandContext(ctx, sshBinary, "-F", "/dev/null", "-T", "-p", port, "-i", keyFile,
 		"-o", "BatchMode=yes", "-o", "IdentitiesOnly=yes", "-o", "IdentityAgent=none",
 		"-o", "StrictHostKeyChecking=yes", "-o", "UserKnownHostsFile="+knownHosts,
 		"-o", "GlobalKnownHostsFile=/dev/null", "-o", "ExitOnForwardFailure=yes",

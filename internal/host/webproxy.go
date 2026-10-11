@@ -764,10 +764,10 @@ func (p *ProxyServer) handleApexDomain(w http.ResponseWriter, r *http.Request) {
 	case "/privacy":
 		_, _ = fmt.Fprint(w, privacyHTML)
 	case "/terms":
-		_, _ = fmt.Fprint(w, termsHTML)
+		p.renderRevenuePage(w, termsHTML)
 	case "/favicon.ico", "/robots.txt", "/sitemap.xml":
 		http.NotFound(w, r)
-	default:
+	case "/":
 		// Only log actual homepage visits, not random path probes
 		if r.URL.Path == "/" {
 			ua := r.Header.Get("User-Agent")
@@ -778,7 +778,9 @@ func (p *ProxyServer) handleApexDomain(w http.ResponseWriter, r *http.Request) {
 				common.LogInfo("homepage human", "ip", ip, "ua", ua)
 			}
 		}
-		_, _ = fmt.Fprint(w, homepageHTML)
+		p.renderRevenuePage(w, homepageHTML)
+	default:
+		http.NotFound(w, r)
 	}
 }
 

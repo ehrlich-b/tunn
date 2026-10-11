@@ -1,0 +1,22 @@
+<style>
+.page-container {max-width: 960px;} h2,p,table {margin-bottom:20px;} table {width:100%;border-collapse:collapse;} th,td {padding:12px;text-align:left;border-bottom:1px solid #d1d9e0;} .plans {display:flex;gap:24px;flex-wrap:wrap;} .plans .card {flex:1;min-width:260px;} .plans ul {padding-left:20px;margin:20px 0;}
+</style>
+<h1 class="page-title">Simple pricing for local MCP and webhooks</h1>
+<p class="page-subtitle">Start free. Upgrade for reserved names and more room. Your bill stays fixed.</p>
+<div class="plans">
+<section class="card"><h2>Free — $0</h2><ul>
+<li>{{.FreeTunnels}} concurrent tunnels</li><li>{{.FreeRequests}} monthly admissions</li><li>{{.FreeBytes}} monthly metered transfer</li><li>Random names; requested names while available</li><li>Private MCP OAuth, email sharing, consumer grants</li><li>Local request inspector</li></ul><a class="btn btn-secondary" href="/docs">Start free</a></section>
+<section class="card"><h2>Pro — ${{.MonthlyUSD}}/month</h2><p>Or ${{.YearlyUSD}} billed once per year.</p><ul>
+<li>{{.ProTunnels}} concurrent tunnels</li><li>{{.ProRequests}} monthly admissions</li><li>{{.ProBytes}} monthly metered transfer</li><li>{{.Reservations}} reserved *.tunn.to names</li><li>Everything in Free</li></ul>
+{{if .MonthlyAvailable}}<a class="btn btn-primary" href="/upgrade?period=monthly">Get Pro monthly — ${{.MonthlyUSD}}</a>{{end}}
+{{if .YearlyAvailable}}<a class="btn btn-secondary" href="/upgrade?period=yearly">Get Pro yearly — ${{.YearlyUSD}}</a>{{end}}
+{{if not .MonthlyAvailable}}{{if not .YearlyAvailable}}<p role="status">Checkout is not available yet. Free tunnels still work.</p>{{end}}{{end}}
+<p>Launch beta: an operator reviews activation after payment. Check your plan on the return page; if it remains Free, contact support before paying again.</p>
+</section></div>
+<h2 style="margin-top:32px">What counts toward a limit?</h2>
+<p>All endpoints and callers share your account's budgets. They reset on the first day of each UTC calendar month. HTTP and MCP admissions count once per request; each WebSocket or TCP connection counts once. Transfer sums HTTP request/response bodies, WebSocket wire frames and TCP payloads in both directions. TLS, HTTP and relay framing are excluded.</p>
+<p>At a quota, tunn stops admitting requests or transferring bytes and reports a limit reason. There are no automatic overage charges. Usage is shown in <a href="/account">your account</a> and with <code>tunn usage</code>. Upgrading raises the allowance; it does not reset this month's usage. Stream cutoffs can occur after response headers have started.</p>
+<p>Uploads are limited to 100 MiB. Free/Pro per-tunnel rate ceilings are 200/500 Mbps; these are ceilings, not guaranteed speeds. Stream and application limits still apply. Your local server must keep running.</p>
+<h2>Keep a connector or webhook URL</h2>
+<p>Pro automatically attempts to reserve names as you publish, up to four. Choose names with <code>--subdomain</code> before publishing; random names also use reservation slots. At the reservation limit, additional names are temporary. Free names can be taken by someone else while offline. For reservation changes, contact support. <a href="/docs">See the quickstart</a>.</p>
+<p>Need help with an existing subscription? <a href="/account">Manage your account</a> or <a href="mailto:support@tunn.to">contact support</a>. Self-hosting instructions are on <a href="https://github.com/ehrlich-b/tunn">GitHub</a>.</p>

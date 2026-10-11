@@ -53,7 +53,7 @@ func validateAddress(key, value string, listener bool) error {
 // contacting services. Client commands can load prod defaults without owning
 // the relay's secrets or filesystem.
 func (c *Config) validateSettings() error {
-	for _, key := range []string{"TUNN_HOST_MODE", "TUNN_LOGIN_NODE", "TUNN_PUBLIC_MODE", "TUNN_CUSTOM_DOMAINS"} {
+	for _, key := range []string{"TUNN_HOST_MODE", "TUNN_LOGIN_NODE", "TUNN_PUBLIC_MODE", "TUNN_CUSTOM_DOMAINS", "TUNN_BILLING_ENABLED"} {
 		if value := os.Getenv(key); value != "" && value != "true" && value != "false" {
 			return fmt.Errorf("%s must be true or false", key)
 		}

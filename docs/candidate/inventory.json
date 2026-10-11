@@ -1,0 +1,232 @@
+{
+  "base": "642c06e7d4c28213fcb9a5a9850a6abfd111ab0b",
+  "comparison": "642c06e7d4c28213fcb9a5a9850a6abfd111ab0b",
+  "inputs": {
+    "sdk": {
+      "pin": "8a85ab8183665baf0ba89f04778fce7986c85e64",
+      "merge_base": "6a70918545777e58820f69212e608700e431a1be",
+      "patch_equivalence": [
+        "+ 66c9dec577c1204d45add59f97678726d339cec7",
+        "+ bb07068bdb8e16699713fa540a877f7b88902bc1",
+        "+ 14fc770bb4126dbb4ff21ee10e8776be01ff9888",
+        "+ 2a7da957839cccc3e72390146deba82e63ea72fd",
+        "+ 7e85a1774c24d1c23d35a394c0cae474ec764e4b",
+        "+ 6c4448d168aa366fc6b9b139c1d098090df86b7d",
+        "+ edff491415086c3a2e98beaf9d7a57bde0fb4b45",
+        "+ c0aa8e66698065f4f322d35f180e1972414e40af",
+        "+ 8a85ab8183665baf0ba89f04778fce7986c85e64"
+      ]
+    },
+    "dogfix": {
+      "pin": "53d5d13234e66e5d60f705221989423f2b0f84b6",
+      "merge_base": "9d308bb3268a060546f9d5e69f7062cdaba00ea5",
+      "patch_equivalence": [
+        "+ 393e546d3458ba2ed051a1529611382c2c6b4c09",
+        "+ b5254680c577c501e6382de0f7df92be01bd2281",
+        "+ b557bb262f9e5b0d2382ee40e07864b56f93cf09",
+        "+ 53d5d13234e66e5d60f705221989423f2b0f84b6"
+      ]
+    }
+  },
+  "capabilities": [
+    {
+      "capability": "oauth",
+      "commit": "6137d0a79c099f848760429f95760dca1106707c",
+      "source_ref": "642c06e7d4c28213fcb9a5a9850a6abfd111ab0b",
+      "consumer": "internal/host/mcp_oauth_test.go",
+      "test": "TestMCPOAuthTokenBindingsAndPKCE",
+      "existing_tests": [
+        "TestMCPOAuthStdioHelper",
+        "TestMCPOAuthConnectorEndToEnd",
+        "TestMCPOAuthTokenBindingsAndPKCE",
+        "TestMCPOAuthAudienceExpiryAndRevokedClient",
+        "TestMCPOAuthConsentSecurity",
+        "TestMCPOAuthRegistrationAndMetadataSecurity",
+        "TestMCPOAuthCrossNodeOwnership",
+        "TestMCPOAuthDurableSingleUseCodes",
+        "TestMCPOAuthRegistrationRateLimitRejectsSpoofedForwarding"
+      ],
+      "reachability_gate": "PASS"
+    },
+    {
+      "capability": "scoped-grants",
+      "commit": "a2f52f6b85809ab8543cf4f0887fa000ea803c47",
+      "source_ref": "642c06e7d4c28213fcb9a5a9850a6abfd111ab0b",
+      "consumer": "internal/host/prod_auth_endpoint_test.go",
+      "test": "TestProdAuthGrantScopeRevocationAndNoCookieFallback",
+      "existing_tests": [
+        "TestProdAuthPublisherOriginsOwnEveryRoute",
+        "TestProdAuthEndpointPolicyMatrix",
+        "TestProdAuthGrantScopeRevocationAndNoCookieFallback",
+        "TestProdAuthEmailAllowListProperties"
+      ],
+      "reachability_gate": "PASS"
+    },
+    {
+      "capability": "prodtest-config",
+      "commit": "6476a1cc6361401bb701b5873c1c305eb1780ec5",
+      "source_ref": "642c06e7d4c28213fcb9a5a9850a6abfd111ab0b",
+      "consumer": "internal/config/config_test.go",
+      "test": "TestLoadConfigProd",
+      "existing_tests": [
+        "TestMeteringOwnerBudgetConfiguration",
+        "TestLoadConfigDev",
+        "TestLoadConfigProd",
+        "TestLoadConfigDefault",
+        "TestLoadConfigEnvOverride",
+        "TestGetEnvOrDefault"
+      ],
+      "reachability_gate": "PASS"
+    },
+    {
+      "capability": "prodtest-accounts",
+      "commit": "6608c01fb23d9aa21969706d5598083e844908c1",
+      "source_ref": "642c06e7d4c28213fcb9a5a9850a6abfd111ab0b",
+      "consumer": "internal/store/accounts_prodtest_test.go",
+      "test": "TestAccountsConcurrentFirstLoginUsesOneBucket",
+      "existing_tests": [
+        "TestAccountsConcurrentFirstLoginUsesOneBucket",
+        "TestAccountsEmailWriteFailureRollsBackBucket"
+      ],
+      "reachability_gate": "PASS"
+    },
+    {
+      "capability": "prodtest-auth",
+      "commit": "03d9e7a415eea4241e4cad9fb224becacad8059e",
+      "source_ref": "642c06e7d4c28213fcb9a5a9850a6abfd111ab0b",
+      "consumer": "internal/host/prod_auth_mcp_test.go",
+      "test": "TestProdAuthMCPOAuthMetadataContract",
+      "existing_tests": [
+        "TestProdAuthMCPOAuthMetadataContract",
+        "TestProdAuthMCPOAuthRegistrationRedirectMatrix",
+        "TestProdAuthMCPOAuthClientMetadataMatrix",
+        "TestProdAuthMCPOAuthPKCEVerifierMatrix",
+        "TestProdAuthMCPOAuthParameterMatrix",
+        "TestProdAuthMCPOAuthContentTypes",
+        "TestProdAuthMCPOAuthOwnershipAndExpiry",
+        "TestProdAuthOAuthStateLifetimeAndPurpose"
+      ],
+      "reachability_gate": "PASS"
+    },
+    {
+      "capability": "prodtest-edge",
+      "commit": "54e232fe8b48a470cf9b9eeed4afd613797f1194",
+      "source_ref": "642c06e7d4c28213fcb9a5a9850a6abfd111ab0b",
+      "consumer": "internal/host/edge_routing_test.go",
+      "test": "TestEdgeTLSLoadingRejectsInvalidMaterial",
+      "existing_tests": [
+        "TestEdgeHostRoutingNormalizesAuthority",
+        "TestEdgeHTTP01MethodHostAndAuthority",
+        "TestEdgeTLSLoadingRejectsInvalidMaterial",
+        "TestEdgeTLSLoadedCertificateNegotiatesHTTP"
+      ],
+      "reachability_gate": "PASS"
+    },
+    {
+      "capability": "prodtest-startup",
+      "commit": "5644599709ed97f77b51bd6fec16a233900eb07b",
+      "source_ref": "642c06e7d4c28213fcb9a5a9850a6abfd111ab0b",
+      "consumer": "internal/host/ops_test.go",
+      "test": "TestOpsRelayOfflineReadinessStates",
+      "existing_tests": [
+        "TestOpsRelayOfflineReadinessStates",
+        "TestOpsRelayOfflineStartupFailureJoinsWorkers",
+        "TestOpsRelayReadinessRejectsUnconnectedLoginNode",
+        "TestOpsRelayDiscoveryStopsDuringPeerRequest",
+        "TestOpsRelayShutdownUsageFlushHasDeadline",
+        "TestOpsRelayStartupValidationChild",
+        "TestOpsRelayStartupValidationPrecedesVolumeWrites",
+        "TestOpsLoopbackReadinessLifecycleAndDependency",
+        "TestOpsRelayHealthMethodsAndOrigins",
+        "TestOpsLoopbackStartupFailureReleasesSiblingListeners",
+        "TestOpsLoopbackShutdownWithLivePublisherAndRestart"
+      ],
+      "reachability_gate": "PASS"
+    },
+    {
+      "capability": "w6-sdk",
+      "commit": "a02120cea09e41eaae511f511894c16954f9b078",
+      "source_ref": "642c06e7d4c28213fcb9a5a9850a6abfd111ab0b",
+      "consumer": "sdk/handler_test.go",
+      "test": "TestSDKHandlerBufferedAndStreamingHTTP",
+      "existing_tests": [
+        "TestSDKHandlerBufferedAndStreamingHTTP",
+        "TestSDKCancellationStopsActiveHTTP",
+        "TestSDKCallerDeadline",
+        "TestSDKInitializationFailureClosesHandlerTransport",
+        "TestSDKHandlerClosesHijackedPipes"
+      ],
+      "reachability_gate": "PASS"
+    },
+    {
+      "capability": "w7-response",
+      "commit": "8a85ab8183665baf0ba89f04778fce7986c85e64",
+      "source_ref": "8a85ab8183665baf0ba89f04778fce7986c85e64",
+      "consumer": "internal/host/response_upload_failure_test.go",
+      "test": "TestProxyToLocalReturnsResponseErrors",
+      "existing_tests": [
+        "TestProxyToLocalReturnsResponseErrors",
+        "TestHTTPFidelityUploadFailureAbortsResponse"
+      ],
+      "reachability_gate": "pending integration"
+    },
+    {
+      "capability": "https-proxy-defaults",
+      "commit": "393e546d3458ba2ed051a1529611382c2c6b4c09",
+      "source_ref": "53d5d13234e66e5d60f705221989423f2b0f84b6",
+      "consumer": "internal/client/proxy_dogfood_test.go",
+      "test": "TestDogfoodProxyLoginAndHTTP2Control",
+      "existing_tests": [
+        "TestDogfoodProxyLoginAndHTTP2Control"
+      ],
+      "reachability_gate": "pending integration"
+    },
+    {
+      "capability": "upload-limit",
+      "commit": "b557bb262f9e5b0d2382ee40e07864b56f93cf09",
+      "source_ref": "53d5d13234e66e5d60f705221989423f2b0f84b6",
+      "consumer": "internal/host/upload_dogfood_test.go",
+      "test": "TestDogfoodUploadRejectedAtEdge",
+      "existing_tests": [
+        "TestDogfoodUploadRejectedAtEdge",
+        "TestDogfoodUploadMeteringRecords413",
+        "TestDogfoodUploadLimitThroughTunnel",
+        "TestDogfoodUploadStreamingBoundaryAndEarlyResponse"
+      ],
+      "reachability_gate": "pending integration"
+    },
+    {
+      "capability": "device-code-ux",
+      "commit": "b5254680c577c501e6382de0f7df92be01bd2281",
+      "source_ref": "53d5d13234e66e5d60f705221989423f2b0f84b6",
+      "consumer": "internal/client/login_dogfood_test.go",
+      "test": "TestDogfoodLoginRenewsExpiredCode",
+      "existing_tests": [
+        "TestDogfoodLoginRenewsExpiredCode",
+        "TestDogfoodLoginCancellationDuringRequest"
+      ],
+      "reachability_gate": "pending integration"
+    }
+  ],
+  "source": {
+    "status": "pinned"
+  },
+  "built_binary": {
+    "status": "REQUIRED-UNRUN",
+    "reason": "not yet built"
+  },
+  "deployed_v37": {
+    "status": "REQUIRED-UNRUN",
+    "reason": "distinct artifact; no deployed-client or deployed binary evidence authorized"
+  },
+  "w7_external_receipts": {
+    "status": "REQUIRED-UNRUN",
+    "reason": "02:35 failure/review and later outside-sandbox pass described by immutable brief; separate original receipts not staged as committed objects"
+  },
+  "terminal_fix": {
+    "commit": "8a85ab8183665baf0ba89f04778fce7986c85e64",
+    "expected_application_count": 1
+  },
+  "launch": "2026-10-11T02:57:46-04:00",
+  "final_validation_by": "2026-10-11T04:52:46-04:00"
+}

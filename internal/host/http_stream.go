@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -15,6 +16,37 @@ const streamResponseHeaderTimeout = 30 * time.Second
 
 type requestBodyResult struct {
 	err error
+}
+
+// All streaming upload owners share one close. HTTP/1 Body.Close can wait on
+// a concurrent Read's lock and then drain more input, so interrupt the read
+// first. HTTP/2 Body.Close already interrupts its stream without affecting the
+// connection or response. Preserve HTTP/1 keep-alive when EOF was consumed.
+type streamingHTTPRequestBody struct {
+	io.ReadCloser
+	controller    *http.ResponseController
+	interruptRead bool
+	sawEOF        atomic.Bool
+	closeOnce     sync.Once
+	closeErr      error
+}
+
+func (b *streamingHTTPRequestBody) Read(p []byte) (int, error) {
+	n, err := b.ReadCloser.Read(p)
+	if err == io.EOF {
+		b.sawEOF.Store(true)
+	}
+	return n, err
+}
+
+func (b *streamingHTTPRequestBody) Close() error {
+	b.closeOnce.Do(func() {
+		if b.interruptRead && !b.sawEOF.Load() {
+			_ = b.controller.SetReadDeadline(time.Now())
+		}
+		b.closeErr = b.ReadCloser.Close()
+	})
+	return b.closeErr
 }
 
 // proxyStreamingHTTPOverGRPC carries HTTP metadata and body chunks on the
@@ -56,12 +88,21 @@ func (p *ProxyServer) proxyStreamingHTTPOverGRPC(w http.ResponseWriter, r *http.
 	if s := meterForRequest(r); s != nil {
 		s.event.Forwarded = true
 	}
-	defer func() { _ = r.Body.Close() }()
+	// The outer proxy cleanup and streamConnectionInput also close this body.
+	// Share ownership so none can drain unfinished HTTP/1 input synchronously.
+	body := &streamingHTTPRequestBody{ReadCloser: r.Body, controller: http.NewResponseController(w), interruptRead: r.ProtoMajor < 2}
+	r.Body = body
 	var requestBytes atomic.Int64
 	requestResult := make(chan requestBodyResult, 1)
+	requestDone := make(chan struct{})
 	go func() {
-		_, err := streamConnectionInput(r.Body, tunnel, connectionID, &requestBytes, MaxBodySize)
+		defer close(requestDone)
+		_, err := streamConnectionInput(body, tunnel, connectionID, &requestBytes, MaxBodySize)
 		requestResult <- requestBodyResult{err: err}
+	}()
+	defer func() {
+		_ = body.Close()
+		<-requestDone
 	}()
 
 	headerTimer := time.NewTimer(streamResponseHeaderTimeout)
@@ -128,10 +169,11 @@ func (p *ProxyServer) proxyStreamingHTTPOverGRPC(w http.ResponseWriter, r *http.
 	}
 }
 
-// An empty success must not conceal an oversized unknown-length upload. A live
-// response prefix, however, can be needed to make that upload progress. Retain
-// at most one response event until upload EOF or the first nonempty body chunk;
-// after a prefix commits headers, upload failures abort the downstream response.
+// An empty final success must not conceal an oversized unknown-length upload.
+// A 202 acknowledges processing without asserting upload completion; it and
+// non-success heads must reach callers that need them to decide how to proceed.
+// For other successes, retain at most one event until upload EOF or a nonempty
+// response chunk. After headers commit, upload failures abort the response.
 func waitStreamingHTTPResponseStart(
 	r *http.Request,
 	pending *pendingConnection,
@@ -140,8 +182,18 @@ func waitStreamingHTTPResponseStart(
 	requestFinished *bool,
 	timeout <-chan time.Time,
 ) (*connectionEvent, error) {
-	if r.ContentLength >= 0 || *requestFinished {
+	if *requestFinished {
 		return nil, nil
+	}
+	if r.ContentLength >= 0 || head.StatusCode == http.StatusAccepted || head.StatusCode >= 300 {
+		// An upload failure already known before headers still owns the status.
+		select {
+		case result := <-requestResult:
+			*requestFinished = true
+			return nil, result.err
+		default:
+			return nil, nil
+		}
 	}
 	events := pending.events
 	if !common.HTTPResponseHasBody(r.Method, int(head.StatusCode)) {
@@ -247,6 +299,12 @@ func (p *ProxyServer) writeStreamingHTTPResponse(
 		}
 	}
 	copyApplicationResponseHeaderFields(w.Header(), head.Headers, head.HeaderFields)
+	if body, ok := r.Body.(*streamingHTTPRequestBody); ok && r.ProtoMajor < 2 && r.ContentLength != 0 && !body.sawEOF.Load() {
+		// Override upstream connection policy: cleanup may abandon this upload.
+		// net/http must not reuse unread body bytes as another request when it
+		// resets the read deadline after this handler returns.
+		w.Header().Set("Connection", "close")
+	}
 	if common.HTTPResponseHasBody(r.Method, int(head.StatusCode)) {
 		declareResponseTrailers(w.Header(), head.TrailerNames)
 	}

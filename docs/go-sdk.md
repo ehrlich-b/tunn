@@ -237,6 +237,15 @@ The supported response matrix is:
 | Input half-close after successful response completion | Completed result retained | Completed body/cookies/trailers retained; later input terminal does not complete the response again |
 | Informational 1xx before final status | Upstream client consumes 1xx | Same; only final metadata serialized |
 
+For unknown-length uploads, the relay waits to validate the upload limit before
+forwarding an empty final success such as 200 or 204. A 202 acknowledgment or an
+application refusal reaches the caller immediately, even without response body
+bytes. If the upload fails after response headers have been sent, the response
+aborts rather than reporting successful EOF. A completed streamed response
+closes unfinished upload input. HTTP/1 responses that start before upload EOF
+close the connection after the response; uploads consumed before response
+headers retain keep-alive.
+
 The relay may reframe a known-length response as chunked HTTP to carry its
 own terminal metering trailer. Applications should read the body to EOF and
 check the read error before accepting trailers. Receiving the advertised

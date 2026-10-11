@@ -136,6 +136,36 @@ validation uses `InvalidOptions`. Check the category with `errors.As`. Remote
 error text and wrapped transport errors are excluded because they may echo
 credentials. SDK logs contain no remote error text or private target data.
 
+A handler can set independent cookies, flush a prefix and finish with a declared
+trailer using ordinary net/http APIs:
+
+```go
+handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+    http.SetCookie(w, &http.Cookie{Name: "first", Value: "one", Path: "/"})
+    http.SetCookie(w, &http.Cookie{Name: "second", Value: "two", Path: "/"})
+    w.Header().Add("Trailer", "X-Stream-End")
+    _, _ = io.WriteString(w, "prefix\n")
+    if err := http.NewResponseController(w).Flush(); err != nil { return }
+    _, _ = io.WriteString(w, "suffix\n")
+    w.Header().Set("X-Stream-End", "complete")
+})
+publisher, err := tunn.PublishHandler(ctx, handler, options)
+```
+
+The standalone importer in `sdk/testdata/consumer` contains a tested version.
+Streaming prefix visibility requires the streaming transport; buffered peers
+receive the completed body. `ResponseController.SetWriteDeadline` and Flush
+work through the SDK handler pipes, as do `SetReadDeadline` and
+`EnableFullDuplex`. A caller's writer wrapper must forward capabilities or
+implement `Unwrap() http.ResponseWriter`; otherwise `ResponseController`
+returns `http.ErrNotSupported` for Flush, deadlines, full duplex and Hijack.
+The HTTP/1 handler pipes expose Flusher/Hijacker and do not expose HTTP/2
+Pusher. Informational 1xx responses are consumed
+by the upstream HTTP client: the tunnel carries only the final status and
+headers, with no interim 1xx metadata frames. A generic HTTP 101 upgrade
+produces a buffered 502 or a streaming connection rejection; supported
+WebSockets use the dedicated WebSocket path.
+
 ## Examples and offline validation
 
 Two complete examples live in `examples/sdk-handler` and `examples/sdk-origin`.
@@ -164,19 +194,112 @@ core using the established independent WebSocket wire fixture. A socket denial
 leaves full acceptance REQUIRED/UNRUN; memory fixtures are local evidence only.
 Existing build, vet, full test/race, lifecycle and WebSocket gates remain intact.
 
+## HTTP response wire compatibility
+
+The response wire contract has an additive `header_fields` list in both
+`HttpResponse` (buffered) and `HttpResponseHead` (streaming). Each entry carries
+one name and one value. A nonempty list replaces the entire legacy `headers`
+map; receivers never consume both representations. An absent or empty list
+uses the map. The map remains available for older peers and joins repeated
+values with `, `. Exact multiplicity needs both upgraded endpoints. The legacy
+host cookie-splitting heuristic cannot recover all valid cookie values.
+
+Declared response trailers require both endpoints to negotiate
+`http-response-trailers-v1`. The streaming head fixes `trailer_names`; exactly
+one successful `ConnectionHalfClose` carries their final values after all body
+chunks. An error uses `ConnectionClose` and delivers no trailers. Buffered
+responses carry declared names and final values with their complete body.
+Trailer support is negotiated anew on every connection. Reconnecting to a
+legacy relay rejects declared trailers, even after a supported connection;
+reconnecting to a supported relay restores delivery. Pending workers from the
+previous connection stop before the new connection's policy is installed.
+The contract allows at most 64 declared names, 64 field values, and 16 KiB total
+of declared names plus field names and values. Invalid, forbidden, undeclared
+or oversized trailers fail explicitly. A new client rejects declared trailers
+when the relay lacks support; old clients cannot promise delivery. Request
+trailers and undeclared response trailers are unsupported. Platform fields and
+cookie namespaces remain filtered, including in trailers.
+
+The supported response matrix is:
+
+| Handler behavior | Buffered path | Streaming path |
+| --- | --- | --- |
+| Repeated ordinary fields | Exact field list; joined legacy fallback | Same |
+| Two cookies, including a comma in a value | Exact fields and platform-cookie filtering | Same; legacy fallback remains ambiguous |
+| HEAD, 204 and 304 | No body read or forwarded bytes | Same; metadata completes without waiting for body frames |
+| Empty or status-only response | Entire response collected before sending | Metadata followed by half-close |
+| Known or unknown body length | Limited body read to EOF | Chunks read to EOF |
+| Declared response trailers | Values accompany the complete buffered response | Values accompany the successful half-close after all body chunks |
+| Flush | Buffered until EOF | Metadata/chunks become visible before EOF |
+| Body-reader error or early close | 502 before headers | Error close; the downstream HTTP stream is aborted after final metadata |
+| Short or long body relative to declared length | SDK returns 502 on the failed upstream read | Error terminal; public consumer gets an interrupted response |
+| Upload failure or cancellation while response is unfinished | Failure before buffered completion | Abort after final metadata, including after a flushed prefix |
+| Input half-close after successful response completion | Completed result retained | Completed body/cookies/trailers retained; later input terminal does not complete the response again |
+| Informational 1xx before final status | Upstream client consumes 1xx | Same; only final metadata serialized |
+
+The relay may reframe a known-length response as chunked HTTP to carry its
+own terminal metering trailer. Applications should read the body to EOF and
+check the read error before accepting trailers. Receiving the advertised
+number of bytes alone does not prove a successful streaming terminal. HEAD,
+204 and 304 remain metadata-only exceptions.
+
+`make test-http-fidelity` uses the existing memory TLS/gRPC SDK fixture, an
+independent direct net/http handler-pipe reference, actual relay HTTP consumers
+and an independent pre-list protobuf schema. A shared oracle compares status,
+ordered application fields, bytes and application trailers across all four
+publisher/relay generation pairs in buffered and streaming modes. Legacy
+projection physically serializes through the old schema; its joined fields and
+cookie ambiguity are documented losses. These fixtures do not claim execution
+against every historical deployed binary. Flush-before-completion, four finite
+upload/terminal schedules, reconnects with reused request IDs, short/long/absent
+lengths, wrapper deadlines and late terminal finalization have separate gates.
+No listening sockets are required.
+
+`make test-http-conformance` produces fresh JSON events and a result inventory
+under `.scratch/http-conformance`. It requires the expected cases to execute
+and pass with race detection: missing cases, skipped cases and zero-test runs
+fail. Supported behavior, explicit unsupported behavior and REQUIRED-UNRUN
+ordinary-host acceptance are reported separately. A local PASS leaves the
+ordinary-host acceptance status REQUIRED-UNRUN.
+
+`make test-sdk-response-consumer` builds and tests a standalone program using
+only exported SDK symbols and the standard library. It imports an immutable
+committed snapshot from a clone-local module cache, with `GOWORK=off` and no
+`replace` directive or registry resolution. Its three offline tests validate
+application streaming, rejection of an interrupted body, and exported API
+callability. They do not run `PublishHandler` against a live relay.
+
+On an authorized ordinary host, run these independent acceptance commands
+with staged dependencies and writable caches rooted in the clone:
+
+```sh
+make -j1 test-sdk-response-consumer-live
+make -j1 test-sdk-contract
+make -j1 check
+```
+
+The live consumer gate supplies a disposable local TLS/gRPC/HTTP relay and
+checks two cookies, prefix visibility before handler completion, two final
+trailer values and one SDK Closed event through exported `PublishHandler`.
+The SDK contract gate also runs the shared oracle through exported handler
+mode in both response modes and verifies wrapper capabilities. Listener denial
+or a missing staged dependency fails these gates; it never turns them into a
+skip or local success. Deployed-client acceptance remains a separate gate.
+
 ## Unsupported features and later language boundary
 
 This API exposes HTTP publishing only. Public raw TCP, Unix endpoints, raw TLS,
 MCP child supervision, host-mode/service installation, inspector/replay APIs,
 control-plane provisioning, account caches/login, token rotation, custom-domain
-management and JS/Python/Rust wrappers are outside this SDK. Existing HTTP
-transport limits also remain: map-based header multiplicity, trailers, gRPC
-application forwarding and WebSocket compression have no new fidelity promise.
+management and JS/Python/Rust wrappers are outside this SDK. HTTP informational
+responses before the final status, request trailers,
+undeclared response trailers, gRPC application forwarding and WebSocket
+compression have no fidelity promise.
 
 A later JS/Python/Rust binding needs only typed publisher options/credentials,
 start/cancel/close, a bounded event stream, retained ready/terminal results and
 the same transport conformance fixtures. An in-process handler needs a
 language-owned HTTP adapter with explicit ownership. Relay auth/quota state and
 tunnel protocol remain in the existing core; choose a release/FFI or local
-process boundary only after this Go contract earns full acceptance. No wrappers,
-new protocol or versioned release are implemented here.
+process boundary only after this Go contract earns full acceptance. No wrappers
+or versioned release are implemented here.

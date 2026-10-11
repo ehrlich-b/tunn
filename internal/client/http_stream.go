@@ -385,18 +385,28 @@ func (s *ServeClient) handleStreamingHTTPRequest(ctx context.Context, sender mes
 		capture.setProtocol("sse")
 	}
 
-	headers := make(map[string]string, len(response.Header))
-	for key, values := range response.Header {
-		headers[key] = strings.Join(values, ", ")
+	if response.StatusCode == http.StatusSwitchingProtocols {
+		reason = "response_error"
+		sendConnectionRejection(sender, open.ConnectionId, "HTTP protocol upgrades require the WebSocket transport")
+		return
 	}
+	trailerNames, err := s.responseTrailerNames(response, head.Method)
+	if err != nil {
+		reason = "response_error"
+		sendConnectionRejection(sender, open.ConnectionId, err.Error())
+		return
+	}
+	headers, fields := common.EncodeHTTPResponseHeaders(response.Header)
 	if err := sender.Send(&pb.TunnelMessage{
 		Message: &pb.TunnelMessage_ConnectionAccept{
 			ConnectionAccept: &pb.ConnectionAccept{
 				ConnectionId: open.ConnectionId,
 				Success:      true,
 				HttpResponse: &pb.HttpResponseHead{
-					StatusCode: int32(response.StatusCode),
-					Headers:    headers,
+					StatusCode:   int32(response.StatusCode),
+					Headers:      headers,
+					HeaderFields: fields,
+					TrailerNames: trailerNames,
 				},
 			},
 		},
@@ -405,6 +415,12 @@ func (s *ServeClient) handleStreamingHTTPRequest(ctx context.Context, sender mes
 		return
 	}
 
+	if !common.HTTPResponseHasBody(head.Method, response.StatusCode) {
+		if err := sender.Send(&pb.TunnelMessage{Message: &pb.TunnelMessage_ConnectionHalfClose{ConnectionHalfClose: &pb.ConnectionHalfClose{ConnectionId: open.ConnectionId}}}); err != nil {
+			reason = "relay_error"
+		}
+		return
+	}
 	buffer := make([]byte, common.StreamChunkSize)
 	for {
 		n, readErr := response.Body.Read(buffer)
@@ -421,9 +437,15 @@ func (s *ServeClient) handleStreamingHTTPRequest(ctx context.Context, sender mes
 			}
 		}
 		if readErr == io.EOF {
+			trailers, trailerErr := s.responseTrailerFields(response, trailerNames)
+			if trailerErr != nil {
+				reason = "response_error"
+				_ = sender.Send(&pb.TunnelMessage{Message: &pb.TunnelMessage_ConnectionClose{ConnectionClose: &pb.ConnectionClose{ConnectionId: open.ConnectionId, ErrorMessage: trailerErr.Error()}}})
+				return
+			}
 			if err := sender.Send(&pb.TunnelMessage{
 				Message: &pb.TunnelMessage_ConnectionHalfClose{
-					ConnectionHalfClose: &pb.ConnectionHalfClose{ConnectionId: open.ConnectionId},
+					ConnectionHalfClose: &pb.ConnectionHalfClose{ConnectionId: open.ConnectionId, Trailers: trailers},
 				},
 			}); err != nil {
 				reason = "relay_error"

@@ -79,6 +79,7 @@ proto:
 fmt:
 	@echo "Formatting Go code..."
 	go fmt ./...
+	gofmt -w sdk/testdata/consumer/*.go sdk/testdata/response-consumer/*.go
 
 # Tidy dependencies
 tidy:
@@ -176,7 +177,7 @@ test-lifecycle-contract:
 
 # Memory TLS/gRPC lifecycle fixtures, plus a genuinely separate Go importer.
 # No registry resolution: dependencies must already exist in the offline cache.
-.PHONY: test-sdk-unit test-sdk-contract test-sdk-consumer
+.PHONY: test-sdk-unit test-sdk-contract test-sdk-consumer test-http-fidelity
 test-sdk-unit:
 	GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go test -race -count=1 -timeout=45s ./sdk
 
@@ -188,10 +189,14 @@ test-sdk-consumer:
 	cd .scratch/sdk-consumer && GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go test -mod=mod -race -count=1 -timeout=20s ./...
 	GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go test ./examples/sdk-handler ./examples/sdk-origin
 
+# Memory HTTP semantics and explicit protobuf old/new compatibility fixtures.
+test-http-fidelity:
+	GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go test $(GO_TEST_FLAGS) -race -count=1 -v -parallel=2 -timeout=60s -run '^TestHTTPFidelity' ./sdk ./internal/common ./internal/client ./internal/host ./pkg/proto/tunnelv1
+
 # Acceptance includes the actual relay/auth/HTTP/WS loopback stack. Never
 # skip or substitute the unit target when TCP listeners are unavailable.
 test-sdk-contract: test-sdk-unit test-sdk-consumer
-	GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go test -race -count=1 -v -timeout=90s -run '^TestSDK' ./internal/host
+	GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go test -race -count=1 -v -parallel=2 -timeout=90s -run '^TestSDK' ./internal/host
 
 .PHONY: run-sdk-handler run-sdk-origin
 run-sdk-handler:
@@ -523,3 +528,37 @@ test-edge-renewal:
 # and TLS. Keep separate from lanes that forbid executing ssh or binding sockets.
 test-edge-openssh:
 	go test -race -count=1 -timeout=45s -run '^TestLoopbackEdgeOpenSSHAndHTTPSSharePort$$' ./internal/host
+
+# Fresh importer of an immutable committed SDK snapshot. No replace directive,
+# workspace, registry download or network runtime is permitted in this gate.
+.PHONY: test-sdk-response-consumer test-sdk-response-consumer-live
+test-sdk-response-consumer:
+	@set -eu; consumer_dir=$$(PYTHONDONTWRITEBYTECODE=1 python3 scripts/stage-sdk-response-consumer.py); \
+	$(MAKE) -j1 -C "$$consumer_dir" test build verify-module; \
+	printf '%s\n' "$$consumer_dir/response-consumer" > .scratch/sdk-response-consumer/binary-path
+
+# Ordinary-host only: starts a disposable loopback relay and runs the external
+# exported-API program. A missing binary or denied listener fails, never skips.
+test-sdk-response-consumer-live: test-sdk-response-consumer
+	TUNN_RESPONSE_CONSUMER_BINARY="$$(cat .scratch/sdk-response-consumer/binary-path)" GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go test -race -count=1 -v -parallel=2 -timeout=45s -run '^TestSDKExternalResponseConsumer$$' ./internal/host
+
+# Machine-readable evidence for the shared response matrix. Missing cells,
+# skips, failed/race-unavailable tests and zero-test runs all fail this gate.
+.PHONY: test-http-conformance
+test-http-conformance: test-http-conformance-inventory
+	@mkdir -p .scratch/http-conformance
+	@run_dir=$$(mktemp -d .scratch/http-conformance/run.XXXXXX) || exit 1; events="$$run_dir/events.jsonl"; \
+	GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go test $(GO_TEST_FLAGS) -json -race -count=1 -parallel=2 -timeout=60s -run '^TestHTTPFidelity' ./sdk ./internal/common ./internal/client ./internal/host ./pkg/proto/tunnelv1 > "$$events"; result=$$?; \
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/http-conformance-inventory.py --events "$$events" --test-exit "$$result"
+
+.PHONY: test-http-conformance-inventory
+test-http-conformance-inventory:
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts -p 'test_http_conformance_inventory.py'
+
+# The full ordinary-host suite can compile the same exported-only program from
+# the checkout. The separate live importer gate supplies its immutable module
+# binary explicitly and exercises that stronger import boundary.
+.PHONY: build-sdk-response-consumer
+build-sdk-response-consumer:
+	@test -n "$(SDK_RESPONSE_CONSUMER_OUTPUT)" || { echo "REQUIRED: set SDK_RESPONSE_CONSUMER_OUTPUT to a scratch path"; exit 1; }
+	GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go build -o "$(SDK_RESPONSE_CONSUMER_OUTPUT)" ./sdk/testdata/response-consumer

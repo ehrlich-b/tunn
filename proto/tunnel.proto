@@ -141,6 +141,19 @@ message HttpResponse {
   map<string, string> headers = 3;
   // body is the HTTP response body
   bytes body = 4;
+  // If nonempty, header_fields replaces the entire legacy headers map.
+  // Senders also populate headers for old receivers, which lose multiplicity.
+  repeated HttpHeader header_fields = 5;
+  // Response trailers are delivered atomically with this complete body.
+  // Requires negotiated http-response-trailers-v1 support.
+  repeated HttpHeader trailers = 6;
+  repeated string trailer_names = 7;
+}
+
+// HttpHeader is one HTTP field line; values are never comma-split.
+message HttpHeader {
+  string name = 1;
+  string value = 2;
 }
 
 // StreamClosed is sent by either side to indicate a connection has closed.
@@ -182,6 +195,11 @@ message ConnectionAccept {
 message HttpResponseHead {
   int32 status_code = 1;
   map<string, string> headers = 2;
+  // Same whole-list precedence and legacy fallback as HttpResponse.
+  repeated HttpHeader header_fields = 3;
+  // Declared response trailer names; values arrive only in the terminal
+  // ConnectionHalfClose after a successful EOF, never in an error close.
+  repeated string trailer_names = 4;
 }
 
 // ConnectionData carries an ordered chunk. Direction is implicit from which
@@ -195,6 +213,10 @@ message ConnectionData {
 // allowing bytes in the opposite direction.
 message ConnectionHalfClose {
   string connection_id = 1;
+  // HTTP response trailers only, after all data. Requires negotiated
+  // http-response-trailers-v1; at most 64 fields and 16 KiB of metadata.
+  // TCP, WebSocket and HTTP request half-closes leave this field empty.
+  repeated HttpHeader trailers = 2;
 }
 
 // ConnectionClose terminates both directions. error_message is empty for a

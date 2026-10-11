@@ -14,6 +14,7 @@ type connectionEvent struct {
 	accept    *pb.ConnectionAccept
 	data      []byte
 	halfClose bool
+	trailers  []*pb.HttpHeader
 	close     *pb.ConnectionClose
 }
 
@@ -42,7 +43,7 @@ func connectionMessageID(msg *pb.TunnelMessage) (string, connectionEvent) {
 	case *pb.TunnelMessage_ConnectionData:
 		return message.ConnectionData.ConnectionId, connectionEvent{data: message.ConnectionData.Data}
 	case *pb.TunnelMessage_ConnectionHalfClose:
-		return message.ConnectionHalfClose.ConnectionId, connectionEvent{halfClose: true}
+		return message.ConnectionHalfClose.ConnectionId, connectionEvent{halfClose: true, trailers: message.ConnectionHalfClose.Trailers}
 	case *pb.TunnelMessage_ConnectionClose:
 		return message.ConnectionClose.ConnectionId, connectionEvent{close: message.ConnectionClose}
 	default:

@@ -523,3 +523,13 @@ test-edge-renewal:
 # and TLS. Keep separate from lanes that forbid executing ssh or binding sockets.
 test-edge-openssh:
 	go test -race -count=1 -timeout=45s -run '^TestLoopbackEdgeOpenSSHAndHTTPSSharePort$$' ./internal/host
+
+# Useful MCP project task: offline fixture gates; no sockets or hosted calls.
+.PHONY: test-mcp-project-reader build-mcp-project-reader mcp-workflow
+test-mcp-project-reader:
+	go test $(GO_TEST_FLAGS) -p 2 -count=1 ./examples/mcp-project-reader/...
+build-mcp-project-reader:
+	mkdir -p .scratch/mcp-workflow/bin
+	go build -o .scratch/mcp-workflow/bin/mcp-project-reader ./examples/mcp-project-reader/cmd
+mcp-workflow:
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/mcp-workflow/rehearse.py --mode in-memory

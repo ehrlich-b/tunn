@@ -47,9 +47,11 @@ SSH key possession supplies publisher authentication.
 
 ## Link a key to your account
 
-With the normal CLI already logged in:
+With owner account credentials saved for the CLI (publisher-only device
+credentials cannot manage SSH keys):
 
 ```sh
+# The matching private key must be beside the .pub file or loaded in ssh-agent.
 tunn keys add ~/.ssh/id_ed25519.pub
 tunn keys list
 tunn keys remove SHA256:YOUR_FINGERPRINT
@@ -62,22 +64,39 @@ ssh -T -p 443 -i ~/.ssh/id_ed25519 tunn.to -- login --email you@example.com
 ```
 
 The session prints the destination email and account page. Open the one-time
-magic link sent to your inbox within five minutes, then reconnect. The email
+magic link sent to your inbox within five minutes, compare the displayed key
+fingerprint with the terminal, click **Link SSH key**, then reconnect. Opening
+the email link only shows a confirmation page; enrollment requires its POST.
+The email
 proof itself is never printed in SSH output: exposing it to an unknown key
 would let that key claim someone else's account. SMTP must be configured on
 the relay. A key already owned by another identity cannot be overwritten.
 
-From an already linked key, add another public key or manage existing keys:
+From an already linked key, re-add the authenticating key or manage existing keys:
 
 ```sh
-ssh -T -p 443 tunn.to -- keys add 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA... laptop'
+ssh -T -p 443 tunn.to -- keys add
 ssh -T -p 443 tunn.to -- keys list
 ssh -T -p 443 tunn.to -- keys remove SHA256:YOUR_FINGERPRINT
 ```
 
-`keys add` with no operand re-adds the authenticating key. The normal CLI takes
-a local public-key filename; SSH takes its contents, because the relay cannot
-read a file on your machine. Ownership follows verified email buckets when
+`keys add` over SSH only accepts the authenticating key, whose possession was
+verified by SSH. To enroll another key, run `login --email` using that private
+key, or use `tunn keys add` locally. The CLI signs a fresh five-minute challenge
+with the matching private key or SSH agent; encrypted keys can be unlocked with
+`ssh-add`. A public-key file alone cannot reserve ownership.
+
+For HTTP clients, POST `{"public_key":"..."}` to `/api/ssh/keys` with owner
+account authentication. HTTP 202 returns `challenge`, `email`, `fingerprint`
+and `message`. Sign the exact message bytes using the submitted private key,
+then POST `public_key`, `challenge` and `signature` (the JSON representation of
+an SSH signature: `Format` plus base64 `Blob`) with the same account credentials.
+Only the verified one-time signature records ownership. Challenges bind the
+identity, key, protocol and revocation generation; expired or replayed proofs
+are rejected. Removing a key atomically invalidates all its pending email and
+signature challenges, including authority issued before a concurrent removal.
+Fresh consent and proof can enroll it again. Upgrading invalidates legacy
+pending email links that did not bind a revocation generation. Ownership follows verified email buckets when
 accounts merge. Every new forward and owner command rechecks ownership.
 
 Linked keys use their account's tunnel count, current plan, monthly quota and
@@ -95,11 +114,16 @@ Unlinked keys have a 30-minute maximum expiry, 1 Mbps sustained tunnel rate,
 key, and three per source IP. They must supply an allow-list and cannot use
 `--public`. Reconnecting or changing keys does not reset the IP budget. Their
 synthetic free accounts also pass through ordinary account quotas and ingress
-metering. SSH admission is bounded globally, per key and per IP; attempts to
+metering. SSH admission is bounded globally, per key, canonical account and per IP; attempts to
 link an email reuse the existing key/IP and email throttles.
 
 After authentication, start a command or a permitted raw connection within
-15 seconds. Idle handshakes and PTY-only sessions close automatically. Owner
+15 seconds. Idle handshakes and PTY-only sessions close automatically.
+Linked transports and concurrent publication/direct channels each have separate
+budgets: 10 per key, 20 per canonical account and 30 per source IP. Counters are
+released when their transport or channel closes. After the last direct channel
+ends, its consumer transport expires after 15 idle seconds (plus up to one
+second for orderly transport teardown); active multiplexed channels keep it alive. Owner
 commands have a 30-second deadline, including reading a service manifest.
 
 ## Names, HTTP targets and Unix sockets
@@ -158,11 +182,41 @@ ssh -T -p 443 tunn.to -- grant revoke demo GRANT_ID
 ssh -T -p 443 tunn.to -- hosts --json
 ```
 
-TCP `-L` targets are tunnel names at logical port 80, never arbitrary relay-side
+TCP `-L` targets are tunnel names at logical port 22 or legacy port 80, never arbitrary relay-side
 hosts. The endpoint must be online on this SSH relay. The connection goes
 through authenticated HTTP CONNECT ingress, including allow-lists, quotas,
 metering and half-close handling. `-N` is appropriate for this consuming
 connection. Public raw endpoints are prohibited.
+
+### Native OpenSSH jump pilot
+
+With a key linked to the invited email and already authorized by the origin
+sshd, recipients need only OpenSSH:
+
+```sh
+# Publisher (tunn installed and logged in; keep this process running):
+tunn tcp --account-only --name forge-ssh --allow alice@example.com 127.0.0.1:22
+# Recipient, after one-time email/key linking and verifying both host keys:
+ssh -J tunn@tunn.to:443 deploy@forge-ssh
+sftp -J tunn@tunn.to:443 deploy@forge-ssh
+```
+
+The jump host resolves `forge-ssh:22` to the publisher's configured target. It
+terminates only the outer SSH transport; the inner host key, login and encrypted
+session belong to the origin. A relay grant does not authorize an OS user.
+Registered keys still need a matching endpoint email grant (or ownership),
+including for public TCP publications consumed through SSH.
+
+The pilot requires publishers and the SSH entry point on the same login node;
+cross-node routing is not implemented. Host-key persistence and raw TCP/443
+routing are opt-in as described below. Raw SSH on 443 can be blocked by HTTPS-only
+networks. See [USER-JOURNEY.md](../USER-JOURNEY.md) for trust checks, precise
+enrollment commands, repeat use and revocation. Removing a key denies new channels
+even on an existing jump transport and closes active streams within five seconds
+(one-second polling, three-second authority query timeout). To revoke a person's
+endpoint grant in this pilot, stop its publisher and restart with a revised
+`--allow` list; the stop cuts existing sessions. There is no live people editor
+in this increment.
 
 Inspection and replay require the owner and `--inspect` at publication time.
 The bounded history and SSH-managed tokens live only as long as the forward.
@@ -296,3 +350,82 @@ filtering, ordinary metering/grants, anonymous limits, key linking, token
 rotation, request inspection/replay, raw TCP half-close, stdio MCP and expiry.
 Existing socket-based tests remain mandatory and may need an environment that
 permits loopback binds.
+
+## Security fixes and review comparison (2026-10-11)
+
+The reviewed SSH candidate was `aa5d8eaefd32448ba278ffcac02779d3a8f2c941`.
+The SSH commit was rebased as `c2a252c179bed4838cf23cda429ff8c5fe6080f1`
+onto the latest durable-credentials base available for this work,
+`4b7364503e428837b6fdb98e8c2ce4605b05da90`. No billing implementation,
+production configuration, deployment or remote Git history was changed.
+
+| Finding | Fix | Regression against the reviewed candidate |
+| --- | --- | --- |
+| F1: reachable SSH-library denial of service | Select `golang.org/x/crypto v0.58.0`; update its required dependencies and Go 1.26 build/compiler configuration. | `TestReviewSSHDependencyPatched` fails with the selected v0.41.0 dependency and passes with v0.58.0. Ordinary agent/Unix-channel rejections also remain covered. |
+| F2: stalled authority lookup exceeds revocation deadline | Pass context through account, email and operational-state SQL; close the stream independently at the three-second check deadline; reject expired authority. | `TestReviewRevocationHasFiveSecondDeadline` fails with a successfully committed revocation and held SQLite pool lease. Both context-aware and deliberately cancellation-ignoring storage variants pass after the fix. |
+| F3: pending link restores removed key | Atomically advance revocation generation and remove pending email/signature challenges. Completion checks generation in its transaction. An existing SSH session can only update an existing linked key. | `TestReviewPendingLinkCannotUndoRevocation` fails before the fix and passes afterward. Additional tests cover concurrent completion/removal, legacy-schema migration, restart, stale signatures and old sessions. |
+| F4: account holder squats a foreign public key | Record ownership only after a fresh, one-time key signature bound to the authenticated verified identity, or the authenticating SSH key plus deliberate email confirmation. A challenge alone reserves nothing. | `TestReviewCannotRegisterAnotherPersonsKey` fails before the fix and passes afterward. HTTP and real CLI tests cover private files, agent signing, public-key-only rejection, mismatched signer/key/identity, replay and fresh re-enrollment. |
+| F5: direct forwarding skips budgets and retains idle transports | Separate bounded transport/channel counters for key, canonical account and IP; release on closure; expire consumers after their last channel ends. | `TestReviewDirectForwardIdentityBudgets` and `TestReviewDirectForwardIdleExpiryAndRelease` fail before the fix and pass afterward, including multiplexing and origins that remain open after an input half-close. Additional tests cover transport limits, aliases and counter release. |
+| F6: private target existence oracle | Resolve linked identity before target lookup; use uniform admission denial for offline, unauthorized and budget-denied targets. Release completed admission charges before delivering a rejection. | `TestReviewAnonymousTargetOracle` fails on both port 22 and legacy 80 before the fix and passes afterward under `-race`. |
+
+The reviewer reproductions from `review_host_test.go` and
+`review_registry_test.go` were ported into the permanent package suites. F1's
+review reproduction was dependency/source inspection, not a malicious packet
+or exhaustion test; the permanent dependency guard requires at least v0.56.0,
+the minimum for [GO-2026-6354](https://pkg.go.dev/vuln/GO-2026-6354) and
+[GO-2026-6355](https://pkg.go.dev/vuln/GO-2026-6355), which also includes the
+[GO-2026-5016](https://pkg.go.dev/vuln/GO-2026-5016) rejected-channel fix.
+
+All comparisons use installed Go 1.27.2 on Linux/amd64, actual loopback/Unix
+listeners and umask `022`. The first inherited-umask runs exposed group-writable
+fixture-directory failures on both bases. Umask `077` instead invalidated a
+fixture's intended 0644 file permission. Neither production security check was
+relaxed; the final comparisons use `022` on both sides. Two intermediate full
+runs hit the existing one-second MCP fixture shutdown deadline; unchanged MCP
+suites then passed five repetitions on both base and fixed trees. An intermediate SSH inspection fixture also observed its asynchronous event
+before completion; its failure log is retained. An initial
+native enrollment disconnect and a teardown EOF race were repaired in the SSH
+session lifecycle; the final native and race suites exercise that lifecycle.
+
+Full execution logs and the built Linux binary are retained in this forge at
+`/work/lanes/tunn-sshj/validation/`, outside the tracked repository. The
+original-candidate full-suite comparison excludes only the newly copied
+`TestReview*` regressions; those same regressions run separately with `-race`
+and fail for every reported finding on `aa5d8ea`.
+
+### Additional dependency-scan results
+
+`govulncheck v1.9.0` source analysis of `./internal/sshfront ./internal/host`
+reports 23 reachable advisories on the durable base and six on the fixed tree.
+The remaining six are inherited findings in unchanged `google.golang.org/grpc
+v1.76.0` and `github.com/quic-go/quic-go v0.56.0`: GO-2026-6443,
+GO-2026-6348, GO-2026-6061, GO-2026-4762, GO-2026-5676 and GO-2025-4233.
+Both scans exit with status 3. These dependency advisories need separate work;
+this change does not claim a clean vulnerability scan or authorize public
+enablement. The source scan reports no reachable `x/crypto` advisory after the
+upgrade. The stripped-binary scan conservatively reports eight advisories,
+including uncalled xDS/OpenPGP paths; source results distinguish those paths.
+
+### Completed checks
+
+| Check | Result | Evidence in the forge validation directory |
+| --- | --- | --- |
+| Durable base: `go test -p=2 ./... -count=1` | PASS, including loopback fixtures | `base-durable-full-022.log` |
+| Original candidate: all original tests, `go test -p=2 ./... -skip '^TestReview' -count=1` | PASS, including native OpenSSH fixture | `base-aa-full-022.log` |
+| Fixed tree: `go test -p=1 -parallel=1 ./... -count=1` | PASS, including every loopback and native fixture | `final-full-verified.log` |
+| Original candidate: six finding regressions with `-race` | Expected FAIL for all six; no race warnings | `base-regression-proof.log` |
+| Fixed tree: identical six finding regressions with `-race` | PASS; stalled committed revocation closes in 3.003 seconds or less | `final-regression-proof.log` |
+| Durable base: full SSH/auth/relay packages with `-race`, plus CLI/store/client | PASS | `base-durable-race.log`, `base-durable-cli-store-race.log`, `base-durable-client-race.log` |
+| Fixed tree: `go test -p=1 -race . ./internal/host ./internal/sshfront ./internal/common ./internal/client ./internal/storage ./internal/store ./internal/relaytransport -count=1` | PASS; no race warnings | `final-race.log` |
+| Final forwarding-lifetime refinement: complete sshfront race suite and host jump/native tests | PASS, including an origin that remains open after input EOF | `final-sshfront-race.log`, `closed-channel-lifetime.log` |
+| `go vet ./...` | PASS | `verified-vet.log` |
+
+The final native OpenSSH run under `-race` completed in 2.42 seconds. Its first
+and second sessions took 249 ms and 204 ms; byte-for-byte verification of a
+random 64 KiB SFTP download took 418 ms. It rejected unknown/non-granted keys,
+wrong resources/users, relay loopback targets, substituted origin/relay host
+keys and a relay grant without an origin-authorized key. Stopping the publisher
+closed the active origin session in 5.94 ms; live key removal on a reused jump
+transport closed it in 979 ms. These are fixture observations, not production
+latency promises. The held-database regression separately verifies the
+five-second cutoff under stalled authority lookup.

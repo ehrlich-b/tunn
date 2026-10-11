@@ -171,6 +171,10 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		return nil
 	}
 	r = stripIdentityHeaders(r)
+	if expected, ok := r.Context().Value(sshConnectTunnelKey{}).(*TunnelConnection); ok && expected != tunnel {
+		http.Error(w, "SSH endpoint replaced", http.StatusForbidden)
+		return nil
+	}
 	account, accountErr := p.currentTunnelAccount(r.Context(), tunnel)
 	if owner, ok := r.Context().Value(domainOwnerKey{}).(string); ok && (owner == "" || account == nil || account.ID != owner) {
 		http.Error(w, "Domain tunnel ownership mismatch", http.StatusForbidden)

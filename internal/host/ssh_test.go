@@ -16,6 +16,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -272,6 +273,21 @@ func TestSSHEmailLinkAndOwnerKeyAPI(t *testing.T) {
 		t.Fatalf("link=%d %s", w.Code, w.Body.String())
 	}
 	key, _ := sshfront.ParseKey(pub)
+	if owner, err := p.sshKeys.Owner(ctx, key.Fingerprint); err != nil || owner != "" {
+		t.Fatalf("GET enrolled key: owner=%q %v", owner, err)
+	}
+	if !strings.Contains(w.Body.String(), key.Fingerprint) {
+		t.Fatal("confirmation omitted key fingerprint")
+	}
+	cookie := w.Result().Cookies()[0]
+	r = httptest.NewRequest("POST", "https://tunn.test/auth/ssh-key?token="+token, strings.NewReader(url.Values{"csrf": {cookie.Value}}.Encode()))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	r.AddCookie(cookie)
+	w = httptest.NewRecorder()
+	p.handleSSHKeyLink(w, r)
+	if w.Code != 200 {
+		t.Fatalf("confirmation=%d %s", w.Code, w.Body.String())
+	}
 	if owner, err := p.sshKeys.Owner(ctx, key.Fingerprint); err != nil || owner != "linked@example.com" {
 		t.Fatalf("owner=%q %v", owner, err)
 	}

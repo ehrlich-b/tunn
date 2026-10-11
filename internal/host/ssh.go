@@ -2,13 +2,17 @@ package host
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"html"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -28,6 +32,7 @@ import (
 )
 
 type sshPublisherContextKey struct{}
+type sshConnectTunnelKey struct{}
 type sshPublisher struct {
 	email     string
 	anonymous bool
@@ -52,8 +57,19 @@ func (p *ProxyServer) enableSSH(db *sql.DB) error {
 	if err != nil {
 		return err
 	}
-	p.sshServer, err = sshfront.New(sshfront.Config{HostKey: signer, Resolve: p.sshKeys.Owner, Establish: p.establishSSH, Command: p.sshCommand, RotateToken: p.rotateSSHToken, Connect: p.sshConnect, RenderQR: func(ctx context.Context, u string, w io.Writer) error { return hostmode.RenderQR(ctx, u, w, "") }})
+	p.sshServer, err = sshfront.New(sshfront.Config{HostKey: signer, Resolve: p.sshKeys.Owner, Account: p.sshAccountBudget, Establish: p.establishSSH, Command: p.sshCommand, RotateToken: p.rotateSSHToken, Connect: p.sshConnect, RenderQR: func(ctx context.Context, u string, w io.Writer) error { return hostmode.RenderQR(ctx, u, w, "") }})
 	return err
+}
+
+func (p *ProxyServer) sshAccountBudget(ctx context.Context, email string) (string, error) {
+	account, err := p.storage.GetAccountByEmail(ctx, email)
+	if err != nil {
+		return "", err
+	}
+	if account == nil {
+		return "", fmt.Errorf("SSH account unavailable")
+	}
+	return account.ID, nil
 }
 
 func (p *ProxyServer) establishSSH(ctx context.Context, id sshfront.Identity, stream *sshfront.Stream) error {
@@ -83,19 +99,21 @@ func (p *ProxyServer) establishSSH(ctx context.Context, id sshfront.Identity, st
 	return p.tunnelServer.EstablishTunnel(sshHostStream{stream, trusted})
 }
 
+type sshSessionKey struct{}
+
 func (p *ProxyServer) sshOwnerRequest(ctx context.Context, id sshfront.Identity, method, path string, body io.Reader) (*httptest.ResponseRecorder, error) {
 	email, err := p.sshKeys.Owner(ctx, id.Fingerprint)
 	if err != nil {
 		return nil, err
 	}
-	if email == "" {
+	if email == "" || email != id.Email {
 		return nil, fmt.Errorf("link an SSH key first: login --email you@example.com")
 	}
 	token, err := p.generateJWT(email)
 	if err != nil {
 		return nil, err
 	}
-	r := httptest.NewRequest(method, "https://"+p.Domain+path, body).WithContext(ctx)
+	r := httptest.NewRequest(method, "https://"+p.Domain+path, body).WithContext(context.WithValue(ctx, sshSessionKey{}, id))
 	r.Header.Set("Authorization", "Bearer "+token)
 	r.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -125,6 +143,13 @@ func (p *ProxyServer) sshCommand(ctx context.Context, id sshfront.Identity, args
 			public := id.PublicKey
 			if len(args) > 2 {
 				public = strings.Join(args[2:], " ")
+				key, err := sshfront.ParseKey(public)
+				if err != nil {
+					return err
+				}
+				if key.Fingerprint != id.Fingerprint {
+					return fmt.Errorf("prove the new key with login --email using that private key, or tunn keys add with its private key available locally or in your agent")
+				}
 			}
 			data, _ := json.Marshal(map[string]string{"public_key": public})
 			method = http.MethodPost
@@ -244,25 +269,33 @@ func (p *ProxyServer) rotateSSHToken(ctx context.Context, id sshfront.Identity, 
 // never dials a hostname supplied by an SSH client on the host's network.
 func (p *ProxyServer) sshConnect(ctx context.Context, id sshfront.Identity, name string) (net.Conn, error) {
 	if !isValidDNSLabel(name) {
-		return nil, fmt.Errorf("invalid endpoint name")
+		return nil, fmt.Errorf("SSH endpoint access denied")
+	}
+	// Resolve identity before looking up a private target, so unlinked keys
+	// receive the same denial for every name.
+	email, err := p.sshKeys.Owner(ctx, id.Fingerprint)
+	if err != nil || email == "" || email != id.Email {
+		return nil, fmt.Errorf("SSH endpoint access denied")
 	}
 	tunnel, ok := p.tunnelServer.GetTunnel(name)
 	if !ok || tunnel.EndpointProtocol != "tcp" {
-		return nil, fmt.Errorf("raw endpoint is not online on this SSH relay")
+		return nil, fmt.Errorf("SSH endpoint access denied")
 	}
-	email, err := p.sshKeys.Owner(ctx, id.Fingerprint)
-	if err != nil || email == "" {
-		return nil, fmt.Errorf("linked key required for SSH connect")
+	email, err = p.sshConnectIdentity(ctx, id, tunnel)
+	if err != nil {
+		slog.Debug("SSH connect admission denied", "fingerprint", id.Fingerprint, "target", name, "reason", err)
+		return nil, fmt.Errorf("SSH endpoint access denied")
 	}
 	token, err := p.generateJWT(email)
 	if err != nil {
 		return nil, err
 	}
+	ctx, cancel := context.WithCancel(ctx)
 	local, remote := net.Pipe()
 	input, output := io.Pipe()
-	connection := &sshConnectConn{Conn: local, input: input, output: output}
+	connection := &sshConnectConn{Conn: local, input: input, output: output, cancel: cancel}
 	ready := make(chan error, 1)
-	r := httptest.NewRequest(http.MethodConnect, "https://"+name+"."+p.Domain+common.TCPConnectPath, input).WithContext(ctx)
+	r := httptest.NewRequest(http.MethodConnect, "https://"+name+"."+p.Domain+common.TCPConnectPath, input).WithContext(context.WithValue(ctx, sshConnectTunnelKey{}, tunnel))
 	r.Host = name + "." + p.Domain
 	r.URL.Path = common.TCPConnectPath
 	r.RemoteAddr = net.JoinHostPort(id.IP, "1")
@@ -270,7 +303,38 @@ func (p *ProxyServer) sshConnect(ctx context.Context, id sshfront.Identity, name
 	r.Header.Set("Authorization", "Bearer "+token)
 	r.Header.Set(common.TCPConnectHeader, common.TCPConnectValue)
 	w := &sshConnectWriter{headers: make(http.Header), writer: remote, ready: ready}
-	go func() { defer func() { _ = input.Close(); _ = remote.Close() }(); p.handleWebProxy(w, r) }()
+	go func() {
+		defer func() { cancel(); _ = input.Close(); _ = remote.Close() }()
+		// The pilot is deliberately local. Never probe another node after
+		// admission, where the name might refer to a different generation.
+		_ = p.proxyToLocal(w, r, name)
+	}()
+	// Recheck the live registry and resource generation even when an outer SSH
+	// transport is reused. Closing both pipes interrupts blocked writes too.
+	go func() {
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				_ = connection.Close()
+				return
+			case <-ticker.C:
+				checkCtx, stop := context.WithTimeout(ctx, 3*time.Second)
+				// Close independently of the lookup: even a storage adapter that
+				// ignores cancellation cannot keep an admitted stream alive.
+				stopDeadline := context.AfterFunc(checkCtx, func() { _ = connection.Close() })
+				_, err := p.sshConnectIdentity(checkCtx, id, tunnel)
+				expired := checkCtx.Err()
+				deadlineStopped := stopDeadline()
+				stop()
+				if err != nil || expired != nil || !deadlineStopped {
+					_ = connection.Close()
+					return
+				}
+			}
+		}
+	}()
 	select {
 	case err := <-ready:
 		if err != nil {
@@ -284,15 +348,49 @@ func (p *ProxyServer) sshConnect(ctx context.Context, id sshfront.Identity, name
 	}
 }
 
+// A registered key proves an identity, never a resource grant. Even a public
+// TCP publication requires an explicit person grant through the SSH front door.
+func (p *ProxyServer) sshConnectIdentity(ctx context.Context, id sshfront.Identity, tunnel *TunnelConnection) (string, error) {
+	current, ok := p.tunnelServer.GetTunnel(tunnel.TunnelID)
+	if !ok || current != tunnel || current.EndpointProtocol != "tcp" {
+		return "", fmt.Errorf("SSH endpoint offline or replaced")
+	}
+	email, err := p.sshKeys.Owner(ctx, id.Fingerprint)
+	if err != nil || email == "" || email != id.Email {
+		return "", fmt.Errorf("linked key required for SSH connect; reconnect after linking")
+	}
+	if p.storage == nil || !p.storage.Available() {
+		return "", fmt.Errorf("account service unavailable")
+	}
+	owner, err := p.currentTunnelAccount(ctx, tunnel)
+	if err != nil || owner == nil || owner.OperationalState != "active" {
+		return "", fmt.Errorf("SSH endpoint owner unavailable")
+	}
+	bucket, err := p.storage.GetEmailBucket(ctx, email)
+	if err != nil {
+		return "", fmt.Errorf("SSH identity unavailable")
+	}
+	allowed := append(append([]string(nil), tunnel.AllowedEmails...), tunnel.CreatorEmail)
+	if !isEmailBucketAllowed(bucket, allowed) {
+		return "", fmt.Errorf("SSH endpoint access denied")
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	return email, nil
+}
+
 type sshConnectConn struct {
 	net.Conn
 	input  *io.PipeReader
 	output *io.PipeWriter
+	cancel context.CancelFunc
 }
 
 func (c *sshConnectConn) Write(p []byte) (int, error) { return c.output.Write(p) }
 func (c *sshConnectConn) CloseWrite() error           { return c.output.Close() }
 func (c *sshConnectConn) Close() error {
+	c.cancel()
 	_ = c.output.Close()
 	_ = c.input.Close()
 	return c.Conn.Close()
@@ -366,7 +464,8 @@ func (p *ProxyServer) handleSSHKeyLink(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "SSH key linking is disabled", http.StatusNotFound)
 		return
 	}
-	if r.Method != "GET" {
+	if r.Method != http.MethodGet && r.Method != http.MethodPost {
+		w.Header().Set("Allow", "GET, POST")
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
@@ -374,6 +473,32 @@ func (p *ProxyServer) handleSSHKeyLink(w http.ResponseWriter, r *http.Request) {
 	email, err := p.sshKeys.LinkEmail(r.Context(), token)
 	if err != nil {
 		http.Error(w, "Invalid or expired SSH link", http.StatusBadRequest)
+		return
+	}
+	key, err := p.sshKeys.LinkKey(r.Context(), token)
+	if err != nil {
+		http.Error(w, "Invalid or expired SSH link", http.StatusBadRequest)
+		return
+	}
+	digest := sha256.Sum256([]byte(token))
+	cookieName := "__Host-tunn_ssh_link_" + hex.EncodeToString(digest[:8])
+	if r.Method == http.MethodGet {
+		var nonce [32]byte
+		if _, err := rand.Read(nonce[:]); err != nil {
+			http.Error(w, "Could not create confirmation", http.StatusInternalServerError)
+			return
+		}
+		csrf := hex.EncodeToString(nonce[:])
+		http.SetCookie(w, &http.Cookie{Name: cookieName, Value: csrf, Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: 300})
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
+		_, _ = fmt.Fprintf(w, `<!doctype html><title>Confirm SSH key</title><h1>Link this SSH key?</h1><p>Account: %s</p><p>Fingerprint: <code>%s</code></p><p>Compare this fingerprint with your SSH login request. Only confirm a key you control.</p><form method="post" action="/auth/ssh-key?token=%s"><input type="hidden" name="csrf" value="%s"><button type="submit">Link SSH key</button></form>`, html.EscapeString(email), html.EscapeString(key.Fingerprint), html.EscapeString(token), csrf)
+		return
+	}
+	cookie, err := r.Cookie(cookieName)
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
+	if err != nil || r.ParseForm() != nil || cookie.Value == "" || subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(r.PostForm.Get("csrf"))) != 1 {
+		http.Error(w, "SSH key confirmation required", http.StatusForbidden)
 		return
 	}
 	if _, err = p.storage.FindOrCreateByEmails(r.Context(), []string{email}, "magic_link"); err != nil {
@@ -388,6 +513,7 @@ func (p *ProxyServer) handleSSHKeyLink(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Could not complete login", http.StatusInternalServerError)
 		return
 	}
+	http.SetCookie(w, &http.Cookie{Name: cookieName, Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: -1})
 	_, _ = fmt.Fprintln(w, "SSH key linked. Reconnect with the same key to use your account.")
 }
 
@@ -428,9 +554,11 @@ func (p *ProxyServer) handleSSHKeys(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(keys)
 	case http.MethodPost:
 		var req struct {
-			PublicKey string `json:"public_key"`
+			PublicKey string         `json:"public_key"`
+			Challenge string         `json:"challenge"`
+			Signature *ssh.Signature `json:"signature"`
 		}
-		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16*1024)).Decode(&req); err != nil {
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 32*1024)).Decode(&req); err != nil {
 			http.Error(w, "Invalid key", http.StatusBadRequest)
 			return
 		}
@@ -450,7 +578,21 @@ func (p *ProxyServer) handleSSHKeys(w http.ResponseWriter, r *http.Request) {
 				ownerEmail = email
 			}
 		}
-		key, err = p.sshKeys.Add(r.Context(), ownerEmail, req.PublicKey)
+		session, sessionVerified := r.Context().Value(sshSessionKey{}).(sshfront.Identity)
+		if sessionVerified && session.Fingerprint == key.Fingerprint && session.Email == previousOwner && previousOwner == ownerEmail {
+			key, err = p.sshKeys.ConfirmSessionKey(r.Context(), ownerEmail, req.PublicKey)
+		} else if req.Signature == nil && req.Challenge == "" {
+			challenge, err := p.sshKeys.BeginProof(r.Context(), req.PublicKey, ownerEmail)
+			if err != nil {
+				http.Error(w, "Key service unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			w.WriteHeader(http.StatusAccepted)
+			_ = json.NewEncoder(w).Encode(map[string]string{"challenge": challenge, "email": ownerEmail, "message": string(sshfront.ProofMessage(ownerEmail, challenge)), "fingerprint": key.Fingerprint})
+			return
+		} else {
+			key, err = p.sshKeys.CompleteProof(r.Context(), ownerEmail, req.PublicKey, req.Challenge, req.Signature)
+		}
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return

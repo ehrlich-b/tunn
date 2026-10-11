@@ -141,7 +141,7 @@ func (s *LocalStorage) AuthorizeDeviceCode(ctx context.Context, code, email stri
 
 // GetAccount retrieves an account by ID.
 func (s *LocalStorage) GetAccount(ctx context.Context, accountID string) (*Account, error) {
-	acc, err := s.accounts.GetByID(accountID)
+	acc, err := s.accounts.GetByIDContext(ctx, accountID)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -153,7 +153,7 @@ func (s *LocalStorage) GetAccount(ctx context.Context, accountID string) (*Accou
 
 // GetAccountByEmail retrieves an account by any email in its bucket.
 func (s *LocalStorage) GetAccountByEmail(ctx context.Context, email string) (*Account, error) {
-	acc, err := s.accounts.GetByEmail(email)
+	acc, err := s.accounts.GetByEmailContext(ctx, email)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -174,7 +174,7 @@ func (s *LocalStorage) FindOrCreateByEmails(ctx context.Context, emails []string
 
 // GetEmailBucket returns all emails associated with an account.
 func (s *LocalStorage) GetEmailBucket(ctx context.Context, email string) ([]string, error) {
-	return s.accounts.GetEmailBucket(email)
+	return s.accounts.GetEmailBucketContext(ctx, email)
 }
 
 // UpdatePlan updates an account's plan.
@@ -196,7 +196,7 @@ func (s *LocalStorage) GetMonthlyUsage(ctx context.Context, accountID string) (i
 func (s *LocalStorage) RegisterTunnel(ctx context.Context, tunnelID, accountID, nodeAddress string) (*TunnelRegistration, error) {
 	s.activeTunnelsMu.Lock()
 	defer s.activeTunnelsMu.Unlock()
-	acc, err := s.accounts.GetByID(accountID)
+	acc, err := s.accounts.GetByIDContext(ctx, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -281,7 +281,7 @@ func (s *LocalStorage) GetTunnelCount(ctx context.Context, accountID string) (in
 	s.activeTunnelsMu.RLock()
 	defer s.activeTunnelsMu.RUnlock()
 
-	if account, err := s.accounts.GetByID(accountID); err == nil {
+	if account, err := s.accounts.GetByIDContext(ctx, accountID); err == nil {
 		accountID = account.ID
 	} else if err != sql.ErrNoRows {
 		return 0, err

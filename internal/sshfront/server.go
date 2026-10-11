@@ -30,16 +30,20 @@ import (
 const AnonymousExpiry = 30 * time.Minute
 const AnonymousBytes int64 = 10 << 20
 
-type Identity struct{ Fingerprint, PublicKey, Email, IP string }
+type Identity struct{ Fingerprint, PublicKey, Email, IP, AccountID string }
 type Config struct {
-	HostKey        ssh.Signer
-	Resolve        func(context.Context, string) (string, error)
+	HostKey ssh.Signer
+	Resolve func(context.Context, string) (string, error)
+	// Account resolves a verified email to its canonical account for shared budgets.
+	Account        func(context.Context, string) (string, error)
 	Establish      func(context.Context, Identity, *Stream) error
 	Command        func(context.Context, Identity, []string, io.Reader, io.Writer) error
 	RenderQR       func(context.Context, string, io.Writer) error
 	RotateToken    func(context.Context, Identity, string, []byte) error
 	Connect        func(context.Context, Identity, string) (net.Conn, error)
 	StartupTimeout time.Duration
+	// IdleTimeout bounds a consumer transport after its last direct channel ends.
+	IdleTimeout time.Duration
 }
 type budget struct {
 	active  int
@@ -87,6 +91,10 @@ func (s *Server) allowHandshake(ip string) bool {
 	return b.limiter.Allow()
 }
 func (s *Server) acquire(id Identity) (func(), error) {
+	return s.acquireBudget(id, "")
+}
+
+func (s *Server) acquireBudget(id Identity, prefix string) (func(), error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := time.Now()
@@ -98,10 +106,18 @@ func (s *Server) acquire(id Identity) (func(), error) {
 	if len(s.budgets) > 8192 {
 		return nil, fmt.Errorf("SSH admission busy")
 	}
-	keys := []string{"key:" + id.Fingerprint, "ip:" + id.IP}
+	keys := []string{prefix + "key:" + id.Fingerprint, prefix + "ip:" + id.IP}
 	max := []int{10, 30}
 	if id.Email == "" {
 		max = []int{1, 3}
+	}
+	if id.Email != "" {
+		account := id.AccountID
+		if account == "" {
+			account = id.Email
+		}
+		keys = append(keys, prefix+"account:"+account)
+		max = append(max, 20)
 	}
 	for i, k := range keys {
 		b := s.budgets[k]
@@ -195,14 +211,50 @@ func (s *Server) ServeConn(parent context.Context, raw net.Conn) {
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 	id := Identity{Fingerprint: conn.Permissions.Extensions["fingerprint"], PublicKey: conn.Permissions.Extensions["public"], IP: ip}
+	resolveCtx, stopResolve := context.WithTimeout(ctx, 10*time.Second)
+	id.Email, err = s.cfg.Resolve(resolveCtx, id.Fingerprint)
+	if err == nil && id.Email != "" && s.cfg.Account != nil {
+		id.AccountID, err = s.cfg.Account(resolveCtx, id.Email)
+		if id.AccountID == "" && err == nil {
+			err = fmt.Errorf("SSH account unavailable")
+		}
+	}
+	if err == nil {
+		err = resolveCtx.Err()
+	}
+	stopResolve()
+	if err != nil {
+		return
+	}
+	// Transport slots remain charged while idle, separate from channel budgets.
+	releaseTransport, err := s.acquireBudget(id, "transport:")
+	if err != nil {
+		return
+	}
+	defer releaseTransport()
 	state := &connection{server: s, ssh: conn, ctx: ctx, id: id, forwards: map[forwardSpec]*forward{}, cancel: cancel, directSlots: make(chan struct{}, 32), sessionDone: make(chan struct{})}
 	startupTimeout := s.cfg.StartupTimeout
 	if startupTimeout <= 0 {
 		startupTimeout = 15 * time.Second
 	}
-	startup := time.AfterFunc(startupTimeout, cancel)
-	defer startup.Stop()
-	state.started = func() { startup.Stop() }
+	state.idleTimeout = s.cfg.IdleTimeout
+	if state.idleTimeout <= 0 {
+		state.idleTimeout = startupTimeout
+	}
+	state.idle = time.AfterFunc(startupTimeout, func() {
+		state.mu.Lock()
+		defer state.mu.Unlock()
+		if state.activeDirect == 0 && !state.commandStarted {
+			cancel()
+		}
+	})
+	defer state.idle.Stop()
+	state.started = func() {
+		state.mu.Lock()
+		defer state.mu.Unlock()
+		state.commandStarted = true
+		state.idle.Stop()
+	}
 	go func() {
 		<-ctx.Done()
 		select {
@@ -259,21 +311,25 @@ type forward struct {
 	token     string
 }
 type connection struct {
-	sessionDone chan struct{}
-	directSlots chan struct{}
-	server      *Server
-	ssh         *ssh.ServerConn
-	ctx         context.Context
-	cancel      context.CancelFunc
-	id          Identity
-	mu          sync.Mutex
-	forwards    map[forwardSpec]*forward
-	options     *cliopts.Serve
-	protocol    string
-	kind        string
-	output      *sessionOutput
-	bridge      *mcpbridge.Bridge
-	started     func()
+	sessionDone    chan struct{}
+	directSlots    chan struct{}
+	server         *Server
+	ssh            *ssh.ServerConn
+	ctx            context.Context
+	cancel         context.CancelFunc
+	id             Identity
+	mu             sync.Mutex
+	forwards       map[forwardSpec]*forward
+	options        *cliopts.Serve
+	protocol       string
+	kind           string
+	output         *sessionOutput
+	bridge         *mcpbridge.Bridge
+	started        func()
+	idle           *time.Timer
+	idleTimeout    time.Duration
+	activeDirect   int
+	commandStarted bool
 }
 type sessionOutput struct {
 	mu      sync.Mutex
@@ -396,9 +452,11 @@ func (c *connection) session(ch ssh.Channel, requests <-chan *ssh.Request) {
 			}
 			_ = req.Reply(true, nil)
 			c.started()
+			controlsDone := make(chan struct{})
 			// Exec owns the session until the tunnel ends; keep receiving control
 			// requests so OpenSSH signals are effective while run is blocked.
 			go func() {
+				defer close(controlsDone)
 				for control := range requests {
 					if control.Type == "signal" {
 						_ = control.Reply(true, nil)
@@ -416,6 +474,14 @@ func (c *connection) session(ch ssh.Channel, requests <-chan *ssh.Request) {
 				_, _ = fmt.Fprintln(c.output, err)
 			}
 			_, _ = ch.SendRequest("exit-status", false, ssh.Marshal(struct{ Status uint32 }{code}))
+			_ = ch.Close()
+			// Let the peer acknowledge channel closure before tearing down the
+			// transport, so native OpenSSH can consume the successful exit status.
+			select {
+			case <-controlsDone:
+			case <-c.ctx.Done():
+			case <-time.After(time.Second):
+			}
 			return
 		default:
 			_ = req.Reply(false, nil)
@@ -440,7 +506,9 @@ func (c *connection) run(args []string, in ssh.Channel) error {
 	if err != nil {
 		return err
 	}
-	c.id.Email = email
+	if email != c.id.Email {
+		return fmt.Errorf("SSH key ownership changed; reconnect")
+	}
 	protocol := "http"
 	kind := "serve"
 	if len(args) > 0 {
@@ -896,20 +964,42 @@ func (c *connection) direct(channel ssh.NewChannel) {
 		Origin     string
 		OriginPort uint32
 	}
-	if ssh.Unmarshal(channel.ExtraData(), &spec) != nil || spec.Port != 80 || len(spec.Address) > 63 {
-		_ = channel.Reject(ssh.Prohibited, "use -L LOCALPORT:TUNNEL:80 for a named raw endpoint")
+	// Both ports select the publisher's configured target; neither permits
+	// dialing the relay's network. 80 remains the legacy forwarding sentinel.
+	if ssh.Unmarshal(channel.ExtraData(), &spec) != nil || (spec.Port != 22 && spec.Port != 80) || len(spec.Address) > 63 {
+		_ = channel.Reject(ssh.Prohibited, "use a named raw endpoint on port 22 (or legacy port 80)")
 		return
 	}
+	release, err := c.server.acquire(c.id)
+	if err != nil {
+		_ = channel.Reject(ssh.Prohibited, "SSH endpoint access denied")
+		return
+	}
+	defer release()
+	c.mu.Lock()
+	c.activeDirect++
+	c.idle.Stop()
+	c.mu.Unlock()
+	defer func() {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		c.activeDirect--
+		if c.activeDirect == 0 && !c.commandStarted {
+			c.idle.Reset(c.idleTimeout)
+		}
+	}()
 	ctx, cancel := context.WithCancel(c.ctx)
 	timer := time.AfterFunc(10*time.Second, cancel)
 	defer timer.Stop()
 	upstream, err := c.server.cfg.Connect(ctx, c.id, spec.Address)
 	if err != nil {
+		// Release before delivering the rejection so the next channel cannot
+		// observe a transient budget charge from a completed admission.
+		release()
 		cancel()
 		_ = channel.Reject(ssh.Prohibited, err.Error())
 		return
 	}
-	c.started()
 	timer.Stop()
 	// Admission has its own timeout. The data path lives for the SSH session.
 	ch, requests, err := channel.Accept()
@@ -918,7 +1008,12 @@ func (c *connection) direct(channel ssh.NewChannel) {
 		_ = upstream.Close()
 		return
 	}
-	go ssh.DiscardRequests(requests)
+	go func() {
+		ssh.DiscardRequests(requests)
+		// A full channel close ends its forwarding lifetime even when the
+		// origin keeps its read side open after an input half-close.
+		_ = upstream.Close()
+	}()
 	defer cancel()
 	defer func() { _ = ch.Close(); _ = upstream.Close() }()
 	done := make(chan struct{})
@@ -935,6 +1030,8 @@ func (c *connection) direct(channel ssh.NewChannel) {
 		_, _ = io.Copy(upstream, ch)
 		if half, ok := upstream.(interface{ CloseWrite() error }); ok {
 			_ = half.CloseWrite()
+		} else {
+			_ = upstream.Close()
 		}
 	}()
 	_, _ = io.Copy(ch, upstream)

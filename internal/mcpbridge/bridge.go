@@ -36,12 +36,15 @@ type Bridge struct {
 	cancel context.CancelFunc
 	stdin  io.WriteCloser
 
-	listener   net.Listener
-	httpServer *http.Server
-	outputs    chan childOutput
-	done       chan struct{}
-	processMu  sync.Mutex
-	processErr error
+	listener     net.Listener
+	httpServer   *http.Server
+	httpConnMu   sync.Mutex
+	httpNewConns map[net.Conn]struct{}
+	httpClosing  bool
+	outputs      chan childOutput
+	done         chan struct{}
+	processMu    sync.Mutex
+	processErr   error
 
 	writeMu               sync.Mutex
 	requestGate           chan struct{}
@@ -100,7 +103,7 @@ func StartWithOptions(parent context.Context, command []string, stderr io.Writer
 	b.listener = listener
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", b)
-	b.httpServer = &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	b.httpServer = &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second, ConnState: b.trackHTTPConn}
 	go func() { _ = b.httpServer.Serve(listener) }()
 	return b, nil
 }
@@ -179,13 +182,45 @@ func (b *Bridge) URL() string {
 	return "http://" + b.listener.Addr().String()
 }
 
+// net/http gives newly accepted, unused connections a five-second grace period
+// during Shutdown. Speculative client dials must not hold bridge cleanup open.
+func (b *Bridge) trackHTTPConn(conn net.Conn, state http.ConnState) {
+	b.httpConnMu.Lock()
+	defer b.httpConnMu.Unlock()
+	if state != http.StateNew {
+		delete(b.httpNewConns, conn)
+		return
+	}
+	if b.httpClosing {
+		_ = conn.Close()
+		return
+	}
+	if b.httpNewConns == nil {
+		b.httpNewConns = map[net.Conn]struct{}{}
+	}
+	b.httpNewConns[conn] = struct{}{}
+}
+
+func (b *Bridge) closeUnusedHTTPConns() {
+	b.httpConnMu.Lock()
+	b.httpClosing = true
+	conns := b.httpNewConns
+	b.httpNewConns = nil
+	b.httpConnMu.Unlock()
+	for conn := range conns {
+		_ = conn.Close()
+	}
+}
+
 // Close stops accepting HTTP traffic and terminates the child process.
 func (b *Bridge) Close(ctx context.Context) error {
 	var closeErr error
 	b.closeOnce.Do(func() {
 		if b.httpServer != nil {
+			b.closeUnusedHTTPConns()
 			if err := b.httpServer.Shutdown(ctx); err != nil {
-				closeErr = err
+				closeErr = fmt.Errorf("shutdown MCP HTTP server: %w", err)
+				_ = b.httpServer.Close()
 			}
 		}
 		_ = b.stdin.Close()
@@ -195,7 +230,7 @@ func (b *Bridge) Close(ctx context.Context) error {
 		case <-b.done:
 		case <-ctx.Done():
 			if closeErr == nil {
-				closeErr = ctx.Err()
+				closeErr = fmt.Errorf("wait for MCP child: %w", ctx.Err())
 			}
 		}
 	})

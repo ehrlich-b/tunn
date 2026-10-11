@@ -73,7 +73,7 @@ func (p *ProxyServer) proxyWebSocketOverGRPC(w http.ResponseWriter, r *http.Requ
 		var requestBytes atomic.Int64
 		var responseBytes int64
 		finished := true
-		err := p.writeStreamingHTTPResponse(w, r, tunnel, pending, head, &requestBytes, &responseBytes, nil, &finished)
+		err := p.writeStreamingHTTPResponse(w, r, tunnel, pending, head, &requestBytes, &responseBytes, nil, &finished, nil)
 		if err != nil {
 			return &responseStartedError{err}
 		}

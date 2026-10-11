@@ -103,22 +103,11 @@ func (p *ProxyServer) proxyStreamingHTTPOverGRPC(w http.ResponseWriter, r *http.
 			if err := checkMeteredResponse(r, responseSize); err != nil {
 				return err
 			}
-			// For unknown-length uploads, validate the cap before committing an
-			// upstream response. An early 200 must not hide an oversized request.
-			if r.ContentLength < 0 && !requestFinished {
-				select {
-				case result := <-requestResult:
-					requestFinished = true
-					if result.err != nil {
-						return result.err
-					}
-				case <-r.Context().Done():
-					return r.Context().Err()
-				case <-headerTimer.C:
-					return fmt.Errorf("timeout waiting for streamed HTTP request body")
-				}
+			firstEvent, err := waitStreamingHTTPResponseStart(r, pending, event.accept.HttpResponse, requestResult, &requestFinished, headerTimer.C)
+			if err != nil {
+				return err
 			}
-			if err := p.writeStreamingHTTPResponse(w, r, tunnel, pending, event.accept.HttpResponse, &requestBytes, &responseBytes, requestResult, &requestFinished); err != nil {
+			if err := p.writeStreamingHTTPResponse(w, r, tunnel, pending, event.accept.HttpResponse, &requestBytes, &responseBytes, requestResult, &requestFinished, firstEvent); err != nil {
 				return &responseStartedError{err: err}
 			}
 			return nil
@@ -135,6 +124,59 @@ func (p *ProxyServer) proxyStreamingHTTPOverGRPC(w http.ResponseWriter, r *http.
 			return r.Context().Err()
 		case <-headerTimer.C:
 			return fmt.Errorf("timeout waiting for streamed HTTP response headers")
+		}
+	}
+}
+
+// An empty success must not conceal an oversized unknown-length upload. A live
+// response prefix, however, can be needed to make that upload progress. Retain
+// at most one response event until upload EOF or the first nonempty body chunk;
+// after a prefix commits headers, upload failures abort the downstream response.
+func waitStreamingHTTPResponseStart(
+	r *http.Request,
+	pending *pendingConnection,
+	head *pb.HttpResponseHead,
+	requestResult <-chan requestBodyResult,
+	requestFinished *bool,
+	timeout <-chan time.Time,
+) (*connectionEvent, error) {
+	if r.ContentLength >= 0 || *requestFinished {
+		return nil, nil
+	}
+	events := pending.events
+	if !common.HTTPResponseHasBody(r.Method, int(head.StatusCode)) {
+		events = nil
+	}
+	var firstEvent *connectionEvent
+	for {
+		select {
+		case result := <-requestResult:
+			*requestFinished = true
+			return firstEvent, result.err
+		case event := <-events:
+			switch {
+			case len(event.data) > 0:
+				// Prefer an upload error already available before committing headers.
+				select {
+				case result := <-requestResult:
+					*requestFinished = true
+					return &event, result.err
+				default:
+					return &event, nil
+				}
+			case event.halfClose:
+				firstEvent, events = &event, nil
+			case event.close != nil:
+				return nil, connectionCloseError(event.close)
+			case event.accept != nil:
+				return nil, fmt.Errorf("local target sent duplicate HTTP response metadata")
+			}
+		case <-pending.done:
+			return nil, fmt.Errorf("tunnel disconnected before response body")
+		case <-r.Context().Done():
+			return nil, r.Context().Err()
+		case <-timeout:
+			return nil, fmt.Errorf("timeout waiting for streamed HTTP request or response body")
 		}
 	}
 }
@@ -194,6 +236,7 @@ func (p *ProxyServer) writeStreamingHTTPResponse(
 	responseBytes *int64,
 	requestResult <-chan requestBodyResult,
 	requestFinished *bool,
+	firstEvent *connectionEvent,
 ) error {
 	expected := int64(-1)
 	if common.HTTPResponseHasBody(r.Method, int(head.StatusCode)) {
@@ -213,6 +256,9 @@ func (p *ProxyServer) writeStreamingHTTPResponse(
 		w.Header().Del("Content-Length")
 		w.Header().Add("Trailer", "Tunn-Limit-Reason")
 	}
+	// HTTP/1 otherwise drains the remaining request body before writing a
+	// response, recreating the upload/prefix deadlock at the net/http boundary.
+	_ = http.NewResponseController(w).EnableFullDuplex()
 	w.WriteHeader(int(head.StatusCode))
 	if flusher, ok := w.(http.Flusher); ok {
 		flusher.Flush()
@@ -228,52 +274,57 @@ func (p *ProxyServer) writeStreamingHTTPResponse(
 		return nil
 	}
 	for {
-		select {
-		case event := <-pending.events:
-			switch {
-			case event.data != nil:
-				if expected >= 0 && *responseBytes+int64(len(event.data)) > expected {
-					return truncatedHTTPResponse(fmt.Errorf("response exceeds Content-Length"))
+		var event connectionEvent
+		if firstEvent != nil {
+			event, firstEvent = *firstEvent, nil
+		} else {
+			select {
+			case event = <-pending.events:
+			case result := <-requestResult:
+				if !*requestFinished {
+					*requestFinished = true
+					if result.err != nil {
+						return truncatedHTTPResponse(result.err)
+					}
 				}
-				if !tunnel.CheckRateLimit(len(event.data)) {
-					return fmt.Errorf("bandwidth rate limit exceeded")
-				}
-				*responseBytes += int64(len(event.data))
-				if _, err := w.Write(event.data); err != nil {
-					return fmt.Errorf("failed to write streamed HTTP response: %w", err)
-				}
-				if flusher, ok := w.(http.Flusher); ok {
-					flusher.Flush()
-				}
-			case event.halfClose:
-				if err := validateResponseTrailers(tunnel, head.TrailerNames, event.trailers); err != nil {
-					return truncatedHTTPResponse(err)
-				}
-				if expected >= 0 && *responseBytes != expected {
-					return truncatedHTTPResponse(io.ErrUnexpectedEOF)
-				}
-				writeResponseTrailers(w.Header(), event.trailers)
-				return nil
-			case event.close != nil:
-				if event.close.ErrorMessage == "" {
-					return truncatedHTTPResponse(io.ErrUnexpectedEOF)
-				}
-				return truncatedHTTPResponse(connectionCloseError(event.close))
-			case event.accept != nil:
-				return truncatedHTTPResponse(fmt.Errorf("local target sent duplicate HTTP response metadata"))
+				continue
+			case <-pending.done:
+				return truncatedHTTPResponse(fmt.Errorf("tunnel disconnected during streamed HTTP response"))
+			case <-r.Context().Done():
+				return truncatedHTTPResponse(r.Context().Err())
 			}
-
-		case result := <-requestResult:
-			if !*requestFinished {
-				*requestFinished = true
-				if result.err != nil {
-					return truncatedHTTPResponse(result.err)
-				}
+		}
+		switch {
+		case event.data != nil:
+			if expected >= 0 && *responseBytes+int64(len(event.data)) > expected {
+				return truncatedHTTPResponse(fmt.Errorf("response exceeds Content-Length"))
 			}
-		case <-pending.done:
-			return truncatedHTTPResponse(fmt.Errorf("tunnel disconnected during streamed HTTP response"))
-		case <-r.Context().Done():
-			return truncatedHTTPResponse(r.Context().Err())
+			if !tunnel.CheckRateLimit(len(event.data)) {
+				return fmt.Errorf("bandwidth rate limit exceeded")
+			}
+			*responseBytes += int64(len(event.data))
+			if _, err := w.Write(event.data); err != nil {
+				return fmt.Errorf("failed to write streamed HTTP response: %w", err)
+			}
+			if flusher, ok := w.(http.Flusher); ok {
+				flusher.Flush()
+			}
+		case event.halfClose:
+			if err := validateResponseTrailers(tunnel, head.TrailerNames, event.trailers); err != nil {
+				return truncatedHTTPResponse(err)
+			}
+			if expected >= 0 && *responseBytes != expected {
+				return truncatedHTTPResponse(io.ErrUnexpectedEOF)
+			}
+			writeResponseTrailers(w.Header(), event.trailers)
+			return nil
+		case event.close != nil:
+			if event.close.ErrorMessage == "" {
+				return truncatedHTTPResponse(io.ErrUnexpectedEOF)
+			}
+			return truncatedHTTPResponse(connectionCloseError(event.close))
+		case event.accept != nil:
+			return truncatedHTTPResponse(fmt.Errorf("local target sent duplicate HTTP response metadata"))
 		}
 	}
 }

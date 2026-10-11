@@ -608,7 +608,7 @@ test-candidate-baseline:
 	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=120s ./internal/metering
 	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=120s -run '^(TestEdgeHostRouting|TestEdgeHTTP01|TestEdgeTLS|TestStripeSignature|TestStripeSignedPayload|TestStripeLifecycle|TestGitHubComplete|TestGitHubProvider|TestGitHubInvalid|TestMagicLinkComplete|TestMagicLinkRequestValidation|TestMagicLinkMailFailure|TestMagicLinkReplayAuthority|TestOpsRelayOfflineReadiness|TestOpsRelayReadinessRejects|TestOpsRelayHealth)' ./internal/host
 
-# Smallest memory-only reproducer of the finished-input upload/response conflict.
+# Memory-only regression gate for upload limits and concurrent response progress.
 .PHONY: test-candidate-upload-contract
 test-candidate-upload-contract:
-	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=45s -run '^(TestHTTPFidelityUploadTerminalSchedules|TestHTTPFidelityUploadFailureAbortsResponse)$$' ./internal/host
+	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=45s -run '^(TestHTTPFidelity(UploadTerminalSchedules|UploadFailureAbortsResponse|WireUploadEOFAbortsResponse|UnknownUploadLimitBeforeEmptyResponse|UploadLimitAfterPrefixAbortsResponse|ChunkedUploadProgressAfterPrefix)|TestProxyToLocalReturnsResponseErrors|TestDogfoodUpload)' ./internal/host

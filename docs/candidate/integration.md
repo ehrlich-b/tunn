@@ -36,24 +36,44 @@ main branch, production state or installed runtime were changed. Scratch
 caches, binaries, logs and receipts are deliberately untracked. The final
 handoff receipt, bundle and digests identify the local artifact Bryan can test.
 
-## Remaining compatibility refusal
+## Upload/response reconciliation
 
-The integrated fidelity gate exposes an incompatibility between the two
-finished inputs. Dogfix `b557bb262f9e5b0d2382ee40e07864b56f93cf09` makes
+The integrated fidelity gate exposed an incompatibility between the two
+finished inputs. Dogfix `b557bb262f9e5b0d2382ee40e07864b56f93cf09` made
 `proxyStreamingHTTPOverGRPC` wait for an unknown-length request body to finish
 before committing response metadata. W7's upload-after-prefix/terminal and
 failed-upload consumers require a response prefix while the request upload is
-still active. Each side passes its own intended fixture, but the integrated
-candidate cannot satisfy both contracts as written. The combined tests retain
-the failure; no timeout was raised and no assertion or input pin was weakened.
+still active. The resumed run reproduced all three reported failures over
+memory connections, including the 30-second 502 from
+`TestProxyToLocalReturnsResponseErrors`. Integration commit `67302f1` imported
+the wait; `f1fc4d4` only corrected a return value and did not introduce it.
 
 The smallest reproducer is `make -j1 test-candidate-upload-contract`, a
-memory-only upload/response selector; its evidence is recorded in
-`.scratch/receipts/compatibility-finding.json`. The full gate is
-`make -j1 test-http-fidelity`. Local implementation readiness is **HOLD** while
-this fidelity gate fails. Bryan/coordinator needs to choose whether
-unknown-length uploads may receive a streaming prefix (requiring an aborted
-response if the cap is exceeded after headers), or whether all unknown-length
-uploads must finish before a response can start. Updating either externally
-promised behavior needs a reviewed contract and its consumers; this row does
-not silently rewrite the pinned inputs to obtain a green candidate.
+memory-only upload/response selector, now extended to cover both contracts.
+The original failure evidence in `compatibility.json` and
+`.scratch/receipts/compatibility-finding.json` remains immutable.
+
+The response startup wait now observes both upload completion and response
+events. A nonempty response prefix starts immediately while an unknown-length
+upload remains active. An empty or bodyless success waits for upload validation,
+so an early upstream 200 or 204 cannot hide an oversized upload. Known oversized
+uploads still fail before forwarding. Failures detected before headers return
+413 for the upload cap; after a delivered prefix, the HTTP boundary aborts the
+response and the consumer receives `unexpected EOF`. A completed streamed
+response still owns cleanup of an unfinished upload, as required by W7.
+
+Response startup retains at most one event and passes it directly to the body
+writer, preserving data/trailer order without buffering either stream. The
+writer also enables net/http full duplex: otherwise HTTP/1 keep-alive drains
+the remaining request body before flushing headers and recreates the deadlock.
+The new crossed-pipe chunked HTTP/1 fixture requires the consumer to read its
+prefix before finishing the upload. Removing only `EnableFullDuplex` makes that
+fixture time out; the patched handler completes with the application trailer.
+
+`response_upload_limit_test.go` also verifies actual downstream 413 responses
+for unknown oversized uploads and downstream truncation when the upload crosses
+the cap only after the consumer acknowledges its prefix. Existing W7 and dogfix
+tests remain unchanged. Current verification supplements the historical
+failure in `upload-reconciliation.json`; the full fidelity gate is
+`make -j1 test-http-fidelity`. Full loopback/native acceptance remains an
+ordinary-host gate under this row's brief.

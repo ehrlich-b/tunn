@@ -134,10 +134,13 @@ runtime was changed here.
 
 ## Current product readiness
 
-The pinned integration's unknown-length upload/response contract is a local
-**FAIL**, not an unavailable external gate. `test-http-fidelity` must pass
-before promotion; current acceptance is **HOLD**. The complete useful task,
-authorization matrix, source build, installer preparation and independent
-importers remain separate local evidence. The machine handoff retains the
-failing cells and the pinned-source comparison, and no green native or deployed
-cell substitutes for that failure.
+The original pinned integration failed the unknown-length upload/response
+contract. The resumed candidate reconciles response progress with the upload
+limit; see `integration.md` and `upload-reconciliation.json`. The historical
+failure and pinned-source comparison remain preserved in `compatibility.json`.
+Both the full memory fidelity gate and the upload regression gate must pass
+before promotion. Full `go test ./...`, loopback/native acceptance and deployed
+client gates remain **REQUIRED-UNRUN** here because the brief prohibits those
+runtime gates in this worker. Compiling all test packages does not pass the
+full test gate. The useful task, authorization matrix, source build, installer
+preparation and independent importers remain separate local evidence.

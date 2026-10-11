@@ -189,14 +189,14 @@ test-lifecycle-contract:
 # No registry resolution: dependencies must already exist in the offline cache.
 .PHONY: test-sdk-unit test-sdk-contract test-sdk-consumer test-http-fidelity
 test-sdk-unit:
-	GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go test -race -count=1 -timeout=45s ./sdk
+	GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go test $(GO_TEST_FLAGS) -race -count=1 -timeout=45s ./sdk
 
 test-sdk-consumer:
 	mkdir -p .scratch/sdk-consumer
 	cp sdk/testdata/consumer/*.go .scratch/sdk-consumer/
 	printf 'module tunn-sdk-consumer\n\ngo 1.25.0\n\nrequire github.com/ehrlich-b/tunn v0.0.0\n\nreplace github.com/ehrlich-b/tunn => ../..\n' > .scratch/sdk-consumer/go.mod
 	cp go.sum .scratch/sdk-consumer/go.sum
-	cd .scratch/sdk-consumer && GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go test -mod=mod -race -count=1 -timeout=20s ./...
+	cd .scratch/sdk-consumer && GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go test $(GO_TEST_FLAGS) -mod=mod -race -count=1 -timeout=20s ./...
 	GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go test ./examples/sdk-handler ./examples/sdk-origin
 
 # Memory HTTP semantics and explicit protobuf old/new compatibility fixtures.
@@ -572,3 +572,38 @@ test-http-conformance-inventory:
 build-sdk-response-consumer:
 	@test -n "$(SDK_RESPONSE_CONSUMER_OUTPUT)" || { echo "REQUIRED: set SDK_RESPONSE_CONSUMER_OUTPUT to a scratch path"; exit 1; }
 	GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go build -o "$(SDK_RESPONSE_CONSUMER_OUTPUT)" ./sdk/testdata/response-consumer
+
+# Offline cross-feature fixtures. The SDK dial seam is test-only; public API
+# transport acceptance stays with test-sdk-contract on an ordinary host.
+.PHONY: test-candidate-cross
+test-candidate-cross:
+	go test $(GO_TEST_FLAGS) -tags=candidatefixture -json -race -count=1 -parallel=2 -timeout=90s -run '^TestCandidate' ./internal/host
+
+.PHONY: format-candidate test-candidate-cli test-candidate-provenance test-candidate-dogfix test-candidate-build-info
+format-candidate:
+	gofmt -w candidate_cli_test.go internal/host/candidate_integration_test.go sdk/candidate_fixture.go sdk/testdata/candidate-consumer/consumer_test.go
+test-candidate-cli:
+	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=60s -run '^TestCandidate' .
+test-candidate-provenance:
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/candidate-inventory.py --verify --output .scratch/receipts/provenance.json
+test-candidate-dogfix:
+	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=60s -run '^TestDogfood' ./internal/client -args -dogfood-proxy-memory
+	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=60s -run '^TestDogfood' ./internal/host ./internal/store
+	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=60s ./internal/relaytransport ./internal/config
+test-candidate-build-info:
+	go version -m "$(BUILD_OUTPUT)"
+
+.PHONY: test-candidate-consumer
+test-candidate-consumer:
+	@set -eu; consumer_dir=$$(PYTHONDONTWRITEBYTECODE=1 python3 scripts/candidate-stage-consumer.py); \
+	$(MAKE) -j1 -C "$$consumer_dir" test GOFLAGS="$(GOFLAGS) -tags=candidatefixture"; \
+	$(MAKE) -j1 -C "$$consumer_dir" verify-module; \
+	printf '%s\n' "$$consumer_dir" > .scratch/receipts/second-consumer-path
+
+# Safe baseline witnesses for account/billing, edge and startup lanes. Config
+# witnesses run in test-candidate-dogfix; auth runs in test-auth-contract.
+.PHONY: test-candidate-baseline
+test-candidate-baseline:
+	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=120s -run '^(TestAccounts|TestBilling|TestReservations|TestMerge|TestAccountOperations)' ./internal/store ./internal/storage
+	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=120s ./internal/metering
+	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=120s -run '^(TestEdgeHostRouting|TestEdgeHTTP01|TestEdgeTLS|TestStripeSignature|TestStripeSignedPayload|TestStripeLifecycle|TestGitHubComplete|TestGitHubProvider|TestGitHubInvalid|TestMagicLinkComplete|TestMagicLinkRequestValidation|TestMagicLinkMailFailure|TestMagicLinkReplayAuthority|TestOpsRelayOfflineReadiness|TestOpsRelayReadinessRejects|TestOpsRelayHealth)' ./internal/host

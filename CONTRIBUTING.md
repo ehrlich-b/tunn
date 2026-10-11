@@ -19,16 +19,17 @@ tunn uses [nip.io](https://nip.io) for wildcard DNS on localhost. This allows te
 ### Terminal 1: Start the proxy
 
 ```bash
-export TOKEN=dev-token
-export ENV=dev
+export TUNN_CLIENT_SECRET=dev-token
+export TUNN_ENV=dev
 ./bin/tunn -mode=host
 ```
 
 ### Terminal 2: Start a tunnel
 
 ```bash
-export ENV=dev
-export WELL_KNOWN_KEY=tunn-free-v1-2025
+export TUNN_ENV=dev
+export TUNN_SECRET=dev-token
+export TUNN_SERVER_ADDR=localhost:8443
 ./bin/tunn 8080
 ```
 
@@ -38,7 +39,10 @@ export WELL_KNOWN_KEY=tunn-free-v1-2025
 curl -k https://<tunnel-id>.tunn.local.127.0.0.1.nip.io:8443/
 ```
 
-Dev mode automatically:
+Source builds default to production configuration and verify relay TLS. Local
+development must explicitly set `TUNN_ENV=dev` or use the global `--dev` flag
+before the subcommand. Dev mode automatically:
+
 - Uses self-signed certificates
 - Starts a mock OIDC provider on :9000
 - Uses nip.io domains for subdomain routing
@@ -49,17 +53,17 @@ Dev mode automatically:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `ENV` | `dev` or `prod` | `prod` |
-| `WELL_KNOWN_KEY` | Tunnel creation key | `tunn-free-v1-2025` |
+| `TUNN_ENV` | `dev` or `prod` | `prod` |
+| `TUNN_WELL_KNOWN_KEY` | Tunnel creation key | `tunn-free-v1-2025` |
 
 ### Server (host mode)
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `TOKEN` | Server auth token | (required) |
-| `ENV` | `dev` or `prod` | `prod` |
-| `DOMAIN` | Base domain | `tunn.to` |
-| `PUBLIC_MODE` | Disable auth | `false` |
+| `TUNN_CLIENT_SECRET` | Self-hosted client secret | (optional) |
+| `TUNN_ENV` | `dev` or `prod` | `prod` |
+| `TUNN_DOMAIN` | Base domain | `tunn.to` |
+| `TUNN_PUBLIC_MODE` | Disable auth | `false` |
 
 ## Architecture
 

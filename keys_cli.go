@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,6 +14,7 @@ import (
 
 	"github.com/ehrlich-b/tunn/internal/client"
 	"github.com/ehrlich-b/tunn/internal/config"
+	"github.com/ehrlich-b/tunn/internal/relaytransport"
 	"github.com/ehrlich-b/tunn/internal/sshfront"
 )
 
@@ -89,8 +89,7 @@ func executeKeys(args []string, out io.Writer) error {
 	}
 	r.Header.Set("Authorization", "Bearer "+strings.TrimSpace(token))
 	r.Header.Set("Content-Type", "application/json")
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: cfg.Insecure || *insecure}
+	transport := relaytransport.Transport(cfg.Insecure || *insecure)
 	defer transport.CloseIdleConnections()
 	hc := &http.Client{Transport: transport, Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	response, err := hc.Do(r)

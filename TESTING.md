@@ -78,21 +78,23 @@ only where executing `ssh` is permitted; it never contacts an external host.
 ### Terminal 1: Start the proxy
 
 ```bash
-ENV=dev ./bin/tunn -mode=host
+TUNN_ENV=dev ./bin/tunn -mode=host
 ```
 
 ### Terminal 2: Login
 
 ```bash
-./bin/tunn login
+TUNN_SERVER_ADDR=localhost:8443 ./bin/tunn --dev login
 ```
 
 Follow the device flow - open the URL in browser, log in with mock OIDC.
+Codes last ten minutes. The CLI prints their expiry time and replaces expired
+codes automatically while waiting; open the newest link printed in the terminal.
 
 ### Terminal 3: Start tunnel
 
 ```bash
-./bin/tunn 8080 --allow test@example.com
+TUNN_SERVER_ADDR=localhost:8443 ./bin/tunn --dev 8080 --allow test@example.com
 ```
 
 Copy the tunnel URL that's printed.
@@ -154,10 +156,25 @@ directly to loopback; no DNS changes, browser, developer login-token file, or
 external service is needed. Scratch state lives under `.scratch/`; private logs
 are retained there on failure. The test takes about 30 seconds after the build.
 
-This clone implements shared endpoint tokens, not the roadmap's expiring,
-per-consumer grants. A synthetic local HTTP client passing this test does not
-establish acceptance by ChatGPT, Claude, or another hosted UI. Hosted acceptance
-and the temporary-grant workflow remain separate, unresolved milestones.
+Expiring, revocable per-consumer grants are implemented and tested by the
+metering gates below. MCP OAuth discovery, PKCE and consent are covered by
+the [connector contract](MCP-CONNECTOR.md). Synthetic local clients do not
+establish acceptance by ChatGPT, Claude, or another hosted UI.
+
+## Production dogfood regressions
+
+All fixtures are local and use no production credentials. Run the defaults,
+proxy login/HTTP2 CONNECT/gRPC, 100 MiB upload-boundary and device-code tests:
+
+```bash
+GOTOOLCHAIN=go1.26.9 GOPROXY=off GOSUMDB=off make build vet test-dogfood
+```
+
+If socket binds are prohibited, run `make test-dogfood-memory` with the same
+environment. It uses the same TLS/HTTP2/gRPC proxy fixture over in-memory
+sockets, plus the SQLite and forwarding regressions. The default loopback gate
+still must run in an unrestricted coordinator environment; it never skips a
+denied listener. Full validation remains `make test` there.
 
 ```bash
 make test-lifecycle-contract # In-process regressions, including race detection

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html"
+	"math"
 	"net/http"
 	"net/url"
 	"strings"
@@ -65,13 +66,15 @@ func (p *ProxyServer) handleDeviceCode(w http.ResponseWriter, r *http.Request) {
 		VerificationURI         string `json:"verification_uri"`
 		VerificationURIComplete string `json:"verification_uri_complete"`
 		ExpiresIn               int    `json:"expires_in"`
+		ExpiresAt               int64  `json:"expires_at"`
 		Interval                int    `json:"interval"`
 	}{
 		DeviceCode:              code.Code,
 		UserCode:                code.UserCode,
 		VerificationURI:         verificationURI,
 		VerificationURIComplete: verificationURIComplete,
-		ExpiresIn:               180, // 3 minutes
+		ExpiresIn:               int(math.Ceil(time.Until(code.ExpiresAt).Seconds())),
+		ExpiresAt:               code.ExpiresAt.Unix(),
 		Interval:                code.Interval,
 	}
 
@@ -165,8 +168,8 @@ func (p *ProxyServer) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
-		if deviceCode == nil {
-			http.Error(w, "Invalid or expired code", http.StatusBadRequest)
+		if deviceCode == nil || deviceCode.Authorized {
+			writeDeviceCodeRecoveryPage(w)
 			return
 		}
 
@@ -189,6 +192,15 @@ func (p *ProxyServer) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 
 // showDeviceAuthorizePage shows the "Authorize this device?" confirmation page
 func (p *ProxyServer) showDeviceAuthorizePage(w http.ResponseWriter, r *http.Request, userCode string) {
+	code, err := p.storage.GetDeviceCodeByUserCode(r.Context(), userCode)
+	if err != nil {
+		http.Error(w, "Service temporarily unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	if code == nil || code.Authorized {
+		writeDeviceCodeRecoveryPage(w)
+		return
+	}
 	email := p.getAuthEmail(r)
 	csrfToken, err := p.createCSRFToken(r, "/auth/device/authorize")
 	if err != nil {
@@ -245,14 +257,21 @@ func (p *ProxyServer) handleDeviceAuthorize(w http.ResponseWriter, r *http.Reque
 	}
 
 	deviceCode, err := p.storage.GetDeviceCodeByUserCode(r.Context(), userCode)
-	if err != nil || deviceCode == nil {
-		http.Error(w, "Invalid or expired code", http.StatusBadRequest)
+	if err != nil {
+		http.Error(w, "Service temporarily unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	if deviceCode == nil || deviceCode.Authorized {
+		writeDeviceCodeRecoveryPage(w)
 		return
 	}
 
-	if authorized, err := p.storage.AuthorizeDeviceCode(r.Context(), deviceCode.Code, email); err != nil || !authorized {
+	if authorized, err := p.storage.AuthorizeDeviceCode(r.Context(), deviceCode.Code, email); err != nil {
 		common.LogError("failed to authorize device code", "error", err)
 		http.Error(w, "Failed to authorize device", http.StatusInternalServerError)
+		return
+	} else if !authorized {
+		writeDeviceCodeRecoveryPage(w)
 		return
 	}
 
@@ -260,6 +279,17 @@ func (p *ProxyServer) handleDeviceAuthorize(w http.ResponseWriter, r *http.Reque
 
 	w.Header().Set("Content-Type", "text/html")
 	writeSuccessPage(w, "Device Authorized", "Return to your terminal.")
+}
+
+func writeDeviceCodeRecoveryPage(w http.ResponseWriter) {
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusBadRequest)
+	writePageStart(w, "tunn - Login Code Unavailable")
+	_, _ = fmt.Fprint(w, `<h1 class="page-title">Login code expired or already used</h1>
+<p>Return to your terminal. If tunn login is still waiting, it will automatically request a new code when this one expires. Open the newest link printed there.</p>
+<p>If login has stopped, run <code>tunn login</code> again to get a new code. If you already authorized this device, check your terminal for a successful login.</p>`)
+	writePageEnd(w)
 }
 
 // generateJWT creates a signed JWT for the user

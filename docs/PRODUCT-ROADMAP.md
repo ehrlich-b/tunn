@@ -48,8 +48,9 @@ add a separate adapter for each one before the common HTTP/MCP path works well.
   fields. Metadata is redacted by default; body capture requires `--inspect-body`.
   It has no durable history or ingress-side
   record of requests rejected before they reach the publisher.
-- MCP authentication through tunn bearer tokens. Standards-based OAuth client
-  onboarding and per-principal stdio process isolation remain incomplete.
+- MCP authentication through tunn bearer tokens and OAuth discovery, dynamic
+  registration, PKCE and consent; see [the connector contract](../MCP-CONNECTOR.md).
+  Hosted-client acceptance and per-principal stdio process isolation remain open.
 
 ## The plan
 
@@ -104,8 +105,8 @@ minute request limit, monthly admitted-request/body-byte budgets, and remaining
 usage headers. Tests cover two independent consumers and quota boundaries.
 Optional monthly owner caps apply across tunnels and callers, and usage exports
 include owner request/byte totals for checking entry-tier economics.
-MCP HTTP shares the ingress accounting; OAuth and tool/application permissions
-remain separate work. Loopback E2E verifies the CLI/relay/publisher lifecycle
+MCP HTTP and OAuth tokens share the ingress accounting; tool/application
+permissions remain separate work. Loopback E2E verifies the CLI/relay/publisher lifecycle
 when run in an environment that permits sockets.
 
 Issue a separate revocable credential per consumer, bound to one endpoint.
@@ -123,8 +124,8 @@ until reconciliation tests cover failures and multi-node routing.
 
 ### 4. Make agent access safe for teams
 
-Complete mainstream MCP OAuth discovery/onboarding, per-principal stdio
-isolation, tool/action policy, live revocation, and metadata audit. Then add
+Validate the implemented MCP OAuth discovery/onboarding with hosted clients;
+complete per-principal stdio isolation, tool/action policy and approval flows. Then add
 team ownership, audit export, and approval hooks where actual usage demands
 them. Prove the context-service workflow with an authorized non-production
 deployment and at least two independent agent clients. Keep credentials and

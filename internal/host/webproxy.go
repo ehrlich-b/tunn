@@ -24,9 +24,15 @@ import (
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
 )
 
-// MaxBodySize is the maximum request/response body size (100 MB).
+// MaxBodySize is the maximum HTTP request body size (100 MiB).
 // Prevents memory exhaustion from large requests.
 const MaxBodySize = 100 * 1024 * 1024
+
+type requestBodyTooLargeError struct{ limit int64 }
+
+func (e *requestBodyTooLargeError) Error() string {
+	return fmt.Sprintf("Request body too large: upload limit is %d bytes (100 MiB)", e.limit)
+}
 
 // stripPlatformCookies removes platform cookies from a Cookie header value.
 // Returns the sanitized cookie string, or empty if no cookies remain.
@@ -80,7 +86,6 @@ func (p *ProxyServer) handleWebProxy(w http.ResponseWriter, r *http.Request) {
 		p.handleApexDomain(w, r)
 		return
 	}
-
 	// 1. Check if tunnel is local
 	if _, exists := p.tunnelServer.GetTunnel(tunnelID); exists {
 		err := p.proxyToLocal(w, r, tunnelID)
@@ -90,6 +95,12 @@ func (p *ProxyServer) handleWebProxy(w http.ResponseWriter, r *http.Request) {
 			// A normal return would turn an unknown-length partial body into EOF.
 			panic(http.ErrAbortHandler)
 		}
+		return
+	}
+	// Reject a known oversized upload before probing or forwarding to another
+	// node. Local requests also retain their authentication and admission audit.
+	if r.Method != http.MethodConnect && r.ContentLength > MaxBodySize {
+		writeIngressError(w, &requestBodyTooLargeError{MaxBodySize})
 		return
 	}
 
@@ -380,6 +391,12 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		}
 	}
 
+	if tunnel.EndpointProtocol != "tcp" && r.ContentLength > MaxBodySize {
+		session.reason = "request_body_too_large"
+		session.event.ContentLength = r.ContentLength
+		writeIngressError(w, &requestBodyTooLargeError{MaxBodySize})
+		return
+	}
 	if !session.admit(r.Context(), w, r) {
 		return nil
 	}
@@ -460,6 +477,9 @@ func responseHasStarted(err error) bool {
 
 // proxyHTTPOverGRPC forwards an HTTP request over the gRPC tunnel and writes the response
 func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, tunnel *TunnelConnection) error {
+	if r.ContentLength > MaxBodySize {
+		return &requestBodyTooLargeError{MaxBodySize}
+	}
 	if common.IsWebSocketUpgrade(r.Header) {
 		if !common.ValidWebSocketRequest(r) {
 			http.Error(w, "Invalid WebSocket upgrade; use HTTP/1.1 and version 13", http.StatusBadRequest)
@@ -489,7 +509,7 @@ func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, 
 	}
 	defer func() { _ = r.Body.Close() }()
 	if int64(len(limitedBody)) > MaxBodySize {
-		return fmt.Errorf("request body too large (max %d bytes)", MaxBodySize)
+		return &requestBodyTooLargeError{MaxBodySize}
 	}
 	body := limitedBody
 

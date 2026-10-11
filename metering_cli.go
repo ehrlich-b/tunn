@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"flag"
 	"fmt"
@@ -14,6 +13,7 @@ import (
 	"github.com/ehrlich-b/tunn/internal/client"
 	"github.com/ehrlich-b/tunn/internal/cliopts"
 	"github.com/ehrlich-b/tunn/internal/config"
+	"github.com/ehrlich-b/tunn/internal/relaytransport"
 )
 
 type meteringOptions struct {
@@ -69,8 +69,7 @@ func executeMetering(command string, args []string, out io.Writer) error {
 			return err
 		}
 	}
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: o.insecure || *insecure}
+	transport := relaytransport.Transport(o.insecure || *insecure)
 	defer transport.CloseIdleConnections()
 	c := &client.ManagementClient{ServerURL: o.server, OwnerToken: ownerToken, HTTPClient: &http.Client{Transport: transport, Timeout: 30 * time.Second}}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

@@ -297,7 +297,7 @@ func getEnvironment() Environment {
 		return EnvDev
 	case "dev", "development":
 		return EnvDev
-	case "prod", "production":
+	case "", "prod", "production":
 		return EnvProd
 	default:
 		return Environment(env)

@@ -20,10 +20,11 @@ import (
 	"google.golang.org/grpc/metadata"
 
 	"github.com/ehrlich-b/tunn/internal/common"
+	"github.com/ehrlich-b/tunn/internal/relaytransport"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
 )
 
-// MaxResponseBodySize is the maximum response body size from local targets (100 MB).
+// MaxResponseBodySize caps legacy buffered responses from local targets (100 MiB).
 // Prevents memory exhaustion from large responses.
 const MaxResponseBodySize = 100 * 1024 * 1024
 
@@ -201,6 +202,7 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 	// Connect to the gRPC server with keepalive
 	s.log(slog.LevelInfo, "connecting to proxy", "server", s.ServerAddr)
 	dialOptions := []grpc.DialOption{
+		grpc.WithNoProxy(), // Our dialer also supports ALL_PROXY and SOCKS.
 		grpc.WithTransportCredentials(creds),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
 			Time:                10 * time.Second, // Ping server every 10s
@@ -208,12 +210,14 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 			PermitWithoutStream: true,             // Ping even without active streams
 		}),
 	}
+	dial := relaytransport.DialContext
 	if s.DialContext != nil {
-		dialOptions = append(dialOptions, grpc.WithContextDialer(func(ctx context.Context, address string) (net.Conn, error) {
-			return s.DialContext(ctx, "tcp", address)
-		}))
+		dial = s.DialContext
 	}
-	conn, err := grpc.NewClient(s.ServerAddr, dialOptions...)
+	dialOptions = append(dialOptions, grpc.WithContextDialer(func(ctx context.Context, address string) (net.Conn, error) {
+		return dial(ctx, "tcp", address)
+	}))
+	conn, err := grpc.NewClient("passthrough:///"+s.ServerAddr, dialOptions...)
 	if err != nil {
 		return fmt.Errorf("failed to connect: %w", err)
 	}

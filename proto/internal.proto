@@ -215,5 +215,5 @@ message ProcessBillingEventResponse { bytes result_json = 1; }
 message IntakeReportRequest { string account_id = 1; string category = 2; string endpoint = 3; }
 message IntakeReportResponse { bytes report_json = 1; }
 
-message BeginBillingCheckoutRequest { string account_id = 1; }
-message BeginBillingCheckoutResponse { string reference = 1; }
+message BeginBillingCheckoutRequest { string account_id = 1; string destination = 2; }
+message BeginBillingCheckoutResponse { string reference = 1; string destination = 2; }

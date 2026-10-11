@@ -265,7 +265,7 @@ func accountToProto(acc *storage.Account) *internalv1.AccountResponse {
 }
 
 func (s *LoginNodeDBServer) BeginBillingCheckout(ctx context.Context, r *internalv1.BeginBillingCheckoutRequest) (*internalv1.BeginBillingCheckoutResponse, error) {
-	reference, err := s.storage.BeginBillingCheckout(ctx, r.AccountId)
+	reference, destination, err := s.storage.PrepareBillingCheckout(ctx, r.AccountId, r.Destination)
 	if err != nil {
 		switch {
 		case errors.Is(err, store.ErrCheckoutBlocked):
@@ -276,5 +276,5 @@ func (s *LoginNodeDBServer) BeginBillingCheckout(ctx context.Context, r *interna
 			return nil, status.Error(codes.Unavailable, "checkout not committed")
 		}
 	}
-	return &internalv1.BeginBillingCheckoutResponse{Reference: reference}, nil
+	return &internalv1.BeginBillingCheckoutResponse{Reference: reference, Destination: destination}, nil
 }

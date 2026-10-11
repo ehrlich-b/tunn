@@ -86,8 +86,9 @@ sqlite3 -readonly /data/tunn-revenue-before.db 'PRAGMA integrity_check;'
 Require `ok`, preserve an off-machine encrypted copy with the normal backup
 procedure, and record its hash. A raw live `cp` of SQLite/WAL is not a backup.
 Keep reservations, ledgers and billing audit history. New reviewed evidence
-fields are JSON/CLI fields; this change adds no SQL migration. The baseline host
-already initializes operations schema; do not run fixture-init on real data.
+fields are JSON/CLI fields. Startup installs additive billing/checkout schema and
+snapshots legacy Pro grants once into `ops_legacy_entitlements`; it changes no
+account plan and deletes no reservation. Do not run fixture-init on real data.
 
 Coordinator builds, pushes and records a new immutable image digest using the
 approved release pipeline. The existing Dockerfile uses Go 1.25; complete the
@@ -177,14 +178,31 @@ using [account operations](docs/ACCOUNT-OPERATIONS.md). Scope the actor to the
 reviewed account UUID; token/config permissions 0600, private parent directory.
 Never use a publisher token or an unrestricted web administration route.
 
-The first authenticated checkout creates a durable opaque intent before the
-Payment Link redirect. Ordinary account navigation and login-node restarts keep
-that account pending; another checkout returns 409. The reference is a routing
-hint tied to that intent, not proof of account ownership. Intents do not expire
-because the generic Payment Link remains payable. Abandoned purchases and
-previously bound accounts use support review; do not send another Payment Link
-or delete holds without resolving the existing purchase. A returning customer
-with an old binding cannot use self-service checkout in this release.
+The first authenticated checkout commits an opaque intent and its exact Payment
+Link destination before redirect. Unpaid retries resume that same reference and
+destination across tabs/restarts (including a request for a different period).
+The dashboard offers Resume checkout. Redirects expire after 24 hours; expiry
+never deletes the intent or issues a replacement, because a saved Payment Link
+can still be paid. A paid completion immediately blocks further app redirects.
+Multiple merged pending intents require support review. The reference remains
+an advisory routing hint, not proof of account ownership.
+
+**Payment Link fallback:** this tree does not create provider Checkout Sessions
+or use Stripe API idempotency keys. The provider may charge twice if someone
+opens the same Payment Link in two tabs. Exactly one subscription consumes an
+intent. Further completions commit `duplicate_payment_refund_needed` in both
+`ops_checkout_payments` and `ops_billing_events`, return HTTP 200, and cannot bind
+or grant Pro, even with a different customer or a later lifecycle receipt.
+Exact retries remain idempotent; the original accepted grant stays effective.
+A first completion after local expiry is `checkout_expired_review_required` and
+also cannot grant. Audit outstanding quarantine rows with read-only DB tooling;
+`billing-status` does not list unbound duplicate subscriptions. Bryan must
+review the actual Stripe objects and perform any cancellation/refund himself.
+No automatic Stripe mutation occurs. Never clear a hold or sell a replacement
+while its prior Payment Link remains payable. Resuming a Payment Link carries
+this duplicate-charge risk; true provider Session creation/resume remains a
+separate prerequisite for eliminating it. Previously bound Free accounts still
+require support; replacement customer bindings are unsupported.
 
 For a paid checkout, the operator performs a fresh read of the Stripe Session,
 Customer, Subscription, exact Price and latest invoice, using Stripe dashboard
@@ -212,7 +230,8 @@ Checkout blocks previously bound Free accounts and directs them to support.
 No automatic replacement-binding workflow is implemented. Verified-email merges
 retain every binding: review each subscription independently at its own version.
 Pro remains while any binding has verified active, payment-eligible state; the
-last revocation/cancellation makes the account Free.
+last revocation/cancellation makes the account Free after any preserved legacy
+grant has separately ended.
 
 Store provider evidence privately, hash it with SHA-256, and write an owner-only
 snapshot array such as this, replacing **every** placeholder with reviewed
@@ -275,16 +294,37 @@ an explicit operator review: use fresh evidence with `provider_status=active`,
 `payment_confirmed=false`, and `plan=free` when that review revokes payment
 eligibility. A refund receipt alone does not revoke entitlement. Pro is derived
 only from active status plus confirmed current payment; a conflicting `plan`
-is rejected. The last eligible subscription ending also releases paid name
+is rejected. The last eligible subscription ending, with no preserved legacy grant, releases paid name
 reservations in the same transaction. Existing online Free tunnels retain their
 ordinary live occupancy; offline names become available to other accounts.
 Decline trialing/unreviewed/unpaid activation. Receipt order never wins over a
-fresh current provider read. Legacy cached Pro bits and old hash-only reviews lack a verified ordering
-watermark. The new schema therefore fails closed on those grants: login-node
-startup/migration derives Free until fresh evidence is applied. Before rollout,
-prepare fresh reviews for existing subscribers and coordinate migration and
-review application; identity, bindings, event history, usage and suspension are
-retained. Never copy disposable fixture markers to a live database.
+fresh current provider read. Legacy Pro accounts from `110485c` keep their plan
+and reservation ownership through schema installation, startup, ordinary billing
+review and verified identity merges. Operator grants, direct SQL grants, paid
+manual fulfillment, sequenced providers and historical fixture grants are all
+preserved; they are not relabeled as verified Stripe subscriptions. Older
+hash-only reviews still impose a conservative provider-read ordering floor.
+
+Entitlement cutover is a **separate global operator action**, never startup or
+`admin migrate --account`. Inventory every row in `ops_legacy_entitlements` and
+its current reservation ownership, review legitimate paid and comp grants, and
+retain legitimate grants as `pro`. Review/import current paid subscriptions
+before ending their legacy grant. With a global credential (`accounts:["*"]`),
+Bryan can run this prepared command after reviewing the exact decisions:
+
+```bash
+/app/tunn admin reconcile-legacy --db /data/tunn.db --admin-config /data/ops/global-admins.json --token-file /data/ops/global-token --snapshots /data/ops/legacy-decisions.json
+```
+
+Each JSON decision has `original_account_id`, the current canonical `account_id`,
+`expected_version`, `plan` (`pro` or `free`), and a nonempty single-line `reason`.
+Read versions from `ops_legacy_entitlements`; preserve original UUIDs after
+merges. The whole batch commits atomically, auditing previous/new plan, actor,
+reason and version in `ops_legacy_entitlement_audit`. Account-scoped credentials
+are rejected. Reservations are released only if that explicit decision ends the
+last legacy or verified entitlement. Keeping a comp grant Pro needs no Stripe
+objects. Never copy disposable fixture markers to a live database; the store
+rejects every non-Stripe receipt adapter on an unmarked database.
 
 Operator audits active subscriptions daily and
 around each billing boundary; invoice events are not a replacement adapter in
@@ -332,7 +372,13 @@ fly deploy --app tunn --config fly.revenue.rollback.toml --image "$TUNN_PREVIOUS
 Confirm the old release's sales route cannot resume charging: remove checkout
 URLs from the approved rollback environment or keep Stripe links deactivated;
 the old binary does not understand the new disable flag. Preserve SQLite and
-billing audits; there is no destructive schema rollback to perform. Restoring
+billing audits and the legacy entitlement snapshot; schema installation changes
+no plans or reservations, so an image-only rollback before explicit cutover
+retains every old benefit. There is no destructive schema rollback to perform.
+An explicit legacy cutover changes data: restoring a Pro grant with a fresh
+versioned decision does not recreate released reservations. Keep their ownership
+inventory before cutover; Bryan must check current name conflicts before repair.
+Restoring
 the pre-launch DB would erase subsequent account/payment history and is only
 an approved disaster recovery action after preserving the current consistent
 backup and reconciling every later payment. Do not blanket downgrade paid users,

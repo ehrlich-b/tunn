@@ -10,6 +10,7 @@ import (
 
 func TestBillingConcurrentReplayCommitsOnce(t *testing.T) {
 	db, ops, account, _ := operationsFixture(t)
+	markBillingFixture(t, db)
 	bindFixture(t, ops, account.ID)
 	event := fixtureEvent("concurrent", 1, "pro")
 	const deliveries = 12
@@ -58,6 +59,7 @@ func TestBillingSeededRevisionDeliveryConverges(t *testing.T) {
 	for _, seed := range []int64{1, 17, 20261010} {
 		t.Run(fmt.Sprint(seed), func(t *testing.T) {
 			db, ops, account, _ := operationsFixture(t)
+			markBillingFixture(t, db)
 			bindFixture(t, ops, account.ID)
 			ctx := context.Background()
 			if _, err := ops.Transition(ctx, operationsPrincipal(t, account.ID), account.ID, "suspended", "review hold", 0); err != nil {
@@ -193,6 +195,7 @@ func TestBillingConcurrentReconciliationHonorsReviewedVersion(t *testing.T) {
 
 func TestBillingInvalidMetadataDoesNotCommit(t *testing.T) {
 	db, ops, account, _ := operationsFixture(t)
+	markBillingFixture(t, db)
 	bindFixture(t, ops, account.ID)
 	for _, tc := range []struct {
 		name string

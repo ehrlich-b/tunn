@@ -862,6 +862,7 @@ type AccountPageData struct {
 	revenuePageData
 	BillingReturn            bool
 	BillingSupport           bool
+	BillingResumable         bool
 	Email                    string
 	Plan                     string
 	UsageBytes               int64
@@ -936,11 +937,12 @@ func (p *ProxyServer) handleAccount(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := AccountPageData{
-		revenuePageData: revenue,
-		BillingReturn:   r.URL.Query().Get("billing") == "return" || account.BillingState == "pending",
-		BillingSupport:  account.BillingState != "available" && account.Plan == "free",
-		Email:           email,
-		RequestsUsed:    requestsUsed, RequestsLimit: requestsLimit, UsageAvailable: usageAvailable,
+		revenuePageData:  revenue,
+		BillingReturn:    r.URL.Query().Get("billing") == "return" || account.BillingState == "pending",
+		BillingSupport:   account.BillingState != "available" && account.Plan == "free",
+		BillingResumable: account.BillingState == "resumable" && r.URL.Query().Get("billing") != "return",
+		Email:            email,
+		RequestsUsed:     requestsUsed, RequestsLimit: requestsLimit, UsageAvailable: usageAvailable,
 		Plan:                     plan,
 		UsageBytes:               usageBytes,
 		QuotaBytes:               quotaBytes,

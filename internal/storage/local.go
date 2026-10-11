@@ -458,3 +458,7 @@ func (s *LocalStorage) IntakeReport(ctx context.Context, id, category, endpoint 
 func (s *LocalStorage) BeginBillingCheckout(ctx context.Context, id string) (string, error) {
 	return s.OperationsStore().BeginBillingCheckout(ctx, id)
 }
+
+func (s *LocalStorage) PrepareBillingCheckout(ctx context.Context, id, destination string) (string, string, error) {
+	return s.OperationsStore().PrepareBillingCheckout(ctx, id, destination)
+}

@@ -231,8 +231,8 @@ INSERT INTO accounts VALUES ('legacy','legacy@example.com','pro',42);`); err != 
 			t.Fatal(err)
 		}
 		got, err := NewAccountStore(db).GetByID("legacy")
-		if err != nil || got.Plan != "free" || got.CreatedAt.Unix() != 42 {
-			t.Fatal("migration failed to retain identity and fail closed on an unverified plan", err)
+		if err != nil || got.Plan != "pro" || got.CreatedAt.Unix() != 42 {
+			t.Fatal("migration failed to preserve legacy identity and entitlement", err)
 		}
 		var check string
 		if err := db.QueryRow("PRAGMA quick_check").Scan(&check); err != nil || check != "ok" {

@@ -19,12 +19,13 @@ import (
 
 const operationsUsage = `tunn admin <action> --db PATH --admin-config PATH --token-file PATH
 Actions: status, suspend, resume, billing-bind, billing-status, billing-events, reconcile,
-         report-intake, report-respond, fixture-init, migrate
+         report-intake, report-respond, fixture-init, migrate, reconcile-legacy
 Account operations: --account UUID --expect-version N --reason TEXT
 Billing bind: --account UUID --provider NAME --customer ID --subscription ID
 Billing fixtures: --events PATH (disposable fixture databases only)
 Reconcile: --snapshots PATH [--apply-fixture | --apply-reviewed] (default: read-only dry run)
 Reviewed apply requires fresh Stripe evidence and receipts; see GO-LIVE.md.
+Legacy reconciliation: --snapshots PATH (explicit decisions; requires accounts:["*"])
 Reports: --account UUID --category abuse|billing|availability --endpoint NAME
 Response: --report ID --response triaged|action_taken|closed --expect-version N
 Fixture init: --email fixture@example.invalid (creates a new disposable database)
@@ -136,6 +137,7 @@ func executeOperations(args []string, out io.Writer) error {
 	}
 	valid := map[string]bool{"status": true, "suspend": true, "resume": true, "billing-bind": true, "billing-events": true, "reconcile": true, "report-intake": true, "report-respond": true, "fixture-init": true, "migrate": true}
 	valid["billing-status"] = true
+	valid["reconcile-legacy"] = true
 	if !valid[action] || dbPath == "" || configPath == "" || tokenPath == "" {
 		return fmt.Errorf("require an action, explicit database and administration credentials")
 	}
@@ -206,6 +208,13 @@ func executeOperations(args []string, out io.Writer) error {
 	ops := store.NewOperationsStore(db, nil)
 	var result any
 	switch action {
+	case "reconcile-legacy":
+		var decisions []store.LegacyEntitlementDecision
+		if err = readBoundedJSON(input, &decisions); err != nil {
+			return err
+		}
+		err = ops.ReconcileLegacyEntitlements(ctx, principal, decisions)
+		result = map[string]string{"state": "legacy_entitlements_reconciled"}
 	case "migrate":
 		err = ops.AdminMigrate(ctx, principal, account)
 		result = map[string]string{"state": "migrated"}

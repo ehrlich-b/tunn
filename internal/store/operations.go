@@ -19,7 +19,7 @@ var ErrVersionConflict = errors.New("account version conflict")
 var ErrDenied = errors.New("administration denied")
 
 // OperationsSchema uses isolated tables so domain/quota migrations can coexist.
-// Verified billing state is authoritative; account plans are its projection.
+// Verified billing state and preserved legacy grants project account plans.
 const OperationsSchema = `
 CREATE TABLE IF NOT EXISTS ops_account_state (
  account_id TEXT PRIMARY KEY REFERENCES accounts(id),
@@ -52,6 +52,27 @@ CREATE TABLE IF NOT EXISTS ops_checkout_intents (
  reference TEXT PRIMARY KEY, account_id TEXT NOT NULL REFERENCES accounts(id), created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ops_checkout_account ON ops_checkout_intents(account_id);
+CREATE TABLE IF NOT EXISTS ops_checkout_destinations (
+ reference TEXT PRIMARY KEY REFERENCES ops_checkout_intents(reference),
+ destination TEXT NOT NULL, expires_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS ops_checkout_payments (
+ provider TEXT NOT NULL, subscription_id TEXT NOT NULL, customer_id TEXT NOT NULL,
+ reference TEXT NOT NULL REFERENCES ops_checkout_intents(reference),
+ outcome TEXT NOT NULL, event_id TEXT NOT NULL,
+ PRIMARY KEY(provider,subscription_id)
+);
+CREATE INDEX IF NOT EXISTS ops_checkout_payment_reference ON ops_checkout_payments(reference);
+CREATE TABLE IF NOT EXISTS ops_legacy_entitlements (
+ original_account_id TEXT PRIMARY KEY, account_id TEXT NOT NULL REFERENCES accounts(id),
+ plan TEXT NOT NULL CHECK(plan IN ('pro','free')), version INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS ops_legacy_account ON ops_legacy_entitlements(account_id);
+CREATE TABLE IF NOT EXISTS ops_legacy_entitlement_audit (
+ id TEXT PRIMARY KEY, original_account_id TEXT NOT NULL, account_id TEXT NOT NULL,
+ previous_plan TEXT NOT NULL, plan TEXT NOT NULL, version INTEGER NOT NULL,
+ reason TEXT NOT NULL, actor TEXT NOT NULL, changed_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS ops_billing_events (
  provider TEXT NOT NULL, event_id TEXT NOT NULL, digest TEXT NOT NULL,
  event_type TEXT NOT NULL, subscription_id TEXT NOT NULL, customer_id TEXT NOT NULL,
@@ -133,18 +154,24 @@ func MigrateOperations(db *sql.DB) error {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
+	var installed bool
+	if err = tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='ops_legacy_entitlements')`).Scan(&installed); err != nil {
+		return err
+	}
 	if _, err = tx.Exec(OperationsSchema); err != nil {
 		return err
 	}
-	// Legacy plan bits and digest-only audits cannot establish ordered, verified
-	// billing state. Fail closed until fresh provider evidence is reviewed.
-	if _, err = tx.Exec(`UPDATE accounts SET plan=CASE WHEN EXISTS(
+	// Install schema without changing any plan or reservation. Snapshot legacy
+	// grants exactly once, before the new reducer reads accounts. Existing verified
+	// projections are not legacy grants. Only an audited global operator action
+	// may end these preserved entitlements; restarts never re-import revoked ones.
+	if !installed {
+		if _, err = tx.Exec(`INSERT INTO ops_legacy_entitlements(original_account_id,account_id,plan)
+ SELECT id,id,'pro' FROM accounts WHERE plan='pro' AND NOT EXISTS(
  SELECT 1 FROM ops_billing_mappings m JOIN ops_billing_states s USING(provider,subscription_id)
- WHERE m.account_id=accounts.id AND s.plan='pro') THEN 'pro' ELSE 'free' END`); err != nil {
-		return err
-	}
-	if _, err = tx.Exec(`DELETE FROM reserved_subdomains WHERE account_id IN (SELECT id FROM accounts WHERE plan='free')`); err != nil {
-		return err
+ WHERE m.account_id=accounts.id)`); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
 }
@@ -266,7 +293,7 @@ func mergeAccountOperations(tx *sql.Tx, from, to string) error {
 			return err
 		}
 	}
-	for _, table := range []string{"ops_account_audit", "ops_billing_mappings", "ops_billing_events", "ops_checkout_intents", "ops_reports"} {
+	for _, table := range []string{"ops_account_audit", "ops_billing_mappings", "ops_billing_events", "ops_checkout_intents", "ops_legacy_entitlements", "ops_reports"} {
 		if _, err = tx.Exec("UPDATE "+table+" SET account_id=? WHERE account_id=?", to, from); err != nil {
 			return err
 		}

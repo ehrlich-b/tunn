@@ -18,6 +18,10 @@ func TestBillingCheckoutProxyPreservesAuthorityState(t *testing.T) {
 		t.Fatal(checkout.Code, u, err)
 	}
 	reference := u.Query().Get("client_reference_id")
+	p.config.StripeCheckoutURLYearly = "https://buy.stripe.com/changed-yearly"
+	if resumed := revenueRequest(t, p, "/upgrade?period=yearly", true); resumed.Code != 303 || resumed.Header().Get("Location") != checkout.Header().Get("Location") {
+		t.Fatal("replica changed unpaid intent/destination", resumed.Code, resumed.Header())
+	}
 	body := fmt.Sprintf(`{"id":"evt_proxy_paid","type":"checkout.session.completed","data":{"object":{"customer":"cus_proxy","subscription":"sub_proxy","mode":"subscription","client_reference_id":%q}}}`, reference)
 	receipt := stripeFixtureRequest(p, body, signedStripeFixture(body, p.config.StripeWebhookSecret, time.Now().Unix()))
 	if receipt.Code != 200 || !strings.Contains(receipt.Body.String(), a.ID) {
@@ -42,6 +46,21 @@ func TestBillingCheckoutProxyPreservesAuthorityState(t *testing.T) {
 	}
 }
 
+func TestBillingCheckoutDashboardOffersUnpaidResume(t *testing.T) {
+	_, p, _, _ := reviewRevenueFixture(t)
+	first := revenueRequest(t, p, "/upgrade", true)
+	if first.Code != 303 {
+		t.Fatal(first.Code)
+	}
+	if page := revenueRequest(t, p, "/account", true); page.Code != 200 || !strings.Contains(page.Body.String(), `href="/upgrade">Resume checkout`) || strings.Contains(page.Body.String(), `href="/upgrade?period=`) {
+		t.Fatal("dashboard lost unpaid resume or offered new purchase", page.Code, page.Body.String())
+	}
+	p.config.StripeCheckoutURLMonthly = "https://buy.stripe.com/changed-monthly"
+	if resumed := revenueRequest(t, p, "/upgrade", true); resumed.Code != 303 || resumed.Header().Get("Location") != first.Header().Get("Location") {
+		t.Fatal("retry changed durable destination", resumed.Code, resumed.Header())
+	}
+}
+
 func TestBillingCheckoutRequiresDurableIntent(t *testing.T) {
 	db, p, local, a := reviewRevenueFixture(t)
 	if _, err := db.Exec(`CREATE TRIGGER fail_intent BEFORE INSERT ON ops_checkout_intents BEGIN SELECT RAISE(ABORT,'intent storage failure'); END`); err != nil {
@@ -59,7 +78,7 @@ func TestBillingCheckoutRequiresDurableIntent(t *testing.T) {
 	if w := revenueRequest(t, p, "/upgrade", true); w.Code != 303 {
 		t.Fatal(w.Code, w.Body.String())
 	}
-	if current, err := local.GetAccount(context.Background(), a.ID); err != nil || current.BillingState != "pending" || current.Plan != "free" {
+	if current, err := local.GetAccount(context.Background(), a.ID); err != nil || current.BillingState != "resumable" || current.Plan != "free" {
 		t.Fatal(current, err)
 	}
 }

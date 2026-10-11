@@ -146,11 +146,18 @@ func TestBillingCheckoutConcurrencyMergeAndRestart(t *testing.T) {
 	for ref := range refs {
 		if ref != "" {
 			winners++
+			if reference != "" && ref != reference {
+				t.Fatal("concurrent resume created another intent", reference, ref)
+			}
 			reference = ref
 		}
 	}
-	if winners != 1 || reference == a.ID {
+	if winners != attempts || reference == a.ID {
 		t.Fatal(winners, reference)
+	}
+	var intents int
+	if err := db.QueryRow("SELECT count(*) FROM ops_checkout_intents").Scan(&intents); err != nil || intents != 1 {
+		t.Fatal(intents, err)
 	}
 	accounts := NewAccountStore(db)
 	b, err := accounts.FindOrCreateByEmails([]string{"pending-alias@example.invalid"}, "fixture")
@@ -161,7 +168,7 @@ func TestBillingCheckoutConcurrencyMergeAndRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	merged, err := accounts.FindOrCreateByEmails([]string{a.PrimaryEmail, b.PrimaryEmail}, "github")
-	if err != nil || merged.BillingState != "pending" || merged.Plan != "free" {
+	if err != nil || merged.BillingState != "resumable" || merged.Plan != "free" {
 		t.Fatal(merged, err)
 	}
 	if err = db.Close(); err != nil {
@@ -172,7 +179,7 @@ func TestBillingCheckoutConcurrencyMergeAndRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	ops = NewOperationsStore(db, nil)
+	ops = NewOperationsStore(db, ops.now)
 	if _, err = ops.BeginBillingCheckout(ctx, a.ID); !errors.Is(err, ErrCheckoutBlocked) {
 		t.Fatal(err)
 	}
@@ -228,8 +235,14 @@ func TestBillingMissingVerifiedStateFailsClosed(t *testing.T) {
 		t.Fatal(err)
 	}
 	var cached string
-	if err = db.QueryRow(`SELECT plan FROM accounts WHERE id=?`, a.ID).Scan(&cached); err != nil || cached != "free" {
+	if err = db.QueryRow(`SELECT plan FROM accounts WHERE id=?`, a.ID).Scan(&cached); err != nil || cached != "pro" {
 		t.Fatal(cached, err)
+	}
+	// Schema reruns preserve records; a post-install forged cache still grants
+	// nothing. Effective reservation ownership follows the entitlement reducer.
+	var preserved string
+	if err = db.QueryRow(`SELECT account_id FROM reserved_subdomains WHERE subdomain='legacy-name'`).Scan(&preserved); err != nil || preserved != a.ID {
+		t.Fatal(preserved, err)
 	}
 	if owner, err := accounts.GetSubdomainOwner("legacy-name"); err != nil || owner != "" {
 		t.Fatal(owner, err)
@@ -305,6 +318,7 @@ func TestBillingReviewedMergedStateConvergesUnderReordering(t *testing.T) {
 
 func TestBillingBatchPreservesReservationsWhenEligibilityMoves(t *testing.T) {
 	db, ops, a, _ := operationsFixture(t)
+	markBillingFixture(t, db)
 	ctx := context.Background()
 	accounts := NewAccountStore(db)
 	b, err := accounts.FindOrCreateByEmails([]string{"batch-billing@example.invalid"}, "fixture")
@@ -328,7 +342,7 @@ func TestBillingBatchPreservesReservationsWhenEligibilityMoves(t *testing.T) {
 	if err = accounts.ReserveSubdomain(merged.ID, "batch-name"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = db.Exec(`CREATE TABLE ops_fixture(id INTEGER PRIMARY KEY,value TEXT); INSERT INTO ops_fixture VALUES(1,'disposable-local')`); err != nil {
+	if _, err = db.Exec(`CREATE TABLE IF NOT EXISTS ops_fixture(id INTEGER PRIMARY KEY,value TEXT); INSERT OR IGNORE INTO ops_fixture VALUES(1,'disposable-local')`); err != nil {
 		t.Fatal(err)
 	}
 	snaps := []BillingSnapshot{

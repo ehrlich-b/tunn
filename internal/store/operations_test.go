@@ -177,6 +177,7 @@ func TestAccountOperationsBillingPermutations(t *testing.T) {
 	for _, order := range [][]int{{0, 1, 2}, {0, 2, 1}, {1, 0, 2}, {1, 2, 0}, {2, 0, 1}, {2, 1, 0}} {
 		t.Run(string(rune('a'+order[0]))+string(rune('a'+order[1]))+string(rune('a'+order[2])), func(t *testing.T) {
 			db, ops, a, path := operationsFixture(t)
+			markBillingFixture(t, db)
 			bindFixture(t, ops, a.ID)
 			events := []BillingEvent{fixtureEvent("one", 1, "pro"), fixtureEvent("two", 2, "free"), fixtureEvent("three", 3, "pro")}
 			for _, i := range order {
@@ -210,6 +211,7 @@ func TestAccountOperationsBillingPermutations(t *testing.T) {
 }
 func TestAccountOperationsBillingFailureAndAmbiguity(t *testing.T) {
 	db, ops, a, _ := operationsFixture(t)
+	markBillingFixture(t, db)
 	ctx := context.Background()
 	bindFixture(t, ops, a.ID)
 	if _, err := db.Exec(`CREATE TRIGGER fail_event BEFORE INSERT ON ops_billing_events BEGIN SELECT RAISE(ABORT,'fixture storage failure'); END`); err != nil {
@@ -353,6 +355,7 @@ func TestAccountOperationsReportsAndMigrationRerun(t *testing.T) {
 
 func TestAccountOperationsReconciliationResolvesOnlyReviewedEvents(t *testing.T) {
 	db, ops, a, _ := operationsFixture(t)
+	markBillingFixture(t, db)
 	ctx := context.Background()
 	bindFixture(t, ops, a.ID)
 	principal := operationsPrincipal(t, a.ID)
@@ -361,7 +364,7 @@ func TestAccountOperationsReconciliationResolvesOnlyReviewedEvents(t *testing.T)
 			t.Fatal(r, err)
 		}
 	}
-	if _, err := db.Exec(`CREATE TABLE ops_fixture(id INTEGER PRIMARY KEY,value TEXT); INSERT INTO ops_fixture VALUES(1,'disposable-local');`); err != nil {
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS ops_fixture(id INTEGER PRIMARY KEY,value TEXT); INSERT OR IGNORE INTO ops_fixture VALUES(1,'disposable-local');`); err != nil {
 		t.Fatal(err)
 	}
 	snap := BillingSnapshot{Provider: "fixture", CustomerID: "cus_fixture", SubscriptionID: "sub_fixture", AccountID: a.ID, Plan: "pro", Revision: 1, EventIDs: []string{"reviewed"}}
@@ -471,5 +474,12 @@ func TestAccountOperationsConcurrentVersionAndMergeRollback(t *testing.T) {
 	var original int
 	if err = db.QueryRow("SELECT count(*) FROM ops_account_audit WHERE account_id=? AND original_account_id=?", merged.ID, a.ID).Scan(&original); err != nil || original != 1 {
 		t.Fatal("audit provenance lost", original, err)
+	}
+}
+
+func markBillingFixture(t *testing.T, db *sql.DB) {
+	t.Helper()
+	if _, err := db.Exec("CREATE TABLE IF NOT EXISTS ops_fixture(id INTEGER PRIMARY KEY,value TEXT); INSERT OR IGNORE INTO ops_fixture VALUES(1,'disposable-local')"); err != nil {
+		t.Fatal(err)
 	}
 }

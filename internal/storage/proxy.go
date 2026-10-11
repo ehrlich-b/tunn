@@ -328,10 +328,9 @@ func protoAccountToStorage(resp *internalv1.AccountResponse) *Account {
 			AddedAt:     time.Unix(e.AddedAt, 0),
 		}
 	}
-	// Old authorities expose only a cached plan, without verified billing state.
-	// During a rolling upgrade, that reply cannot establish paid entitlement.
+	// Preserve legacy authority grants during the schema-only rolling upgrade.
 	plan := "free"
-	if resp.BillingState == "active" && resp.Plan == "pro" {
+	if (resp.BillingState == "active" || resp.BillingState == "legacy" || resp.BillingState == "") && resp.Plan == "pro" {
 		plan = "pro"
 	}
 	return &Account{
@@ -398,19 +397,27 @@ func (s *ProxyStorage) IntakeReport(ctx context.Context, id, category, endpoint 
 }
 
 func (s *ProxyStorage) BeginBillingCheckout(ctx context.Context, id string) (string, error) {
+	reference, _, err := s.PrepareBillingCheckout(ctx, id, "")
+	return reference, err
+}
+
+func (s *ProxyStorage) PrepareBillingCheckout(ctx context.Context, id, destination string) (string, string, error) {
 	c := s.getClient()
 	if c == nil {
-		return "", ErrNotAvailable
+		return "", "", ErrNotAvailable
 	}
-	r, err := c.BeginBillingCheckout(ctx, &internalv1.BeginBillingCheckoutRequest{AccountId: id})
+	r, err := c.BeginBillingCheckout(ctx, &internalv1.BeginBillingCheckoutRequest{AccountId: id, Destination: destination})
 	if err != nil {
 		switch status.Code(err) {
 		case codes.FailedPrecondition:
-			return "", store.ErrCheckoutBlocked
+			return "", "", store.ErrCheckoutBlocked
 		case codes.PermissionDenied:
-			return "", store.ErrSuspended
+			return "", "", store.ErrSuspended
 		}
-		return "", err
+		return "", "", err
 	}
-	return r.Reference, nil
+	if destination != "" && r.Destination == "" {
+		return "", "", fmt.Errorf("billing authority must support durable checkout destinations")
+	}
+	return r.Reference, r.Destination, nil
 }

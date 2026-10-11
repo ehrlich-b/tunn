@@ -68,6 +68,9 @@ func (s *OperationsStore) BindBilling(ctx context.Context, p AdminPrincipal, m B
 	if err = p.authorize(id); err != nil {
 		return err
 	}
+	if err = checkoutSubscriptionCanGrant(ctx, tx, m.Provider, m.SubscriptionID); err != nil {
+		return err
+	}
 	m.AccountID = id
 	var conflicts int
 	err = tx.QueryRowContext(ctx, `SELECT count(*) FROM ops_billing_mappings WHERE provider=? AND (customer_id=? OR subscription_id=?) AND NOT (customer_id=? AND subscription_id=? AND account_id=?)`, m.Provider, m.CustomerID, m.SubscriptionID, m.CustomerID, m.SubscriptionID, id).Scan(&conflicts)
@@ -158,6 +161,14 @@ func (s *OperationsStore) ProcessBillingEvent(ctx context.Context, e BillingEven
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback() }()
+	// No generic caller-supplied revision adapter is trusted in production.
+	// Keep synthetic providers confined to explicitly marked disposable databases.
+	if e.Provider != "stripe" {
+		var marker string
+		if err = tx.QueryRowContext(ctx, `SELECT value FROM ops_fixture WHERE id=1`).Scan(&marker); err != nil || marker != "disposable-local" {
+			return nil, fmt.Errorf("synthetic providers require a disposable local fixture database")
+		}
+	}
 	out := &BillingResult{EventID: e.ID, State: "ignored"}
 	var priorDigest string
 	err = tx.QueryRowContext(ctx, `SELECT digest,account_id,outcome FROM ops_billing_events WHERE provider=? AND event_id=?`, e.Provider, e.ID).Scan(&priorDigest, &out.AccountID, &out.State)
@@ -200,9 +211,8 @@ func (s *OperationsStore) ProcessBillingEvent(ctx context.Context, e BillingEven
 			}
 		}
 	}
-	if out.AccountID == "" && e.Provider == "stripe" && e.Type == "checkout.session.completed" && e.Supported && e.CheckoutReference != "" {
-		err = tx.QueryRowContext(ctx, `SELECT account_id FROM ops_checkout_intents WHERE reference=?`, e.CheckoutReference).Scan(&out.AccountID)
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+	if e.Provider == "stripe" && e.Type == "checkout.session.completed" && e.Supported && e.CheckoutReference != "" {
+		if err = s.recordCheckoutPayment(ctx, tx, e, out); err != nil {
 			return nil, err
 		}
 	}
@@ -214,6 +224,84 @@ func (s *OperationsStore) ProcessBillingEvent(ctx context.Context, e BillingEven
 		return nil, err
 	}
 	return out, nil
+}
+
+// recordCheckoutPayment consumes an intent once, while acknowledging and
+// durably auditing additional payments for manual cancellation/refund. The
+// original accepted payment is not overwritten by retries or duplicates.
+func (s *OperationsStore) recordCheckoutPayment(ctx context.Context, tx *sql.Tx, e BillingEvent, out *BillingResult) error {
+	var account, created string
+	err := tx.QueryRowContext(ctx, `SELECT account_id,created_at FROM ops_checkout_intents WHERE reference=?`, e.CheckoutReference).Scan(&account, &created)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil // Legacy or unknown advisory references establish no ownership.
+	}
+	if err != nil {
+		return err
+	}
+	if !boundedText(e.CustomerID, 128) || !boundedText(e.SubscriptionID, 128) {
+		return fmt.Errorf("checkout completion requires customer and subscription")
+	}
+	var reference, customer, outcome string
+	err = tx.QueryRowContext(ctx, `SELECT reference,customer_id,outcome FROM ops_checkout_payments WHERE provider=? AND subscription_id=?`, e.Provider, e.SubscriptionID).Scan(&reference, &customer, &outcome)
+	if err == nil {
+		if reference != e.CheckoutReference || customer != e.CustomerID {
+			return fmt.Errorf("subscription checkout association conflicts")
+		}
+		out.AccountID = account
+		if outcome != "accepted" {
+			out.State = outcome
+		}
+		return nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	var consumed bool
+	if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM ops_checkout_payments WHERE reference=?)`, e.CheckoutReference).Scan(&consumed); err != nil {
+		return err
+	}
+	outcome = "accepted"
+	stamp, err := time.Parse(time.RFC3339Nano, created)
+	if err != nil {
+		return err
+	}
+	switch {
+	case consumed:
+		outcome = "duplicate_payment_refund_needed"
+	case out.AccountID != "" && out.AccountID != account:
+		outcome = "checkout_ownership_review_required"
+	case !s.now().Before(stamp.Add(CheckoutResumeWindow)):
+		outcome = "checkout_expired_review_required"
+	}
+	out.AccountID = account
+	if outcome != "accepted" {
+		out.State = outcome
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO ops_checkout_payments(provider,subscription_id,customer_id,reference,outcome,event_id) VALUES(?,?,?,?,?,?)`, e.Provider, e.SubscriptionID, e.CustomerID, e.CheckoutReference, outcome, e.ID)
+	if err == nil && outcome != "accepted" {
+		// A lifecycle review may have preceded the completion receipt. Quarantine
+		// also removes that subscription from the reducer and plan projection.
+		var mapped string
+		lookup := tx.QueryRowContext(ctx, `SELECT account_id FROM ops_billing_mappings WHERE provider=? AND subscription_id=?`, e.Provider, e.SubscriptionID).Scan(&mapped)
+		if lookup == nil {
+			err = projectBillingAccount(ctx, tx, mapped)
+		} else if !errors.Is(lookup, sql.ErrNoRows) {
+			err = lookup
+		}
+	}
+	return err
+}
+
+func checkoutSubscriptionCanGrant(ctx context.Context, q operationQuery, provider, subscription string) error {
+	var blocked bool
+	err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM ops_checkout_payments WHERE provider=? AND subscription_id=? AND outcome!='accepted')`, provider, subscription).Scan(&blocked)
+	if err != nil {
+		return err
+	}
+	if blocked {
+		return fmt.Errorf("checkout payment quarantined; operator refund or ownership review required")
+	}
+	return nil
 }
 
 // Supplied snapshots are trusted operator input from an authoritative provider
@@ -256,6 +344,13 @@ func reconciliationChange(ctx context.Context, tx *sql.Tx, p AdminPrincipal, sna
 		return nil, err
 	}
 	out.AccountID = id
+	// Receipt selection cannot bypass a quarantined duplicate subscription:
+	// even a later lifecycle receipt must never make it eligible for Pro.
+	if snap.Plan == "pro" {
+		if err = checkoutSubscriptionCanGrant(ctx, tx, snap.Provider, snap.SubscriptionID); err != nil {
+			return nil, err
+		}
+	}
 	out.CurrentPlan, _, err = billingAccountState(ctx, tx, id)
 	if err != nil {
 		return nil, err

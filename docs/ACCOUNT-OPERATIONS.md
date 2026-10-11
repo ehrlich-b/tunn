@@ -31,7 +31,7 @@ Local filesystem/database access remains an operator privilege.
 | Account dashboard, usage/grant reads and revoke, authenticated report intake | Existing account credentials | Retained for visibility, remediation and reporting |
 | Explicit anonymous public mode / shared self-host master secret without host mode | Operator chooses accountless relay authentication | No account to suspend; these are unsuitable for hosted account controls |
 
-`FindOrCreateByEmails` derives the merged plan from all verified subscriptions,
+`FindOrCreateByEmails` derives the merged plan from verified subscriptions and preserved legacy grants,
 adds usage, preserves grant
 state and redirects old UUIDs. Operational merge uses suspension OR: any suspended
 component suspends the survivor and increments its control version. Previous
@@ -55,8 +55,10 @@ Neither association nor a pending purchase grants Pro.
 with any entitlement change. The durable key is `(provider,event_id)`; exact
 retries return the original result with `duplicate:true`. Reusing an ID with
 changed metadata fails. Storage failures roll back both plan and event state.
-Provider adapters with authoritative monotonic revisions converge under older,
-newer and duplicate deliveries. Equal revision/conflicting plan, conflicting
+Synthetic adapters with monotonic revisions are accepted only on databases
+marked `ops_fixture(id=1,value='disposable-local')`; unmarked databases reject
+every non-Stripe receipt at the store boundary, including authenticated node
+RPC intake. Marked fixtures converge under older, newer and duplicate deliveries. Equal revision/conflicting plan, conflicting
 bindings and unorderable events require reconciliation. Unknown types are
 recorded `ignored`; they do not modify entitlements. No webhook body is stored.
 
@@ -75,7 +77,7 @@ provider read. Arrival order and refreshed local CAS cannot override its
 watermark. Equal-order conflicting state fails; equal-state replay does not
 advance versions or append audits. Newer unchanged-state reads still advance
 the watermark. The account plan is a projection of these states: any eligible
-subscription grants Pro, and no eligible subscription means Free. Final downgrade
+subscription or preserved legacy grant confers Pro. With neither, the account is Free. Final downgrade
 releases paid reservations atomically with billing state, receipt resolution,
 plan and audit. Operational suspension remains independent.
 
@@ -106,12 +108,20 @@ current-period payment. Both apply modes are mutually exclusive; default is
 still read-only. CAS, complete-batch validation, audit, suspension and usage
 preservation apply to reviewed writes as well. See [GO-LIVE.md](../GO-LIVE.md)
 for the exact evidence, activation, renewal and cancellation procedure. Checkout defaults disabled until that workflow has passed acceptance and is
-staffed. `BeginBillingCheckout` persists a random intent on the login authority
-before redirect, preventing concurrent duplicate purchases and keeping pending
-state across navigation, merges and restarts. Holds do not expire while a
-reusable Payment Link remains payable. Accounts with pending intents or existing
-bindings cannot buy another subscription; support must resolve the prior
-purchase. A canceled binding blocks returning self-service checkout because
+staffed. `PrepareBillingCheckout` persists a random intent and exact destination
+before redirect. Unpaid retries resume that same reference/destination across
+tabs and restarts, with a 24-hour redirect window. Paid completions and multiple
+merged intents block redirects. Expiry retains the hold and never creates a
+replacement while a saved Payment Link remains payable. The store consumes one
+subscription per intent and durably quarantines additional payments as
+`duplicate_payment_refund_needed`; binding and Pro review reject those
+subscriptions even if later receipts are selected. Late first completions use
+`checkout_expired_review_required`. Receipts are acknowledged only after the
+payment ledger and receipt commit together. This fallback prevents duplicate
+fulfillment, not duplicate provider charges: the tree has no Stripe Session API
+integration. Bryan must review and perform any required provider refund or
+cancellation. Existing bound accounts cannot buy another subscription; support
+must resolve the prior purchase. A canceled binding blocks returning self-service checkout because
 replacement binding is not yet supported.
 
 `--apply-fixture` requires a database created by `tunn admin fixture-init`, carrying
@@ -144,27 +154,39 @@ work.
 
 ## Migration and integration hooks
 
-`store.MigrateOperations` installs the idempotent `OperationsSchema` from
-`internal/store/operations.go`, automatically called after the existing account
-schema. Additions are isolated `ops_account_state`, `ops_account_audit`,
-`ops_billing_mappings`, `ops_billing_states`, `ops_checkout_intents`,
-`ops_billing_events`, and `ops_reports`. Migration projects the plan cache and
-releases unentitled reservations. Legacy Pro bits and digest-only audits cannot
-establish ordered verified state, so they fail closed until fresh provider
-reviews are applied. Preserve identity, billing history, usage and suspension;
-coordinate existing-subscriber reviews with rollout. Legacy review commit times
-provide a conservative ordering floor so older evidence cannot undo a prior
-cancellation during migration; replacement provider reads must follow that floor. Direct `UpdatePlan` grants
-are restricted to marked disposable fixtures and become synthetic sequenced
-subscriptions; production uses reviewed billing. Account merges call
-`mergeAccountOperations` in the same inventory/accounting transaction. Migration
-rerun and rollback fixtures retain all state.
+`store.MigrateOperations` installs additive, idempotent schema after the existing
+account schema. It changes zero account plans and deletes zero reservations.
+On first installation it snapshots existing Pro accounts without verified states
+into `ops_legacy_entitlements`. Every kind of legacy grant from `110485c` keeps
+Pro and effective reservation ownership until explicit global reconciliation;
+ordinary billing review, startup and scoped schema migration cannot revoke it.
+Restarts never re-import revoked grants. Identity merges retain each original
+grant UUID and move its ownership to the survivor.
+
+`tunn admin reconcile-legacy --snapshots FILE` requires a global credential
+(`accounts:["*"]`). Each decision supplies `original_account_id`, current
+`account_id`, `expected_version`, `plan`, and `reason`. The bounded batch is
+validated and applied atomically with a durable actor/reason/version/plan audit
+in `ops_legacy_entitlement_audit`. Legitimate comp grants can stay Pro without
+Stripe. Review paid states before explicitly ending the legacy grant; only the
+last effective entitlement ending releases reservations. Save a reservation
+inventory before cutover: regranting Pro does not recreate released names.
+Schema-only rollback retains the old plan and reservation tables untouched.
+See GO-LIVE.md for the operator-run command; agents never execute production
+mutations. `admin migrate --account` authorizes the supplied and surviving UUIDs
+and installs schema only; it has no account entitlement side effects.
+
+Legacy hash-only review times provide a conservative provider-read ordering
+floor, so older evidence cannot undo a prior cancellation. Direct `UpdatePlan`
+grants are restricted to marked disposable fixtures. Account merges call
+`mergeAccountOperations` in the same inventory/accounting transaction.
 
 Account replies include `operational_state` (field 7), `operational_version`
 (field 8), and `billing_state` (field 9) in `proto/internal.proto`. The new
 `BeginBillingCheckout` RPC uses the existing authenticated internal node gate
-and returns a reference only after durable authority commit. Replica decoding
-ignores Pro cache bits from older authorities without verified billing state. `storage.AccountStatusLookup` is implemented by local
+and returns a reference plus persisted destination only after durable authority
+commit. Replica decoding preserves legacy Pro replies from old authorities and
+explicit `legacy` state during the rolling schema upgrade. `storage.AccountStatusLookup` is implemented by local
 and proxy storage; it resolves aliases and returns status/version without trusting
 a request account ID. Empty state from an old login authority fails closed at
 hosted admission. Upgrade the login authority before replicas. The new billing

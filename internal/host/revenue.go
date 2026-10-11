@@ -166,12 +166,12 @@ func (p *ProxyServer) handleUpgrade(w http.ResponseWriter, r *http.Request) {
 		writePageEnd(w)
 		return
 	}
-	checkout, ok := p.storage.(storage.BillingCheckout)
+	checkout, ok := p.storage.(storage.DurableBillingCheckout)
 	if !ok {
 		http.Error(w, "Billing authority unavailable. Please retry.", 503)
 		return
 	}
-	reference, err := checkout.BeginBillingCheckout(r.Context(), a.ID)
+	reference, destination, err := checkout.PrepareBillingCheckout(r.Context(), a.ID, raw)
 	if err != nil {
 		if errors.Is(err, store.ErrCheckoutBlocked) {
 			http.Error(w, "A purchase or previous subscription needs review. Do not pay again. Contact support@tunn.to.", 409)
@@ -182,7 +182,11 @@ func (p *ProxyServer) handleUpgrade(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	u, _ := stripeURL(raw, "buy.stripe.com")
+	u, valid := stripeURL(destination, "buy.stripe.com")
+	if !valid {
+		http.Error(w, "Saved checkout destination unavailable. Contact support@tunn.to.", 503)
+		return
+	}
 	q := u.Query()
 	q.Set("prefilled_email", a.PrimaryEmail)
 	q.Set("client_reference_id", reference)

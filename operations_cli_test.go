@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -102,6 +104,59 @@ func TestAccountOperationsCLIAuthenticationAndDryRun(t *testing.T) {
 	}
 	if _, err = call("suspend", "--account", status.AccountID, "--expect-version", "2", "--reason", "denied"); err == nil {
 		t.Fatal("publisher token granted admin authority")
+	}
+}
+
+func TestBillingLegacyReconciliationCLIRequiresGlobalCredential(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "legacy.db")
+	data, err := os.ReadFile("internal/store/testdata/legacy110485c.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(string(data)); err != nil {
+		t.Fatal(err)
+	}
+	if err = db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	db, err = store.OpenLocal(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var id string
+	if err = db.QueryRow(`SELECT id FROM accounts WHERE primary_email='manual@example.invalid'`).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	token := "legacy-cli-review-token-0123456789abcdef"
+	digest := sha256.Sum256([]byte(token))
+	configPath, tokenPath, input := filepath.Join(dir, "admins.json"), filepath.Join(dir, "token"), filepath.Join(dir, "decisions.json")
+	decisions, _ := json.Marshal([]store.LegacyEntitlementDecision{{OriginalAccountID: id, AccountID: id, Plan: "free", Reason: "explicit global CLI review"}})
+	if err = os.WriteFile(input, decisions, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(tokenPath, []byte(token), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, scope := range []string{id, "*"} {
+		config, _ := json.Marshal([]store.AdminCredential{{Actor: "global-reviewer", TokenSHA256: hex.EncodeToString(digest[:]), Accounts: []string{scope}}})
+		if err = os.WriteFile(configPath, config, 0600); err != nil {
+			t.Fatal(err)
+		}
+		var out bytes.Buffer
+		err = executeOperations([]string{"reconcile-legacy", "--db", dbPath, "--admin-config", configPath, "--token-file", tokenPath, "--snapshots", input}, &out)
+		if scope != "*" && !errors.Is(err, store.ErrDenied) || scope == "*" && (err != nil || !strings.Contains(out.String(), "legacy_entitlements_reconciled")) {
+			t.Fatal(scope, out.String(), err)
+		}
+	}
+	var actor string
+	if err = db.QueryRow(`SELECT actor FROM ops_legacy_entitlement_audit`).Scan(&actor); err != nil || actor != "global-reviewer" {
+		t.Fatal(actor, err)
 	}
 }
 

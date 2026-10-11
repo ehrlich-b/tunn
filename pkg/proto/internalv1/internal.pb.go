@@ -21,7 +21,6 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// Node information for login node discovery
 type NodeInfoRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -155,17 +154,13 @@ func (x *FindTunnelRequest) GetTunnelId() string {
 }
 
 type FindTunnelResponse struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	Found bool                   `protobuf:"varint,1,opt,name=found,proto3" json:"found,omitempty"`
-	// The address of the node handling the tunnel.
-	// If found is true, this will be the address of the node.
-	// The caller can then use this address to forward the request.
-	NodeAddress string `protobuf:"bytes,2,opt,name=node_address,json=nodeAddress,proto3" json:"node_address,omitempty"`
-	// Live publisher ownership for the login node's MCP consent checks.
-	AccountId     string   `protobuf:"bytes,3,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
-	CreatorEmail  string   `protobuf:"bytes,4,opt,name=creator_email,json=creatorEmail,proto3" json:"creator_email,omitempty"`
-	EndpointKind  string   `protobuf:"bytes,5,opt,name=endpoint_kind,json=endpointKind,proto3" json:"endpoint_kind,omitempty"`
-	AllowedEmails []string `protobuf:"bytes,6,rep,name=allowed_emails,json=allowedEmails,proto3" json:"allowed_emails,omitempty"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Found         bool                   `protobuf:"varint,1,opt,name=found,proto3" json:"found,omitempty"`
+	NodeAddress   string                 `protobuf:"bytes,2,opt,name=node_address,json=nodeAddress,proto3" json:"node_address,omitempty"`
+	AccountId     string                 `protobuf:"bytes,3,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	CreatorEmail  string                 `protobuf:"bytes,4,opt,name=creator_email,json=creatorEmail,proto3" json:"creator_email,omitempty"`
+	EndpointKind  string                 `protobuf:"bytes,5,opt,name=endpoint_kind,json=endpointKind,proto3" json:"endpoint_kind,omitempty"`
+	AllowedEmails []string               `protobuf:"bytes,6,rep,name=allowed_emails,json=allowedEmails,proto3" json:"allowed_emails,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -242,7 +237,6 @@ func (x *FindTunnelResponse) GetAllowedEmails() []string {
 	return nil
 }
 
-// Usage tracking messages
 type RecordUsageRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	AccountId     string                 `protobuf:"bytes,1,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
@@ -419,7 +413,6 @@ func (x *GetMonthlyUsageResponse) GetBytesUsed() int64 {
 	return 0
 }
 
-// Device code messages
 type CreateDeviceCodeRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -551,7 +544,7 @@ func (x *DeviceCodeResponse) GetFound() bool {
 type GetDeviceCodeRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Code          string                 `protobuf:"bytes,1,opt,name=code,proto3" json:"code,omitempty"`
-	UserCode      string                 `protobuf:"bytes,2,opt,name=user_code,json=userCode,proto3" json:"user_code,omitempty"` // If set, lookup by user_code instead
+	UserCode      string                 `protobuf:"bytes,2,opt,name=user_code,json=userCode,proto3" json:"user_code,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -696,7 +689,6 @@ func (x *AuthorizeDeviceCodeResponse) GetSuccess() bool {
 	return false
 }
 
-// Account messages
 type AccountResponse struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
 	Found              bool                   `protobuf:"varint,1,opt,name=found,proto3" json:"found,omitempty"`
@@ -1181,7 +1173,6 @@ func (*UpdatePlanResponse) Descriptor() ([]byte, []int) {
 	return file_proto_internal_proto_rawDescGZIP(), []int{21}
 }
 
-// Tunnel tracking messages
 type RegisterTunnelRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	TunnelId      string                 `protobuf:"bytes,1,opt,name=tunnel_id,json=tunnelId,proto3" json:"tunnel_id,omitempty"`
@@ -1478,11 +1469,10 @@ func (x *GetTunnelCountResponse) GetCount() int32 {
 	return 0
 }
 
-// Magic link replay protection messages
 type MarkMagicTokenUsedRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Jti           string                 `protobuf:"bytes,1,opt,name=jti,proto3" json:"jti,omitempty"`
-	ExpiryUnix    int64                  `protobuf:"varint,2,opt,name=expiry_unix,json=expiryUnix,proto3" json:"expiry_unix,omitempty"` // When the token expires (for cleanup)
+	ExpiryUnix    int64                  `protobuf:"varint,2,opt,name=expiry_unix,json=expiryUnix,proto3" json:"expiry_unix,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1533,7 +1523,7 @@ func (x *MarkMagicTokenUsedRequest) GetExpiryUnix() int64 {
 
 type MarkMagicTokenUsedResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	WasUnused     bool                   `protobuf:"varint,1,opt,name=was_unused,json=wasUnused,proto3" json:"was_unused,omitempty"` // true if token was unused and is now marked, false if already used
+	WasUnused     bool                   `protobuf:"varint,1,opt,name=was_unused,json=wasUnused,proto3" json:"was_unused,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1575,7 +1565,6 @@ func (x *MarkMagicTokenUsedResponse) GetWasUnused() bool {
 	return false
 }
 
-// Magic link rate limiting messages
 type CheckMagicLinkRateLimitRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Email         string                 `protobuf:"bytes,1,opt,name=email,proto3" json:"email,omitempty"`
@@ -1622,9 +1611,9 @@ func (x *CheckMagicLinkRateLimitRequest) GetEmail() string {
 
 type CheckMagicLinkRateLimitResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Allowed       bool                   `protobuf:"varint,1,opt,name=allowed,proto3" json:"allowed,omitempty"`                              // true if request is allowed
-	Remaining     int32                  `protobuf:"varint,2,opt,name=remaining,proto3" json:"remaining,omitempty"`                          // requests remaining in window
-	ResetAtUnix   int64                  `protobuf:"varint,3,opt,name=reset_at_unix,json=resetAtUnix,proto3" json:"reset_at_unix,omitempty"` // when the rate limit resets
+	Allowed       bool                   `protobuf:"varint,1,opt,name=allowed,proto3" json:"allowed,omitempty"`
+	Remaining     int32                  `protobuf:"varint,2,opt,name=remaining,proto3" json:"remaining,omitempty"`
+	ResetAtUnix   int64                  `protobuf:"varint,3,opt,name=reset_at_unix,json=resetAtUnix,proto3" json:"reset_at_unix,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1875,6 +1864,7 @@ func (x *IntakeReportResponse) GetReportJson() []byte {
 type BeginBillingCheckoutRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	AccountId     string                 `protobuf:"bytes,1,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	Destination   string                 `protobuf:"bytes,2,opt,name=destination,proto3" json:"destination,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1916,9 +1906,17 @@ func (x *BeginBillingCheckoutRequest) GetAccountId() string {
 	return ""
 }
 
+func (x *BeginBillingCheckoutRequest) GetDestination() string {
+	if x != nil {
+		return x.Destination
+	}
+	return ""
+}
+
 type BeginBillingCheckoutResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Reference     string                 `protobuf:"bytes,1,opt,name=reference,proto3" json:"reference,omitempty"`
+	Destination   string                 `protobuf:"bytes,2,opt,name=destination,proto3" json:"destination,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1956,6 +1954,13 @@ func (*BeginBillingCheckoutResponse) Descriptor() ([]byte, []int) {
 func (x *BeginBillingCheckoutResponse) GetReference() string {
 	if x != nil {
 		return x.Reference
+	}
+	return ""
+}
+
+func (x *BeginBillingCheckoutResponse) GetDestination() string {
+	if x != nil {
+		return x.Destination
 	}
 	return ""
 }
@@ -2087,12 +2092,14 @@ const file_proto_internal_proto_rawDesc = "" +
 	"\bendpoint\x18\x03 \x01(\tR\bendpoint\"7\n" +
 	"\x14IntakeReportResponse\x12\x1f\n" +
 	"\vreport_json\x18\x01 \x01(\fR\n" +
-	"reportJson\"<\n" +
+	"reportJson\"^\n" +
 	"\x1bBeginBillingCheckoutRequest\x12\x1d\n" +
 	"\n" +
-	"account_id\x18\x01 \x01(\tR\taccountId\"<\n" +
+	"account_id\x18\x01 \x01(\tR\taccountId\x12 \n" +
+	"\vdestination\x18\x02 \x01(\tR\vdestination\"^\n" +
 	"\x1cBeginBillingCheckoutResponse\x12\x1c\n" +
-	"\treference\x18\x01 \x01(\tR\treference2\xa0\x01\n" +
+	"\treference\x18\x01 \x01(\tR\treference\x12 \n" +
+	"\vdestination\x18\x02 \x01(\tR\vdestination2\xa0\x01\n" +
 	"\x0fInternalService\x12G\n" +
 	"\n" +
 	"FindTunnel\x12\x1b.internal.FindTunnelRequest\x1a\x1c.internal.FindTunnelResponse\x12D\n" +

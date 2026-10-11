@@ -401,12 +401,19 @@ func (s *AccountStore) GetSubdomainOwner(subdomain string) (string, error) {
 	subdomain = strings.ToLower(strings.TrimSpace(subdomain))
 
 	var accountID string
-	err := s.db.QueryRow(`SELECT r.account_id FROM reserved_subdomains r WHERE r.subdomain=? AND EXISTS(SELECT 1 FROM ops_billing_mappings m JOIN ops_billing_states s USING(provider,subscription_id) WHERE m.account_id=r.account_id AND s.plan='pro')`, subdomain).Scan(&accountID)
+	err := s.db.QueryRow(`SELECT account_id FROM reserved_subdomains WHERE subdomain=?`, subdomain).Scan(&accountID)
 	if err == sql.ErrNoRows {
 		return "", nil
 	}
 	if err != nil {
 		return "", err
+	}
+	plan, _, err := billingAccountState(context.Background(), s.db, accountID)
+	if err != nil {
+		return "", err
+	}
+	if plan != "pro" {
+		return "", nil
 	}
 	return accountID, nil
 }

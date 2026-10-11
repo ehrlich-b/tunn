@@ -7,9 +7,9 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-func TestBillingLegacyAuthorityPlanFailsClosed(t *testing.T) {
-	// This wire reply predates billing_state. Its cached Pro bit cannot prove
-	// current paid eligibility to an upgraded replica.
+func TestBillingLegacyAuthorityPreservesGrant(t *testing.T) {
+	// This wire reply predates billing_state. Preserve the existing authority
+	// entitlement during a schema-only rolling upgrade.
 	legacy, err := proto.Marshal(&internalv1.AccountResponse{Found: true, Id: "legacy", Plan: "pro", OperationalState: "active"})
 	if err != nil {
 		t.Fatal(err)
@@ -19,8 +19,8 @@ func TestBillingLegacyAuthorityPlanFailsClosed(t *testing.T) {
 		t.Fatal(err)
 	}
 	account := protoAccountToStorage(&reply)
-	if account.Plan != "free" {
-		t.Fatal("legacy cache conferred Pro", account)
+	if account.Plan != "pro" {
+		t.Fatal("legacy authority grant lost during rolling upgrade", account)
 	}
 	reply.BillingState = "active"
 	if account = protoAccountToStorage(&reply); account.Plan != "pro" {

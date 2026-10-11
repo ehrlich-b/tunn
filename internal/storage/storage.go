@@ -100,3 +100,8 @@ type TunnelRegistration struct {
 type BillingCheckout interface {
 	BeginBillingCheckout(context.Context, string) (string, error)
 }
+
+// DurableBillingCheckout resumes the intent's original payment destination.
+type DurableBillingCheckout interface {
+	PrepareBillingCheckout(context.Context, string, string) (string, string, error)
+}

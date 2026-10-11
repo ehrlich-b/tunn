@@ -286,6 +286,12 @@ h1 {
     check();
   })();
   </script>
+  {{else if .BillingResumable}}
+  <div class="card" role="status">
+    <div class="card-title">Continue checkout</div>
+    <p>If you have not paid, you can resume your checkout within 24 hours. If you have paid, contact support before continuing.</p>
+    <a href="/upgrade">Resume checkout</a>
+  </div>
   {{else if .BillingSupport}}
   <div class="card" role="status">
     <div class="card-title">Subscription review</div>

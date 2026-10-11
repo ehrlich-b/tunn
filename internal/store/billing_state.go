@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/url"
 	"time"
 
 	"github.com/google/uuid"
@@ -13,22 +14,28 @@ import (
 var ErrCheckoutBlocked = errors.New("checkout requires billing review")
 
 // billingAccountState reduces the newest verified state of every subscription.
-// Unverified mappings and receipts never confer entitlement. A merged account
-// retains Pro only while at least one of its subscriptions remains eligible.
+// Unverified mappings and receipts never confer entitlement. Legacy grants
+// remain effective until an audited global operator decision ends them.
 func billingAccountState(ctx context.Context, q operationQuery, id string) (plan, checkout string, err error) {
-	var eligible, bound, pending bool
+	var eligible, legacy, bound, pending, paid bool
 	err = q.QueryRowContext(ctx, `SELECT
- EXISTS(SELECT 1 FROM ops_billing_mappings m JOIN ops_billing_states s USING(provider,subscription_id) WHERE m.account_id=? AND s.plan='pro'),
+ EXISTS(SELECT 1 FROM ops_billing_mappings m JOIN ops_billing_states s USING(provider,subscription_id) WHERE m.account_id=? AND s.plan='pro' AND NOT EXISTS(SELECT 1 FROM ops_checkout_payments p WHERE p.provider=m.provider AND p.subscription_id=m.subscription_id AND p.outcome!='accepted')),
+ EXISTS(SELECT 1 FROM ops_legacy_entitlements WHERE account_id=? AND plan='pro'),
  EXISTS(SELECT 1 FROM ops_billing_mappings WHERE account_id=?),
- EXISTS(SELECT 1 FROM ops_checkout_intents WHERE account_id=?)`, id, id, id).Scan(&eligible, &bound, &pending)
+ EXISTS(SELECT 1 FROM ops_checkout_intents WHERE account_id=?),
+ EXISTS(SELECT 1 FROM ops_checkout_intents i JOIN ops_checkout_payments p USING(reference) WHERE i.account_id=?)`, id, id, id, id, id).Scan(&eligible, &legacy, &bound, &pending, &paid)
 	plan, checkout = "free", "available"
 	switch {
 	case eligible:
 		plan, checkout = "pro", "active"
+	case legacy:
+		plan, checkout = "pro", "legacy"
 	case bound:
 		checkout = "support"
-	case pending:
+	case paid:
 		checkout = "pending"
+	case pending:
+		checkout = "resumable"
 	}
 	return
 }
@@ -59,38 +66,99 @@ func writeBillingState(ctx context.Context, tx *sql.Tx, provider, sub, plan stri
 	return err
 }
 
-// BeginBillingCheckout saves an opaque account-bound intent before exposing a
-// Payment Link. It serializes concurrent purchases and survives navigation and
-// authority restarts. Intents do not expire: a reusable Payment Link can still
-// be paid later, so abandoned purchases require support review.
+const CheckoutResumeWindow = 24 * time.Hour
+
+// BeginBillingCheckout resumes the same unpaid intent across tabs/restarts.
 func (s *OperationsStore) BeginBillingCheckout(ctx context.Context, id string) (string, error) {
+	reference, _, err := s.PrepareBillingCheckout(ctx, id, "")
+	return reference, err
+}
+
+// PrepareBillingCheckout persists the destination with the intent. Local expiry
+// stops further redirects, never releases the hold or creates a replacement:
+// Payment Links remain payable at Stripe. Late/duplicate payments are retained
+// for operator review and can never automatically create extra entitlements.
+func (s *OperationsStore) PrepareBillingCheckout(ctx context.Context, id, destination string) (string, string, error) {
+	if destination != "" && !validCheckoutDestination(destination) {
+		return "", "", fmt.Errorf("invalid checkout destination")
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	defer func() { _ = tx.Rollback() }()
 	status, err := readAccountStatus(ctx, tx, id)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	if status.State != "active" {
-		return "", ErrSuspended
+		return "", "", ErrSuspended
 	}
 	_, state, err := billingAccountState(ctx, tx, status.AccountID)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	if state != "available" {
-		return "", ErrCheckoutBlocked
+	if state != "available" && state != "resumable" {
+		return "", "", ErrCheckoutBlocked
+	}
+	if state == "resumable" {
+		var reference, created, saved, expires string
+		var intents int
+		if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM ops_checkout_intents WHERE account_id=?`, status.AccountID).Scan(&intents); err != nil {
+			return "", "", err
+		}
+		// Merging two outstanding purchases requires review before another redirect.
+		if intents != 1 {
+			return "", "", ErrCheckoutBlocked
+		}
+		err = tx.QueryRowContext(ctx, `SELECT i.reference,i.created_at,COALESCE(d.destination,''),COALESCE(d.expires_at,'') FROM ops_checkout_intents i LEFT JOIN ops_checkout_destinations d USING(reference) WHERE i.account_id=?`, status.AccountID).Scan(&reference, &created, &saved, &expires)
+		if err != nil {
+			return "", "", err
+		}
+		stamp, err := time.Parse(time.RFC3339Nano, created)
+		if err != nil {
+			return "", "", err
+		}
+		deadline := stamp.Add(CheckoutResumeWindow)
+		if expires != "" {
+			deadline, err = time.Parse(time.RFC3339Nano, expires)
+			if err != nil {
+				return "", "", err
+			}
+		}
+		if !s.now().Before(deadline) {
+			return "", "", ErrCheckoutBlocked
+		}
+		if saved != "" {
+			destination = saved
+		} else if destination != "" {
+			if _, err = tx.ExecContext(ctx, `INSERT INTO ops_checkout_destinations(reference,destination,expires_at) VALUES(?,?,?)`, reference, destination, deadline.UTC().Format(time.RFC3339Nano)); err != nil {
+				return "", "", err
+			}
+		}
+		if err = tx.Commit(); err != nil {
+			return "", "", err
+		}
+		return reference, destination, nil
 	}
 	reference := uuid.NewString()
 	if _, err = tx.ExecContext(ctx, `INSERT INTO ops_checkout_intents(reference,account_id,created_at) VALUES(?,?,?)`, reference, status.AccountID, s.now().UTC().Format(time.RFC3339Nano)); err != nil {
-		return "", err
+		return "", "", err
+	}
+	if destination != "" {
+		if _, err = tx.ExecContext(ctx, `INSERT INTO ops_checkout_destinations(reference,destination,expires_at) VALUES(?,?,?)`, reference, destination, s.now().Add(CheckoutResumeWindow).UTC().Format(time.RFC3339Nano)); err != nil {
+			return "", "", err
+		}
 	}
 	if err = tx.Commit(); err != nil {
-		return "", err
+		return "", "", err
 	}
-	return reference, nil
+	return reference, destination, nil
+}
+
+func validCheckoutDestination(raw string) bool {
+	u, err := url.Parse(raw)
+	return err == nil && len(raw) <= 2048 && u.Scheme == "https" && u.Host == "buy.stripe.com" && u.User == nil && u.Fragment == "" && len(u.Path) > 1
 }
 
 // updateFixturePlan keeps legacy test helpers out of production fulfillment.

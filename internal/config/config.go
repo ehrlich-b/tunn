@@ -109,7 +109,7 @@ func LoadConfig() (*Config, error) {
 	case EnvProd:
 		cfg.loadProdConfig()
 	default:
-		return nil, fmt.Errorf("unknown environment: %s", env)
+		return nil, fmt.Errorf("TUNN_ENV must be dev, development, prod, or production")
 	}
 	for _, budget := range []struct {
 		name  string
@@ -127,6 +127,9 @@ func LoadConfig() (*Config, error) {
 	cfg.ACMEDirectory = getEnvOrDefault("TUNN_ACME_DIRECTORY", "https://acme-v02.api.letsencrypt.org/directory")
 	cfg.ACMEEmail = os.Getenv("TUNN_ACME_EMAIL")
 	cfg.DomainKeySecret = os.Getenv("TUNN_DOMAIN_KEY_SECRET")
+	if err := cfg.validateSettings(); err != nil {
+		return nil, err
+	}
 	return cfg, nil
 }
 
@@ -199,6 +202,7 @@ func (c *Config) loadDevConfig() {
 
 // loadProdConfig loads production configuration
 func (c *Config) loadProdConfig() {
+	c.PublicMode = os.Getenv("TUNN_PUBLIC_MODE") == "true"
 	// Production domain
 	c.Domain = getEnvOrDefault("TUNN_DOMAIN", "tunn.to")
 
@@ -289,13 +293,14 @@ func IsLoginNode() bool {
 func getEnvironment() Environment {
 	env := os.Getenv("TUNN_ENV")
 	switch env {
+	case "":
+		return EnvDev
 	case "dev", "development":
 		return EnvDev
 	case "prod", "production":
 		return EnvProd
 	default:
-		// Default to dev for safety
-		return EnvDev
+		return Environment(env)
 	}
 }
 

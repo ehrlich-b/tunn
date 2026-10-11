@@ -77,6 +77,15 @@ func (s *LocalStorage) Available() bool {
 	return true
 }
 
+// CheckHealth confirms the login node can read its persistent account schema.
+func (s *LocalStorage) CheckHealth(ctx context.Context) error {
+	if s.db == nil {
+		return ErrNotAvailable
+	}
+	var exists int
+	return s.db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM accounts LIMIT 1)").Scan(&exists)
+}
+
 // CreateDeviceCode creates a new device code for CLI login.
 func (s *LocalStorage) CreateDeviceCode(ctx context.Context) (*DeviceCode, error) {
 	code, err := s.deviceCodes.Create()

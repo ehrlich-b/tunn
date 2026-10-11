@@ -14,14 +14,16 @@ var (
 	globalDB   *sql.DB
 	globalOnce sync.Once
 	globalErr  error
+	globalMu   sync.RWMutex
 )
 
 // InitDB initializes the SQLite database at the given path.
 // Only login nodes should call this. Returns the database connection.
 // If path is empty, uses default path based on environment.
 func InitDB(path string) (*sql.DB, error) {
-	var initErr error
 	globalOnce.Do(func() {
+		globalMu.Lock()
+		defer globalMu.Unlock()
 		dbPath := path
 		if dbPath == "" {
 			// Default: ~/.tunn/tunn.db for local, /data/tunn.db for Fly.io
@@ -35,35 +37,45 @@ func InitDB(path string) (*sql.DB, error) {
 
 		// Ensure directory exists
 		if err := os.MkdirAll(filepath.Dir(dbPath), 0700); err != nil {
-			initErr = fmt.Errorf("failed to create db directory: %w", err)
+			globalErr = fmt.Errorf("failed to create db directory: %w", err)
 			return
 		}
 
-		globalDB, initErr = sql.Open("sqlite", dbPath)
-		if initErr != nil {
-			initErr = fmt.Errorf("failed to open database: %w", initErr)
+		db, err := sql.Open("sqlite", dbPath)
+		if err != nil {
+			globalErr = fmt.Errorf("failed to open database: %w", err)
 			return
 		}
+		db.SetMaxOpenConns(1)
+		defer func() {
+			if globalErr != nil {
+				_ = db.Close()
+			}
+		}()
 
 		// Enable WAL mode for better concurrency
-		if _, err := globalDB.Exec("PRAGMA journal_mode=WAL"); err != nil {
-			initErr = fmt.Errorf("failed to set WAL mode: %w", err)
+		if _, err := db.Exec("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;"); err != nil {
+			globalErr = fmt.Errorf("failed to set WAL mode: %w", err)
 			return
 		}
 
 		// Initialize schema
-		if err := initSchema(globalDB); err != nil {
-			initErr = fmt.Errorf("failed to init schema: %w", err)
+		if err := initSchema(db); err != nil {
+			globalErr = fmt.Errorf("failed to init schema: %w", err)
 			return
 		}
+		globalDB = db
 	})
-	globalErr = initErr
+	globalMu.RLock()
+	defer globalMu.RUnlock()
 	return globalDB, globalErr
 }
 
 // DB returns the global database connection, or nil if not initialized.
 // Non-login nodes will have nil here - they proxy DB operations to login node.
 func DB() *sql.DB {
+	globalMu.RLock()
+	defer globalMu.RUnlock()
 	return globalDB
 }
 
@@ -171,6 +183,8 @@ func OpenLocal(path string) (*sql.DB, error) {
 
 // Close closes the database connection
 func Close() error {
+	globalMu.RLock()
+	defer globalMu.RUnlock()
 	if globalDB != nil {
 		return globalDB.Close()
 	}

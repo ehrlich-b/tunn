@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/quic-go/quic-go/http3"
@@ -42,11 +43,14 @@ import (
 
 // ProxyServer is the new V1 dual-listener proxy server
 type ProxyServer struct {
-	sshServer *sshfront.Server
-	sshKeys   *sshfront.Registry
-	Domain    string
-	CertFile  string
-	KeyFile   string
+	listenerState     atomic.Uint32
+	requiredListeners atomic.Uint32
+	stopping          atomic.Bool
+	sshServer         *sshfront.Server
+	sshKeys           *sshfront.Registry
+	Domain            string
+	CertFile          string
+	KeyFile           string
 
 	// HTTP/2 (TCP) listener address
 	HTTP2Addr string
@@ -119,6 +123,38 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 		return nil, fmt.Errorf("TUNN_NODE_SECRET must be set for multi-node mode (detected via TUNN_NODE_ADDRESSES or FLY_APP_NAME)")
 	}
 
+	cert, err := tls.LoadX509KeyPair(cfg.CertFile, cfg.KeyFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load TUNN_CERT_FILE/TUNN_KEY_FILE: %w", err)
+	}
+
+	tlsConfig := &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		NextProtos:   []string{"h2", "http/1.1"}, // HTTP/2 will negotiate via ALPN
+	}
+
+	// Load user tokens from users.yaml if configured
+	var userTokens map[string]string
+	if cfg.UsersFile != "" {
+		userStore, err := store.NewUserStore(cfg.UsersFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load TUNN_USERS_FILE: %w", err)
+		} else {
+			userTokens = userStore.GetTokenMap()
+			common.LogInfo("loaded users file", "path", cfg.UsersFile, "count", userStore.Count())
+		}
+	}
+
+	internalTLSConfig, err := createInternalTLSConfig(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create internal TLS config: %w", err)
+	}
+	if cfg.InternalCACert != "" {
+		if _, err := loadInternalCA(cfg.InternalCACert); err != nil {
+			return nil, err
+		}
+	}
+
 	// Initialize storage based on whether this is a login node
 	var proxyStorage *storage.ProxyStorage
 	var storageImpl storage.Storage
@@ -150,29 +186,6 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 		common.LogInfo("non-login node, will proxy storage to login node")
 	}
 
-	cert, err := tls.LoadX509KeyPair(cfg.CertFile, cfg.KeyFile)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load certificates: %w", err)
-	}
-
-	tlsConfig := &tls.Config{
-		Certificates: []tls.Certificate{cert},
-		NextProtos:   []string{"h2", "http/1.1"}, // HTTP/2 will negotiate via ALPN
-	}
-
-	// Load user tokens from users.yaml if configured
-	var userTokens map[string]string
-	if cfg.UsersFile != "" {
-		userStore, err := store.NewUserStore(cfg.UsersFile)
-		if err != nil {
-			common.LogError("failed to load users file", "path", cfg.UsersFile, "error", err)
-			// Continue without user tokens - not fatal
-		} else {
-			userTokens = userStore.GetTokenMap()
-			common.LogInfo("loaded users file", "path", cfg.UsersFile, "count", userStore.Count())
-		}
-	}
-
 	// Get account store for subdomain reservations (login node only, direct access)
 	var accounts *store.AccountStore
 	if localStorage != nil {
@@ -181,6 +194,7 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 
 	// Create gRPC server for public tunnel control plane with keepalive
 	grpcServer := grpc.NewServer(
+		grpc.WaitForHandlers(true),
 		grpc.KeepaliveParams(keepalive.ServerParameters{
 			Time:    10 * time.Second, // Ping clients every 10s
 			Timeout: 5 * time.Second,  // Wait 5s for pong
@@ -199,10 +213,6 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 	pb.RegisterTunnelServiceServer(grpcServer, tunnelServer)
 
 	// Create gRPC server for internal node-to-node communication
-	internalTLSConfig, err := createInternalTLSConfig(cfg)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create internal TLS config: %w", err)
-	}
 	internalGRPCServer := grpc.NewServer(
 		grpc.Creds(credentials.NewTLS(internalTLSConfig)),
 		grpc.UnaryInterceptor(nodeSecretInterceptor(cfg.NodeSecret)),
@@ -337,14 +347,9 @@ func createInternalClient(addr string, cfg *config.Config) (*grpc.ClientConn, er
 
 	// If custom CA cert is specified (self-hosters), load it
 	if cfg.InternalCACert != "" {
-		caCert, err := os.ReadFile(cfg.InternalCACert)
+		caCertPool, err := loadInternalCA(cfg.InternalCACert)
 		if err != nil {
-			return nil, fmt.Errorf("failed to read CA cert %s: %w", cfg.InternalCACert, err)
-		}
-
-		caCertPool := x509.NewCertPool()
-		if !caCertPool.AppendCertsFromPEM(caCert) {
-			return nil, fmt.Errorf("failed to parse CA cert from %s", cfg.InternalCACert)
+			return nil, err
 		}
 
 		tlsConfig.RootCAs = caCertPool
@@ -356,6 +361,18 @@ func createInternalClient(addr string, cfg *config.Config) (*grpc.ClientConn, er
 		grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)),
 		grpc.WithPerRPCCredentials(&nodeSecretCreds{secret: cfg.NodeSecret}),
 	)
+}
+
+func loadInternalCA(path string) (*x509.CertPool, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read TUNN_CA_CERT: %w", err)
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(data) {
+		return nil, fmt.Errorf("TUNN_CA_CERT must contain a PEM certificate")
+	}
+	return pool, nil
 }
 
 // discoverNodes discovers other nodes in the mesh using Fly.io internal DNS
@@ -550,8 +567,27 @@ func getPeerIP(ctx context.Context) string {
 
 // Run starts both HTTP/2 and HTTP/3 listeners
 func (p *ProxyServer) Run(ctx context.Context) error {
+	ctx, cancel := context.WithCancel(ctx)
 	var wg sync.WaitGroup
-	errChan := make(chan error, 5)
+	errChan := make(chan error, 6)
+	p.stopping.Store(false)
+	required := uint32(listenerHTTP2 | listenerHTTP3 | listenerInternal)
+	if p.sshServer != nil && p.config.SSHAddr != "" {
+		required |= listenerSSH
+	}
+	if p.domains != nil {
+		required |= listenerHTTP01
+	}
+	p.requiredListeners.Store(required)
+	defer func() {
+		p.stopping.Store(true)
+		cancel()
+		// Long-lived publisher streams must close before HTTP shutdown waits.
+		p.grpcServer.Stop()
+		p.internalGRPCServer.Stop()
+		wg.Wait()
+		p.listenerState.Store(0)
+	}()
 
 	// Start mock OIDC server in dev mode
 	if p.mockOIDC != nil {
@@ -559,7 +595,7 @@ func (p *ProxyServer) Run(ctx context.Context) error {
 		go func() {
 			defer wg.Done()
 			common.LogInfo("starting mock OIDC server", "addr", p.config.MockOIDCAddr)
-			if err := p.mockOIDC.Start(); err != nil {
+			if err := p.mockOIDC.StartContext(ctx); err != nil {
 				errChan <- fmt.Errorf("mock OIDC server error: %w", err)
 			}
 		}()
@@ -573,6 +609,8 @@ func (p *ProxyServer) Run(ctx context.Context) error {
 			defer wg.Done()
 			l, err := net.Listen("tcp", p.config.SSHAddr)
 			if err == nil {
+				p.listenerStarted(listenerSSH)
+				defer p.listenerState.And(^uint32(listenerSSH))
 				err = p.sshServer.Serve(ctx, l)
 			}
 			if err != nil {
@@ -590,7 +628,8 @@ func (p *ProxyServer) Run(ctx context.Context) error {
 			}
 		}()
 		if p.domainRegistry != nil {
-			go p.domainRegistry.Run(ctx)
+			wg.Add(1)
+			go func() { defer wg.Done(); p.domainRegistry.Run(ctx) }()
 		}
 	}
 
@@ -623,16 +662,10 @@ func (p *ProxyServer) Run(ctx context.Context) error {
 
 	// Start login node discovery loop and usage flush loop (for non-login nodes)
 	if !p.isLoginNode {
-		go p.loginNodeDiscoveryLoop(ctx)
-		go p.usageFlushLoop(ctx)
+		wg.Add(2)
+		go func() { defer wg.Done(); p.loginNodeDiscoveryLoop(ctx) }()
+		go func() { defer wg.Done(); p.usageFlushLoop(ctx) }()
 	}
-
-	common.LogInfo("proxy server ready",
-		"http2", p.HTTP2Addr,
-		"http3", p.HTTP3Addr,
-		"internal_grpc", p.config.InternalGRPCPort,
-		"domain", p.Domain,
-		"env", p.config.Environment)
 
 	// Wait for either an error or context cancellation
 	select {
@@ -641,17 +674,6 @@ func (p *ProxyServer) Run(ctx context.Context) error {
 	case <-ctx.Done():
 		common.LogInfo("shutting down proxy server")
 
-		// Shutdown mock OIDC server if running
-		if p.mockOIDC != nil {
-			common.LogInfo("shutting down mock OIDC server")
-			_ = p.mockOIDC.Shutdown()
-		}
-
-		// Shutdown internal gRPC server
-		common.LogInfo("shutting down internal gRPC server")
-		p.internalGRPCServer.Stop() // Use Stop() instead of GracefulStop() to avoid hanging
-
-		wg.Wait()
 		return ctx.Err()
 	}
 }
@@ -687,15 +709,23 @@ func (p *ProxyServer) startHTTP2Server(ctx context.Context, handler http.Handler
 		ln = sshfront.Share(ctx, ln, p.sshServer.ServeConn)
 	}
 	tlsLn := tls.NewListener(ln, p.tlsConfig)
+	p.listenerStarted(listenerHTTP2)
+	defer p.listenerState.And(^uint32(listenerHTTP2))
 
 	// Start server in a goroutine
-	go func() {
-		<-ctx.Done()
+	shutdownDone := make(chan struct{})
+	stopShutdown := context.AfterFunc(ctx, func() {
+		defer close(shutdownDone)
 		common.LogInfo("shutting down HTTP/2 server")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 		if err := srv.Shutdown(shutdownCtx); err != nil {
 			_ = srv.Close()
+		}
+	})
+	defer func() {
+		if !stopShutdown() {
+			<-shutdownDone
 		}
 	}()
 
@@ -715,15 +745,22 @@ func (p *ProxyServer) startHTTP3Server(ctx context.Context, handler http.Handler
 	}
 
 	common.LogInfo("starting HTTP/3 server", "addr", p.HTTP3Addr)
+	conn, err := net.ListenPacket("udp", p.HTTP3Addr)
+	if err != nil {
+		return fmt.Errorf("failed to listen on %s: %w", p.HTTP3Addr, err)
+	}
+	defer conn.Close()
+	p.listenerStarted(listenerHTTP3)
+	defer p.listenerState.And(^uint32(listenerHTTP3))
 
 	// Start server in a goroutine
-	go func() {
-		<-ctx.Done()
+	stopShutdown := context.AfterFunc(ctx, func() {
 		common.LogInfo("shutting down HTTP/3 server")
 		_ = srv.Close()
-	}()
+	})
+	defer stopShutdown()
 
-	if err := srv.ListenAndServeTLS(p.CertFile, p.KeyFile); err != nil && err != http.ErrServerClosed {
+	if err := srv.Serve(conn); err != nil && err != http.ErrServerClosed {
 		return err
 	}
 
@@ -738,12 +775,14 @@ func (p *ProxyServer) startInternalServer(ctx context.Context) error {
 	}
 
 	common.LogInfo("starting internal gRPC server", "addr", p.config.InternalGRPCPort)
+	p.listenerStarted(listenerInternal)
+	defer p.listenerState.And(^uint32(listenerInternal))
 
-	go func() {
-		<-ctx.Done()
+	stopShutdown := context.AfterFunc(ctx, func() {
 		common.LogInfo("shutting down internal gRPC server")
-		p.internalGRPCServer.GracefulStop()
-	}()
+		p.internalGRPCServer.Stop()
+	})
+	defer stopShutdown()
 
 	if err := p.internalGRPCServer.Serve(lis); err != nil && err != grpc.ErrServerStopped {
 		return err
@@ -794,10 +833,9 @@ func (p *ProxyServer) createHandler() http.Handler {
 	mux := http.NewServeMux()
 
 	// Health check endpoint (no auth required)
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = fmt.Fprint(w, "ok")
-	})
+	mux.HandleFunc("/health", p.handleHealth)
+	mux.HandleFunc("/healthz", p.handleHealth)
+	mux.HandleFunc("/readyz", p.handleHealth)
 
 	// Install script endpoint
 	mux.HandleFunc("/install.sh", p.handleInstallScript)
@@ -962,18 +1000,35 @@ func createInternalTLSConfig(cfg *config.Config) (*tls.Config, error) {
 
 // findAndConnectLoginNode discovers which peer is the login node and connects to it
 func (p *ProxyServer) findAndConnectLoginNode() bool {
-	p.loginNodeMu.Lock()
-	defer p.loginNodeMu.Unlock()
+	return p.findAndConnectLoginNodeContext(context.Background())
+}
+
+func (p *ProxyServer) findAndConnectLoginNodeContext(parent context.Context) bool {
+	pause := func() bool {
+		timer := time.NewTimer(500 * time.Millisecond)
+		defer timer.Stop()
+		select {
+		case <-parent.Done():
+			return false
+		case <-timer.C:
+			return true
+		}
+	}
 
 	// Query each peer to find the login node (with delay between queries)
 	for addr, client := range p.nodeClients {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if parent.Err() != nil {
+			return false
+		}
+		ctx, cancel := context.WithTimeout(parent, 5*time.Second)
 		resp, err := client.GetNodeInfo(ctx, &internalv1.NodeInfoRequest{})
 		cancel()
 
 		if err != nil {
 			common.LogError("failed to get node info", "addr", addr, "error", err)
-			time.Sleep(500 * time.Millisecond) // Delay before next query
+			if !pause() {
+				return false
+			}
 			continue
 		}
 
@@ -985,11 +1040,18 @@ func (p *ProxyServer) findAndConnectLoginNode() bool {
 			conn, err := createInternalClient(addr, p.config)
 			if err != nil {
 				common.LogError("failed to connect to login node", "addr", addr, "error", err)
-				time.Sleep(500 * time.Millisecond)
+				if !pause() {
+					return false
+				}
 				continue
+			}
+			if parent.Err() != nil {
+				_ = conn.Close()
+				return false
 			}
 
 			// Close existing connection if any
+			p.loginNodeMu.Lock()
 			if p.loginNodeConn != nil {
 				_ = p.loginNodeConn.Close()
 			}
@@ -1003,11 +1065,14 @@ func (p *ProxyServer) findAndConnectLoginNode() bool {
 				p.proxyStorage.SetConnection(conn)
 				common.LogInfo("proxy storage connected to login node")
 			}
+			p.loginNodeMu.Unlock()
 
 			return true
 		}
 
-		time.Sleep(500 * time.Millisecond) // Delay before next query
+		if !pause() {
+			return false
+		}
 	}
 
 	common.LogInfo("no login node found among peers (may be single-node or all nodes are proxies)")
@@ -1075,7 +1140,7 @@ func (p *ProxyServer) loginNodeDiscoveryLoop(ctx context.Context) {
 
 		// Not connected - try to find login node
 		common.LogInfo("login node not available, attempting discovery", "backoff", backoff)
-		if p.findAndConnectLoginNode() {
+		if p.findAndConnectLoginNodeContext(ctx) {
 			backoff = minBackoff // Reset on success
 		} else {
 			// Exponential backoff on failure
@@ -1108,7 +1173,9 @@ func (p *ProxyServer) usageFlushLoop(ctx context.Context) {
 		case <-ctx.Done():
 			// Final flush attempt on shutdown
 			if p.usageBuffer.Len() > 0 && p.storage.Available() {
-				flushed, _ := p.usageBuffer.Flush(context.Background(), p.storage)
+				shutdownCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+				flushed, _ := p.usageBuffer.Flush(shutdownCtx, p.storage)
+				cancel()
 				if flushed > 0 {
 					common.LogInfo("flushed usage on shutdown", "accounts", flushed)
 				}

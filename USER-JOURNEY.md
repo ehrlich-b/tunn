@@ -1,139 +1,53 @@
-# Private web sharing, as built
+# Attach a domain, publish an app, open it, sign in
 
-This journey requires the new server and CLI. The publisher has installed tunn
-and already has an HTTP app on localhost:3000. The recipient needs only a
-browser. The examples assume both people are already signed into their chosen
-Google/GitHub account. Provider account selection, passwords, MFA and any
-installation/app setup add steps and human time; they are not measured here.
-Google appears only when the operator configures it. GitHub and email login
-remain available with their existing configuration.
+Prerequisites: tunn installed on forge, a durable publisher login belonging to
+`ehrlich.bryan@gmail.com`, an existing Pro account, and an app process listening
+only on `127.0.0.1:3000`. Keep the app and publisher supervised by systemd.
+The existing account and reserved-name limits apply; this change does not alter
+plans or billing. The relay prerequisites are in [the operator guide](docs/APPS-DOMAINS.md).
 
-## First session: CLI sharing
+First app: **four one-time domain steps, one publishing step, two browser steps**
+(seven steps after prerequisites):
 
-Publisher, six actions:
+1. Attach and reserve the first app name:
+   `tunn domain add '*.apps.ehrlich.dev' --tunnel dashboard`.
+   Save the returned `cname_target`; it is the unique ownership proof value.
+2. Bryan/coordinator sets the one-time, DNS-only CNAME
+   `*.apps.ehrlich.dev → tunn.to` (`proxied=false`, automatic TTL).
+   The proposed estate helper command is
+   `cf-dns.sh cname '*.apps.ehrlich.dev' tunn.to` after applying
+   [the diff](docs/cf-dns-cname.diff). No DNS helper or credentials are run here.
+3. Set TXT `_tunn-verification.apps.ehrlich.dev` to the exact `cname_target`
+   from step 1. A generic CNAME to the edge routes traffic but cannot prove
+   publisher ownership. Leave this TXT in place for hourly ownership checks.
+4. Run `tunn domain verify '*.apps.ehrlich.dev'`. This verifies ownership;
+   concrete hostname certificates are issued on first connection, not wildcard
+   certificates. No DNS API key is needed for HTTP-01 issuance or renewal.
+5. Publish `tunn serve --name dashboard http://127.0.0.1:3000` under the same
+   account and leave it running. The CLI may also print its `tunn.to` address;
+   the app address is `https://dashboard.apps.ehrlich.dev`.
+6. Open that app URL. The edge obtains its real certificate, then sends the
+   browser to tunn's Google login page.
+7. Select **Continue with Google** and sign in as `ehrlich.bryan@gmail.com`.
+   Google returns to tunn; a one-use, browser-bound handoff returns to the app.
+   The app receives a signed identity JWT and `X-Tunn-User-Email`.
 
-1. Run `tunn 3000 --name acme-preview` and leave this terminal running. With no
-   usable saved credentials, it automatically opens publisher enrollment.
-2. In the opened browser, click **Continue with Google** or **Continue with
-   GitHub**.
-3. Approve the provider's consent if requested.
-4. Compare the displayed device code with the terminal and click **Authorize**.
-   The terminal prints `https://acme-preview.tunn.to` and says access is private.
-5. In a second terminal run `tunn share acme-preview client@example.com`.
-   To limit the invitation to a day, use
-   `tunn share acme-preview client@example.com --expires 24h`.
-6. Copy the resource URL from the publishing terminal and send it to the
-   recipient through your existing email/chat tool. tunn sends no invitation.
+Next app: **two publisher steps and one browser step**: repeat
+`tunn domain add '*.apps.ehrlich.dev' --tunnel reports` (idempotently reuses the
+claim and reserves that name), publish with `--name reports`, open
+`https://reports.apps.ehrlich.dev`. The central Google session is reused; no
+new provider login is required while it is valid. Existing Pro reserved-name
+limit: four names. Returning to an already signed-in app is **one browser step**.
+Google's account picker/consent screens may add interactions to the first login.
 
-Recipient, three actions:
+Other Google emails receive a 403 after login. Unverified Google emails receive
+403 at the provider callback. Email aliases, GitHub/magic-link sessions, endpoint
+bearers, and consumer grants cannot bypass the wildcard app gate. Adding a
+recipient or publishing with public mode cannot widen this domain's owner-only
+policy. The gate compares the verified Google email with the owner's primary
+email, without email-bucket or Unicode normalization. Confirm Bryan's primary
+account email before attaching the production domain.
 
-1. Open `https://acme-preview.tunn.to` in a clean browser.
-2. Click **Continue with Google** or **Continue with GitHub**, using an account
-   with the invited address among its verified emails.
-3. Approve provider consent if requested. The app opens automatically.
-
-This path has **nine publisher/recipient actions** including provider consent;
-consent can be skipped by an already-authorized provider. A copied URL grants
-no access to a different signed-in person. Wrong identities get **Access denied**.
-Email magic-link login is another existing choice and adds the inbox/link action.
-The publisher always retains access, including when the People list is empty.
-
-## The existing dashboard
-
-After publishing, open `https://tunn.to/account`, click **Share access and see who
-can open your resources**, then click **acme-preview**. The resource page is also
-linked directly in the publishing terminal:
-`https://tunn.to/account/sharing?tunnel=acme-preview`.
-
-Type `client@example.com` into **Email**, optionally choose **Expires at (UTC)**,
-and click **Share**. Click **Copy link** and send the URL yourself. The page shows
-owner, exposure, active people, expiry, existing machine grants, and recent
-access identities, decisions and timestamps. `tunn access acme-preview` returns
-the resource, people (including revoked/expired records), and machine grants as
-JSON. Domain entries seeded by `--allow @company.com` are also shown/removable;
-the Share form grants a specific email.
-
-## Second session
-
-If the publisher is still running, it does nothing. After stopping/restarting it,
-run exactly `tunn 3000 --name acme-preview` again. Saved rotating publisher
-credentials renew automatically, and the resource's People list survives.
-Registration's `--allow` only seeds a newly created resource; it never restores
-people removed through live sharing.
-
-The recipient opens `https://acme-preview.tunn.to` again. With an unexpired
-browser session and live permission, the app opens immediately: **one recipient
-action**, or **two total actions** if the publisher restarts. After the seven-day
-browser session expires, normal identity login is required; the permission itself
-persists until removal/expiry. There is no recipient tunn installation or token.
-
-## Remove access
-
-Run `tunn unshare acme-preview client@example.com` in the publisher's second
-terminal. Alternatively, open the resource page and click **Remove access** next
-to that person. No tunnel restart is needed. The next request is refused, and
-already-open browser HTTP/SSE and WebSocket streams close within **five seconds**.
-The watcher checks once per second, allows at most two seconds for authority
-lookup, and fails closed if that lookup fails. The audit records revocation or
-expiry as the stream's terminal reason. Removing a person does not revoke an
-independently issued machine grant or endpoint token; those are separate explicit
-sharing credentials managed with the existing grant/token commands.
-
-## Intentional public exposure and compatibility
-
-For a webhook or deliberately public app, run
-`tunn 3000 --name acme-preview --public`. Do not combine `--public` with `--allow`
-or `--bearer`. To return to private exposure, restart that publication without
-`--public`. An active anonymous stream from public mode is also cut off when
-exposure returns to private.
-
-New ordinary HTTP CLI publications send exposure version 1 and an explicit mode.
-They require a verified owner account and durable sharing authority. The SDK's
-empty-access default is also private; set `tunn.Options{Public: true, ...}` for
-intentional anonymous access. Explicit existing SDK allow-lists and endpoint
-credentials retain their private admission compatibility. A new owner-only
-publisher refuses an older relay before becoming ready or delivering requests.
-Accountless self-hosted public mode/master-secret publication supports explicit
-`--public` exposure. Private owner-only and person-sharing workflows require
-configured publisher accounts/OAuth.
-
-Unversioned older clients retain their original empty-list public behavior and
-are labelled **legacy-public** when their authenticated account is available.
-Upgrade and restart them without `--public` to make them private, or with
-`--public` to preserve intentional public access. An old empty-list publisher is
-refused if that name already has managed private/explicit exposure. MCP and TCP
-commands retain their existing authentication behavior. Name takeover by a
-new owner creates a new immutable resource ID; it inherits no browser people
-permissions, even if the old owner later reclaims the name.
-
-## Deployment and measured evidence
-
-No server was deployed. Deploy the login-node authority and all relays before
-releasing the new CLI/SDK. Initialization creates the `web_resources` table/index;
-people records use the existing `meter_grants` table. No manual/backfill migration
-is required. Existing public registrations have the deliberate compatibility
-behavior above; operators must choose their exposure when upgrading publishers.
-
-To enable Google, configure `TUNN_GOOGLE_CLIENT_ID` and
-`TUNN_GOOGLE_CLIENT_SECRET`, with the exact authorized callback
-`https://tunn.to/auth/google/callback` (or your configured public host/port).
-The flow uses browser-bound state, PKCE S256 and Google's verified-email userinfo;
-no identity is taken from a caller-provided email. See
-[Google's provider documentation](https://developers.google.com/identity/openid-connect/openid-connect).
-
-Reproduce the clean Chromium acceptance gate with Python/Playwright and its
-Chromium installed:
-
-```sh
-TUNN_SHARE_BROWSER_PYTHON=/path/to/playwright/python \
-  go test -p=1 -count=1 -v ./internal/host -run '^TestWebSharingBrowserJourney$'
-```
-
-The fixture uses real TLS ingress, dashboard forms, OAuth state/callback, cookies,
-live permissions and audit storage. Only Google's external consent/token service
-and the sample app's response are fixtures; recipient requests carry ordinary
-browser cookies, with no bypass headers. Separate loopback tests run an actual
-gRPC publisher and local origin, plus idle HTTP and WebSocket revocation.
-Local scripted times are recorded in `docs/web-sharing-validation.md`. They are
-not human sign-in measurements or proof of real Google/GitHub interoperability.
-The five outside-recipient production acceptance gate remains unrun.
+Only `/.tunn/sso/callback` is reserved on app origins. Other paths belong to the
+app. App cookies remain separate; tunn session cookies are stripped before
+forwarding. The central session lasts seven days and app sessions one hour.

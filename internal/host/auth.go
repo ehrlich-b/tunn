@@ -67,6 +67,11 @@ func (p *ProxyServer) setAuthCookie(w http.ResponseWriter, email string) error {
 
 // getAuthFromCookie reads and validates the JWT auth cookie, returning the email if valid
 func (p *ProxyServer) getAuthFromCookie(r *http.Request) (string, bool) {
+	if _, err := r.Cookie(appCookie); err == nil && p.customerHost(r.Host) {
+		claims, ok := p.googleSession(r)
+		email, _ := claims["email"].(string)
+		return email, ok
+	}
 	if !p.visitorJWTConfigured() {
 		return "", false
 	}
@@ -303,6 +308,14 @@ func (p *ProxyServer) sanitizeReturnTo(returnTo string) string {
 func (p *ProxyServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 	// Sanitize return_to (prevents open redirect) - passed via URL to OAuth endpoint
 	returnTo := p.sanitizeReturnTo(r.URL.Query().Get("return_to"))
+	if r.URL.Query().Get("google_only") == "1" {
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		writePageStart(w, "Sign in to your app")
+		_, _ = fmt.Fprintf(w, `<h1>Sign in to your app</h1><a href="/auth/google?return_to=%s" class="btn">Continue with Google</a>`, template.HTMLEscapeString(url.QueryEscape(returnTo)))
+		writePageEnd(w)
+		return
+	}
 	deviceUserCode := r.URL.Query().Get("device_user_code")
 
 	// Check if this is a tunnel access login

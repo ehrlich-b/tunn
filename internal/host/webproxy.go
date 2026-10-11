@@ -28,6 +28,8 @@ import (
 // Prevents memory exhaustion from large requests.
 const MaxBodySize = 100 * 1024 * 1024
 
+type domainAppKey struct{}
+
 type requestBodyTooLargeError struct{ limit int64 }
 
 func (e *requestBodyTooLargeError) Error() string {
@@ -65,6 +67,7 @@ func stripPlatformCookies(cookieHeader string) string {
 
 // handleWebProxy handles incoming web requests to tunnel subdomains
 func (p *ProxyServer) handleWebProxy(w http.ResponseWriter, r *http.Request) {
+	r = stripIdentityHeaders(r)
 	// Extract tunnel ID from hostname
 	tunnelID := extractTunnelID(requestHostname(r.Host), p.Domain)
 	if p.customerHost(r.Host) {
@@ -78,6 +81,9 @@ func (p *ProxyServer) handleWebProxy(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		tunnelID = binding.Tunnel
+		if strings.HasPrefix(binding.Name, "*.") {
+			r = r.WithContext(context.WithValue(r.Context(), domainAppKey{}, true))
+		}
 		r = r.WithContext(context.WithValue(r.Context(), domainOwnerKey{}, binding.Owner))
 	}
 
@@ -164,10 +170,27 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		http.Error(w, "Tunnel offline", http.StatusServiceUnavailable)
 		return nil
 	}
+	r = stripIdentityHeaders(r)
 	account, accountErr := p.currentTunnelAccount(r.Context(), tunnel)
 	if owner, ok := r.Context().Value(domainOwnerKey{}).(string); ok && (owner == "" || account == nil || account.ID != owner) {
 		http.Error(w, "Domain tunnel ownership mismatch", http.StatusForbidden)
 		return nil
+	}
+
+	appEmail, appSubject := "", ""
+	if r.Context().Value(domainAppKey{}) == true {
+		var allowed bool
+		appEmail, appSubject, allowed = p.authorizeDomainApp(w, r, account)
+		if !allowed {
+			return nil
+		}
+		assertion, err := p.appAssertion(requestHostname(r.Host), appSubject, appEmail)
+		if err != nil {
+			http.Error(w, "Identity signer unavailable", 503)
+			return nil
+		}
+		r.Header.Set("X-Tunn-Identity", assertion)
+		r.Header.Set("X-Tunn-User-Email", appEmail)
 	}
 	session := newIngressMeter(p, tunnel)
 	if account != nil {
@@ -254,6 +277,9 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		// Browsers authenticate with the platform cookie. Agents and other
 		// machine clients may use a signed tunn token in a bearer header.
 		userEmail, platformAuthHeader, capabilityAuthenticated, authenticated := p.getAuthFromTunnelBearer(r, tunnel)
+		if appEmail != "" {
+			userEmail, platformAuthHeader, capabilityAuthenticated, authenticated = appEmail, "", false, true
+		}
 		if !authenticated {
 			userEmail, authenticated = p.getAuthFromCookie(r)
 		}

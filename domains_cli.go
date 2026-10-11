@@ -19,12 +19,17 @@ import (
 
 const domainUsage = `Usage:
   tunn domain add <domain> --tunnel <reserved-name>
+  tunn domain add '*.apps.example.com' [--tunnel <app-name>]
   tunn domain verify <domain>
   tunn domain list
   tunn domain delete <domain>
 Owner options: --server, --owner-token-file, --insecure
 Add requires Pro and returns a unique cname_target. Set your DNS CNAME to
-that exact target, then run verify to provision HTTPS. Publish the reserved
+that exact target, then run verify to provision HTTPS. Wildcard claims can
+instead prove ownership with TXT _tunn-verification.<suffix> = cname_target;
+route the DNS-only wildcard CNAME to the edge. Verify checks ownership, and
+HTTPS is issued on demand for each owner-reserved app name. Repeating wildcard
+add with --tunnel reserves another app name under the existing claim. Publish the reserved
 name with tunn serve --name <reserved-name> <target>. List shows DNS and
 certificate state. Delete removes the domain; the tunnel name stays reserved.
 `
@@ -87,7 +92,7 @@ func parseDomainOptions(args []string) (*domainOptions, error) {
 			return nil, err
 		}
 	}
-	if o.action == "add" && (!domains.ValidLabel(o.tunnel) || !validCLIEndpoint(o.tunnel)) {
+	if o.action == "add" && ((!strings.HasPrefix(o.name, "*.") && (!domains.ValidLabel(o.tunnel) || !validCLIEndpoint(o.tunnel))) || (strings.HasPrefix(o.name, "*.") && o.tunnel != "" && (!domains.ValidLabel(o.tunnel) || !validCLIEndpoint(o.tunnel)))) {
 		return nil, fmt.Errorf("valid --tunnel name required")
 	}
 	return o, nil

@@ -86,6 +86,7 @@ type Config struct {
 	DBPath               string // Path to SQLite database (login node only)
 	OwnerMonthlyRequests int64  // optional tighter shared transport admission cap per owner
 	OwnerMonthlyBytes    int64  // optional tighter shared transport byte cap per owner
+	IdentityKeysFile     string // Ed25519 JWK ring, active key and retained public keys
 	CustomDomainsEnabled bool
 	HTTP01Addr           string
 	ACMEDirectory        string
@@ -126,6 +127,7 @@ func LoadConfig() (*Config, error) {
 
 	cfg.GoogleClientID = os.Getenv("TUNN_GOOGLE_CLIENT_ID")
 	cfg.GoogleClientSecret = os.Getenv("TUNN_GOOGLE_CLIENT_SECRET")
+	cfg.IdentityKeysFile = os.Getenv("TUNN_IDENTITY_KEYS_FILE")
 	cfg.CustomDomainsEnabled = os.Getenv("TUNN_CUSTOM_DOMAINS") == "true"
 	cfg.HTTP01Addr = getEnvOrDefault("TUNN_HTTP01_ADDR", ":80")
 	cfg.ACMEDirectory = getEnvOrDefault("TUNN_ACME_DIRECTORY", "https://acme-v02.api.letsencrypt.org/directory")

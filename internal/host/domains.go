@@ -49,7 +49,7 @@ func (p *ProxyServer) domainCertificate(base tls.Certificate) func(*tls.ClientHe
 		if parent == nil {
 			parent = context.Background()
 		}
-		ctx, cancel := context.WithTimeout(parent, 5*time.Second)
+		ctx, cancel := context.WithTimeout(parent, 3*time.Minute)
 		defer cancel()
 		pair, err := p.domains.Certificate(ctx, &pb.Domain{Name: name})
 		if err != nil {

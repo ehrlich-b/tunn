@@ -70,7 +70,7 @@ func (r *Remote) Certificate(ctx context.Context, in *pb.Domain) (*pb.Certificat
 	if err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	defer cancel()
 	return c.Certificate(ctx, in)
 }

@@ -6,11 +6,13 @@ import (
 	"strings"
 )
 
-// NormalizeName accepts concrete ASCII DNS names only. No wildcard, IP, URL,
+// NormalizeName accepts ASCII DNS names and a single leading wildcard. No IP, URL,
 // port, or control-origin alias can enter the customer namespace.
 func NormalizeName(name, base string) (string, error) {
 	name = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(name)), ".")
 	base = strings.TrimSuffix(strings.ToLower(base), ".")
+	wildcard := strings.HasPrefix(name, "*.")
+	name = strings.TrimPrefix(name, "*.")
 	if len(name) > 253 || !strings.Contains(name, ".") || net.ParseIP(name) != nil || name == base || strings.HasSuffix(name, "."+base) {
 		return "", fmt.Errorf("require a customer DNS name outside the relay domain")
 	}
@@ -29,6 +31,9 @@ func NormalizeName(name, base string) (string, error) {
 	}
 	if !hasLetter {
 		return "", fmt.Errorf("invalid DNS suffix")
+	}
+	if wildcard {
+		name = "*." + name
 	}
 	return name, nil
 }

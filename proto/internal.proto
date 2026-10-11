@@ -42,6 +42,7 @@ service LoginNodeDB {
   // Durable payment intake, authenticated by the existing internal node gate.
   rpc ProcessBillingEvent(ProcessBillingEventRequest) returns (ProcessBillingEventResponse);
   rpc IntakeReport(IntakeReportRequest) returns (IntakeReportResponse);
+  rpc BeginBillingCheckout(BeginBillingCheckoutRequest) returns (BeginBillingCheckoutResponse);
 }
 
 
@@ -123,6 +124,8 @@ message AccountResponse {
   repeated AccountEmail emails = 6;
   string operational_state = 7;
   int64 operational_version = 8;
+  string billing_state = 9;
+  string billing_notice = 10;
 }
 
 message AccountEmail {
@@ -212,3 +215,6 @@ message ProcessBillingEventRequest { bytes event_json = 1; }
 message ProcessBillingEventResponse { bytes result_json = 1; }
 message IntakeReportRequest { string account_id = 1; string category = 2; string endpoint = 3; }
 message IntakeReportResponse { bytes report_json = 1; }
+
+message BeginBillingCheckoutRequest { string account_id = 1; string destination = 2; }
+message BeginBillingCheckoutResponse { string reference = 1; string destination = 2; }

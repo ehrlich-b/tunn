@@ -5,14 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/ehrlich-b/tunn/internal/store"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"sync"
 	"time"
 
 	internalv1 "github.com/ehrlich-b/tunn/pkg/proto/internalv1"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/connectivity"
+	"google.golang.org/grpc/status"
 )
 
 // ProxyStorage implements Storage by proxying to the login node via gRPC.
@@ -328,12 +328,19 @@ func protoAccountToStorage(resp *internalv1.AccountResponse) *Account {
 			AddedAt:     time.Unix(e.AddedAt, 0),
 		}
 	}
+	// Preserve legacy authority grants during the schema-only rolling upgrade.
+	plan := "free"
+	if (resp.BillingState == "active" || resp.BillingState == "legacy" || resp.BillingState == "") && resp.Plan == "pro" {
+		plan = "pro"
+	}
 	return &Account{
+		BillingState:       resp.BillingState,
+		BillingNotice:      resp.BillingNotice,
 		OperationalState:   resp.OperationalState,
 		OperationalVersion: resp.OperationalVersion,
 		ID:                 resp.Id,
 		PrimaryEmail:       resp.PrimaryEmail,
-		Plan:               resp.Plan,
+		Plan:               plan,
 		CreatedAt:          time.Unix(resp.CreatedAt, 0),
 		Emails:             emails,
 	}
@@ -388,4 +395,30 @@ func (s *ProxyStorage) IntakeReport(ctx context.Context, id, category, endpoint 
 		return nil, err
 	}
 	return &out, nil
+}
+
+func (s *ProxyStorage) BeginBillingCheckout(ctx context.Context, id string) (string, error) {
+	reference, _, err := s.PrepareBillingCheckout(ctx, id, "")
+	return reference, err
+}
+
+func (s *ProxyStorage) PrepareBillingCheckout(ctx context.Context, id, destination string) (string, string, error) {
+	c := s.getClient()
+	if c == nil {
+		return "", "", ErrNotAvailable
+	}
+	r, err := c.BeginBillingCheckout(ctx, &internalv1.BeginBillingCheckoutRequest{AccountId: id, Destination: destination})
+	if err != nil {
+		switch status.Code(err) {
+		case codes.FailedPrecondition:
+			return "", "", store.ErrCheckoutBlocked
+		case codes.PermissionDenied:
+			return "", "", store.ErrSuspended
+		}
+		return "", "", err
+	}
+	if destination != "" && r.Destination == "" {
+		return "", "", fmt.Errorf("billing authority must support durable checkout destinations")
+	}
+	return r.Reference, r.Destination, nil
 }

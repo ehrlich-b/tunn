@@ -910,6 +910,11 @@ func (p *ProxyServer) handleLogout(w http.ResponseWriter, r *http.Request) {
 
 // AccountPageData holds data for the account page template
 type AccountPageData struct {
+	revenuePageData
+	BillingNotice            string
+	BillingReturn            bool
+	BillingSupport           bool
+	BillingResumable         bool
 	Email                    string
 	Plan                     string
 	UsageBytes               int64
@@ -927,30 +932,16 @@ type AccountPageData struct {
 
 // handleAccount shows the account dashboard page
 func (p *ProxyServer) handleAccount(w http.ResponseWriter, r *http.Request) {
-	// Check authentication via JWT cookie
-	email, authenticated := p.getAuthFromCookie(r)
-	if !authenticated {
-		loginURL := fmt.Sprintf("/auth/login?return_to=%s", url.QueryEscape(r.URL.String()))
-		http.Redirect(w, r, loginURL, http.StatusFound)
+	account := p.revenueAccount(w, r)
+	if account == nil {
 		return
 	}
-
-	// Get account info
-	plan := "free"
-	var usageBytes int64 = 0
-	var requestsUsed int64
+	email, plan := account.PrimaryEmail, account.Plan
+	var usageBytes, requestsUsed int64
 	usageAvailable := false
-
-	if p.storage != nil && p.storage.Available() {
-		// Try to get account info
-		if account, err := p.storage.GetAccountByEmail(r.Context(), email); err == nil && account != nil {
-			plan = account.Plan
-			// Include bytes charged by active streams, across every transport.
-			if p.meter != nil {
-				if usage, err := p.meter.Export(r.Context(), &meterpb.ExportRequest{Owner: account.ID, Month: time.Now().UTC().Format("2006-01")}); err == nil && usage.OwnerUsage != nil {
-					usageBytes, requestsUsed, usageAvailable = usage.OwnerUsage.TotalBytes, usage.OwnerUsage.AdmittedRequests, true
-				}
-			}
+	if p.meter != nil {
+		if usage, err := p.meter.Export(r.Context(), &meterpb.ExportRequest{Owner: account.ID, Month: time.Now().UTC().Format("2006-01")}); err == nil && usage.OwnerUsage != nil {
+			usageBytes, requestsUsed, usageAvailable = usage.OwnerUsage.TotalBytes, usage.OwnerUsage.AdmittedRequests, true
 		}
 	}
 
@@ -978,29 +969,19 @@ func (p *ProxyServer) handleAccount(w http.ResponseWriter, r *http.Request) {
 	usageFormatted := formatBytes(usageBytes)
 	quotaFormatted := formatBytes(quotaBytes)
 
-	// Stripe checkout URLs - append prefilled_email to auto-fill customer email
-	stripeMonthly := p.config.StripeCheckoutURLMonthly
-	if stripeMonthly == "" {
-		stripeMonthly = "#"
-	} else if u, err := url.Parse(stripeMonthly); err == nil {
-		q := u.Query()
-		q.Set("prefilled_email", email)
-		u.RawQuery = q.Encode()
-		stripeMonthly = u.String()
+	stripeMonthly, stripeYearly := "", ""
+	revenue := p.revenueData()
+	if account.BillingState != "available" {
+		revenue.MonthlyAvailable, revenue.YearlyAvailable = false, false
 	}
-	stripeYearly := p.config.StripeCheckoutURLYearly
-	if stripeYearly == "" {
-		stripeYearly = "#"
-	} else if u, err := url.Parse(stripeYearly); err == nil {
-		q := u.Query()
-		q.Set("prefilled_email", email)
-		u.RawQuery = q.Encode()
-		stripeYearly = u.String()
+	if revenue.MonthlyAvailable {
+		stripeMonthly = "/upgrade?period=monthly"
 	}
-	stripePortal := p.config.StripePortalURL
-	if stripePortal == "" {
-		stripePortal = "#"
-	} else if u, err := url.Parse(stripePortal); err == nil {
+	if revenue.YearlyAvailable {
+		stripeYearly = "/upgrade?period=yearly"
+	}
+	stripePortal := ""
+	if u, ok := stripeURL(p.config.StripePortalURL, "billing.stripe.com"); ok {
 		q := u.Query()
 		q.Set("prefilled_email", email)
 		u.RawQuery = q.Encode()
@@ -1008,8 +989,13 @@ func (p *ProxyServer) handleAccount(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := AccountPageData{
-		Email:        email,
-		RequestsUsed: requestsUsed, RequestsLimit: requestsLimit, UsageAvailable: usageAvailable,
+		revenuePageData:  revenue,
+		BillingNotice:    account.BillingNotice,
+		BillingReturn:    r.URL.Query().Get("billing") == "return" || account.BillingState == "pending",
+		BillingSupport:   account.BillingState != "available" && account.Plan == "free",
+		BillingResumable: account.BillingState == "resumable" && r.URL.Query().Get("billing") != "return",
+		Email:            email,
+		RequestsUsed:     requestsUsed, RequestsLimit: requestsLimit, UsageAvailable: usageAvailable,
 		Plan:                     plan,
 		UsageBytes:               usageBytes,
 		QuotaBytes:               quotaBytes,

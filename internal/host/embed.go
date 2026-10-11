@@ -15,3 +15,15 @@ var termsHTML string
 
 //go:embed templates/account.html
 var accountHTML string
+
+//go:embed templates/pricing.html
+var pricingHTML string
+
+//go:embed templates/docs.html
+var docsHTML string
+
+//go:embed templates/mcp-to-claude.html
+var mcpTutorialHTML string
+
+//go:embed templates/ngrok-alternative.html
+var ngrokAlternativeHTML string

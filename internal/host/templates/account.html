@@ -262,58 +262,66 @@ h1 {
     </div>
   </div>
 
-  {{if eq .Plan "free"}}
-  <div class="card upgrade-card">
-    <div class="card-title">Upgrade to Pro</div>
-    <p>Get 50 GB/month, 10 concurrent tunnels, and priority support.</p>
-
-    <div class="billing-toggle">
-      <span class="toggle-label" id="label-monthly">Monthly</span>
-      <label class="toggle-switch">
-        <input type="checkbox" id="billing-toggle" checked>
-        <span class="toggle-slider"></span>
-      </label>
-      <span class="toggle-label active" id="label-yearly">Yearly <span class="save-badge">Save 20%</span></span>
-    </div>
-
-    <div class="price-display">
-      <span class="price" id="price-monthly" style="display: none;">$5<span class="price-period">/mo</span></span>
-      <span class="price" id="price-yearly">$4<span class="price-period">/mo</span> <span class="billed-yearly">billed yearly</span></span>
-    </div>
-
-    <a href="{{.StripeCheckoutURLYearly}}" class="upgrade-btn-white" id="checkout-link">Upgrade Now</a>
+  {{if .BillingNotice}}
+  <div class="card" role="status" aria-live="polite">
+    <div class="card-title">Payment review</div>
+    <p>{{if eq .BillingNotice "duplicate_payment_refund_needed"}}An additional payment needs review for cancellation and refund. {{if eq .Plan "pro"}}Your Pro service remains available.{{end}}{{else}}Your payment needs review. If the purchase cannot be fulfilled, support will review cancellation and refund.{{end}}</p>
+    <p>Do not pay again. <a href="mailto:support@tunn.to">Contact support</a> for help with this payment.</p>
+  </div>
+  {{end}}
+  {{if .BillingReturn}}
+  <div class="card" role="status" aria-live="polite">
+    <div class="card-title">Subscription status</div>
+    <p id="billing-status">{{if eq .Plan "pro"}}Pro is active on this account.{{else}}Pro activation is pending. The payment return alone does not confirm your subscription.{{end}}</p>
+    <p>During the launch beta, activation is reviewed by an operator. If you have paid, do not pay again. <a href="mailto:support@tunn.to">Contact support</a> if your plan remains Free.</p>
+    <a href="/account?billing=return">Check again</a>
   </div>
   <script>
-    const toggle = document.getElementById('billing-toggle');
-    const link = document.getElementById('checkout-link');
-    const priceMonthly = document.getElementById('price-monthly');
-    const priceYearly = document.getElementById('price-yearly');
-    const labelMonthly = document.getElementById('label-monthly');
-    const labelYearly = document.getElementById('label-yearly');
-    const monthlyURL = "{{.StripeCheckoutURLMonthly}}";
-    const yearlyURL = "{{.StripeCheckoutURLYearly}}";
-
-    toggle.addEventListener('change', function() {
-      if (this.checked) {
-        link.href = yearlyURL;
-        priceMonthly.style.display = 'none';
-        priceYearly.style.display = 'inline';
-        labelYearly.classList.add('active');
-        labelMonthly.classList.remove('active');
-      } else {
-        link.href = monthlyURL;
-        priceMonthly.style.display = 'inline';
-        priceYearly.style.display = 'none';
-        labelMonthly.classList.add('active');
-        labelYearly.classList.remove('active');
-      }
-    });
+  (() => {
+    const message = document.getElementById('billing-status');
+    let attempts = 0;
+    async function check() {
+      try {
+        const response = await fetch('/api/billing/status', {cache: 'no-store'});
+        if (!response.ok || response.redirected) throw new Error('unavailable');
+        const status = await response.json();
+        if (status.notice) { message.textContent = status.notice === 'duplicate_payment_refund_needed' ? 'An additional payment needs review for cancellation and refund. Do not pay again; contact support.' : 'Your payment needs review. Do not pay again; contact support for activation or refund.'; return; }
+        if (status.state === 'active') { message.textContent = 'Pro is active on this account. Refresh the account page to see your new limits.'; return; }
+        if (status.state === 'suspended') { message.textContent = 'Your account is suspended. Contact support before making a payment.'; return; }
+        message.textContent = 'Pro activation is pending. If you have paid, do not pay again. Contact support if your plan remains Free.';
+      } catch (_) { message.textContent = 'Subscription status is temporarily unavailable. Use Check again or contact support; do not pay again.'; }
+      if (++attempts < 12) setTimeout(check, 5000);
+    }
+    check();
+  })();
   </script>
+  {{else if .BillingResumable}}
+  <div class="card" role="status">
+    <div class="card-title">Continue checkout</div>
+    <p>If you have not paid, you can resume your checkout within 24 hours. If you have paid, contact support before continuing.</p>
+    <a href="/upgrade">Resume checkout</a>
+  </div>
+  {{else if .BillingSupport}}
+  <div class="card" role="status">
+    <div class="card-title">Subscription review</div>
+    <p>Your account is Free. Contact <a href="mailto:support@tunn.to">support</a> before starting another subscription.</p>
+  </div>
+  {{else if eq .Plan "free"}}
+  <div class="card upgrade-card">
+    <div class="card-title">Upgrade to Pro</div>
+    <p>{{.ProBytes}} and {{.ProRequests}} admissions/month, {{.ProTunnels}} concurrent tunnels and {{.Reservations}} reserved names. Limits reset each UTC calendar month. No overage charges.</p>
+    {{if .MonthlyAvailable}}<a href="{{.StripeCheckoutURLMonthly}}" class="upgrade-btn-white">Pro — ${{.MonthlyUSD}}/month</a>{{end}}
+    {{if .YearlyAvailable}}<a href="{{.StripeCheckoutURLYearly}}" class="upgrade-btn-white">Pro — ${{.YearlyUSD}}/year</a>{{end}}
+    {{if not .MonthlyAvailable}}{{if not .YearlyAvailable}}<p>Checkout is not available yet. Free tunnels still work.</p>{{end}}{{end}}
+    <p>Launch beta: an operator reviews activation after payment.</p>
+    <a href="/pricing" class="upgrade-btn-white">Compare plans</a>
+  </div>
   {{else}}
   <div class="card">
     <div class="card-title">Subscription</div>
-    <p>You're on the Pro plan. Manage your subscription, update payment methods, or cancel anytime.</p>
-    <a href="{{.StripeBillingPortalURL}}" class="upgrade-btn-white" style="margin-top: 1rem;">Manage Subscription</a>
+    <p>You're on the Pro plan.</p>
+    {{if .StripeBillingPortalURL}}<a href="{{.StripeBillingPortalURL}}" class="btn btn-primary">Manage Subscription</a>
+    {{else}}<p>For subscription changes, <a href="mailto:support@tunn.to">contact support</a>.</p>{{end}}
   </div>
   {{end}}
 </div>

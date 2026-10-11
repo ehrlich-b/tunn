@@ -72,9 +72,12 @@ type Config struct {
 	// Stripe configuration (for billing)
 	StripeSecretKey          string // Stripe secret key (sk_...) for API calls
 	StripeWebhookSecret      string
-	StripeCheckoutURLMonthly string // Payment link for monthly Pro ($5/mo)
-	StripeCheckoutURLYearly  string // Payment link for yearly Pro ($4/yr or $48/yr)
+	StripeCheckoutURLMonthly string // Payment link for monthly Pro
+	StripeCheckoutURLYearly  string // Payment link for yearly Pro
 	StripePortalURL          string // Customer portal for managing subscriptions
+	BillingEnabled           bool   // Explicitly enable checkout after fulfillment acceptance
+	ProMonthlyUSD            int    // Display must match the approved Stripe Price
+	ProYearlyUSD             int
 
 	// Client configuration
 	ServerAddr string
@@ -124,6 +127,20 @@ func LoadConfig() (*Config, error) {
 			return nil, fmt.Errorf("%s must be a nonnegative integer", budget.name)
 		}
 		*budget.value = value
+	}
+	cfg.BillingEnabled = os.Getenv("TUNN_BILLING_ENABLED") == "true"
+	for _, price := range []struct {
+		name, fallback string
+		value          *int
+	}{
+		{"TUNN_PRO_MONTHLY_USD", "6", &cfg.ProMonthlyUSD},
+		{"TUNN_PRO_YEARLY_USD", "60", &cfg.ProYearlyUSD},
+	} {
+		value, err := strconv.Atoi(getEnvOrDefault(price.name, price.fallback))
+		if err != nil || value < 1 || value > 10000 {
+			return nil, fmt.Errorf("%s must be an integer from 1 to 10000", price.name)
+		}
+		*price.value = value
 	}
 
 	cfg.GoogleClientID = os.Getenv("TUNN_GOOGLE_CLIENT_ID")

@@ -74,6 +74,9 @@ func setMeterHeaders(w http.ResponseWriter, d *pb.Decision) {
 	w.Header().Set("Tunn-Bytes-Remaining", strconv.FormatInt(d.BytesRemaining, 10))
 	if !d.Allowed {
 		w.Header().Set("Tunn-Limit-Reason", d.Reason)
+		if d.Reason == "owner_request_budget" || d.Reason == "owner_byte_budget" {
+			w.Header().Set("Tunn-Upgrade-URL", "https://tunn.to/pricing")
+		}
 	}
 	if d.RetryAfter > 0 {
 		w.Header().Set("Retry-After", strconv.FormatInt(d.RetryAfter, 10))
@@ -95,7 +98,11 @@ func (s *ingressMeter) admit(ctx context.Context, w http.ResponseWriter, r *http
 	setMeterHeaders(w, d)
 	if !d.Allowed {
 		s.reason = d.Reason
-		http.Error(w, d.Reason, int(d.Status))
+		message := d.Reason
+		if d.Reason == "owner_request_budget" || d.Reason == "owner_byte_budget" {
+			message += ": account monthly allowance reached; see /account for usage and https://tunn.to/pricing for plans. Limits reset next UTC calendar month."
+		}
+		http.Error(w, message, int(d.Status))
 		return false
 	}
 	s.admitted = true

@@ -19,7 +19,7 @@ var ErrVersionConflict = errors.New("account version conflict")
 var ErrDenied = errors.New("administration denied")
 
 // OperationsSchema uses isolated tables so domain/quota migrations can coexist.
-// It never changes plans, prices, usage, or existing account rows.
+// Verified billing state and preserved legacy grants project account plans.
 const OperationsSchema = `
 CREATE TABLE IF NOT EXISTS ops_account_state (
  account_id TEXT PRIMARY KEY REFERENCES accounts(id),
@@ -40,6 +40,39 @@ CREATE TABLE IF NOT EXISTS ops_billing_mappings (
  PRIMARY KEY(provider,subscription_id), UNIQUE(provider,customer_id)
 );
 CREATE INDEX IF NOT EXISTS ops_billing_account ON ops_billing_mappings(account_id);
+CREATE TABLE IF NOT EXISTS ops_billing_states (
+ provider TEXT NOT NULL, subscription_id TEXT NOT NULL,
+ plan TEXT NOT NULL CHECK(plan IN ('free','pro')), revision INTEGER NOT NULL,
+ provider_read_at INTEGER NOT NULL, digest TEXT NOT NULL,
+ PRIMARY KEY(provider,subscription_id),
+ FOREIGN KEY(provider,subscription_id) REFERENCES ops_billing_mappings(provider,subscription_id),
+ CHECK(revision > 0 OR provider_read_at > 0)
+);
+CREATE TABLE IF NOT EXISTS ops_checkout_intents (
+ reference TEXT PRIMARY KEY, account_id TEXT NOT NULL REFERENCES accounts(id), created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ops_checkout_account ON ops_checkout_intents(account_id);
+CREATE TABLE IF NOT EXISTS ops_checkout_destinations (
+ reference TEXT PRIMARY KEY REFERENCES ops_checkout_intents(reference),
+ destination TEXT NOT NULL, expires_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS ops_checkout_payments (
+ provider TEXT NOT NULL, subscription_id TEXT NOT NULL, customer_id TEXT NOT NULL,
+ reference TEXT NOT NULL REFERENCES ops_checkout_intents(reference),
+ outcome TEXT NOT NULL, event_id TEXT NOT NULL,
+ PRIMARY KEY(provider,subscription_id)
+);
+CREATE INDEX IF NOT EXISTS ops_checkout_payment_reference ON ops_checkout_payments(reference);
+CREATE TABLE IF NOT EXISTS ops_legacy_entitlements (
+ original_account_id TEXT PRIMARY KEY, account_id TEXT NOT NULL REFERENCES accounts(id),
+ plan TEXT NOT NULL CHECK(plan IN ('pro','free')), version INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS ops_legacy_account ON ops_legacy_entitlements(account_id);
+CREATE TABLE IF NOT EXISTS ops_legacy_entitlement_audit (
+ id TEXT PRIMARY KEY, original_account_id TEXT NOT NULL, account_id TEXT NOT NULL,
+ previous_plan TEXT NOT NULL, plan TEXT NOT NULL, version INTEGER NOT NULL,
+ reason TEXT NOT NULL, actor TEXT NOT NULL, changed_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS ops_billing_events (
  provider TEXT NOT NULL, event_id TEXT NOT NULL, digest TEXT NOT NULL,
  event_type TEXT NOT NULL, subscription_id TEXT NOT NULL, customer_id TEXT NOT NULL,
@@ -115,7 +148,48 @@ func NewOperationsStore(db *sql.DB, now func() time.Time) *OperationsStore {
 	}
 	return &OperationsStore{db, now}
 }
-func MigrateOperations(db *sql.DB) error { _, err := db.Exec(OperationsSchema); return err }
+func MigrateOperations(db *sql.DB) error {
+	return migrateOperations(db, true)
+}
+
+func migrateOperations(db *sql.DB, projectRollback bool) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var installed bool
+	if err = tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='ops_legacy_entitlements')`).Scan(&installed); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(OperationsSchema); err != nil {
+		return err
+	}
+	// Install schema without changing any plan or reservation. Snapshot legacy
+	// grants exactly once, before the new reducer reads accounts. Existing verified
+	// projections are not legacy grants. Global decisions and audited rollback
+	// compatibility revocations end grants; restarts never re-import revoked ones.
+	if !installed {
+		if _, err = tx.Exec(`INSERT INTO ops_legacy_entitlements(original_account_id,account_id,plan)
+ SELECT id,id,'pro' FROM accounts WHERE plan='pro' AND NOT EXISTS(
+ SELECT 1 FROM ops_billing_mappings m JOIN ops_billing_states s USING(provider,subscription_id)
+ WHERE m.account_id=accounts.id)`); err != nil {
+			return err
+		}
+	}
+	if err = migratePaymentReview(tx); err != nil {
+		return err
+	}
+	if err = migrateRollbackCompatibility(tx, installed); err != nil {
+		return err
+	}
+	if projectRollback {
+		if err = projectRollbackAccounts(tx); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
 
 type operationQuery interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
@@ -165,7 +239,19 @@ func (s *OperationsStore) AdminMigrate(ctx context.Context, p AdminPrincipal, id
 	if err = p.authorize(canonical); err != nil {
 		return err
 	}
-	return MigrateOperations(s.db)
+	// Installing compatibility over an existing 4416eff snapshot can recover
+	// old-code revocations for other accounts. Scoped migration cannot authorize
+	// this one-time global recovery; ordinary host startup owns release migration.
+	var recovery bool
+	if err = s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='ops_legacy_entitlements') AND NOT EXISTS(SELECT 1 FROM sqlite_master WHERE name='ops_rollback_revocations')`).Scan(&recovery); err != nil {
+		return err
+	}
+	if recovery {
+		if err = p.authorize("*"); err != nil {
+			return err
+		}
+	}
+	return migrateOperations(s.db, p.authorize("*") == nil)
 }
 
 // Transition is compare-and-swap. Resume is suspended -> active and increments
@@ -234,11 +320,19 @@ func mergeAccountOperations(tx *sql.Tx, from, to string) error {
 			return err
 		}
 	}
-	for _, table := range []string{"ops_account_audit", "ops_billing_mappings", "ops_billing_events", "ops_reports"} {
+	if _, err = tx.Exec(`INSERT OR IGNORE INTO ops_billing_merged_purchases SELECT provider,subscription_id FROM ops_billing_mappings WHERE account_id IN(?,?)`, from, to); err != nil {
+		return err
+	}
+	for _, table := range []string{"ops_account_audit", "ops_billing_mappings", "ops_billing_events", "ops_checkout_intents", "ops_checkout_payments", "ops_legacy_entitlements", "ops_reports"} {
 		if _, err = tx.Exec("UPDATE "+table+" SET account_id=? WHERE account_id=?", to, from); err != nil {
 			return err
 		}
 	}
-	_, err = tx.Exec("DELETE FROM ops_account_state WHERE account_id=?", from)
-	return err
+	if _, err = tx.Exec("DELETE FROM ops_account_state WHERE account_id=?", from); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`INSERT OR IGNORE INTO ops_rollback_revocations SELECT ?,changed_at FROM ops_rollback_revocations WHERE account_id=?; DELETE FROM ops_rollback_revocations WHERE account_id=?`, to, from, from); err != nil {
+		return err
+	}
+	return projectBillingAccount(ctx, tx, to)
 }

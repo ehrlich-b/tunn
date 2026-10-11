@@ -49,6 +49,11 @@ func domainFixture(t *testing.T, issuer Issuer) (*Registry, *fakeDNS, *sql.DB) {
 	if _, err := db.Exec(`INSERT INTO accounts(id,primary_email,plan,created_at) VALUES('one','one@example.com','pro',1),('two','two@example.com','pro',1),('free','free@example.com','free',1)`); err != nil {
 		t.Fatal(err)
 	}
+	for _, id := range []string{"one", "two"} {
+		if err := store.NewAccountStore(db).UpdatePlan(id, "pro"); err != nil {
+			t.Fatal(err)
+		}
+	}
 	dns := &fakeDNS{records: map[string]string{}}
 	r, err := New(db, "relay.test", fixtureKey, dns, issuer)
 	if err != nil {

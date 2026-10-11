@@ -84,9 +84,11 @@ func TestGitHubCompleteBrowserLoginMergesVerifiedAliases(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := accounts.UpdatePlan(alias.ID, "pro"); err != nil {
+			billingAlias, err := local.GetAccount(ctx, alias.ID)
+			if err != nil {
 				t.Fatal(err)
 			}
+			reviewActivate(t, local, billingAlias, "cus_alias", "sub_alias")
 			if err := accounts.RecordUsage(first.ID, 11); err != nil {
 				t.Fatal(err)
 			}

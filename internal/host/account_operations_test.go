@@ -320,6 +320,9 @@ func TestAccountOperationsStripeAdapterAndDurableIntake(t *testing.T) {
 				t.Fatal(err)
 			}
 			want := "reconciliation_required"
+			if strings.Contains(body, `"checkout"`) {
+				want = "checkout_ownership_review_required"
+			}
 			if strings.Contains(body, `"unknown"`) {
 				want = "ignored"
 			}
@@ -377,7 +380,7 @@ func TestAccountOperationsReplicaBillingReportsAndAuthentication(t *testing.T) {
 			}
 		}
 	}
-	for _, method := range []string{"/internal.LoginNodeDB/ProcessBillingEvent", "/internal.LoginNodeDB/IntakeReport"} {
+	for _, method := range []string{"/internal.LoginNodeDB/ProcessBillingEvent", "/internal.LoginNodeDB/IntakeReport", "/internal.LoginNodeDB/BeginBillingCheckout"} {
 		called := false
 		handler := func(context.Context, any) (any, error) { called = true; return nil, nil }
 		ctx := metadata.NewIncomingContext(ctx, metadata.Pairs("x-node-secret", ""))

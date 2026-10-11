@@ -252,6 +252,8 @@ func accountToProto(acc *storage.Account) *internalv1.AccountResponse {
 		}
 	}
 	return &internalv1.AccountResponse{
+		BillingState:       acc.BillingState,
+		BillingNotice:      acc.BillingNotice,
 		OperationalState:   acc.OperationalState,
 		OperationalVersion: acc.OperationalVersion,
 		Found:              true,
@@ -261,4 +263,19 @@ func accountToProto(acc *storage.Account) *internalv1.AccountResponse {
 		CreatedAt:          acc.CreatedAt.Unix(),
 		Emails:             emails,
 	}
+}
+
+func (s *LoginNodeDBServer) BeginBillingCheckout(ctx context.Context, r *internalv1.BeginBillingCheckoutRequest) (*internalv1.BeginBillingCheckoutResponse, error) {
+	reference, destination, err := s.storage.PrepareBillingCheckout(ctx, r.AccountId, r.Destination)
+	if err != nil {
+		switch {
+		case errors.Is(err, store.ErrCheckoutBlocked):
+			return nil, status.Error(codes.FailedPrecondition, "checkout requires billing review")
+		case errors.Is(err, store.ErrSuspended):
+			return nil, status.Error(codes.PermissionDenied, "account suspended")
+		default:
+			return nil, status.Error(codes.Unavailable, "checkout not committed")
+		}
+	}
+	return &internalv1.BeginBillingCheckoutResponse{Reference: reference, Destination: destination}, nil
 }

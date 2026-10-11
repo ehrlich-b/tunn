@@ -54,6 +54,9 @@ func TestAccountOperationsCombinedLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = db.Close() }()
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS ops_fixture(id INTEGER PRIMARY KEY,value TEXT); INSERT OR IGNORE INTO ops_fixture VALUES(1,'disposable-local')`); err != nil {
+		t.Fatal(err)
+	}
 	local := storage.NewLocalStorage(db)
 	a, err := local.FindOrCreateByEmails(ctx, []string{"account-a@example.invalid"}, "fixture")
 	if err != nil {

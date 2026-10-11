@@ -62,6 +62,7 @@ Usage:
   tunn keys add|list|remove       Manage account SSH public keys
   tunn login                     Authenticate with GitHub
   tunn serve [options] <target>  Explicit serve mode (same as default)
+  tunn http [options] <target>   Shortcut for ngrok-style HTTP usage
   tunn mcp [options] <command…>   Connect a local MCP server to an AI agent
   tunn tcp [options] <host:port>  Publish a private raw TCP endpoint
   tunn unix [options] <path>      Publish a private Unix socket
@@ -124,7 +125,7 @@ Options:
 		runKeys(args[1:])
 	case "login":
 		runLogin()
-	case "serve":
+	case "serve", "http":
 		runServe(args[1:])
 	case "mcp":
 		runMCP(args[1:])

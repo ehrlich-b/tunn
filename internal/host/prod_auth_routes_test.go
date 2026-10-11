@@ -70,6 +70,12 @@ var prodAuthRoutes = []prodAuthRoute{
 	{"GET", "/account", "/account", "", [11]int{302, 302, 302, 302, 200, 200, 302, 302, 302, 302, 302}},
 	{"GET", "/account/devices", "/account/devices", "", [11]int{302, 302, 302, 302, 200, 200, 302, 302, 302, 302, 302}},
 	{"POST", "/account/devices", "/account/devices", "csrf", [11]int{302, 302, 302, 302, 404, 404, 302, 302, 302, 302, 302}},
+	{"GET", "/pricing", "/pricing", "", [11]int{200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200}},
+	{"GET", "/ngrok-alternative", "/ngrok-alternative", "", [11]int{200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200}},
+	{"GET", "/docs", "/docs", "", [11]int{200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200}},
+	{"GET", "/docs/mcp-to-claude", "/docs/", "", [11]int{200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200}},
+	{"GET", "/upgrade", "/upgrade", "", [11]int{302, 302, 302, 302, 303, 303, 302, 302, 302, 302, 302}},
+	{"GET", "/api/billing/status", "/api/billing/status", "", [11]int{302, 302, 302, 302, 200, 200, 302, 302, 302, 302, 302}},
 	{"GET", "/account/mcp", "/account/mcp", "", [11]int{302, 302, 302, 302, 200, 200, 302, 302, 302, 302, 302}},
 	{"POST", "/account/mcp?tunnel=tools", "/account/mcp", "csrf", [11]int{302, 302, 302, 302, 303, 303, 302, 302, 302, 302, 302}},
 	{"GET", "/api/mcp/clients?tunnel=tools", "/api/mcp/clients", "", [11]int{401, 200, 200, 200, 401, 401, 401, 401, 401, 401, 401}},
@@ -130,8 +136,14 @@ func newProdAuthFixture(t *testing.T) *prodAuthFixture {
 	if _, err := f.p.storage.FindOrCreateByEmails(ctx, []string{"other@example.com"}, "test"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`UPDATE accounts SET plan='pro'`); err != nil {
-		t.Fatal(err)
+	for _, email := range []string{"owner@example.com", "other@example.com"} {
+		a, err := f.p.storage.GetAccountByEmail(ctx, email)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = f.p.storage.UpdatePlan(ctx, a.ID, "pro"); err != nil {
+			t.Fatal(err)
+		}
 	}
 	f.p.config.HostModeEnabled, f.p.config.LoginNode = true, true
 	f.p.config.StripeWebhookSecret = "offline-webhook-key"

@@ -160,6 +160,10 @@ func TestOpsDBDiskRestartPreservesIdentityAndReservations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS ops_fixture(id INTEGER PRIMARY KEY,value TEXT); INSERT OR IGNORE INTO ops_fixture VALUES(1,'disposable-local')`); err != nil {
+		t.Fatal(err)
+	}
+
 	accounts := NewAccountStore(db)
 	account, err := accounts.FindOrCreateByEmails([]string{"alice@example.com", "alice@work.example"}, "github")
 	if err != nil {
@@ -228,7 +232,7 @@ INSERT INTO accounts VALUES ('legacy','legacy@example.com','pro',42);`); err != 
 		}
 		got, err := NewAccountStore(db).GetByID("legacy")
 		if err != nil || got.Plan != "pro" || got.CreatedAt.Unix() != 42 {
-			t.Fatal("migration changed legacy identity", err)
+			t.Fatal("migration failed to preserve legacy identity and entitlement", err)
 		}
 		var check string
 		if err := db.QueryRow("PRAGMA quick_check").Scan(&check); err != nil || check != "ok" {

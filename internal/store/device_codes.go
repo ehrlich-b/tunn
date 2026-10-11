@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	deviceCodeExpiry   = 3 * time.Minute
+	deviceCodeExpiry   = 10 * time.Minute
 	deviceCodeInterval = 3 // seconds
 )
 
@@ -128,7 +128,7 @@ func (s *DeviceCodeStore) GetByUserCode(userCode string) *DeviceCode {
 // Authorize marks a device code as authorized with the user's email
 func (s *DeviceCodeStore) Authorize(deviceCode, email string) bool {
 	result, err := s.db.Exec(
-		"UPDATE device_codes SET authorized = 1, email = ? WHERE code = ? AND expires_at > ?",
+		"UPDATE device_codes SET authorized = 1, email = ? WHERE code = ? AND expires_at > ? AND authorized = 0",
 		email, deviceCode, time.Now().Unix(),
 	)
 	if err != nil {

@@ -43,6 +43,7 @@ func (p *ProxyServer) proxyTCPOverGRPC(w http.ResponseWriter, r *http.Request, t
 	var requestBytes atomic.Int64
 	requestResult := make(chan requestBodyResult, 1)
 	go func() {
+		defer func() { _ = r.Body.Close() }()
 		_, err := streamConnectionInput(r.Body, tunnel, connectionID, &requestBytes, 0)
 		requestResult <- requestBodyResult{err: err}
 	}()

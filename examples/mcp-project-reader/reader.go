@@ -14,6 +14,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -85,14 +86,9 @@ func Open(root string) (*Reader, error) {
 	defer confined.Close()
 	r := &Reader{files: make(map[string]source)}
 	total := 0
-	entries := 0
 	err = fs.WalkDir(confined.FS(), ".", func(name string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return failure("unreadable_fixture")
-		}
-		entries++
-		if entries > 128 || len(name) > 256 || strings.Count(name, "/") > 8 {
-			return failure("fixture_limit")
 		}
 		if entry.Type()&os.ModeSymlink != 0 {
 			return failure("symlink_rejected")
@@ -163,11 +159,16 @@ func (s source) span(first, last int) Span {
 	start, end := s.offsets[first-1], s.offsets[last]
 	return Span{s.Path, s.SHA256, first, last, start, end, string(s.data[start:end])}
 }
-func strictArgs(raw json.RawMessage, into any) error {
+func strictArgs(raw json.RawMessage, into any, fields ...string) error {
+	// MCP permits omitted arguments. Required tool fields are still checked below.
+	if len(raw) == 0 {
+		raw = json.RawMessage(`{}`)
+	}
 	if !utf8.Valid(raw) {
 		return failure("invalid_arguments")
 	}
-	// Reject duplicate keys as well as unknown fields and non-object input.
+	// Check exact schema names before Go's case-insensitive struct decoding.
+	// Every declared field of these tools is required; project_list has none.
 	d := json.NewDecoder(bytes.NewReader(raw))
 	token, err := d.Token()
 	if err != nil || token != json.Delim('{') {
@@ -180,7 +181,7 @@ func strictArgs(raw json.RawMessage, into any) error {
 			return failure("invalid_arguments")
 		}
 		k, ok := key.(string)
-		if !ok || seen[k] {
+		if !ok || seen[k] || !slices.Contains(fields, k) {
 			return failure("invalid_arguments")
 		}
 		seen[k] = true
@@ -188,6 +189,9 @@ func strictArgs(raw json.RawMessage, into any) error {
 		if d.Decode(&value) != nil {
 			return failure("invalid_arguments")
 		}
+	}
+	if len(seen) != len(fields) {
+		return failure("invalid_arguments")
 	}
 	if _, err := d.Token(); err != nil {
 		return failure("invalid_arguments")
@@ -219,7 +223,7 @@ func (r *Reader) Call(ctx context.Context, name string, args json.RawMessage) (R
 			FirstLine int    `json:"firstLine"`
 			LastLine  int    `json:"lastLine"`
 		}
-		if err := strictArgs(args, &in); err != nil {
+		if err := strictArgs(args, &in, "path", "firstLine", "lastLine"); err != nil {
 			return Result{}, err
 		}
 		if !validPath(in.Path) {
@@ -237,7 +241,7 @@ func (r *Reader) Call(ctx context.Context, name string, args json.RawMessage) (R
 		var in struct {
 			Query string `json:"query"`
 		}
-		if err := strictArgs(args, &in); err != nil {
+		if err := strictArgs(args, &in, "query"); err != nil {
 			return Result{}, err
 		}
 		if len(in.Query) == 0 || len(in.Query) > 128 || !utf8.ValidString(in.Query) || strings.ContainsAny(in.Query, "\x00\r\n") {

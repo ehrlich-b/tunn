@@ -42,6 +42,12 @@ class WorkflowTests(unittest.TestCase):
             result = reconcile(source_output(fixture), ROOT / fixture, fixture)
             self.assertEqual(result['answer'], answer)
 
+    def test_duplicate_manifest_entry_rejected(self):
+        changed = source_output('harbor/day1')
+        changed['files'].append(copy.deepcopy(changed['files'][0]))
+        with self.assertRaises(ValueError):
+            reconcile(changed, ROOT / 'harbor/day1', 'harbor/day1')
+
     def test_bad_citations_and_missing_evidence_rejected(self):
         original = source_output('harbor/day1')
         for field, value in [('endByte', 1), ('sha256', '0' * 64), ('text', 'fabricated'),

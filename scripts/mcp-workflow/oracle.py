@@ -9,7 +9,7 @@ def reconcile(output, fixture_root, fixture):
     root = Path(fixture_root).resolve()
     files = {entry['path']: entry for entry in output['files']}
     paths = sorted(p.relative_to(root).as_posix() for p in root.rglob('*') if p.is_file())
-    if sorted(files) != paths:
+    if sorted(files) != paths or len(output['files']) != len(paths):
         raise ValueError('manifest differs from supplied fixture')
     text = {}
     checked = 0

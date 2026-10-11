@@ -689,11 +689,14 @@ func (p *ProxyServer) Run(ctx context.Context) error {
 func (p *ProxyServer) startHTTP2Server(ctx context.Context, handler http.Handler) error {
 	// Create a router that handles both gRPC and HTTPS
 	router := p.createHTTP2Router(handler)
+	// Protocol setup mutates TLS settings. Keep the shared template immutable
+	// so concurrent HTTP/3 startup can safely clone it.
+	tlsConfig := p.tlsConfig.Clone()
 
 	srv := &http.Server{
 		Addr:      p.HTTP2Addr,
 		Handler:   router,
-		TLSConfig: p.tlsConfig,
+		TLSConfig: tlsConfig,
 		// Timeouts - ReadTimeout/WriteTimeout disabled for gRPC streaming support
 		// gRPC streams are long-lived and use application-level health checks
 		ReadHeaderTimeout: 10 * time.Second,  // Max time to read headers specifically
@@ -715,7 +718,7 @@ func (p *ProxyServer) startHTTP2Server(ctx context.Context, handler http.Handler
 	if p.sshServer != nil {
 		ln = sshfront.Share(ctx, ln, p.sshServer.ServeConn)
 	}
-	tlsLn := tls.NewListener(ln, p.tlsConfig)
+	tlsLn := tls.NewListener(ln, tlsConfig)
 	p.listenerStarted(listenerHTTP2)
 	defer p.listenerState.And(^uint32(listenerHTTP2))
 
@@ -748,7 +751,7 @@ func (p *ProxyServer) startHTTP3Server(ctx context.Context, handler http.Handler
 	srv := &http3.Server{
 		Addr:      p.HTTP3Addr,
 		Handler:   handler,
-		TLSConfig: p.tlsConfig,
+		TLSConfig: p.tlsConfig.Clone(),
 	}
 
 	common.LogInfo("starting HTTP/3 server", "addr", p.HTTP3Addr)

@@ -77,6 +77,16 @@ check: fmt tidy test-race
 vet:
 	go vet ./...
 
+# Production dogfood regressions; the default proxy fixture requires loopback.
+.PHONY: test-dogfood test-dogfood-memory
+test-dogfood:
+	go test $(GO_TEST_FLAGS) -race -count=1 -timeout=90s -run '^(TestDogfood|TestProxyEnvironment|TestProxyCONNECT|TestProxySOCKS|TestLoadConfig)' ./internal/client ./internal/host ./internal/store ./internal/relaytransport ./internal/config
+
+# Same TLS/HTTP2/gRPC proxy flow over memory sockets; no skipped assertions.
+test-dogfood-memory:
+	go test $(GO_TEST_FLAGS) -race -count=1 -timeout=90s -run '^TestDogfood' ./internal/client -args -dogfood-proxy-memory
+	go test $(GO_TEST_FLAGS) -race -count=1 -timeout=90s -run '^(TestDogfood|TestProxyEnvironment|TestProxyCONNECT|TestProxySOCKS|TestLoadConfig)' ./internal/host ./internal/store ./internal/relaytransport ./internal/config
+
 # Offline checks for the AI-host kit; no sockets, hosted relay, or credentials.
 test-ai-hosts:
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s deploy/ai-hosts -p 'test_*.py'

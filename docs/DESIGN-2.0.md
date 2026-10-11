@@ -3,6 +3,11 @@
 Status: active prototype
 Date: 2026-09-22
 
+Implementation update (2026-10-10): MCP OAuth discovery, dynamic registration,
+PKCE, consent and resource-bound grants are implemented; the remaining-work
+lists below describe the original plan. See [the current connector contract](../MCP-CONNECTOR.md)
+for verified capabilities and remaining hosted-client acceptance.
+
 ## The decision
 
 tunn should not become another model-provider proxy. It should become the
@@ -174,8 +179,8 @@ its historical preview-URL defaults:
 2. Machine clients authenticate with a random endpoint-scoped capability
    token. Only its SHA-256 digest reaches the relay, it is compared in constant
    time, stripped before forwarding, and becomes useless when the endpoint
-   disconnects. OAuth and audience-bound signed tokens remain future options
-   for managed multi-user access.
+   disconnects. MCP OAuth also issues expiring, resource-bound opaque tokens
+   through the grant ledger. Audience-bound signed tokens remain a future option.
 3. The stdio child inherits local credentials, but tunn never uploads, logs, or
    persists those credentials.
 4. Local target addresses stay on the publishing machine. Registration sends
@@ -190,9 +195,9 @@ its historical preview-URL defaults:
    gateway keeps client identity, endpoint authorization, and upstream
    credentials separate.
 
-Before multi-user or production use, add OAuth Protected Resource Metadata,
-tool allow/deny policy, per-call audit metadata, and approval hooks for
-destructive tools.
+OAuth Protected Resource Metadata and per-call ingress audit metadata are now
+implemented. Broader application/tool policy and approval hooks for destructive
+tools remain separate work.
 
 ## Connection data plane now implemented
 

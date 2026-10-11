@@ -64,7 +64,7 @@ message HttpRequest {
   string method = 2;              // "GET", "POST", etc.
   string path = 3;                // "/api/users?page=1"
   map<string, string> headers = 4;
-  bytes body = 5;                 // Request body (max 100 MB)
+  bytes body = 5;                 // Request body (max 100 MiB)
 }
 ```
 
@@ -77,7 +77,7 @@ message HttpResponse {
   string connection_id = 1;       // Matches the request
   int32 status_code = 2;          // 200, 404, etc.
   map<string, string> headers = 3;
-  bytes body = 4;                 // Response body (max 100 MB)
+  bytes body = 4;                 // Legacy buffered response (max 100 MiB)
 }
 ```
 
@@ -97,6 +97,12 @@ The proxy listens on both protocols:
 
 The current gRPC tunnel implementation uses HTTP/2. Public web requests can
 use HTTP/2 or HTTP/3 at the relay, then traverse the existing gRPC tunnel.
+
+Login, owner APIs and HTTP/2 control connections honor standard proxy environment
+variables, including `ALL_PROXY` fallback and `NO_PROXY` exclusions. The CLI
+always uses TCP HTTPS/HTTP/2 and does not try QUIC on proxy-only networks.
+Ordinary HTTP CONNECT and SOCKS5 proxies do not carry HTTP/3 UDP traffic; visitor
+clients must fall back to the TCP HTTPS listener when QUIC is unavailable.
 
 **Browser traffic** can use either when UDP reaches the relay. QUIC can avoid
 transport-level head-of-line blocking between HTTP/3 streams.
@@ -178,7 +184,15 @@ During reconnection, the tunnel is offline. In-flight requests timeout (30 secon
 
 **Platform cookies are stripped**: The proxy removes `tunn_auth` and legacy `tunn_session` cookies before forwarding to your localhost. Tunnel owners never see visitor session tokens.
 
-**Body size limits**: Both request and response bodies are limited to 100 MB to prevent memory exhaustion.
+**Body size limits**: HTTP requests are limited to 100 MiB (104,857,600 bytes).
+Known oversized uploads are rejected at the edge before forwarding. Unknown-length
+uploads are checked while streaming; final response headers wait for validation
+so an early origin response cannot hide an oversized upload. Rejection returns
+HTTP 413 with the limit and `Tunn-Limit-Reason: request_body_too_large`.
+Streamed responses, including SSE and large downloads, have no fixed body-size
+cap. The legacy buffered response path retains its 100 MiB cap. Bandwidth and
+grant budgets apply to both paths. Raw TCP CONNECT streams use those budgets
+rather than the HTTP upload cap.
 
 **Rate limiting**: Per-tunnel bandwidth limiting via token bucket algorithm. Prevents a single tunnel from consuming all resources.
 

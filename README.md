@@ -35,6 +35,11 @@ curl -fsSL https://tunn.to/install.sh | sh
 
 Or build from source: `make build`
 
+Source and release builds use production configuration and verify relay TLS
+certificates by default. For local development, use `tunn --dev ...` (before the
+subcommand) or `TUNN_ENV=dev`; set `TUNN_SERVER_ADDR=localhost:8443` for a local
+relay. Development mode explicitly permits self-signed relay certificates.
+
 ## Usage
 
 ```bash
@@ -43,6 +48,23 @@ tunn 8080                     # Expose localhost:8080
 tunn 3000 --allow=@company.com  # Allow entire domain
 tunn 8080 -id=myapp           # Custom URL (myapp.tunn.to)
 ```
+
+Login codes last ten minutes. The CLI prints the expiry clock time with its
+time zone and automatically requests a new code while you are still waiting.
+Use the newest link and code. If login has stopped, run `tunn login` again.
+
+Login and all HTTP/2 relay connections honor `HTTPS_PROXY`, `HTTP_PROXY`, and
+`NO_PROXY`, with `ALL_PROXY` as a fallback; lowercase names also work. HTTP and
+HTTPS CONNECT proxies and SOCKS5 proxies are supported. Relay DNS can be resolved
+by the proxy. The CLI uses TCP HTTPS/HTTP/2, so a proxy-only network needs no
+QUIC/UDP access. HTTP/3 is for visitor web traffic; ordinary proxies cannot carry
+it, and visitors must fall back to the relay's TCP HTTPS listener.
+
+HTTP uploads have a **100 MiB (104,857,600-byte)** request-body limit. Larger
+uploads return **413** naming the limit. Known oversized lengths are rejected at
+the edge before forwarding; streamed bodies are checked as they arrive. Streamed
+downloads have no fixed body-size cap; legacy buffered responses retain a 100 MiB
+cap. Account bandwidth and grant limits still apply.
 
 ### WebSockets
 
@@ -306,6 +328,8 @@ Your laptop connects to tunn.to over a persistent tunnel. When someone visits yo
 ```bash
 make build    # Build the binary
 make test     # Run tests
+make test-dogfood # Defaults, proxy login/control, uploads and device-code regressions
+make test-dogfood-memory # Same regression assertions without socket binds
 make test-metering-contract # Durable usage/grant and forwarding contract (no sockets)
 make integration-test-metering # Local TLS relay/publisher/CLI grant lifecycle
 make test-mcp # Run the focused stdio/Streamable HTTP bridge tests

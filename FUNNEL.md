@@ -5,6 +5,8 @@ No login submission, checkout, account creation, Stripe API call or production
 mutation was performed. Deployment version is supplied by BRIEF.md, not inferred
 from HTML. Authenticated production behavior and actual configured Payment Links
 remain unverified. Source references below are relative to this checkout.
+The [capture manifest](docs/revenue/evidence/live-manifest.json) preserves
+status, response date, size and body hash evidence.
 
 ## Observed route journey
 

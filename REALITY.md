@@ -98,5 +98,5 @@ and recheck the current thread/rules before the coordinator posts.
 
 Suggested experiment, not a forecast: first 100 activated accounts → 10 verified
 Pro subscriptions → $60 MRR at $6. Measure activation (first successful ingress),
-pricing visits, checkout redirects, webhook-confirmed Pro, and quota denials.
+pricing visits, checkout redirects, provider-reviewed Pro, and quota denials.
 Do not count a checkout return as revenue or log tool payloads for analytics.

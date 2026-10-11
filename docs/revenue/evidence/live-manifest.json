@@ -1,0 +1,71 @@
+{
+  "fetched_utc_date": "2026-10-11",
+  "baseline": "110485c",
+  "deployment_version": "v38, supplied by BRIEF.md; not independently verified",
+  "authenticated": false,
+  "captures": [
+    {
+      "url": "https://tunn.to/",
+      "method": "GET",
+      "status": 200,
+      "response_date": "Sun, 11 Oct 2026 13:39:39 GMT",
+      "bytes": 17434,
+      "body_sha256": "54fc51f53d87116103409eb609c1b019f9fafe283ed0ee5e556e7cbe80a63c82",
+      "headers": "home.headers.txt"
+    },
+    {
+      "url": "https://tunn.to/pricing",
+      "method": "GET",
+      "status": 200,
+      "response_date": "Sun, 11 Oct 2026 13:39:39 GMT",
+      "bytes": 17434,
+      "body_sha256": "54fc51f53d87116103409eb609c1b019f9fafe283ed0ee5e556e7cbe80a63c82",
+      "headers": "pricing.headers.txt"
+    },
+    {
+      "url": "https://tunn.to/docs",
+      "method": "GET",
+      "status": 200,
+      "response_date": "Sun, 11 Oct 2026 13:39:39 GMT",
+      "bytes": 17434,
+      "body_sha256": "54fc51f53d87116103409eb609c1b019f9fafe283ed0ee5e556e7cbe80a63c82",
+      "headers": "docs.headers.txt"
+    },
+    {
+      "url": "https://tunn.to/upgrade",
+      "method": "GET",
+      "status": 200,
+      "response_date": "Sun, 11 Oct 2026 13:39:40 GMT",
+      "bytes": 17434,
+      "body_sha256": "54fc51f53d87116103409eb609c1b019f9fafe283ed0ee5e556e7cbe80a63c82",
+      "headers": "upgrade.headers.txt"
+    },
+    {
+      "url": "https://tunn.to/account",
+      "method": "GET",
+      "status": 302,
+      "response_date": "Sun, 11 Oct 2026 13:39:40 GMT",
+      "bytes": 55,
+      "body_sha256": "db5a389251b89e7c51bd0e8ce31a69efac9709fc7b48086ef5de51ccad80b170",
+      "headers": "account.headers.txt"
+    },
+    {
+      "url": "https://tunn.to/login",
+      "method": "GET",
+      "status": 200,
+      "response_date": "Sun, 11 Oct 2026 13:39:39 GMT",
+      "bytes": 5234,
+      "body_sha256": "b9d3c6adaa516fb7396903aa3520c9815ad30a9a270a86640f44729ec6c2fd23",
+      "headers": "login.headers.txt"
+    },
+    {
+      "url": "https://tunn.to/install.sh",
+      "method": "GET",
+      "status": 200,
+      "response_date": "Sun, 11 Oct 2026 13:39:40 GMT",
+      "bytes": 1896,
+      "body_sha256": "efe877edb1f26dfb7b80cf2de6794adc3812bc93cd696fad8385f517a7582b8f",
+      "headers": "install.sh.headers.txt"
+    }
+  ]
+}

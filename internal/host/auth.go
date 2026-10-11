@@ -34,6 +34,7 @@ const (
 
 // setAuthCookie creates and sets a signed JWT auth cookie
 func (p *ProxyServer) setAuthCookie(w http.ResponseWriter, email string) error {
+	email = common.NormalizeEmail(email)
 	// Create JWT claims
 	claims := jwt.MapClaims{
 		"email": email,
@@ -220,7 +221,7 @@ func (p *ProxyServer) getAuthFromTunnelBearer(r *http.Request, tunnel *TunnelCon
 		if !p.visitorJWTConfigured() {
 			continue
 		}
-		token, err := jwt.Parse(parts[1], func(token *jwt.Token) (interface{}, error) {
+		token, err := jwt.NewParser(jwt.WithoutClaimsValidation()).Parse(parts[1], func(token *jwt.Token) (interface{}, error) {
 			if _, validMethod := token.Method.(*jwt.SigningMethodHMAC); !validMethod {
 				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 			}
@@ -235,6 +236,15 @@ func (p *ProxyServer) getAuthFromTunnelBearer(r *http.Request, tunnel *TunnelCon
 			continue
 		}
 		email, err := identityEmail(claims)
+		if claims["type"] == "device_access" && tunnel.TunnelID != "" {
+			if token.Method.Alg() != "HS256" {
+				continue
+			}
+			email, _, _, err = deviceIdentity(claims, p.currentTime())
+		}
+		if claims["type"] != "device_access" && claims.Valid() != nil {
+			continue
+		}
 		if err != nil {
 			continue
 		}

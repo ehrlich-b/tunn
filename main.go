@@ -261,11 +261,12 @@ func runMCP(args []string) {
 		os.Exit(1)
 	}
 
+	var credentials *client.CredentialManager
 	var token string
 	if opts.clientSecret != "" {
 		token = opts.clientSecret
 	} else if !cfg.PublicMode {
-		token, err = client.LoadToken()
+		token, credentials, err = client.LoadTunnelToken(context.Background(), cfg.ServerAddr, cfg.Insecure || *insecure)
 		if err != nil {
 			common.LogError("not logged in - run 'tunn login' first", "error", err)
 			os.Exit(1)
@@ -368,6 +369,7 @@ func runMCP(args []string) {
 		UpstreamRawQuery:  upstreamRawQuery,
 		ServerAddr:        cfg.ServerAddr,
 		AuthToken:         token,
+		Credentials:       credentials,
 		CreatorEmail:      creatorEmail,
 		AccessTokenSHA256: accessTokenSHA256,
 		EndpointTokenPath: endpointTokenPath,
@@ -471,6 +473,7 @@ type tcpCommandOptions struct {
 	public        bool
 	target        string
 	adapter       string
+	accountOnly   bool
 }
 
 func parseTCPFlags(args []string) (*tcpCommandOptions, error) {
@@ -501,6 +504,7 @@ func parseRawPublisherFlags(command string, args []string, normalize func(string
 	shared := new(cliopts.Serve)
 	cliopts.PublicationFlags(fs, shared)
 	asFlag := fs.String("as", "raw", "adapter: raw or http (Unix sockets)")
+	accountOnly := fs.Bool("account-only", false, "require account login; do not create an endpoint bearer token")
 	if err := fs.Parse(args); err != nil {
 		return nil, err
 	}
@@ -513,8 +517,8 @@ func parseRawPublisherFlags(command string, args []string, normalize func(string
 	}
 
 	allowedEmails, tunnelID := shared.AllowedEmails, shared.Name
-	if shared.Public && len(allowedEmails) > 0 {
-		return nil, fmt.Errorf("--public and --allow cannot be used together")
+	if shared.Public && (len(allowedEmails) > 0 || *accountOnly) {
+		return nil, fmt.Errorf("--public cannot be combined with --allow or --account-only")
 	}
 
 	clientSecret := shared.Secret
@@ -529,6 +533,7 @@ func parseRawPublisherFlags(command string, args []string, normalize func(string
 		public:        shared.Public,
 		target:        target,
 		adapter:       strings.ToLower(strings.TrimSpace(*asFlag)),
+		accountOnly:   *accountOnly,
 	}, nil
 }
 
@@ -588,9 +593,10 @@ func runRawPublisher(opts *tcpCommandOptions, targetNetwork, endpointProtocol st
 		os.Exit(1)
 	}
 
+	var credentials *client.CredentialManager
 	token := opts.clientSecret
 	if token == "" && !cfg.PublicMode {
-		token, err = client.LoadToken()
+		token, credentials, err = client.LoadTunnelToken(context.Background(), cfg.ServerAddr, cfg.Insecure || *insecure)
 		if err != nil {
 			common.LogError("not logged in - run 'tunn login' first", "error", err)
 			os.Exit(1)
@@ -622,17 +628,19 @@ func runRawPublisher(opts *tcpCommandOptions, targetNetwork, endpointProtocol st
 		if creatorEmail != "" {
 			allowedEmails = appendUniqueEmail(allowedEmails, creatorEmail)
 		}
-		endpointToken, digest, err := client.GenerateEndpointToken()
-		if err != nil {
-			common.LogError("failed to generate endpoint token", "error", err)
-			os.Exit(1)
+		if !opts.accountOnly {
+			endpointToken, digest, err := client.GenerateEndpointToken()
+			if err != nil {
+				common.LogError("failed to generate endpoint token", "error", err)
+				os.Exit(1)
+			}
+			endpointTokenPath, err = client.SaveEndpointToken(tunnelID, endpointToken)
+			if err != nil {
+				common.LogError("failed to store endpoint token", "error", err)
+				os.Exit(1)
+			}
+			accessTokenSHA256 = digest
 		}
-		endpointTokenPath, err = client.SaveEndpointToken(tunnelID, endpointToken)
-		if err != nil {
-			common.LogError("failed to store endpoint token", "error", err)
-			os.Exit(1)
-		}
-		accessTokenSHA256 = digest
 	}
 
 	ctx, cancel := signalContext()
@@ -652,6 +660,7 @@ func runRawPublisher(opts *tcpCommandOptions, targetNetwork, endpointProtocol st
 		PublicPath:        publicPath,
 		ServerAddr:        cfg.ServerAddr,
 		AuthToken:         token,
+		Credentials:       credentials,
 		CreatorEmail:      creatorEmail,
 		AccessTokenSHA256: accessTokenSHA256,
 		EndpointTokenPath: endpointTokenPath,
@@ -674,6 +683,8 @@ type connectCommandOptions struct {
 	token     string
 	tokenFile string
 	public    bool
+	account   bool
+	stdio     bool
 }
 
 func parseConnectFlags(args []string) (*connectCommandOptions, error) {
@@ -683,11 +694,25 @@ func parseConnectFlags(args []string) (*connectCommandOptions, error) {
 	tokenFlag := fs.String("token", "", "endpoint token (prefer --token-file or TUNN_ENDPOINT_TOKEN)")
 	tokenFileFlag := fs.String("token-file", "", "file containing the endpoint token")
 	publicFlag := fs.Bool("public", false, "connect without an endpoint token")
+	accountFlag := fs.Bool("account", false, "use renewable account login")
+	stdioFlag := fs.Bool("stdio", false, "bridge stdin/stdout for an SSH ProxyCommand")
 	if err := fs.Parse(args); err != nil {
 		return nil, err
 	}
 	if fs.NArg() != 1 {
 		return nil, fmt.Errorf("provide one endpoint name or URL")
+	}
+	listenSet := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "listen" {
+			listenSet = true
+		}
+	})
+	if *stdioFlag && listenSet {
+		return nil, fmt.Errorf("--stdio and --listen cannot be combined")
+	}
+	if *accountFlag && (*publicFlag || *tokenFlag != "" || *tokenFileFlag != "") {
+		return nil, fmt.Errorf("--account cannot be combined with --public or endpoint credentials")
 	}
 	if *tokenFlag != "" && *tokenFileFlag != "" {
 		return nil, fmt.Errorf("--token and --token-file cannot be used together")
@@ -695,7 +720,7 @@ func parseConnectFlags(args []string) (*connectCommandOptions, error) {
 	if _, err := net.ResolveTCPAddr("tcp", *listenFlag); err != nil {
 		return nil, fmt.Errorf("invalid listen address: %w", err)
 	}
-	return &connectCommandOptions{endpoint: fs.Arg(0), listen: *listenFlag, token: *tokenFlag, tokenFile: *tokenFileFlag, public: *publicFlag}, nil
+	return &connectCommandOptions{endpoint: fs.Arg(0), listen: *listenFlag, token: *tokenFlag, tokenFile: *tokenFileFlag, public: *publicFlag, account: *accountFlag, stdio: *stdioFlag}, nil
 }
 
 func runConnect(args []string) {
@@ -715,7 +740,19 @@ func runConnect(args []string) {
 		common.LogError("invalid endpoint", "error", err)
 		os.Exit(1)
 	}
+	var credentials *client.CredentialManager
 	token := opts.token
+	if opts.account {
+		if endpointName == "" {
+			common.LogError("--account requires an endpoint name on the configured relay")
+			os.Exit(1)
+		}
+		token, credentials, err = client.LoadTunnelToken(context.Background(), cfg.ServerAddr, cfg.Insecure || *insecure)
+		if err != nil {
+			common.LogError("account login unavailable", "error", err)
+			os.Exit(1)
+		}
+	}
 	if token == "" && opts.tokenFile != "" {
 		data, readErr := os.ReadFile(opts.tokenFile)
 		if readErr != nil {
@@ -740,10 +777,16 @@ func runConnect(args []string) {
 	connector := &client.ConnectClient{
 		EndpointURL: endpointURL,
 		Token:       token,
+		Credentials: credentials,
 		ListenAddr:  opts.listen,
 		Insecure:    cfg.Insecure || *insecure,
 	}
-	if err := connector.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+	if opts.stdio {
+		err = connector.RunStdio(ctx, os.Stdin, os.Stdout)
+	} else {
+		err = connector.Run(ctx)
+	}
+	if err != nil && !errors.Is(err, context.Canceled) {
 		common.LogError("TCP connector failed", "error", err)
 		os.Exit(1)
 	}
@@ -939,13 +982,14 @@ func runServe(args []string) {
 	}
 
 	// Determine auth token: client secret OR JWT from login
+	var credentials *client.CredentialManager
 	var token string
 	if clientSecret != "" {
 		// Use client secret as auth token (self-hosters)
 		token = clientSecret
 	} else if !cfg.PublicMode {
 		// Load JWT from token file
-		token, err = client.LoadToken()
+		token, credentials, err = client.LoadTunnelToken(context.Background(), cfg.ServerAddr, cfg.Insecure || *insecure)
 		if err != nil {
 			common.LogError("not logged in - run 'tunn login' first, or use --secret for self-hosted servers", "error", err)
 			os.Exit(1)
@@ -978,6 +1022,7 @@ func runServe(args []string) {
 		TargetURL:           normalizedTarget,
 		ServerAddr:          cfg.ServerAddr,
 		AuthToken:           token,
+		Credentials:         credentials,
 		TunnelKey:           tunnelKey,
 		AllowedEmails:       allowedEmails,
 		Insecure:            cfg.Insecure || *insecure,

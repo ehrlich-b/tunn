@@ -18,7 +18,9 @@ import (
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
 	"github.com/golang-jwt/jwt/v4"
 	"golang.org/x/time/rate"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
 // Keep registration and custom-domain binding on the same name policy.
@@ -66,6 +68,7 @@ type TunnelServer struct {
 	userTokens map[string]string   // email -> token from users.yaml
 	accounts   *store.AccountStore // Account storage for subdomain reservations
 	storage    storage.Storage     // Unified storage for tunnel registration/limits
+	now        func() time.Time
 }
 
 // Bandwidth limits are defined in limits.go
@@ -372,7 +375,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 			return fmt.Errorf("no authentication provided for tunnel %s", tunnelID)
 		}
 
-		extractedEmail, err := s.validateJWTAndExtractEmail(regClient.AuthToken)
+		extractedEmail, err := s.validatePublisherToken(regClient.AuthToken)
 		if err != nil {
 			common.LogError("JWT validation failed", "tunnel_id", tunnelID, "error", err)
 			respMsg := &pb.TunnelMessage{
@@ -470,6 +473,16 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		bandwidthPlan:      bandwidthPlan,
 		pendingRequests:    make(map[string]chan *pb.HttpResponse),
 		pendingStreams:     make(map[string]*pendingConnection),
+	}
+
+	var lease *publisherDeviceLease
+	if email, device, expiry, err := parseDeviceToken(regClient.AuthToken, []byte(s.cfg.JWTSecret), s.currentTime()); err == nil {
+		if !conn.Supports(deviceReauthCapability) {
+			return rejectTunnelRegistration(stream, "device renewal capability required; update tunn")
+		}
+		lease = &publisherDeviceLease{email: email, device: device, expiry: expiry}
+	} else if isDeviceAccessToken(regClient.AuthToken) {
+		return rejectTunnelRegistration(stream, "Device token expired during registration; retry renewal.")
 	}
 
 	// Check if tunnel exists locally first
@@ -608,7 +621,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 			RegisterResponse: &pb.RegisterResponse{
 				Success:      true,
 				PublicUrl:    publicURL,
-				Capabilities: []string{common.CapabilityHTTPStreamV1, common.CapabilityConnectionStreamV1, common.CapabilityWebSocketV1, common.CapabilityHTTPResponseTrailersV1},
+				Capabilities: []string{common.CapabilityHTTPStreamV1, common.CapabilityConnectionStreamV1, common.CapabilityWebSocketV1, common.CapabilityHTTPResponseTrailersV1, deviceReauthCapability},
 			},
 		},
 	}
@@ -621,7 +634,31 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 
 	common.LogInfo("tunnel registered", "tunnel_id", tunnelID, "url", publicURL)
 
-	// Enter message processing loop
+	// Run device message processing separately so lease expiry can return the
+	// RPC even when a peer stops reading or a data-plane delivery is blocked.
+	if lease != nil {
+		finished := make(chan error, 1)
+		go func() { finished <- s.processTunnelMessages(conn, stream, lease) }()
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case err := <-finished:
+				return err
+			case <-stream.Context().Done():
+				return stream.Context().Err()
+			case <-ticker.C:
+				if !lease.active(s.currentTime()) {
+					return status.Error(codes.Unauthenticated, "device publisher lease expired; renew with tunn login")
+				}
+			}
+		}
+	}
+	return s.processTunnelMessages(conn, stream, nil)
+}
+
+func (s *TunnelServer) processTunnelMessages(conn *TunnelConnection, stream pb.TunnelService_EstablishTunnelServer, lease *publisherDeviceLease) error {
+	tunnelID := conn.TunnelID
 	for {
 		msg, err := stream.Recv()
 		if err == io.EOF {
@@ -632,8 +669,19 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 			return fmt.Errorf("stream error: %w", err)
 		}
 
+		if lease != nil && !lease.active(s.currentTime()) {
+			return status.Error(codes.Unauthenticated, "device publisher lease expired")
+		}
 		// Handle different message types
 		switch m := msg.Message.(type) {
+		case *pb.TunnelMessage_RegisterClient:
+			if lease == nil {
+				return status.Error(codes.Unauthenticated, "unexpected device renewal")
+			}
+			if err := lease.renew(m.RegisterClient.AuthToken, []byte(s.cfg.JWTSecret), s.currentTime()); err != nil {
+				return status.Error(codes.Unauthenticated, "device renewal rejected")
+			}
+
 		case *pb.TunnelMessage_HealthCheck:
 			// Respond to health check (use conn.SendMessage for thread safety)
 			s.handleHealthCheck(conn, m.HealthCheck)
@@ -802,4 +850,40 @@ func rejectTunnelRegistration(stream pb.TunnelService_EstablishTunnelServer, rea
 		RegisterResponse: &pb.RegisterResponse{Success: false, ErrorMessage: reason},
 	}})
 	return fmt.Errorf("tunnel registration denied: %s", reason)
+}
+
+func (s *TunnelServer) currentTime() time.Time {
+	if s.now != nil {
+		return s.now()
+	}
+	return time.Now()
+}
+func (s *TunnelServer) validatePublisherToken(raw string) (string, error) {
+	if email, _, _, err := parseDeviceToken(raw, []byte(s.cfg.JWTSecret), s.currentTime()); err == nil {
+		return email, nil
+	}
+	return s.validateJWTAndExtractEmail(raw)
+}
+
+type publisherDeviceLease struct {
+	mu            sync.RWMutex
+	email, device string
+	expiry        time.Time
+}
+
+func (l *publisherDeviceLease) renew(raw string, key []byte, now time.Time) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	email, device, expiry, err := parseDeviceToken(raw, key, now)
+	if err != nil || email != l.email || device != l.device || !now.Before(l.expiry) {
+		return fmt.Errorf("invalid device lease renewal")
+	}
+	l.expiry = expiry
+	return nil
+}
+
+func (l *publisherDeviceLease) active(now time.Time) bool {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return now.Before(l.expiry)
 }

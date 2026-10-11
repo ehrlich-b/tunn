@@ -93,6 +93,10 @@ func (p *ProxyServer) handleDeviceToken(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	if r.URL.Query().Get("durable") == "1" {
+		p.handleDurableExchange(w, r)
+		return
+	}
 	deviceCode := r.URL.Query().Get("code")
 	if deviceCode == "" {
 		w.Header().Set("Content-Type", "application/json")
@@ -213,7 +217,7 @@ func (p *ProxyServer) showDeviceAuthorizePage(w http.ResponseWriter, r *http.Req
 	writePageStart(w, "tunn - Authorize Device")
 	_, _ = fmt.Fprintf(w, `
 <h1 class="page-title">Authorize Device</h1>
-<p class="page-subtitle">A device is requesting access to your account.</p>
+<p class="page-subtitle">A device is requesting access to your account. Updated clients receive renewable publish/connect credentials; revoke them at /account/devices.</p>
 <div class="device-info">
 <p><strong>Code:</strong> <code>%s</code></p>
 <p><strong>Account:</strong> %s</p>
@@ -294,6 +298,7 @@ func writeDeviceCodeRecoveryPage(w http.ResponseWriter) {
 
 // generateJWT creates a signed JWT for the user
 func (p *ProxyServer) generateJWT(email string) (string, error) {
+	email = common.NormalizeEmail(email)
 	claims := jwt.MapClaims{
 		"email": email,
 		"type":  "access",

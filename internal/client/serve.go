@@ -15,9 +15,11 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 
 	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/ehrlich-b/tunn/internal/relaytransport"
@@ -70,6 +72,7 @@ type ServeClient struct {
 	UpstreamRawQuery   string // Optional fixed query appended at the target
 	ServerAddr         string
 	AuthToken          string
+	Credentials        *CredentialManager
 	CreatorEmail       string                                                  // Optional identity for non-JWT/self-hosted auth
 	AccessTokenSHA256  []byte                                                  // Optional endpoint-scoped access-token digest
 	EndpointTokenPath  string                                                  // Optional local token path shown after registration
@@ -124,6 +127,7 @@ func (s *ServeClient) Run(ctx context.Context) error {
 		s.MaxReconnectDelay = 30 * time.Second
 	}
 
+	authRetried := false
 	backoffAttempt := 0
 	attempts := 0
 
@@ -146,8 +150,29 @@ func (s *ServeClient) Run(ctx context.Context) error {
 		if err == nil {
 			return nil
 		}
+		if duration > 30*time.Second {
+			authRetried = false
+		}
+		if s.Credentials != nil && status.Code(err) == codes.Unauthenticated && !authRetried {
+			token, refreshErr := s.Credentials.Token(ctx, true)
+			if refreshErr != nil {
+				return fmt.Errorf("publisher authentication renewal: %w", refreshErr)
+			}
+			s.AuthToken = token
+			authRetried = true
+			continue
+		}
 		var permanent *permanentTunnelError
 		if errors.As(err, &permanent) {
+			if s.Credentials != nil && permanent.kind == FailureRegistration && !authRetried {
+				token, refreshErr := s.Credentials.Token(ctx, true)
+				if refreshErr != nil {
+					return fmt.Errorf("publisher authentication renewal: %w", refreshErr)
+				}
+				s.AuthToken = token
+				authRetried = true
+				continue
+			}
 			return err
 		}
 		// Reset backoff if connection was stable for at least 30 seconds
@@ -182,6 +207,16 @@ func (s *ServeClient) Run(ctx context.Context) error {
 
 // runOnce establishes a single gRPC tunnel connection and handles messages until disconnection
 func (s *ServeClient) runOnce(ctx context.Context) error {
+	if s.Credentials != nil {
+		token, err := s.Credentials.Token(ctx, false)
+		if err != nil {
+			if terminalCredentialError(err) {
+				return &permanentTunnelError{err: err}
+			}
+			return err
+		}
+		s.AuthToken = token
+	}
 	ctx, cancel := context.WithCancel(ctx)
 	var workers sync.WaitGroup
 	defer func() { cancel(); workers.Wait() }()
@@ -278,6 +313,7 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 					common.CapabilityConnectionStreamV1,
 					common.CapabilityWebSocketV1,
 					common.CapabilityHTTPResponseTrailersV1,
+					deviceReauthCapability,
 				},
 				EndpointProtocol: s.EndpointProtocol,
 			},
@@ -323,6 +359,9 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 		return &permanentTunnelError{err: fmt.Errorf("relay must support websocket-v1 for --require-upstream-auth"), kind: FailureProtocol}
 	}
 
+	if s.Credentials != nil && !containsString(regResp.Capabilities, deviceReauthCapability) {
+		return &permanentTunnelError{err: fmt.Errorf("relay lacks durable publisher renewal; update the relay")}
+	}
 	if s.OnRegistered != nil {
 		s.OnRegistered(regResp.PublicUrl)
 	}
@@ -354,7 +393,11 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 				fmt.Printf("Endpoint token: %s (mode 0600)\n", s.EndpointTokenPath)
 			}
 		} else if s.EndpointProtocol == "tcp" {
-			fmt.Printf("Access: private. Run tunn connect --token-file %s %s\n", s.EndpointTokenPath, s.TunnelID)
+			if s.EndpointTokenPath == "" {
+				fmt.Printf("Access: account only. Run tunn connect --account %s\n", s.TunnelID)
+			} else {
+				fmt.Printf("Access: private. Run tunn connect --token-file %s %s\n", s.EndpointTokenPath, s.TunnelID)
+			}
 		} else if s.EndpointTokenPath != "" {
 			fmt.Println("Access: private. Use the endpoint token as Tunn-Authorization: Bearer <token>.")
 			fmt.Printf("Endpoint token: %s (mode 0600)\n", s.EndpointTokenPath)
@@ -377,8 +420,25 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 		go func() { defer workers.Done(); s.watchEndpointToken(connCtx, sender, accessTokenDigest, time.Second) }()
 	}
 
+	renewalError := make(chan error, 1)
+	if s.Credentials != nil {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			if err := s.maintainDeviceLease(connCtx, sender, s.AuthToken, 30*time.Second); err != nil {
+				renewalError <- err
+				cancel()
+			}
+		}()
+	}
 	// Enter message processing loop
-	return s.processMessagesOwned(ctx, stream, sender, cancel)
+	err = s.processMessagesOwned(ctx, stream, sender, cancel)
+	select {
+	case refreshErr := <-renewalError:
+		return &permanentTunnelError{err: refreshErr}
+	default:
+	}
+	return err
 }
 
 func (s *ServeClient) watchEndpointToken(ctx context.Context, sender messageSender, current []byte, interval time.Duration) {
@@ -781,4 +841,40 @@ func (s *ServeClient) sendOneHealthCheck(sender messageSender) {
 	}
 
 	s.log(slog.LevelDebug, "health check sent")
+}
+
+func (s *ServeClient) maintainDeviceLease(ctx context.Context, sender messageSender, current string, interval time.Duration) error {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		if ctx.Err() != nil {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			token, err := s.Credentials.Token(ctx, false)
+			if err != nil {
+				if ctx.Err() != nil {
+					return nil
+				}
+				if terminalCredentialError(err) {
+					return err
+				}
+				s.log(slog.LevelError, "publisher credential refresh failed", "error", err)
+				continue
+			}
+			if ctx.Err() != nil {
+				return nil
+			}
+			if token == current {
+				continue
+			}
+			if err = sender.Send(&pb.TunnelMessage{Message: &pb.TunnelMessage_RegisterClient{RegisterClient: &pb.RegisterClient{AuthToken: token}}}); err != nil {
+				return nil
+			}
+			current = token
+		}
+	}
 }

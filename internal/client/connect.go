@@ -18,6 +18,7 @@ import (
 type ConnectClient struct {
 	EndpointURL string
 	Token       string
+	Credentials *CredentialManager
 	ListenAddr  string
 	Insecure    bool
 	Output      io.Writer
@@ -71,41 +72,71 @@ func (c *ConnectClient) Run(ctx context.Context) error {
 
 func (c *ConnectClient) handleConnection(ctx context.Context, httpClient *http.Client, local net.Conn) error {
 	defer func() { _ = local.Close() }()
-	requestReader, requestWriter := io.Pipe()
-	defer func() { _ = requestReader.Close() }()
+	return c.connectStreams(ctx, httpClient, local, local)
+}
 
-	request, err := http.NewRequestWithContext(ctx, http.MethodConnect, c.EndpointURL, requestReader)
-	if err != nil {
-		return fmt.Errorf("create CONNECT request: %w", err)
-	}
-	request.ContentLength = -1
-	request.Header.Set(common.TCPConnectHeader, common.TCPConnectValue)
-	if c.Token != "" {
-		request.Header.Set("Tunn-Authorization", "Bearer "+c.Token)
-	}
+// RunStdio bridges an SSH ProxyCommand without writing status text to stdout.
+func (c *ConnectClient) RunStdio(ctx context.Context, input io.Reader, output io.Writer) error {
+	transport := relaytransport.Transport(c.Insecure)
+	defer transport.CloseIdleConnections()
+	return c.connectStreams(ctx, &http.Client{Transport: transport}, input, output)
+}
 
-	uploadDone := make(chan error, 1)
-	go func() {
-		_, copyErr := io.Copy(requestWriter, local)
-		_ = requestWriter.CloseWithError(copyErr)
-		uploadDone <- copyErr
-	}()
-
+func (c *ConnectClient) connectStreams(ctx context.Context, httpClient *http.Client, input io.Reader, output io.Writer) error {
+	token := c.Token
+	var response *http.Response
+	var requestReader *io.PipeReader
+	var requestWriter *io.PipeWriter
 	copyClient := *httpClient
 	copyClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	response, err := copyClient.Do(request)
-	if err != nil {
+	for attempt := 0; attempt < 2; attempt++ {
+		if c.Credentials != nil {
+			var err error
+			token, err = c.Credentials.Token(ctx, attempt == 1)
+			if err != nil {
+				return fmt.Errorf("CONNECT authentication renewal: %w", err)
+			}
+		}
+		requestReader, requestWriter = io.Pipe()
+		request, err := http.NewRequestWithContext(ctx, http.MethodConnect, c.EndpointURL, requestReader)
+		if err != nil {
+			requestReader.Close()
+			requestWriter.Close()
+			return fmt.Errorf("create CONNECT request: %w", err)
+		}
+		request.ContentLength = -1
+		request.Header.Set(common.TCPConnectHeader, common.TCPConnectValue)
+		if token != "" {
+			request.Header.Set("Tunn-Authorization", "Bearer "+token)
+		}
+		response, err = copyClient.Do(request)
+		if err != nil {
+			requestReader.Close()
+			requestWriter.Close()
+			return fmt.Errorf("open remote TCP endpoint: %w", err)
+		}
+		if response.StatusCode == http.StatusOK {
+			break
+		}
+		response.Body.Close()
+		requestReader.Close()
+		requestWriter.Close()
+		if response.StatusCode == http.StatusUnauthorized && c.Credentials != nil && attempt == 0 {
+			continue
+		}
+		return fmt.Errorf("remote endpoint returned %s; check access or run tunn login for account access", response.Status)
+	}
+	defer response.Body.Close()
+	defer requestReader.Close()
+	defer requestWriter.Close()
+	uploadDone := make(chan error, 1)
+	go func() {
+		_, err := io.Copy(requestWriter, input)
 		_ = requestWriter.CloseWithError(err)
-		return fmt.Errorf("open remote TCP endpoint: %w", err)
-	}
-	defer func() { _ = response.Body.Close() }()
-	if response.StatusCode != http.StatusOK {
-		message, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
-		return fmt.Errorf("remote endpoint returned %s: %s", response.Status, message)
-	}
-
-	_, downloadErr := io.Copy(local, response.Body)
-	if halfCloser, ok := local.(interface{ CloseWrite() error }); ok {
+		uploadDone <- err
+	}()
+	_, downloadErr := io.Copy(output, response.Body)
+	if halfCloser, ok := output.(interface{ CloseWrite() error }); ok {
 		_ = halfCloser.CloseWrite()
 	}
 	if reason := response.Trailer.Get("Tunn-Limit-Reason"); reason != "" {
@@ -114,7 +145,6 @@ func (c *ConnectClient) handleConnection(ctx context.Context, httpClient *http.C
 	if downloadErr != nil {
 		return fmt.Errorf("read remote TCP endpoint: %w", downloadErr)
 	}
-
 	select {
 	case uploadErr := <-uploadDone:
 		if uploadErr != nil {

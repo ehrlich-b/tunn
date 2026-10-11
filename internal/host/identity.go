@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/golang-jwt/jwt/v4"
 )
 
@@ -19,6 +20,7 @@ func identityEmail(claims jwt.MapClaims) (string, error) {
 		return "", fmt.Errorf("invalid identity token purpose")
 	}
 	email, ok := claims["email"].(string)
+	email = common.NormalizeEmail(email)
 	if !ok || email == "" {
 		return "", fmt.Errorf("missing email claim")
 	}
@@ -56,4 +58,38 @@ func (p *ProxyServer) isPlatformAuthorization(value string) bool {
 		return p.getJWTSigningKey(), nil
 	})
 	return err == nil && token.Valid
+}
+
+// Tunnel-only identities must never pass identityEmail, the account validator.
+func deviceIdentity(claims jwt.MapClaims, now time.Time) (string, string, time.Time, error) {
+	email, _ := claims["email"].(string)
+	device, _ := claims["device"].(string)
+	exp, _ := claims["exp"].(float64)
+	iat, _ := claims["iat"].(float64)
+	if claims["type"] != "device_access" || claims["iss"] != "tunn" || claims["aud"] != "tunn-tunnels" || claims["scope"] != "publish connect" || email == "" || device == "" || exp <= float64(now.Unix()) || iat <= 0 || exp <= iat || exp-iat > deviceAccessLifetime.Seconds() || iat > float64(now.Add(time.Minute).Unix()) {
+		return "", "", time.Time{}, fmt.Errorf("invalid or expired device token; run tunn login if renewal fails")
+	}
+	return common.NormalizeEmail(email), device, time.Unix(int64(exp), 0), nil
+}
+
+func parseDeviceToken(raw string, key []byte, now time.Time) (string, string, time.Time, error) {
+	token, err := jwt.NewParser(jwt.WithoutClaimsValidation(), jwt.WithValidMethods([]string{"HS256"})).Parse(raw, func(*jwt.Token) (any, error) { return key, nil })
+	if err != nil || !token.Valid {
+		return "", "", time.Time{}, fmt.Errorf("invalid device signature")
+	}
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return "", "", time.Time{}, fmt.Errorf("invalid device claims")
+	}
+	return deviceIdentity(claims, now)
+}
+
+// Used only to reject an expired device JWT after a slow registration path.
+func isDeviceAccessToken(raw string) bool {
+	token, _, err := jwt.NewParser().ParseUnverified(raw, jwt.MapClaims{})
+	if err != nil {
+		return false
+	}
+	claims, ok := token.Claims.(jwt.MapClaims)
+	return ok && claims["type"] == "device_access"
 }

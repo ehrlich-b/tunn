@@ -76,13 +76,28 @@ and resolves only those events; unreviewed events remain pending. Versions belon
 to the local billing mapping. Revision 0 is a supplied snapshot
 for a provider such as Stripe without ordered events; revision >0 belongs only
 to a provider with authoritative revisions. Only `free` and `pro` are supported;
-prices, quotas and checkout links are unchanged.
+sales configuration and quota display are described in PRICING.md.
+
+`tunn admin billing-status --provider stripe --subscription ID` is a scoped,
+read-only view of the billing mapping's current version/plan and up to 100
+pending receipt IDs. `--apply-reviewed` is the separate production-capable
+operator path: it requires Stripe revision 0, matching receipts, a SHA-256
+evidence digest, a provider read no more than five minutes old, and an explicitly
+reviewed Price ID. Pro requires `provider_status=active` and
+`payment_confirmed=true`; reviewed cancellation/delinquency may restore Free.
+The backend does not independently retrieve evidence or enforce an approved
+Price allowlist: the scoped operator must verify actual ownership, Price and
+current-period payment. Both apply modes are mutually exclusive; default is
+still read-only. CAS, complete-batch validation, audit, suspension and usage
+preservation apply to reviewed writes as well. See [GO-LIVE.md](../GO-LIVE.md)
+for the exact evidence, activation, renewal and cancellation procedure. Checkout
+defaults disabled until that workflow has passed acceptance and is staffed.
 
 `--apply-fixture` requires a database created by `tunn admin fixture-init`, carrying
 `ops_fixture(id=1,value='disposable-local')`. It validates the complete bounded
 snapshot batch before atomically applying, audits the application, and preserves
 suspension and usage. It performs no provider write, invoice/refund/cancellation,
-mail or subscription operation. Applying to a production database is prohibited.
+mail or subscription operation. Fixture apply on a production database is prohibited.
 Do not copy fixture markers to a live database.
 
 ## Intake and mail

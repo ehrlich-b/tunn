@@ -2,12 +2,15 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/ehrlich-b/tunn/internal/store"
 )
@@ -99,5 +102,74 @@ func TestAccountOperationsCLIAuthenticationAndDryRun(t *testing.T) {
 	}
 	if _, err = call("suspend", "--account", status.AccountID, "--expect-version", "2", "--reason", "denied"); err == nil {
 		t.Fatal("publisher token granted admin authority")
+	}
+}
+
+func TestReviewedBillingCLIOnNonFixtureDatabase(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "local.db")
+	db, err := store.OpenLocal(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	account, err := store.NewAccountStore(db).FindOrCreateByEmails([]string{"billing-cli@example.invalid"}, "fixture")
+	if err != nil {
+		t.Fatal(err)
+	}
+	token := "reviewed-billing-cli-token-0123456789"
+	digest := sha256.Sum256([]byte(token))
+	config, _ := json.Marshal([]store.AdminCredential{{Actor: "reviewer", TokenSHA256: hex.EncodeToString(digest[:]), Accounts: []string{account.ID}}})
+	configPath, tokenPath := filepath.Join(dir, "admins.json"), filepath.Join(dir, "token")
+	for path, data := range map[string][]byte{configPath: config, tokenPath: []byte(token)} {
+		if err = os.WriteFile(path, data, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	call := func(action string, extra ...string) ([]byte, error) {
+		var out bytes.Buffer
+		args := []string{action, "--db", dbPath, "--admin-config", configPath, "--token-file", tokenPath}
+		args = append(args, extra...)
+		err := executeOperations(args, &out)
+		return out.Bytes(), err
+	}
+	if _, err = call("billing-bind", "--account", account.ID, "--customer", "cus_cli", "--subscription", "sub_cli"); err != nil {
+		t.Fatal(err)
+	}
+	ops := store.NewOperationsStore(db, nil)
+	if _, err = ops.ProcessBillingEvent(context.Background(), store.BillingEvent{Provider: "stripe", ID: "evt_cli", Type: "checkout.session.completed", CustomerID: "cus_cli", SubscriptionID: "sub_cli", Supported: true}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := call("billing-status", "--subscription", "sub_cli")
+	var status store.BillingStatus
+	if err != nil || json.Unmarshal(data, &status) != nil || status.Mapping == nil || status.Mapping.Version != 0 || len(status.PendingEventIDs) != 1 {
+		t.Fatal(string(data), err)
+	}
+	snapshots := []store.BillingSnapshot{{Provider: "stripe", CustomerID: "cus_cli", SubscriptionID: "sub_cli", AccountID: account.ID, Plan: "pro", EventIDs: status.PendingEventIDs, ProviderReadAt: time.Now(), EvidenceSHA256: strings.Repeat("c", 64), PriceID: "price_reviewed", ProviderStatus: "active", PaymentConfirmed: true}}
+	snapshotPath := filepath.Join(dir, "snapshot.json")
+	data, _ = json.Marshal(snapshots)
+	if err = os.WriteFile(snapshotPath, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if data, err = call("reconcile", "--snapshots", snapshotPath); err != nil || !bytes.Contains(data, []byte(`"state":"change_expected"`)) {
+		t.Fatal(string(data), err)
+	}
+	var plan string
+	if err = db.QueryRow("SELECT plan FROM accounts WHERE id=?", account.ID).Scan(&plan); err != nil || plan != "free" {
+		t.Fatal("dry run changed plan", plan, err)
+	}
+	for _, args := range [][]string{{"--apply-fixture"}, {"--apply-fixture", "--apply-reviewed"}} {
+		if _, err = call("reconcile", append([]string{"--snapshots", snapshotPath}, args...)...); err == nil {
+			t.Fatal("invalid apply mode accepted", args)
+		}
+	}
+	if data, err = call("reconcile", "--snapshots", snapshotPath, "--apply-reviewed"); err != nil || !bytes.Contains(data, []byte(`"state":"applied"`)) {
+		t.Fatal(string(data), err)
+	}
+	if err = db.QueryRow("SELECT plan FROM accounts WHERE id=?", account.ID).Scan(&plan); err != nil || plan != "pro" {
+		t.Fatal(plan, err)
+	}
+	if _, err = call("reconcile", "--snapshots", snapshotPath, "--apply-reviewed"); err == nil {
+		t.Fatal("stale review applied")
 	}
 }

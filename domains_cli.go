@@ -95,11 +95,11 @@ func parseDomainOptions(args []string) (*domainOptions, error) {
 func runDomains(args []string) {
 	if err := executeDomains(args, os.Stdout); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			fmt.Fprint(os.Stdout, domainUsage)
+			_, _ = fmt.Fprint(os.Stdout, domainUsage)
 			return
 		}
-		fmt.Fprintln(os.Stderr, err)
-		fmt.Fprint(os.Stderr, domainUsage)
+		_, _ = fmt.Fprintln(os.Stderr, err)
+		_, _ = fmt.Fprint(os.Stderr, domainUsage)
 		os.Exit(1)
 	}
 }

@@ -471,7 +471,7 @@ func TestSDKOptionsAndSnapshots(t *testing.T) {
 	if _, err := PublishHandler(context.Background(), nil, Options{}); err == nil {
 		t.Fatal("nil handler accepted")
 	}
-	if _, err := Publish(nil, fixtureOptions()); err == nil {
+	if _, err := Publish(nil, fixtureOptions()); err == nil { //nolint:staticcheck // Verify rejection of a nil context.
 		t.Fatal("nil context accepted")
 	}
 }

@@ -297,7 +297,7 @@ func (b *Bridge) handlePOST(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !modern && !(incoming.Method == "initialize" && r.Header.Get("Mcp-Session-Id") == "") && !b.validSession(r.Header.Get("Mcp-Session-Id")) {
+	if !modern && (incoming.Method != "initialize" || r.Header.Get("Mcp-Session-Id") != "") && !b.validSession(r.Header.Get("Mcp-Session-Id")) {
 		http.Error(w, "unknown MCP session", http.StatusNotFound)
 		return
 	}
@@ -588,12 +588,12 @@ func (b *Bridge) setNewSession(w http.ResponseWriter) bool {
 		}
 	}
 	if len(b.sessions) >= 1024 {
-		http.Error(w, "MCP session capacity reached", 503)
+		http.Error(w, "MCP session capacity reached", http.StatusServiceUnavailable)
 		return false
 	}
 	random := make([]byte, 32)
 	if _, err := rand.Read(random); err != nil {
-		http.Error(w, "Could not create MCP session", 500)
+		http.Error(w, "Could not create MCP session", http.StatusInternalServerError)
 		return false
 	}
 	id := hex.EncodeToString(random)

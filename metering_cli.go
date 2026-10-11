@@ -36,11 +36,11 @@ func validCLIEndpoint(s string) bool { return cliopts.ValidEndpoint(s) }
 func runMetering(command string, args []string) {
 	if err := executeMetering(command, args, os.Stdout); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			fmt.Fprint(os.Stdout, meteringUsage)
+			_, _ = fmt.Fprint(os.Stdout, meteringUsage)
 			return
 		}
-		fmt.Fprintln(os.Stderr, err)
-		fmt.Fprint(os.Stderr, meteringUsage)
+		_, _ = fmt.Fprintln(os.Stderr, err)
+		_, _ = fmt.Fprint(os.Stderr, meteringUsage)
 		os.Exit(1)
 	}
 }

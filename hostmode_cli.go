@@ -28,7 +28,7 @@ func runHostCommand(command string, args []string) {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	if err := hostCommand(ctx, command, args, os.Stdout, os.Stderr); err != nil && !errors.Is(err, context.Canceled) {
-		fmt.Fprintln(os.Stderr, err)
+		_, _ = fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
@@ -46,7 +46,8 @@ func hostCommand(ctx context.Context, command string, args []string, out, errout
 	var platform *string
 	var jsonOutput *bool
 	var name, gateway, qrFile, domain *string
-	if command == "service" {
+	switch command {
+	case "service":
 		if len(args) == 0 {
 			return fmt.Errorf("usage: tunn service install|uninstall|restart|status|check|run [--config path] [--dry-run] [--os darwin|linux|windows]")
 		}
@@ -57,9 +58,9 @@ func hostCommand(ctx context.Context, command string, args []string, out, errout
 		o := new(cliopts.Service)
 		cliopts.ServiceFlags(fs, o, defaultPath, runtime.GOOS)
 		path, dry, platform = &o.Config, &o.DryRun, &o.OS
-	} else if command == "hosts" {
+	case "hosts":
 		jsonOutput = fs.Bool("json", false, "print the machine inventory as JSON")
-	} else if command == "openclaw" {
+	case "openclaw":
 		name = fs.String("name", "home-openclaw", "stable endpoint name")
 		gateway = fs.String("gateway", "", "local gateway URL (default port 18789, or the named http tunnel in host.yaml)")
 		qrFile = fs.String("qr-file", "", "also write a QR PNG")
@@ -142,7 +143,7 @@ func hostCommand(ctx context.Context, command string, args []string, out, errout
 			}
 		}
 		result, err := spec.Manage(action, hostmode.ExecCommand)
-		fmt.Fprint(out, result)
+		_, _ = fmt.Fprint(out, result)
 		return err
 	}
 	if loadErr != nil {
@@ -178,7 +179,7 @@ func hostCommand(ctx context.Context, command string, args []string, out, errout
 			return err
 		}
 		w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
-		fmt.Fprintln(w, "MACHINE\tTUNNEL\tKIND\tSTATUS\tLAST SEEN\tURL")
+		_, _ = fmt.Fprintln(w, "MACHINE\tTUNNEL\tKIND\tSTATUS\tLAST SEEN\tURL")
 		for _, m := range machines {
 			for _, t := range m.Tunnels {
 				status, seen := "offline", "never"
@@ -188,7 +189,7 @@ func hostCommand(ctx context.Context, command string, args []string, out, errout
 				if !t.LastSeen.IsZero() {
 					seen = t.LastSeen.UTC().Format(time.RFC3339)
 				}
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", m.Name, t.Name, t.Kind, status, seen, t.URL)
+				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", m.Name, t.Name, t.Kind, status, seen, t.URL)
 			}
 		}
 		return w.Flush()

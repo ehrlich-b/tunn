@@ -136,7 +136,7 @@ func inspectContractTarget(deliveries chan<- inspectContractDelivery, status int
 	return func(ctx context.Context, network, address string) (net.Conn, error) {
 		local, peer := net.Pipe()
 		go func() {
-			defer peer.Close()
+			defer func() { _ = peer.Close() }()
 			done := make(chan struct{})
 			defer close(done)
 			go func() {
@@ -396,7 +396,7 @@ func TestInspectContractReplayResponseTerminals(t *testing.T) {
 			client.DialContext = func(context.Context, string, string) (net.Conn, error) {
 				local, peer := net.Pipe()
 				go func() {
-					defer peer.Close()
+					defer func() { _ = peer.Close() }()
 					request, err := http.ReadRequest(bufio.NewReader(peer))
 					if err != nil {
 						return

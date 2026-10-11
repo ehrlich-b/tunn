@@ -23,7 +23,7 @@ func TestIntegrationAccountCutoffBillingReconciliationAndSuspension(t *testing.T
 		t.Fatal(err)
 	}
 	db.SetMaxOpenConns(1)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	local := storage.NewLocalStorage(db)
 	account, err := local.FindOrCreateByEmails(ctx, []string{"owner@example.com"}, "fixture")
 	if err != nil {

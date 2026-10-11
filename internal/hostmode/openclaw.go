@@ -65,17 +65,17 @@ func OpenClaw(ctx context.Context, o OpenClawOptions, out io.Writer) error {
 		}
 	}
 	if err := probe(ctx, net.JoinHostPort(host, port)); err != nil {
-		fmt.Fprintf(out, "Gateway not detected at %s; start OpenClaw first.\n", u.String())
+		_, _ = fmt.Fprintf(out, "Gateway not detected at %s; start OpenClaw first.\n", u.String())
 	} else {
-		fmt.Fprintf(out, "Local gateway port reachable at %s (OpenClaw identity unverified).\n", u.String())
+		_, _ = fmt.Fprintf(out, "Local gateway port reachable at %s (OpenClaw identity unverified).\n", u.String())
 	}
 	endpointURL := "https://" + o.Name + "." + o.Domain
-	fmt.Fprintf(out, "Reserved URL: %s (reservation takes effect after the host service registers).\n", endpointURL)
-	fmt.Fprintln(out, "Scaffold: requires the tunn-websocket branch before remote control or phone pairing can work.")
-	fmt.Fprintf(out, "1. Run tunn login; add a private http tunnel named %s targeting %s with your email in allow to %s.\n", o.Name, u.String(), strconv.Quote(o.ConfigPath))
-	fmt.Fprintf(out, "2. On a relay with TUNN_HOST_MODE=true, run tunn service install --config %s; verify with tunn hosts.\n", strconv.Quote(o.ConfigPath))
-	fmt.Fprintln(out, "3. After WebSocket support lands, scan this URL on your phone, authenticate to tunn, and approve the device in OpenClaw. Keep gateway authentication enabled.")
-	fmt.Fprintln(out, "Phone setup QR (URL only; does not grant access or enroll a device):")
+	_, _ = fmt.Fprintf(out, "Reserved URL: %s (reservation takes effect after the host service registers).\n", endpointURL)
+	_, _ = fmt.Fprintln(out, "Scaffold: requires the tunn-websocket branch before remote control or phone pairing can work.")
+	_, _ = fmt.Fprintf(out, "1. Run tunn login; add a private http tunnel named %s targeting %s with your email in allow to %s.\n", o.Name, u.String(), strconv.Quote(o.ConfigPath))
+	_, _ = fmt.Fprintf(out, "2. On a relay with TUNN_HOST_MODE=true, run tunn service install --config %s; verify with tunn hosts.\n", strconv.Quote(o.ConfigPath))
+	_, _ = fmt.Fprintln(out, "3. After WebSocket support lands, scan this URL on your phone, authenticate to tunn, and approve the device in OpenClaw. Keep gateway authentication enabled.")
+	_, _ = fmt.Fprintln(out, "Phone setup QR (URL only; does not grant access or enroll a device):")
 	render := o.RenderQR
 	if render == nil {
 		render = RenderQR
@@ -97,7 +97,7 @@ func RenderQR(ctx context.Context, endpointURL string, out io.Writer, pngPath st
 		if err := exec.CommandContext(ctx, "qrencode", "-t", "PNG", "-s", "8", "-m", "4", "-o", pngPath, "--", endpointURL).Run(); err != nil {
 			return fmt.Errorf("write QR PNG: %w", err)
 		}
-		fmt.Fprintf(out, "QR PNG: %s\n", pngPath)
+		_, _ = fmt.Fprintf(out, "QR PNG: %s\n", pngPath)
 	}
 	return nil
 }

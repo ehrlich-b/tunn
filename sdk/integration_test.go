@@ -25,7 +25,7 @@ func TestSDKIntegrationDomainAccountMergeAndSuspension(t *testing.T) {
 		t.Fatal(err)
 	}
 	db.SetMaxOpenConns(1)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	local := storage.NewLocalStorage(db)
 	owner, err := local.FindOrCreateByEmails(ctx, []string{"sdk-owner@example.invalid"}, "fixture")
 	if err != nil {

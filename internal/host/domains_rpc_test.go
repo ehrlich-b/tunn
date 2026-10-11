@@ -22,12 +22,12 @@ func TestDomainRPCRequiresNodeSecretAndSharesAuthority(t *testing.T) {
 	pb.RegisterDomainsServer(server, registry)
 	go func() { _ = server.Serve(listener) }()
 	defer server.Stop()
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 	conn, err := grpc.NewClient("passthrough:///domain-authority", grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	remote := &domains.Remote{Connection: func() *grpc.ClientConn { return conn }}
 	owner := &pb.Owner{Owner: "ad38bf44-0c4a-40ce-bdee-2d8579bf63cc"}
 	ctx := metadata.AppendToOutgoingContext(context.Background(), "x-node-secret", "domain-node-secret")

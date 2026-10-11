@@ -18,25 +18,25 @@ func (p *ProxyServer) handleReportIntake(w http.ResponseWriter, r *http.Request)
 	w.Header().Set("Cache-Control", "no-store")
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
-		http.Error(w, "method not allowed", 405)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	email, _, capability, ok := p.getAuthFromTunnelBearer(r, &TunnelConnection{})
 	if !ok || capability {
-		http.Error(w, "Account authentication required", 401)
+		http.Error(w, "Account authentication required", http.StatusUnauthorized)
 		return
 	}
 	if p.storage == nil || !p.storage.Available() {
-		http.Error(w, "Intake unavailable", 503)
+		http.Error(w, "Intake unavailable", http.StatusServiceUnavailable)
 		return
 	}
 	account, err := p.storage.GetAccountByEmail(r.Context(), email)
 	if err != nil {
-		http.Error(w, "Account service unavailable", 503)
+		http.Error(w, "Account service unavailable", http.StatusServiceUnavailable)
 		return
 	}
 	if account == nil {
-		http.Error(w, "Account required", 403)
+		http.Error(w, "Account required", http.StatusForbidden)
 		return
 	}
 	var metadata struct {
@@ -46,19 +46,19 @@ func (p *ProxyServer) handleReportIntake(w http.ResponseWriter, r *http.Request)
 	d := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024))
 	d.DisallowUnknownFields()
 	if d.Decode(&metadata) != nil {
-		http.Error(w, "Invalid intake metadata", 400)
+		http.Error(w, "Invalid intake metadata", http.StatusBadRequest)
 		return
 	}
 	var extra any
 	if d.Decode(&extra) != io.EOF {
-		http.Error(w, "Expected one report", 400)
+		http.Error(w, "Expected one report", http.StatusBadRequest)
 		return
 	}
 	intake, ok := p.storage.(interface {
 		IntakeReport(context.Context, string, string, string) (*store.IncidentReport, error)
 	})
 	if !ok {
-		http.Error(w, "Intake unavailable", 503)
+		http.Error(w, "Intake unavailable", http.StatusServiceUnavailable)
 		return
 	}
 	report, err := intake.IntakeReport(r.Context(), account.ID, metadata.Category, metadata.Endpoint)

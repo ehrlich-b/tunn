@@ -13,7 +13,7 @@ func newTestLocalStorage(t *testing.T) *LocalStorage {
 	if err != nil {
 		t.Fatalf("failed to init test db: %v", err)
 	}
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() { _ = db.Close() })
 	return NewLocalStorage(db)
 }
 

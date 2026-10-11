@@ -89,7 +89,7 @@ func adminPrincipal(configPath, tokenPath string) (store.AdminPrincipal, error) 
 func runOperations(args []string) {
 	if err := executeOperations(args, os.Stdout); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			fmt.Fprint(os.Stdout, operationsUsage)
+			_, _ = fmt.Fprint(os.Stdout, operationsUsage)
 			return
 		}
 		_ = json.NewEncoder(os.Stderr).Encode(map[string]string{"state": "error", "error": err.Error()})

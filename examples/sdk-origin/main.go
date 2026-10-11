@@ -32,7 +32,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer tunnel.Close()
+	defer func() { _ = tunnel.Close() }()
 	readyCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	url, err := tunnel.WaitReady(readyCtx)

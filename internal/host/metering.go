@@ -79,7 +79,7 @@ func (s *ingressMeter) admit(ctx context.Context, w http.ResponseWriter, r *http
 	if err != nil {
 		s.reason = "meter_unavailable"
 		w.Header().Set("Tunn-Limit-Reason", s.reason)
-		http.Error(w, "Usage ledger unavailable", 503)
+		http.Error(w, "Usage ledger unavailable", http.StatusServiceUnavailable)
 		return false
 	}
 	w.Header().Set("Tunn-Request-ID", s.event.RequestId)
@@ -93,7 +93,7 @@ func (s *ingressMeter) admit(ctx context.Context, w http.ResponseWriter, r *http
 	if s.proxy.planMeter && s.accountID != "" && (d.RequestsRemaining < 0 || d.BytesRemaining < 0) {
 		s.reason = "meter_unavailable"
 		w.Header().Set("Tunn-Limit-Reason", s.reason)
-		http.Error(w, "Usage authority must support account plan limits", 503)
+		http.Error(w, "Usage authority must support account plan limits", http.StatusServiceUnavailable)
 		return false
 	}
 	return true
@@ -379,13 +379,13 @@ func (p *ProxyServer) handleMeteringAPI(w http.ResponseWriter, r *http.Request) 
 	}
 	endpoint := parts[0]
 	if p.meter == nil {
-		http.Error(w, "Usage ledger unavailable", 503)
+		http.Error(w, "Usage ledger unavailable", http.StatusServiceUnavailable)
 		return
 	}
 	email, _, capability, ok := p.getAuthFromTunnelBearer(r, &TunnelConnection{})
 	if !ok || capability {
 		w.Header().Set("WWW-Authenticate", `Bearer realm="tunn-owner"`)
-		http.Error(w, "Owner authentication required", 401)
+		http.Error(w, "Owner authentication required", http.StatusUnauthorized)
 		return
 	}
 	if p.storage == nil || !p.storage.Available() {
@@ -403,7 +403,7 @@ func (p *ProxyServer) handleMeteringAPI(w http.ResponseWriter, r *http.Request) 
 	}
 	owner := account.ID
 	if r.Method == http.MethodPost && account.OperationalState != "active" {
-		http.Error(w, "account_suspended", 403)
+		http.Error(w, "account_suspended", http.StatusForbidden)
 		return
 	}
 	switch {
@@ -414,7 +414,7 @@ func (p *ProxyServer) handleMeteringAPI(w http.ResponseWriter, r *http.Request) 
 			duration, err := time.ParseDuration(since[0])
 			now := time.Now().UTC()
 			if err != nil || duration < time.Millisecond || now.Add(-duration).UnixMilli() <= 0 || r.URL.Query().Has("month") {
-				http.Error(w, "since must be a positive duration and cannot be combined with month", 400)
+				http.Error(w, "since must be a positive duration and cannot be combined with month", http.StatusBadRequest)
 				return
 			}
 			// Export's upper bound is exclusive; include events recorded during
@@ -425,7 +425,7 @@ func (p *ProxyServer) handleMeteringAPI(w http.ResponseWriter, r *http.Request) 
 				month = time.Now().UTC().Format("2006-01")
 			}
 			if parsed, err := time.Parse("2006-01", month); err != nil || parsed.Format("2006-01") != month {
-				http.Error(w, "month must be YYYY-MM", 400)
+				http.Error(w, "month must be YYYY-MM", http.StatusBadRequest)
 				return
 			}
 			export.Month = month
@@ -433,7 +433,7 @@ func (p *ProxyServer) handleMeteringAPI(w http.ResponseWriter, r *http.Request) 
 		out, err := p.meter.Export(r.Context(), export)
 		if err != nil {
 			p.operations.drops.Add(1)
-			http.Error(w, "Usage ledger unavailable", 503)
+			http.Error(w, "Usage ledger unavailable", http.StatusServiceUnavailable)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -443,7 +443,7 @@ func (p *ProxyServer) handleMeteringAPI(w http.ResponseWriter, r *http.Request) 
 	case parts[1] == "grants" && len(parts) == 2 && r.Method == http.MethodGet:
 		out, err := p.meter.ListGrants(r.Context(), &pb.ListGrantsRequest{Owner: owner, Endpoint: endpoint})
 		if err != nil {
-			http.Error(w, "Usage ledger unavailable", 503)
+			http.Error(w, "Usage ledger unavailable", http.StatusServiceUnavailable)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -471,7 +471,7 @@ func (p *ProxyServer) handleMeteringAPI(w http.ResponseWriter, r *http.Request) 
 				p.proxyToNode(w, r, addr, endpoint)
 				return
 			}
-			http.Error(w, "Endpoint offline", 503)
+			http.Error(w, "Endpoint offline", http.StatusServiceUnavailable)
 			return
 		}
 		tunnelAccount, err := p.currentTunnelAccount(r.Context(), tunnel)
@@ -480,23 +480,23 @@ func (p *ProxyServer) handleMeteringAPI(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		if tunnelAccount == nil || tunnelAccount.ID != owner {
-			http.Error(w, "Only the endpoint owner can create grants", 403)
+			http.Error(w, "Only the endpoint owner can create grants", http.StatusForbidden)
 			return
 		}
 		if tunnel.EndpointProtocol == "tcp" {
-			http.Error(w, "Metered grants currently support HTTP endpoints", 400)
+			http.Error(w, "Metered grants currently support HTTP endpoints", http.StatusBadRequest)
 			return
 		}
 		var g pb.Grant
 		decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
 		decoder.DisallowUnknownFields()
 		if err := decoder.Decode(&g); err != nil {
-			http.Error(w, "Invalid grant", 400)
+			http.Error(w, "Invalid grant", http.StatusBadRequest)
 			return
 		}
 		var extra any
 		if err := decoder.Decode(&extra); err != io.EOF {
-			http.Error(w, "Invalid grant", 400)
+			http.Error(w, "Invalid grant", http.StatusBadRequest)
 			return
 		}
 		g.Owner = owner
@@ -504,7 +504,7 @@ func (p *ProxyServer) handleMeteringAPI(w http.ResponseWriter, r *http.Request) 
 		g.Consumer = common.NormalizeEmail(g.Consumer)
 		out, err := p.meter.CreateGrant(r.Context(), &g)
 		if err != nil {
-			http.Error(w, "Invalid grant or ledger unavailable", 400)
+			http.Error(w, "Invalid grant or ledger unavailable", http.StatusBadRequest)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -513,13 +513,13 @@ func (p *ProxyServer) handleMeteringAPI(w http.ResponseWriter, r *http.Request) 
 	case parts[1] == "grants" && len(parts) == 3 && r.Method == http.MethodDelete:
 		_, err := p.meter.RevokeGrant(r.Context(), &pb.Grant{Owner: owner, Endpoint: endpoint, Id: parts[2]})
 		if err != nil {
-			http.Error(w, "Grant not found or ledger unavailable", 404)
+			http.Error(w, "Grant not found or ledger unavailable", http.StatusNotFound)
 			return
 		}
 		w.WriteHeader(204)
 	default:
 		w.Header().Set("Allow", "GET, POST, DELETE")
-		http.Error(w, "Unsupported management operation", 405)
+		http.Error(w, "Unsupported management operation", http.StatusMethodNotAllowed)
 	}
 }
 
@@ -527,7 +527,7 @@ func writeIngressError(w http.ResponseWriter, err error) {
 	var unavailable *meterUnavailableError
 	if errors.As(err, &unavailable) {
 		w.Header().Set("Tunn-Limit-Reason", "meter_unavailable")
-		http.Error(w, "Usage ledger unavailable", 503)
+		http.Error(w, "Usage ledger unavailable", http.StatusServiceUnavailable)
 		return
 	}
 	var limit *ingressLimitError
@@ -536,5 +536,5 @@ func writeIngressError(w http.ResponseWriter, err error) {
 		http.Error(w, limit.decision.Reason, int(limit.decision.Status))
 		return
 	}
-	http.Error(w, "Failed to proxy request", 502)
+	http.Error(w, "Failed to proxy request", http.StatusBadGateway)
 }

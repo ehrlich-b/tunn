@@ -11,7 +11,7 @@ import (
 
 func TestConnectReportsAccountCutoffTrailer(t *testing.T) {
 	a, b := net.Pipe()
-	defer b.Close()
+	defer func() { _ = b.Close() }()
 	data := make(chan string, 1)
 	go func() { bytes, _ := io.ReadAll(b); data <- string(bytes) }()
 	hc := &http.Client{Transport: meteringTransportFunc(func(r *http.Request) (*http.Response, error) {

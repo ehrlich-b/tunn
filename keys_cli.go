@@ -20,13 +20,13 @@ import (
 
 func runKeys(args []string) {
 	if err := executeKeys(args, os.Stdout); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		_, _ = fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 func executeKeys(args []string, out io.Writer) error {
 	if len(args) == 0 || args[0] == "--help" {
-		fmt.Fprintln(out, "tunn keys add <public-key-file> | list | remove <SHA256:fingerprint>")
+		_, _ = fmt.Fprintln(out, "tunn keys add <public-key-file> | list | remove <SHA256:fingerprint>")
 		return nil
 	}
 	method := http.MethodGet

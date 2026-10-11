@@ -52,7 +52,7 @@ func (r webSocketActivityReader) Read(p []byte) (int, error) {
 type webSocketTargetConn struct{ net.Conn }
 
 func (c webSocketTargetConn) Write(p []byte) (int, error) {
-	_ = c.Conn.SetWriteDeadline(time.Now().Add(30 * time.Second))
+	_ = c.SetWriteDeadline(time.Now().Add(30 * time.Second))
 	return c.Conn.Write(p)
 }
 

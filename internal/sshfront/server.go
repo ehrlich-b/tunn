@@ -353,7 +353,7 @@ func (c *connection) requests(requests <-chan *ssh.Request) {
 		c.mu.Unlock()
 		if err != nil {
 			_ = req.Reply(false, nil)
-			fmt.Fprintln(c.output, err)
+			_, _ = fmt.Fprintln(c.output, err)
 			continue
 		}
 		var reply []byte
@@ -390,7 +390,7 @@ func (c *connection) session(ch ssh.Channel, requests <-chan *ssh.Request) {
 				args, err = SplitCommand(command.Command)
 				if err != nil {
 					_ = req.Reply(false, nil)
-					fmt.Fprintln(c.output, err)
+					_, _ = fmt.Fprintln(c.output, err)
 					return
 				}
 			}
@@ -413,7 +413,7 @@ func (c *connection) session(ch ssh.Channel, requests <-chan *ssh.Request) {
 			code := uint32(0)
 			if err != nil {
 				code = 1
-				fmt.Fprintln(c.output, err)
+				_, _ = fmt.Fprintln(c.output, err)
 			}
 			_, _ = ch.SendRequest("exit-status", false, ssh.Marshal(struct{ Status uint32 }{code}))
 			return
@@ -428,9 +428,9 @@ func (c *connection) run(args []string, in ssh.Channel) error {
 		args = args[1:]
 	}
 	if len(args) > 0 && (args[0] == "help" || args[0] == "--help" || args[0] == "-h") {
-		fmt.Fprintln(c.output, "SSH API: ssh -T -p 443 -R0:localhost:8080 tunn.to -- [serve|tcp|unix|mcp] [flags]\nCommands: help, keys add/list/remove, login --email EMAIL, hosts, usage, grant, token, inspect, replay, connect\nLocal plans: service install/uninstall/restart/status/check/run; openclaw preview.\nMCP: mcp --stdio bridges JSON-RPC on stdin/stdout; --tools restricts tools.")
+		_, _ = fmt.Fprintln(c.output, "SSH API: ssh -T -p 443 -R0:localhost:8080 tunn.to -- [serve|tcp|unix|mcp] [flags]\nCommands: help, keys add/list/remove, login --email EMAIL, hosts, usage, grant, token, inspect, replay, connect\nLocal plans: service install/uninstall/restart/status/check/run; openclaw preview.\nMCP: mcp --stdio bridges JSON-RPC on stdin/stdout; --tools restricts tools.")
 		if len(args) > 1 && (args[1] == "grant" || args[1] == "usage") {
-			fmt.Fprint(c.output, cliopts.MeteringUsage)
+			_, _ = fmt.Fprint(c.output, cliopts.MeteringUsage)
 		} else {
 			cliopts.Usage(c.output)
 		}
@@ -651,10 +651,10 @@ func (c *connection) start(f *forward) error {
 			}
 		}
 		if open := m.GetConnectionOpen(); open != nil && open.HttpRequest != nil {
-			fmt.Fprintf(c.output, "%s %s\n", open.HttpRequest.Method, terminalText(open.HttpRequest.Path))
+			_, _ = fmt.Fprintf(c.output, "%s %s\n", open.HttpRequest.Method, terminalText(open.HttpRequest.Path))
 		}
 		if accept := m.GetConnectionAccept(); accept != nil && accept.HttpResponse != nil {
-			fmt.Fprintf(c.output, "<- %d\n", accept.HttpResponse.StatusCode)
+			_, _ = fmt.Fprintf(c.output, "<- %d\n", accept.HttpResponse.StatusCode)
 		}
 	}
 	adapter := &client.ServeClient{TargetURL: "http://ssh-forward", EndpointProtocol: c.protocol, RequireUpstreamAuth: o.RequireUpstreamAuth, SkipLocalTLSVerify: o.SkipLocalTLSVerify, WebSocket: &o.WebSocket}
@@ -731,21 +731,21 @@ func (c *connection) start(f *forward) error {
 	if c.kind == "mcp" {
 		publicURL += "/mcp"
 	}
-	fmt.Fprintf(c.output, "%s\nAccess: %s\n", publicURL, strings.Join(o.AllowedEmails, ", "))
+	_, _ = fmt.Fprintf(c.output, "%s\nAccess: %s\n", publicURL, strings.Join(o.AllowedEmails, ", "))
 	if o.Public {
-		fmt.Fprintln(c.output, "Access: public")
+		_, _ = fmt.Fprintln(c.output, "Access: public")
 	}
 	if o.Expire > 0 {
-		fmt.Fprintf(c.output, "Expires after: %s\n", o.Expire)
+		_, _ = fmt.Fprintf(c.output, "Expires after: %s\n", o.Expire)
 	}
 	if token != "" {
-		fmt.Fprintf(c.output, "Endpoint token: %s\n", token)
+		_, _ = fmt.Fprintf(c.output, "Endpoint token: %s\n", token)
 	}
 	if o.QR {
 		if c.server.cfg.RenderQR == nil {
-			fmt.Fprintln(c.output, "QR unavailable: install qrencode on the relay")
+			_, _ = fmt.Fprintln(c.output, "QR unavailable: install qrencode on the relay")
 		} else if err := c.server.cfg.RenderQR(ctx, publicURL, c.output); err != nil {
-			fmt.Fprintln(c.output, err)
+			_, _ = fmt.Fprintln(c.output, err)
 		}
 	}
 	go func() { _ = adapter.ServeMessages(ctx, messages); cancel() }()
@@ -793,7 +793,7 @@ func (s *stdioOutput) SetWriteDeadline(t time.Time) error {
 
 func (s *stdioOutput) Close() error {
 	_ = s.SetWriteDeadline(time.Time{})
-	return s.Channel.CloseWrite()
+	return s.CloseWrite()
 }
 
 type handlerTransport struct{ handler http.Handler }
@@ -804,7 +804,7 @@ func (t handlerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	return w.Result(), nil
 }
 func (s *Server) inspection(ctx context.Context, id Identity, args []string, in io.Reader, out io.Writer) error {
-	if len(args) < 2 || args[0] == "inspect" && len(args) != 2 || args[0] == "replay" && !(len(args) == 3 || len(args) == 5 && args[3] == "--request" && args[4] == "-") {
+	if len(args) < 2 || args[0] == "inspect" && len(args) != 2 || args[0] == "replay" && len(args) != 3 && (len(args) != 5 || args[3] != "--request" || args[4] != "-") {
 		return fmt.Errorf("inspect NAME | replay NAME DELIVERY_ID [--request -]")
 	}
 	if s.cfg.RotateToken == nil {

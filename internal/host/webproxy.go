@@ -141,7 +141,7 @@ func (p *ProxyServer) handleWebProxy(w http.ResponseWriter, r *http.Request) {
 func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunnelID string) {
 	tunnel, exists := p.tunnelServer.GetTunnel(tunnelID)
 	if !exists {
-		http.Error(w, "Tunnel offline", 503)
+		http.Error(w, "Tunnel offline", http.StatusServiceUnavailable)
 		return
 	}
 	account, accountErr := p.currentTunnelAccount(r.Context(), tunnel)
@@ -166,20 +166,20 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 	if !tunnel.accountQuotaExempt && accountErr == nil && account != nil && account.OperationalState != "" && account.OperationalState != "active" {
 		session.reason = "account_suspended"
 		w.Header().Set("Tunn-Limit-Reason", session.reason)
-		http.Error(w, session.reason, 403)
+		http.Error(w, session.reason, http.StatusForbidden)
 		return
 	}
 	if token, header := grantBearer(r); token != "" {
 		if p.meter == nil {
 			session.reason = "meter_unavailable"
-			http.Error(w, "Usage ledger unavailable", 503)
+			http.Error(w, "Usage ledger unavailable", http.StatusServiceUnavailable)
 			return
 		}
 		digest := sha256.Sum256([]byte(token))
 		grant, err := p.meter.Resolve(r.Context(), &meterpb.ResolveRequest{Owner: session.event.Owner, Endpoint: tunnelID, TokenSha256: digest[:]})
 		if err != nil {
 			session.reason = "meter_unavailable"
-			http.Error(w, "Usage ledger unavailable", 503)
+			http.Error(w, "Usage ledger unavailable", http.StatusServiceUnavailable)
 			return
 		}
 		if strings.HasPrefix(token, "tunn_mcp_") {
@@ -198,7 +198,7 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		if grant.Id == "" || tunnel.EndpointProtocol == "tcp" || common.IsWebSocketUpgrade(r.Header) {
 			session.reason = "invalid_grant"
 			w.Header().Set("Tunn-Limit-Reason", session.reason)
-			http.Error(w, "Invalid endpoint grant", 403)
+			http.Error(w, "Invalid endpoint grant", http.StatusForbidden)
 			return
 		}
 		session.event.Caller = "grant:" + grant.Id
@@ -357,7 +357,7 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 	if !tunnel.accountQuotaExempt && (tunnel.CreatorEmail != "" || tunnel.AccountID != "") {
 		if accountErr == nil && account != nil && account.OperationalState == "" {
 			session.reason = "account_unavailable"
-			http.Error(w, "Account status unavailable", 503)
+			http.Error(w, "Account status unavailable", http.StatusServiceUnavailable)
 			return
 		}
 		if accountErr != nil || account == nil || !p.planMeter && !p.checkQuota(r.Context(), account.ID, account.Plan) {

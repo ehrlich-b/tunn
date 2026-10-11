@@ -101,7 +101,7 @@ WantedBy=default.target
 `, systemdArg(s.Binary), systemdArg(s.Config), systemdPath(s.Home)), nil
 	case "windows":
 		if s.Username == "" {
-			return "", fmt.Errorf("Windows scheduled task requires the current username")
+			return "", fmt.Errorf("windows scheduled task requires the current username")
 		}
 		return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
@@ -322,7 +322,7 @@ func createPrivateFile(path string, data []byte) error {
 	if err != nil {
 		return err
 	}
-	defer os.Remove(f.Name())
+	defer func() { _ = os.Remove(f.Name()) }()
 	if _, err := f.Write(data); err != nil {
 		_ = f.Close()
 		return err

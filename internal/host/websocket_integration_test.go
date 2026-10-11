@@ -77,13 +77,14 @@ func fixtureReadFrame(r io.Reader, wantMasked bool) (fixtureWireFrame, error) {
 		return fixtureWireFrame{}, fmt.Errorf("unexpected frame mask %x", h)
 	}
 	n := uint64(h[1] & 0x7f)
-	if n == 126 {
+	switch n {
+	case 126:
 		var p [2]byte
 		if _, err := io.ReadFull(r, p[:]); err != nil {
 			return fixtureWireFrame{}, err
 		}
 		n = uint64(binary.BigEndian.Uint16(p[:]))
-	} else if n == 127 {
+	case 127:
 		var p [8]byte
 		if _, err := io.ReadFull(r, p[:]); err != nil {
 			return fixtureWireFrame{}, err
@@ -468,11 +469,15 @@ func TestWebSocketBufferedUpgradeFrames(t *testing.T) {
 	expectWireFrame(t, reader, 1, []byte("early frame"))
 }
 func TestWebSocketConcurrentSockets(t *testing.T) {
-	s := startWebSocketStack(t, nil)
+	s := startWebSocketStack(t, func(publisher *client.ServeClient) {
+		// Opening the other 99 TLS connections is setup, not an idle-expiry test.
+		publisher.WebSocket.IdleTimeout = 30 * time.Second
+	})
 	var sockets []net.Conn
 	var readers []*bufio.Reader
 	for i := 0; i < 100; i++ {
 		conn, reader := mustWebSocket(t, s, "/echo", nil)
+		_ = conn.SetDeadline(time.Time{})
 		sockets = append(sockets, conn)
 		readers = append(readers, reader)
 	}
@@ -490,6 +495,7 @@ func TestWebSocketConcurrentSockets(t *testing.T) {
 		wg.Add(1)
 		go func(i int, conn net.Conn) {
 			defer wg.Done()
+			_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
 			p := []byte(fmt.Sprintf("socket-%d", i))
 			if _, err := conn.Write(fixtureFrame(1, true, true, p)); err != nil {
 				failures <- err

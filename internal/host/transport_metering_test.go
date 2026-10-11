@@ -111,7 +111,7 @@ func TestWebSocketFramesUseAccountLedger(t *testing.T) {
 				return nil
 			}
 			serverConn, clientConn := net.Pipe()
-			defer clientConn.Close()
+			defer func() { _ = clientConn.Close() }()
 			done := make(chan struct{})
 			go func() {
 				defer close(done)
@@ -285,7 +285,7 @@ func TestAccountPlanUpgradeOverridesPublisherSnapshotAndOldMirror(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	if _, err := db.Exec(`INSERT INTO accounts(id,primary_email,plan,created_at) VALUES(?,?,'pro',1);`, tunnel.AccountID, tunnel.CreatorEmail); err != nil {
 		t.Fatal(err)
 	}

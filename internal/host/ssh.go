@@ -163,7 +163,7 @@ func (p *ProxyServer) sshCommand(ctx context.Context, id sshfront.Identity, args
 		if len(args) != 2 || !isValidDNSLabel(args[1]) {
 			return fmt.Errorf("connect NAME; use ssh -N -L LOCALPORT:NAME:80 tunn.to")
 		}
-		fmt.Fprintf(out, "ssh -N -p 443 -L 127.0.0.1:15432:%s:80 %s\n", args[1], p.Domain)
+		_, _ = fmt.Fprintf(out, "ssh -N -p 443 -L 127.0.0.1:15432:%s:80 %s\n", args[1], p.Domain)
 		return nil
 	case "service":
 		return sshfront.ServicePlan(args[1:], in, p.Domain, out)
@@ -183,7 +183,7 @@ func (p *ProxyServer) sshCommand(ctx context.Context, id sshfront.Identity, args
 		}
 		// Local gateway probing is done by the SSH forward, never by dialing the
 		// relay's loopback network in response to a remote command.
-		fmt.Fprintf(out, "Preview URL: https://%s.%s\nExpose the gateway with: ssh -T -p 443 -R0:localhost:18789 %s -- --name %s --bearer --require-upstream-auth --qr\nAuthenticate to tunn and approve the device in OpenClaw; keep gateway authentication enabled.\n", *name, p.Domain, p.Domain, *name)
+		_, _ = fmt.Fprintf(out, "Preview URL: https://%s.%s\nExpose the gateway with: ssh -T -p 443 -R0:localhost:18789 %s -- --name %s --bearer --require-upstream-auth --qr\nAuthenticate to tunn and approve the device in OpenClaw; keep gateway authentication enabled.\n", *name, p.Domain, p.Domain, *name)
 		return hostmode.OpenClaw(ctx, hostmode.OpenClawOptions{Name: *name, Domain: p.Domain, Gateway: *gateway, Probe: func(context.Context, string) error { return fmt.Errorf("probe through a local SSH forward") }, RenderQR: func(ctx context.Context, u string, w io.Writer, _ string) error {
 			if p.sshServer == nil {
 				return fmt.Errorf("SSH disabled")
@@ -351,7 +351,7 @@ func (p *ProxyServer) requestSSHKeyLink(ctx context.Context, id sshfront.Identit
 	}
 	// The email proof never appears in the SSH session. Printing the actual
 	// bearer link here would let a key owner claim an arbitrary victim account.
-	fmt.Fprintf(out, "Link requested for %s (%s). Open the magic link in your email within 5 minutes, then reconnect.\nAccount: https://%s/account\n", email, id.Fingerprint, p.config.PublicAddr)
+	_, _ = fmt.Fprintf(out, "Link requested for %s (%s). Open the magic link in your email within 5 minutes, then reconnect.\nAccount: https://%s/account\n", email, id.Fingerprint, p.config.PublicAddr)
 	return nil
 }
 
@@ -363,32 +363,32 @@ func (p *ProxyServer) handleSSHKeyLink(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	if p.sshKeys == nil {
-		http.Error(w, "SSH key linking is disabled", 404)
+		http.Error(w, "SSH key linking is disabled", http.StatusNotFound)
 		return
 	}
 	if r.Method != "GET" {
-		http.Error(w, "method not allowed", 405)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	token := r.URL.Query().Get("token")
 	email, err := p.sshKeys.LinkEmail(r.Context(), token)
 	if err != nil {
-		http.Error(w, "Invalid or expired SSH link", 400)
+		http.Error(w, "Invalid or expired SSH link", http.StatusBadRequest)
 		return
 	}
 	if _, err = p.storage.FindOrCreateByEmails(r.Context(), []string{email}, "magic_link"); err != nil {
-		http.Error(w, "Account service unavailable", 503)
+		http.Error(w, "Account service unavailable", http.StatusServiceUnavailable)
 		return
 	}
 	if err = p.sshKeys.CompleteLink(r.Context(), token); err != nil {
-		http.Error(w, "SSH link already used or key belongs to another identity", 400)
+		http.Error(w, "SSH link already used or key belongs to another identity", http.StatusBadRequest)
 		return
 	}
 	if err = p.setAuthCookie(w, email); err != nil {
-		http.Error(w, "Could not complete login", 500)
+		http.Error(w, "Could not complete login", http.StatusInternalServerError)
 		return
 	}
-	fmt.Fprintln(w, "SSH key linked. Reconnect with the same key to use your account.")
+	_, _ = fmt.Fprintln(w, "SSH key linked. Reconnect with the same key to use your account.")
 }
 
 func (p *ProxyServer) handleSSHKeys(w http.ResponseWriter, r *http.Request) {
@@ -398,17 +398,17 @@ func (p *ProxyServer) handleSSHKeys(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	if p.sshKeys == nil {
-		http.Error(w, "SSH API disabled on this node", 404)
+		http.Error(w, "SSH API disabled on this node", http.StatusNotFound)
 		return
 	}
 	email, _, capability, ok := p.getAuthFromTunnelBearer(r, &TunnelConnection{})
 	if !ok || capability {
-		http.Error(w, "Owner authentication required", 401)
+		http.Error(w, "Owner authentication required", http.StatusUnauthorized)
 		return
 	}
 	account, err := p.storage.GetAccountByEmail(r.Context(), common.NormalizeEmail(email))
 	if err != nil || account == nil {
-		http.Error(w, "Account service unavailable", 503)
+		http.Error(w, "Account service unavailable", http.StatusServiceUnavailable)
 		return
 	}
 	emails := []string{account.PrimaryEmail}
@@ -422,7 +422,7 @@ func (p *ProxyServer) handleSSHKeys(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		keys, err := p.sshKeys.List(r.Context(), emails)
 		if err != nil {
-			http.Error(w, "Could not list SSH keys", 503)
+			http.Error(w, "Could not list SSH keys", http.StatusServiceUnavailable)
 			return
 		}
 		_ = json.NewEncoder(w).Encode(keys)
@@ -431,18 +431,18 @@ func (p *ProxyServer) handleSSHKeys(w http.ResponseWriter, r *http.Request) {
 			PublicKey string `json:"public_key"`
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16*1024)).Decode(&req); err != nil {
-			http.Error(w, "Invalid key", 400)
+			http.Error(w, "Invalid key", http.StatusBadRequest)
 			return
 		}
 		key, err := sshfront.ParseKey(req.PublicKey)
 		if err != nil {
-			http.Error(w, err.Error(), 400)
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		ownerEmail := account.PrimaryEmail
 		previousOwner, err := p.sshKeys.Owner(r.Context(), key.Fingerprint)
 		if err != nil {
-			http.Error(w, "Key service unavailable", 503)
+			http.Error(w, "Key service unavailable", http.StatusServiceUnavailable)
 			return
 		}
 		for _, email := range emails {
@@ -452,19 +452,19 @@ func (p *ProxyServer) handleSSHKeys(w http.ResponseWriter, r *http.Request) {
 		}
 		key, err = p.sshKeys.Add(r.Context(), ownerEmail, req.PublicKey)
 		if err != nil {
-			http.Error(w, err.Error(), 409)
+			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
 		_ = json.NewEncoder(w).Encode(key)
 	case http.MethodDelete:
 		if err := p.sshKeys.Remove(r.Context(), emails, r.URL.Query().Get("fingerprint")); err != nil {
-			http.Error(w, err.Error(), 404)
+			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
-		fmt.Fprintln(w, `{"removed":true}`)
+		_, _ = fmt.Fprintln(w, `{"removed":true}`)
 	default:
 		w.Header().Set("Allow", "GET, POST, DELETE")
-		http.Error(w, "method not allowed", 405)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 

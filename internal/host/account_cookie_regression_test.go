@@ -32,7 +32,7 @@ func TestAccountMergePreservesUsageAndGrants(t *testing.T) {
 		t.Fatal(err)
 	}
 	db.SetMaxOpenConns(1)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	local := storage.NewLocalStorage(db)
 	old, err := local.FindOrCreateByEmails(ctx, []string{"old@example.com"}, "magic_link")
 	if err != nil {
@@ -176,7 +176,7 @@ func TestAccountMergePreservesUsageAndGrants(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer durable.Close()
+		defer func() { _ = durable.Close() }()
 		durable.SetMaxOpenConns(1)
 		reopened := storage.NewLocalStorage(durable)
 		if account, err := reopened.GetAccount(ctx, old.ID); err != nil || account == nil || account.ID != merged.ID {
@@ -277,7 +277,7 @@ func TestMergedHostRemainsUsable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	ledger, err := metering.New(db)
 	if err != nil {
 		t.Fatal(err)
@@ -343,7 +343,7 @@ func TestLiveBillingUpdatesQuota(t *testing.T) {
 				t.Fatal(err)
 			}
 			db.SetMaxOpenConns(1)
-			defer db.Close()
+			defer func() { _ = db.Close() }()
 			local := storage.NewLocalStorage(db)
 			acc, err := local.FindOrCreateByEmails(ctx, []string{"owner@example.com"}, "github")
 			if err != nil {
@@ -447,8 +447,8 @@ func TestApplicationCannotReplacePlatformCookie(t *testing.T) {
 				r.Header.Set("Sec-WebSocket-Version", "13")
 				r.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
 				remote, local := net.Pipe()
-				defer remote.Close()
-				defer local.Close()
+				defer func() { _ = remote.Close() }()
+				defer func() { _ = local.Close() }()
 				_ = remote.SetDeadline(time.Now().Add(time.Second))
 				done := make(chan struct{})
 				go func() {
@@ -489,10 +489,6 @@ func TestApplicationCannotReplacePlatformCookie(t *testing.T) {
 		})
 	}
 }
-
-type billingFixtureTransport func(*http.Request) (*http.Response, error)
-
-func (f billingFixtureTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 type cookieFixtureHijacker struct {
 	*httptest.ResponseRecorder

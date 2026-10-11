@@ -22,8 +22,6 @@ import (
 )
 
 // Keep registration and custom-domain binding on the same name policy.
-var reservedSubdomains = common.ReservedTunnelNames
-
 func isReservedSubdomain(tunnelID string) bool { return common.IsReservedTunnelName(tunnelID) }
 
 // isValidDNSLabel checks if a tunnel ID is a valid DNS label per RFC 1123.

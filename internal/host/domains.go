@@ -93,30 +93,30 @@ func domainHTTPError(w http.ResponseWriter, err error) {
 func (p *ProxyServer) handleDomainsAPI(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	if !p.isPlatformHost(r.Host) {
-		http.Error(w, "Owner API requires the relay origin", 403)
+		http.Error(w, "Owner API requires the relay origin", http.StatusForbidden)
 		return
 	}
 	if p.domains == nil {
-		http.Error(w, "Custom domains are not configured", 503)
+		http.Error(w, "Custom domains are not configured", http.StatusServiceUnavailable)
 		return
 	}
 	email, _, capability, ok := p.getAuthFromTunnelBearer(r, &TunnelConnection{})
 	if !ok || capability {
 		w.Header().Set("WWW-Authenticate", `Bearer realm="tunn-owner"`)
-		http.Error(w, "Owner authentication required", 401)
+		http.Error(w, "Owner authentication required", http.StatusUnauthorized)
 		return
 	}
 	if p.storage == nil || !p.storage.Available() {
-		http.Error(w, "Account service unavailable", 503)
+		http.Error(w, "Account service unavailable", http.StatusServiceUnavailable)
 		return
 	}
 	account, err := p.storage.GetAccountByEmail(r.Context(), common.NormalizeEmail(email))
 	if err != nil {
-		http.Error(w, "Account service unavailable", 503)
+		http.Error(w, "Account service unavailable", http.StatusServiceUnavailable)
 		return
 	}
 	if account == nil || account.ID == "" {
-		http.Error(w, "Owner account required", 403)
+		http.Error(w, "Owner account required", http.StatusForbidden)
 		return
 	}
 	path := strings.TrimPrefix(r.URL.Path, "/api/domains")
@@ -132,12 +132,12 @@ func (p *ProxyServer) handleDomainsAPI(w http.ResponseWriter, r *http.Request) {
 		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
 		dec.DisallowUnknownFields()
 		if err := dec.Decode(&input); err != nil {
-			http.Error(w, "Invalid domain binding", 400)
+			http.Error(w, "Invalid domain binding", http.StatusBadRequest)
 			return
 		}
 		var extra any
 		if err := dec.Decode(&extra); err != io.EOF {
-			http.Error(w, "Invalid domain binding", 400)
+			http.Error(w, "Invalid domain binding", http.StatusBadRequest)
 			return
 		}
 		out, err = p.domains.Add(r.Context(), &pb.Domain{Name: input.Name, Tunnel: input.Tunnel, Owner: account.ID})
@@ -161,7 +161,7 @@ func (p *ProxyServer) handleDomainsAPI(w http.ResponseWriter, r *http.Request) {
 		}
 	default:
 		w.Header().Set("Allow", "GET, POST, DELETE")
-		http.Error(w, "Unsupported domain operation", 405)
+		http.Error(w, "Unsupported domain operation", http.StatusMethodNotAllowed)
 		return
 	}
 	if err != nil {
@@ -195,7 +195,7 @@ func (p *ProxyServer) http01Handler() http.Handler {
 			if status.Code(err) == codes.NotFound {
 				http.NotFound(w, r)
 			} else {
-				http.Error(w, "Challenge authority unavailable", 503)
+				http.Error(w, "Challenge authority unavailable", http.StatusServiceUnavailable)
 			}
 			return
 		}

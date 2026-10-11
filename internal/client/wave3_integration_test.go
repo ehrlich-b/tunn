@@ -29,7 +29,7 @@ func TestIntegrationSDKInspectionKeepsLocalTransport(t *testing.T) {
 				LocalDialContext: func(context.Context, string, string) (net.Conn, error) {
 					local, peer := net.Pipe()
 					go func() {
-						defer peer.Close()
+						defer func() { _ = peer.Close() }()
 						r, err := httpReadFixtureRequest(peer)
 						if err != nil {
 							return
@@ -70,7 +70,7 @@ func httpReadFixtureRequest(peer net.Conn) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer r.Body.Close()
+	defer func() { _ = r.Body.Close() }()
 	_, err = io.Copy(io.Discard, r.Body)
 	return r.URL.RequestURI(), err
 }
@@ -124,7 +124,7 @@ func TestIntegrationMCPOAuthInspectionRedactsCaptureAndReconstruction(t *testing
 			client := &ServeClient{TargetURL: "http://sdk-handler.invalid", LocalDialContext: func(context.Context, string, string) (net.Conn, error) {
 				local, peer := net.Pipe()
 				go func() {
-					defer peer.Close()
+					defer func() { _ = peer.Close() }()
 					_, _ = httpReadFixtureRequest(peer)
 					_, _ = io.WriteString(peer, "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
 				}()

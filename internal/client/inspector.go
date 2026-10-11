@@ -694,13 +694,13 @@ func (i *Inspector) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		id, err := strconv.ParseUint(parts[0], 10, 64)
 		if err != nil {
-			http.Error(w, "invalid delivery ID", 400)
+			http.Error(w, "invalid delivery ID", http.StatusBadRequest)
 			return
 		}
 		if parts[1] == "prepare" {
 			action, err := i.prepare(id)
 			if err != nil {
-				http.Error(w, err.Error(), 409)
+				http.Error(w, err.Error(), http.StatusConflict)
 				return
 			}
 			i.writeJSON(w, struct {
@@ -716,16 +716,16 @@ func (i *Inspector) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 128*1024))
 		decoder.DisallowUnknownFields()
 		if err := decoder.Decode(&input); err != nil {
-			http.Error(w, "invalid replay reconstruction", 400)
+			http.Error(w, "invalid replay reconstruction", http.StatusBadRequest)
 			return
 		}
 		if err := decoder.Decode(new(any)); err != io.EOF {
-			http.Error(w, "invalid replay reconstruction", 400)
+			http.Error(w, "invalid replay reconstruction", http.StatusBadRequest)
 			return
 		}
 		result, err := i.replay(r.Context(), id, input)
 		if err != nil && result.ID == 0 {
-			http.Error(w, err.Error(), 409)
+			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
 		// A dispatched failure still returns its event, so the viewer can show it.

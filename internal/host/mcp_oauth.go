@@ -64,7 +64,7 @@ func (p *ProxyServer) mcpChallenge(w http.ResponseWriter, endpoint, problem stri
 func (p *ProxyServer) handleMCPResourceMetadata(w http.ResponseWriter, r *http.Request, endpoint string) {
 	if r.Method != http.MethodGet {
 		w.Header().Set("Allow", "GET")
-		http.Error(w, "Method not allowed", 405)
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	writeOAuthJSON(w, 200, map[string]any{
@@ -110,7 +110,7 @@ func validMCPRedirect(raw string) bool {
 // existing relay routing and preserves the public platform Host header.
 func (p *ProxyServer) handleMCPOAuth(w http.ResponseWriter, r *http.Request) {
 	if !p.isPlatformHost(r.Host) {
-		http.Error(w, "Invalid authentication host", 403)
+		http.Error(w, "Invalid authentication host", http.StatusForbidden)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
@@ -136,7 +136,7 @@ func (p *ProxyServer) handleMCPOAuth(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case "/.well-known/oauth-authorization-server":
 		if r.Method != http.MethodGet {
-			http.Error(w, "Method not allowed", 405)
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 		issuer := p.mcpIssuer()
@@ -162,7 +162,7 @@ func (p *ProxyServer) handleMCPOAuth(w http.ResponseWriter, r *http.Request) {
 func (p *ProxyServer) handleMCPRegistration(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
-		http.Error(w, "Method not allowed", 405)
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	if !strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "application/json") {
@@ -261,7 +261,7 @@ func (p *ProxyServer) handleMCPAuthorize(w http.ResponseWriter, r *http.Request)
 	}
 	if r.Method != http.MethodGet {
 		w.Header().Set("Allow", "GET, POST")
-		http.Error(w, "Method not allowed", 405)
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	query := r.URL.Query()
@@ -305,7 +305,7 @@ func (p *ProxyServer) handleMCPAuthorize(w http.ResponseWriter, r *http.Request)
 	}
 	email, ok := p.getAuthFromCookie(r)
 	if !ok {
-		http.Redirect(w, r, "/auth/login?"+url.Values{"return_to": {r.URL.RequestURI()}}.Encode(), 302)
+		http.Redirect(w, r, "/auth/login?"+url.Values{"return_to": {r.URL.RequestURI()}}.Encode(), http.StatusFound)
 		return
 	}
 	tunnel, owner, err := p.mcpTunnel(r.Context(), auth.Endpoint)
@@ -351,7 +351,7 @@ func (p *ProxyServer) redirectMCPResult(w http.ResponseWriter, r *http.Request, 
 	}
 	query.Set("iss", p.mcpIssuer())
 	u.RawQuery = query.Encode()
-	http.Redirect(w, r, u.String(), 302)
+	http.Redirect(w, r, u.String(), http.StatusFound)
 }
 
 func (p *ProxyServer) handleMCPConsent(w http.ResponseWriter, r *http.Request) {
@@ -362,7 +362,7 @@ func (p *ProxyServer) handleMCPConsent(w http.ResponseWriter, r *http.Request) {
 	}
 	email, ok := p.getAuthFromCookie(r)
 	if !ok {
-		http.Error(w, "Authentication required", 401)
+		http.Error(w, "Authentication required", http.StatusUnauthorized)
 		return
 	}
 	if !p.requireCSRFToken(w, r, "mcp-consent") {
@@ -416,7 +416,7 @@ func validPKCEVerifier(verifier string) bool {
 		return false
 	}
 	for _, ch := range verifier {
-		if !(ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z' || ch >= '0' && ch <= '9' || strings.ContainsRune("-._~", ch)) {
+		if (ch < 'a' || ch > 'z') && (ch < 'A' || ch > 'Z') && (ch < '0' || ch > '9') && !strings.ContainsRune("-._~", ch) {
 			return false
 		}
 	}
@@ -426,7 +426,7 @@ func validPKCEVerifier(verifier string) bool {
 func (p *ProxyServer) handleMCPToken(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
-		http.Error(w, "Method not allowed", 405)
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	if !strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "application/x-www-form-urlencoded") {
@@ -502,26 +502,26 @@ func (p *ProxyServer) handleMCPClients(w http.ResponseWriter, r *http.Request) {
 	}
 	if !ok || capability {
 		if page {
-			http.Redirect(w, r, "/auth/login?return_to=%2Faccount%2Fmcp", 302)
+			http.Redirect(w, r, "/auth/login?return_to=%2Faccount%2Fmcp", http.StatusFound)
 		} else {
-			http.Error(w, "Owner authentication required", 401)
+			http.Error(w, "Owner authentication required", http.StatusUnauthorized)
 		}
 		return
 	}
 	owner, err := p.storage.GetAccountByEmail(r.Context(), common.NormalizeEmail(email))
 	if err != nil || owner == nil {
-		http.Error(w, "Owner account unavailable", 503)
+		http.Error(w, "Owner account unavailable", http.StatusServiceUnavailable)
 		return
 	}
 	endpoint := r.URL.Query().Get("tunnel")
 	if endpoint != "" && !isValidDNSLabel(endpoint) {
-		http.Error(w, "Invalid tunnel", 400)
+		http.Error(w, "Invalid tunnel", http.StatusBadRequest)
 		return
 	}
 	mutate := r.Method == http.MethodDelete && !page || r.Method == http.MethodPost && page
 	if mutate {
 		if endpoint == "" {
-			http.Error(w, "Tunnel required for disconnect", 400)
+			http.Error(w, "Tunnel required for disconnect", http.StatusBadRequest)
 			return
 		}
 		if page {
@@ -535,46 +535,46 @@ func (p *ProxyServer) handleMCPClients(w http.ResponseWriter, r *http.Request) {
 			clientID = r.PostFormValue("client_id")
 		}
 		if _, err := p.mcpOAuth.client(r.Context(), clientID); err != nil {
-			http.Error(w, "Unknown client", 404)
+			http.Error(w, "Unknown client", http.StatusNotFound)
 			return
 		}
 		p.mcpOAuth.mu.Lock()
 		defer p.mcpOAuth.mu.Unlock()
 		if _, err := p.mcpOAuth.db.ExecContext(r.Context(), `DELETE FROM mcp_oauth_consents WHERE owner=? AND endpoint=? AND client=?`, owner.ID, endpoint, clientID); err != nil {
-			http.Error(w, "Authorization service unavailable", 503)
+			http.Error(w, "Authorization service unavailable", http.StatusServiceUnavailable)
 			return
 		}
 		if _, err := p.mcpOAuth.db.ExecContext(r.Context(), `DELETE FROM mcp_oauth_codes WHERE owner=? AND endpoint=? AND client=?`, owner.ID, endpoint, clientID); err != nil {
-			http.Error(w, "Authorization service unavailable", 503)
+			http.Error(w, "Authorization service unavailable", http.StatusServiceUnavailable)
 			return
 		}
 		grants, err := p.meter.ListGrants(r.Context(), &meterpb.ListGrantsRequest{Owner: owner.ID, Endpoint: endpoint})
 		if err != nil {
-			http.Error(w, "Grant ledger unavailable", 503)
+			http.Error(w, "Grant ledger unavailable", http.StatusServiceUnavailable)
 			return
 		}
 		for _, grant := range grants.Grants {
 			if grant.Consumer == "oauth:"+clientID && !grant.Revoked {
 				if _, err := p.meter.RevokeGrant(r.Context(), &meterpb.Grant{Owner: owner.ID, Endpoint: endpoint, Id: grant.Id}); err != nil {
-					http.Error(w, "Could not revoke connected client", 503)
+					http.Error(w, "Could not revoke connected client", http.StatusServiceUnavailable)
 					return
 				}
 			}
 		}
 		if page {
-			http.Redirect(w, r, "/account/mcp?"+url.Values{"tunnel": {endpoint}}.Encode(), 303)
+			http.Redirect(w, r, "/account/mcp?"+url.Values{"tunnel": {endpoint}}.Encode(), http.StatusSeeOther)
 		} else {
 			w.WriteHeader(204)
 		}
 		return
 	}
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", 405)
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	grants, err := p.meter.ListGrants(r.Context(), &meterpb.ListGrantsRequest{Owner: owner.ID, Endpoint: endpoint})
 	if err != nil {
-		http.Error(w, "Grant ledger unavailable", 503)
+		http.Error(w, "Grant ledger unavailable", http.StatusServiceUnavailable)
 		return
 	}
 	type connection struct {
@@ -593,7 +593,7 @@ func (p *ProxyServer) handleMCPClients(w http.ResponseWriter, r *http.Request) {
 		clientID := strings.TrimPrefix(grant.Consumer, "oauth:")
 		client, err := p.mcpOAuth.client(r.Context(), clientID)
 		if err != nil {
-			http.Error(w, "Client registry unavailable", 503)
+			http.Error(w, "Client registry unavailable", http.StatusServiceUnavailable)
 			return
 		}
 		connections = append(connections, connection{clientID, client.Name, grant.Endpoint, grant.Id, grant.ExpiresAt, grant.Revoked})
@@ -604,7 +604,7 @@ func (p *ProxyServer) handleMCPClients(w http.ResponseWriter, r *http.Request) {
 	}
 	csrf, err := p.createCSRFToken(r, "mcp-revoke")
 	if err != nil {
-		http.Error(w, "Could not prepare management page", 500)
+		http.Error(w, "Could not prepare management page", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

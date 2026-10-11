@@ -46,7 +46,7 @@ func TestIntegrationSSHReplayRequiresCredentialSafeReconstruction(t *testing.T) 
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer session.Close()
+		defer func() { _ = session.Close() }()
 		if request != nil {
 			payload, err := json.Marshal(request)
 			if err != nil {

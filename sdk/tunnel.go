@@ -360,7 +360,7 @@ func validName(name string) bool {
 		return false
 	}
 	for i, c := range name {
-		if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-' && i > 0 && i < len(name)-1) {
+		if (c < 'a' || c > 'z') && (c < '0' || c > '9') && (c != '-' || i <= 0 || i >= len(name)-1) {
 			return false
 		}
 	}

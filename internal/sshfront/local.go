@@ -65,9 +65,9 @@ func ServicePlan(args []string, in io.Reader, domain string, out io.Writer) erro
 	}
 	if !*dry && action != "run" {
 		if *platform == "windows" {
-			fmt.Fprintln(out, "$ErrorActionPreference = 'Stop'")
+			_, _ = fmt.Fprintln(out, "$ErrorActionPreference = 'Stop'")
 		} else {
-			fmt.Fprintln(out, "#!/bin/sh\nset -eu\numask 077")
+			_, _ = fmt.Fprintln(out, "#!/bin/sh\nset -eu\numask 077")
 		}
 	}
 	for i, t := range c.Tunnels {
@@ -79,15 +79,15 @@ func ServicePlan(args []string, in io.Reader, domain string, out io.Writer) erro
 				for _, arg := range process {
 					quoted = append(quoted, powershellQuote(arg))
 				}
-				fmt.Fprintln(out, "& "+strings.Join(quoted, " "))
+				_, _ = fmt.Fprintln(out, "& "+strings.Join(quoted, " "))
 			} else {
-				fmt.Fprintln(out, shellCommand(process))
+				_, _ = fmt.Fprintln(out, shellCommand(process))
 			}
 			continue
 		}
 		unit := serviceUnit(*platform, label, process)
 		if *dry {
-			fmt.Fprintln(out, unit)
+			_, _ = fmt.Fprintln(out, unit)
 			continue
 		}
 		emitServicePlan(out, action, *platform, label, t.Name, unit)

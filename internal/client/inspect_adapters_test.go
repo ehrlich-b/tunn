@@ -33,7 +33,7 @@ func TestInspectContractStreamingTerminalOutcomes(t *testing.T) {
 			client.DialContext = func(ctx context.Context, _, _ string) (net.Conn, error) {
 				local, peer := net.Pipe()
 				go func() {
-					defer peer.Close()
+					defer func() { _ = peer.Close() }()
 					r, err := http.ReadRequest(bufio.NewReader(peer))
 					if err != nil {
 						return
@@ -127,7 +127,7 @@ func TestInspectContractTCPMetadataOnly(t *testing.T) {
 	client.DialContext = func(context.Context, string, string) (net.Conn, error) {
 		local, peer := net.Pipe()
 		go func() {
-			defer peer.Close()
+			defer func() { _ = peer.Close() }()
 			buffer := make([]byte, 3)
 			if _, err := io.ReadFull(peer, buffer); err != nil {
 				return

@@ -53,7 +53,7 @@ func (p *ProxyServer) handleMagicLinkRequest(w http.ResponseWriter, r *http.Requ
 	}
 	var extra any
 	if decoder.Decode(&extra) != io.EOF {
-		http.Error(w, "Expected one request", 400)
+		http.Error(w, "Expected one request", http.StatusBadRequest)
 		return
 	}
 	ip, _, err := net.SplitHostPort(r.RemoteAddr)
@@ -61,7 +61,7 @@ func (p *ProxyServer) handleMagicLinkRequest(w http.ResponseWriter, r *http.Requ
 		ip = r.RemoteAddr
 	}
 	if !p.checkDeviceCodeRateLimit(ip) {
-		http.Error(w, "Too many requests", 429)
+		http.Error(w, "Too many requests", http.StatusTooManyRequests)
 		return
 	}
 
@@ -70,7 +70,7 @@ func (p *ProxyServer) handleMagicLinkRequest(w http.ResponseWriter, r *http.Requ
 		allowed, _, _, err := p.storage.CheckMagicLinkRateLimit(r.Context(), email)
 		if err != nil {
 			common.LogError("failed to check magic link rate limit", "email", email, "error", err)
-			http.Error(w, "Login rate limiter unavailable", 503)
+			http.Error(w, "Login rate limiter unavailable", http.StatusServiceUnavailable)
 			return
 		} else if !allowed {
 			common.LogInfo("magic link rate limited", "email", email)
@@ -78,7 +78,7 @@ func (p *ProxyServer) handleMagicLinkRequest(w http.ResponseWriter, r *http.Requ
 			return
 		}
 	} else {
-		http.Error(w, "Login service unavailable", 503)
+		http.Error(w, "Login service unavailable", http.StatusServiceUnavailable)
 		return
 	}
 
@@ -96,7 +96,7 @@ func (p *ProxyServer) handleMagicLinkRequest(w http.ResponseWriter, r *http.Requ
 	// Check for device code in URL params (for CLI login flow)
 	deviceUserCode := r.URL.Query().Get("device_user_code")
 	if len(deviceUserCode) > 64 {
-		http.Error(w, "Invalid device code", 400)
+		http.Error(w, "Invalid device code", http.StatusBadRequest)
 		return
 	}
 	if deviceUserCode != "" {

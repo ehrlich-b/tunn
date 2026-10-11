@@ -107,7 +107,7 @@ func (r *Registry) Add(ctx context.Context, in *pb.Domain) (*pb.Domain, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	var plan string
 	if err := tx.QueryRowContext(ctx, `SELECT plan FROM accounts WHERE id=?`, in.Owner).Scan(&plan); err != nil {
 		return nil, err
@@ -185,7 +185,7 @@ func (r *Registry) List(ctx context.Context, in *pb.Owner) (*pb.DomainList, erro
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	out := new(pb.DomainList)
 	for rows.Next() {
 		d, err := scanDomain(rows)
@@ -317,7 +317,7 @@ func (r *Registry) Delete(ctx context.Context, in *pb.Domain) (*emptypb.Empty, e
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if _, err := tx.ExecContext(ctx, `DELETE FROM domain_challenges WHERE name=? AND target=?`, d.Name, d.CnameTarget); err != nil {
 		return nil, err
 	}

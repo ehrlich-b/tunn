@@ -44,7 +44,7 @@ func (p *ProxyServer) isPlatformAuthorization(value string) bool {
 	if !p.visitorJWTConfigured() {
 		return false
 	}
-	parser := jwt.Parser{SkipClaimsValidation: true}
+	parser := jwt.NewParser(jwt.WithoutClaimsValidation())
 	token, err := parser.Parse(parts[1], func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method")

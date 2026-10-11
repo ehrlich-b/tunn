@@ -402,7 +402,7 @@ func TestSSHOwnerTokenInspectionAndReplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer session.Close()
+	defer func() { _ = session.Close() }()
 	session.Stdin = bytes.NewReader(payload)
 	if data, err := session.CombinedOutput("replay ssh-owner 1 --request -"); err != nil {
 		t.Fatalf("explicit replay=%s %v", data, err)

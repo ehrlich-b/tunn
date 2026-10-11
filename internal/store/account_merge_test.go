@@ -17,7 +17,7 @@ func TestAccountMergePreservesMeterBudgetsAndInflightEvents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	accounts := store.NewAccountStore(db)
 	a, err := accounts.FindOrCreateByEmails([]string{"first@example.com"}, "github")
 	if err != nil {

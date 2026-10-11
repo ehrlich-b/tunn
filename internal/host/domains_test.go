@@ -184,8 +184,8 @@ func TestDomainSNICertificateHandshakeAndAuthorityFailure(t *testing.T) {
 		t.Fatal("fixture root")
 	}
 	a, b := net.Pipe()
-	defer a.Close()
-	defer b.Close()
+	defer func() { _ = a.Close() }()
+	defer func() { _ = b.Close() }()
 	_ = a.SetDeadline(time.Now().Add(5 * time.Second))
 	_ = b.SetDeadline(time.Now().Add(5 * time.Second))
 	server := tls.Server(a, &tls.Config{Certificates: []tls.Certificate{cert}, GetCertificate: p.domainCertificate(cert), NextProtos: []string{"h2", "http/1.1"}})

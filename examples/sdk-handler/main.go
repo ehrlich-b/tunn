@@ -21,7 +21,7 @@ func main() {
 	if allowedEmail == "" {
 		log.Fatal("set TUNN_ALLOWED_EMAIL to the account email allowed to visit this example")
 	}
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { fmt.Fprintf(w, "Hello from %s\n", r.URL.Path) })
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = fmt.Fprintf(w, "Hello from %s\n", r.URL.Path) })
 	tunnel, err := tunn.PublishHandler(ctx, handler, tunn.Options{
 		Name: os.Getenv("TUNN_NAME"), ServerAddr: os.Getenv("TUNN_SERVER_ADDR"),
 		Credentials:   tunn.Credentials{AuthToken: os.Getenv("TUNN_AUTH_TOKEN"), TunnelKey: os.Getenv("TUNN_TUNNEL_KEY")},
@@ -30,7 +30,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer tunnel.Close()
+	defer func() { _ = tunnel.Close() }()
 	readyCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	url, err := tunnel.WaitReady(readyCtx)

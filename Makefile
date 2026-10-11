@@ -205,9 +205,19 @@ test-race:
 
 # Offline production authorization matrix and lifecycle regressions.
 .PHONY: test-auth-contract
-AUTH_TESTS ?= ^TestProdAuth
+AUTH_TESTS ?= ^TestProdAuth(JWT|Route|Publisher|Endpoint|Grant|Email|MCPOAuth|OAuthState|Tunnel|InternalRPC)
 test-auth-contract:
 	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=180s -run '$(AUTH_TESTS)' ./internal/host
+
+# Real loopback HTTPS; required even when a socket-restricted runner cannot run it.
+.PHONY: test-auth-loopback
+test-auth-loopback:
+	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=60s -run '^TestProdAuthLoopback' ./internal/host
+
+# Existing authorization regressions, memory RPC authorities and token utilities.
+.PHONY: test-auth-regression
+test-auth-regression:
+	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=180s -run '^(TestCheckJWT|TestGetAuthFromTunnelBearer|TestGetJWTSigningKey|TestSecurity|TestMCPOAuth|TestMeteringOwnerAPI|TestMeteringInternal|TestDomainRPC|TestDomainAPI|TestHostAPI|TestHostStream|TestHostModeGate|TestTunnelServer|TestAccountOperationsAllIngress|TestAccountOperationsPublisher|TestAccountOperationsReplica|TestAuthMiddleware|TestExtractEmailFromJWT|TestNormalizeEmail)' ./internal/host ./internal/common
 
 # Integration tests (require build + certs)
 integration-test: build

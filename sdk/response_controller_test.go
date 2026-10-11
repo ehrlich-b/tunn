@@ -65,3 +65,32 @@ func TestHTTPFidelityReadDeadline(t *testing.T) {
 		t.Fatal("read deadline did not interrupt incomplete upload")
 	}
 }
+
+func TestHTTPFidelityOpaqueWrapperUnsupported(t *testing.T) {
+	report := make(chan error, 1)
+	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		// A caller's wrapper that hides capabilities and has no Unwrap is
+		// explicitly unsupported by the standard controller discovery API.
+		controller := http.NewResponseController(struct{ http.ResponseWriter }{w})
+		for _, operation := range []func() error{controller.Flush, controller.EnableFullDuplex, func() error { return controller.SetReadDeadline(time.Time{}) }, func() error { return controller.SetWriteDeadline(time.Time{}) }} {
+			if err := operation(); !errors.Is(err, http.ErrNotSupported) {
+				report <- err
+				return
+			}
+		}
+		if _, _, err := controller.Hijack(); !errors.Is(err, http.ErrNotSupported) {
+			report <- err
+			return
+		}
+		w.WriteHeader(202)
+		_, _ = io.WriteString(w, "opaque unsupported")
+		report <- nil
+	})
+	got := observeResponse(t, "streaming", "GET", handler)
+	if err := <-report; err != nil {
+		t.Fatal(err)
+	}
+	if got.status != 202 || got.body != "opaque unsupported" {
+		t.Fatalf("opaque wrapper behavior=%d %q", got.status, got.body)
+	}
+}

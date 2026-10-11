@@ -155,10 +155,16 @@ publisher, err := tunn.PublishHandler(ctx, handler, options)
 The standalone importer in `sdk/testdata/consumer` contains a tested version.
 Streaming prefix visibility requires the streaming transport; buffered peers
 receive the completed body. `ResponseController.SetWriteDeadline` and Flush
-work through the SDK handler pipes. Informational 1xx responses are consumed
+work through the SDK handler pipes, as do `SetReadDeadline` and
+`EnableFullDuplex`. A caller's writer wrapper must forward capabilities or
+implement `Unwrap() http.ResponseWriter`; otherwise `ResponseController`
+returns `http.ErrNotSupported` for Flush, deadlines, full duplex and Hijack.
+The HTTP/1 handler pipes expose Flusher/Hijacker and do not expose HTTP/2
+Pusher. Informational 1xx responses are consumed
 by the upstream HTTP client: the tunnel carries only the final status and
-headers. Generic HTTP 101 upgrades fail explicitly; supported WebSockets use
-the dedicated WebSocket path.
+headers, with no interim 1xx metadata frames. A generic HTTP 101 upgrade
+produces a buffered 502 or a streaming connection rejection; supported
+WebSockets use the dedicated WebSocket path.
 
 ## Examples and offline validation
 
@@ -203,6 +209,10 @@ Declared response trailers require both endpoints to negotiate
 one successful `ConnectionHalfClose` carries their final values after all body
 chunks. An error uses `ConnectionClose` and delivers no trailers. Buffered
 responses carry declared names and final values with their complete body.
+Trailer support is negotiated anew on every connection. Reconnecting to a
+legacy relay rejects declared trailers, even after a supported connection;
+reconnecting to a supported relay restores delivery. Pending workers from the
+previous connection stop before the new connection's policy is installed.
 The contract allows at most 64 declared names, 64 field values, and 16 KiB total
 of declared names plus field names and values. Invalid, forbidden, undeclared
 or oversized trailers fail explicitly. A new client rejects declared trailers
@@ -222,11 +232,59 @@ The supported response matrix is:
 | Declared response trailers | Values accompany the complete buffered response | Values accompany the successful half-close after all body chunks |
 | Flush | Buffered until EOF | Metadata/chunks become visible before EOF |
 | Body-reader error or early close | 502 before headers | Error close; the downstream HTTP stream is aborted after final metadata |
+| Short or long body relative to declared length | SDK returns 502 on the failed upstream read | Error terminal; public consumer gets an interrupted response |
+| Upload failure or cancellation while response is unfinished | Failure before buffered completion | Abort after final metadata, including after a flushed prefix |
+| Input half-close after successful response completion | Completed result retained | Completed body/cookies/trailers retained; later input terminal does not complete the response again |
 | Informational 1xx before final status | Upstream client consumes 1xx | Same; only final metadata serialized |
 
+The relay may reframe a known-length response as chunked HTTP to carry its
+own terminal metering trailer. Applications should read the body to EOF and
+check the read error before accepting trailers. Receiving the advertised
+number of bytes alone does not prove a successful streaming terminal. HEAD,
+204 and 304 remain metadata-only exceptions.
+
 `make test-http-fidelity` uses the existing memory TLS/gRPC SDK fixture, an
-independent direct net/http handler-pipe reference, host reconstruction tests
-and independent old protobuf descriptors. It requires no listening sockets.
+independent direct net/http handler-pipe reference, actual relay HTTP consumers
+and an independent pre-list protobuf schema. A shared oracle compares status,
+ordered application fields, bytes and application trailers across all four
+publisher/relay generation pairs in buffered and streaming modes. Legacy
+projection physically serializes through the old schema; its joined fields and
+cookie ambiguity are documented losses. These fixtures do not claim execution
+against every historical deployed binary. Flush-before-completion, four finite
+upload/terminal schedules, reconnects with reused request IDs, short/long/absent
+lengths, wrapper deadlines and late terminal finalization have separate gates.
+No listening sockets are required.
+
+`make test-http-conformance` produces fresh JSON events and a result inventory
+under `.scratch/http-conformance`. It requires the expected cases to execute
+and pass with race detection: missing cases, skipped cases and zero-test runs
+fail. Supported behavior, explicit unsupported behavior and REQUIRED-UNRUN
+ordinary-host acceptance are reported separately. A local PASS leaves the
+ordinary-host acceptance status REQUIRED-UNRUN.
+
+`make test-sdk-response-consumer` builds and tests a standalone program using
+only exported SDK symbols and the standard library. It imports an immutable
+committed snapshot from a clone-local module cache, with `GOWORK=off` and no
+`replace` directive or registry resolution. Its three offline tests validate
+application streaming, rejection of an interrupted body, and exported API
+callability. They do not run `PublishHandler` against a live relay.
+
+On an authorized ordinary host, run these independent acceptance commands
+with staged dependencies and writable caches rooted in the clone:
+
+```sh
+make -j1 test-sdk-response-consumer-live
+make -j1 test-sdk-contract
+make -j1 check
+```
+
+The live consumer gate supplies a disposable local TLS/gRPC/HTTP relay and
+checks two cookies, prefix visibility before handler completion, two final
+trailer values and one SDK Closed event through exported `PublishHandler`.
+The SDK contract gate also runs the shared oracle through exported handler
+mode in both response modes and verifies wrapper capabilities. Listener denial
+or a missing staged dependency fails these gates; it never turns them into a
+skip or local success. Deployed-client acceptance remains a separate gate.
 
 ## Unsupported features and later language boundary
 

@@ -50,6 +50,14 @@ func (s *AccountStore) FindOrCreateByEmails(emails []string, verifiedVia string)
 	for i := range emails {
 		emails[i] = common.NormalizeEmail(emails[i])
 	}
+	// Keep lookup, creation, merges and alias attachment in one transaction.
+	// A concurrent login must not return an account whose email insert lost to
+	// another login, and a failed alias write must roll back the whole bucket.
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
 
 	// Find all accounts that own any of these emails
 	placeholders := make([]string, len(emails))
@@ -64,7 +72,7 @@ func (s *AccountStore) FindOrCreateByEmails(emails []string, verifiedVia string)
 	          JOIN account_emails ae ON a.id = ae.account_id
 	          WHERE ae.email IN (` + strings.Join(placeholders, ",") + `)`
 
-	rows, err := s.db.Query(query, args...)
+	rows, err := tx.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -80,6 +88,12 @@ func (s *AccountStore) FindOrCreateByEmails(emails []string, verifiedVia string)
 		acc.CreatedAt = time.Unix(createdAtUnix, 0)
 		accounts = append(accounts, &acc)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 
 	var account *Account
 
@@ -92,7 +106,7 @@ func (s *AccountStore) FindOrCreateByEmails(emails []string, verifiedVia string)
 			Plan:         "free",
 			CreatedAt:    time.Now(),
 		}
-		_, err := s.db.Exec(
+		_, err := tx.Exec(
 			"INSERT INTO accounts (id, primary_email, plan, created_at) VALUES (?, ?, ?, ?)",
 			account.ID, account.PrimaryEmail, account.Plan, account.CreatedAt.Unix(),
 		)
@@ -106,7 +120,7 @@ func (s *AccountStore) FindOrCreateByEmails(emails []string, verifiedVia string)
 
 	default:
 		// Merge multiple accounts into one
-		account, err = s.mergeAccounts(accounts)
+		account, err = s.mergeAccounts(tx, accounts)
 		if err != nil {
 			return nil, err
 		}
@@ -115,7 +129,7 @@ func (s *AccountStore) FindOrCreateByEmails(emails []string, verifiedVia string)
 	// Add any new emails to the account
 	for _, email := range emails {
 		// Try to insert, ignore if already exists
-		_, err := s.db.Exec(
+		_, err := tx.Exec(
 			"INSERT OR IGNORE INTO account_emails (account_id, email, verified_via, added_at) VALUES (?, ?, ?, ?)",
 			account.ID, email, verifiedVia, time.Now().Unix(),
 		)
@@ -125,12 +139,17 @@ func (s *AccountStore) FindOrCreateByEmails(emails []string, verifiedVia string)
 	}
 
 	// Load all emails for the account
-	account.Emails, err = s.getAccountEmails(account.ID)
+	account.Emails, err = getAccountEmails(tx, account.ID)
 	if err != nil {
 		return nil, err
 	}
 
-	if err = s.loadOperationalState(account); err != nil {
+	status, err := readAccountStatus(context.Background(), tx, account.ID)
+	if err != nil {
+		return nil, err
+	}
+	account.OperationalState, account.OperationalVersion = status.State, status.Version
+	if err = tx.Commit(); err != nil {
 		return nil, err
 	}
 	return account, nil
@@ -191,7 +210,7 @@ func (s *AccountStore) UpdatePlan(accountID, plan string) error {
 }
 
 // mergeAccounts merges multiple accounts into one, keeping the best plan
-func (s *AccountStore) mergeAccounts(accounts []*Account) (*Account, error) {
+func (s *AccountStore) mergeAccounts(tx *sql.Tx, accounts []*Account) (*Account, error) {
 	if len(accounts) == 0 {
 		return nil, sql.ErrNoRows
 	}
@@ -206,11 +225,6 @@ func (s *AccountStore) mergeAccounts(accounts []*Account) (*Account, error) {
 
 	// Move account-owned endpoints and reservations with the verified email
 	// bucket. Without this, a later multi-email login would orphan stable names.
-	tx, err := s.db.Begin()
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = tx.Rollback() }()
 	var hostTables int
 	if err := tx.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='host_machines'").Scan(&hostTables); err != nil {
 		return nil, err
@@ -264,16 +278,18 @@ ON CONFLICT(account_id, machine) DO UPDATE SET last_seen=MAX(host_machines.last_
 			return nil, err
 		}
 	}
-	if err := tx.Commit(); err != nil {
-		return nil, err
-	}
-
 	return primary, nil
 }
 
 // getAccountEmails returns all emails for an account
 func (s *AccountStore) getAccountEmails(accountID string) ([]AccountEmail, error) {
-	rows, err := s.db.Query(
+	return getAccountEmails(s.db, accountID)
+}
+
+func getAccountEmails(q interface {
+	Query(string, ...any) (*sql.Rows, error)
+}, accountID string) ([]AccountEmail, error) {
+	rows, err := q.Query(
 		"SELECT email, verified_via, added_at FROM account_emails WHERE account_id = ?",
 		accountID,
 	)
@@ -292,7 +308,7 @@ func (s *AccountStore) getAccountEmails(accountID string) ([]AccountEmail, error
 		ae.AddedAt = time.Unix(addedAtUnix, 0)
 		emails = append(emails, ae)
 	}
-	return emails, nil
+	return emails, rows.Err()
 }
 
 // MaxReservedSubdomains is the maximum number of reserved subdomains per Pro account
@@ -312,7 +328,12 @@ type ReservedSubdomain struct {
 // - Subdomain is already reserved by another account
 func (s *AccountStore) ReserveSubdomain(accountID, subdomain string) error {
 	subdomain = strings.ToLower(strings.TrimSpace(subdomain))
-	status, err := NewOperationsStore(s.db, nil).LookupAccountStatus(context.Background(), accountID)
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	status, err := readAccountStatus(context.Background(), tx, accountID)
 	if err != nil {
 		return err
 	}
@@ -323,17 +344,30 @@ func (s *AccountStore) ReserveSubdomain(accountID, subdomain string) error {
 
 	// Check if account is Pro
 	var plan string
-	err = s.db.QueryRow("SELECT plan FROM accounts WHERE id = ?", accountID).Scan(&plan)
+	err = tx.QueryRow("SELECT plan FROM accounts WHERE id = ?", accountID).Scan(&plan)
 	if err != nil {
 		return err
 	}
 	if plan != "pro" {
 		return fmt.Errorf("subdomain reservations require a Pro plan")
 	}
+	// Retrying an owned reservation consumes no additional allowance, even
+	// when the account has reached its limit.
+	var existingAccountID string
+	err = tx.QueryRow("SELECT account_id FROM reserved_subdomains WHERE subdomain = ?", subdomain).Scan(&existingAccountID)
+	if err == nil {
+		if existingAccountID == accountID {
+			return tx.Commit()
+		}
+		return fmt.Errorf("subdomain '%s' is already reserved by another user", subdomain)
+	}
+	if err != sql.ErrNoRows {
+		return err
+	}
 
 	// Check current count
 	var count int
-	err = s.db.QueryRow("SELECT COUNT(*) FROM reserved_subdomains WHERE account_id = ?", accountID).Scan(&count)
+	err = tx.QueryRow("SELECT COUNT(*) FROM reserved_subdomains WHERE account_id = ?", accountID).Scan(&count)
 	if err != nil {
 		return err
 	}
@@ -342,24 +376,15 @@ func (s *AccountStore) ReserveSubdomain(accountID, subdomain string) error {
 	}
 
 	// Try to insert (will fail if already exists)
-	_, err = s.db.Exec(
+	_, err = tx.Exec(
 		"INSERT INTO reserved_subdomains (subdomain, account_id, created_at) VALUES (?, ?, ?)",
 		subdomain, accountID, time.Now().Unix(),
 	)
 	if err != nil {
-		// Check if it's already reserved
-		var existingAccountID string
-		checkErr := s.db.QueryRow("SELECT account_id FROM reserved_subdomains WHERE subdomain = ?", subdomain).Scan(&existingAccountID)
-		if checkErr == nil {
-			if existingAccountID == accountID {
-				return nil // Already reserved by this account, that's fine
-			}
-			return fmt.Errorf("subdomain '%s' is already reserved by another user", subdomain)
-		}
 		return err
 	}
 
-	return nil
+	return tx.Commit()
 }
 
 // GetSubdomainOwner returns the account ID that owns a subdomain, or empty string if not reserved
@@ -380,8 +405,9 @@ func (s *AccountStore) GetSubdomainOwner(subdomain string) (string, error) {
 // GetReservedSubdomains returns all subdomains reserved by an account
 func (s *AccountStore) GetReservedSubdomains(accountID string) ([]ReservedSubdomain, error) {
 	rows, err := s.db.Query(
-		"SELECT subdomain, account_id, created_at FROM reserved_subdomains WHERE account_id = ?",
-		accountID,
+		`SELECT subdomain, account_id, created_at FROM reserved_subdomains
+		 WHERE account_id = COALESCE((SELECT account_id FROM account_merges WHERE old_id = ?), ?)`,
+		accountID, accountID,
 	)
 	if err != nil {
 		return nil, err
@@ -406,8 +432,9 @@ func (s *AccountStore) ReleaseSubdomain(accountID, subdomain string) error {
 	subdomain = strings.ToLower(strings.TrimSpace(subdomain))
 
 	result, err := s.db.Exec(
-		"DELETE FROM reserved_subdomains WHERE subdomain = ? AND account_id = ?",
-		subdomain, accountID,
+		`DELETE FROM reserved_subdomains WHERE subdomain = ?
+		 AND account_id = COALESCE((SELECT account_id FROM account_merges WHERE old_id = ?), ?)`,
+		subdomain, accountID, accountID,
 	)
 	if err != nil {
 		return err

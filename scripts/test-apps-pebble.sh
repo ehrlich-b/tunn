@@ -30,7 +30,7 @@ for attempt in $(seq 1 40); do
   sleep 0.25
 done
 if ! TUNN_PEBBLE_DIRECTORY=https://localhost:24000/dir TUNN_PEBBLE_ROOT="$fixture_dir/root.pem" \
-  GOTOOLCHAIN=go1.25.6 go test -count=1 -v -run '^TestPebbleWildcardHTTP01$' ./internal/domains; then
+  GOTOOLCHAIN=${GOTOOLCHAIN:-auto} go test -count=1 -v -run '^TestPebbleWildcardHTTP01$' ./internal/domains; then
   docker logs "$fixture_container" >&2
   exit 1
 fi

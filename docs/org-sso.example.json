@@ -1,0 +1,41 @@
+[
+  {
+    "id": "acme-okta",
+    "name": "Acme Okta",
+    "provider": "okta",
+    "issuer": "https://acme.okta.com/oauth2/default",
+    "client_id": "REPLACE_WITH_CLIENT_ID",
+    "client_secret": "REPLACE_WITH_CLIENT_SECRET",
+    "allowed_domains": ["acme.example"],
+    "groups": [
+      {"id": "engineering", "name": "Engineering", "claim": "groups", "value": "Engineering"}
+    ]
+  },
+  {
+    "id": "acme-entra",
+    "name": "Acme Microsoft Entra ID",
+    "provider": "entra",
+    "issuer": "https://login.microsoftonline.com/11111111-2222-3333-4444-555555555555/v2.0",
+    "client_id": "REPLACE_WITH_CLIENT_ID",
+    "client_secret": "REPLACE_WITH_CLIENT_SECRET",
+    "allowed_domains": ["acme.example"],
+    "groups": [
+      {"id": "engineering", "name": "Engineering", "claim": "groups", "value": "REPLACE_WITH_GROUP_OBJECT_ID"},
+      {"id": "reviewers", "name": "Reviewers", "claim": "roles", "value": "App.Reviewer"}
+    ]
+  },
+  {
+    "id": "acme-workspace",
+    "name": "Acme Google Workspace",
+    "provider": "google",
+    "issuer": "https://accounts.google.com",
+    "client_id": "REPLACE_WITH_CLIENT_ID",
+    "client_secret": "REPLACE_WITH_CLIENT_SECRET",
+    "allowed_domains": ["acme.example"],
+    "google_credentials_file": "/etc/tunn/acme-directory-service-account.json",
+    "google_directory_admin": "directory-reader@acme.example",
+    "groups": [
+      {"id": "engineering", "name": "Engineering", "claim": "groups", "value": "REPLACE_WITH_IMMUTABLE_GOOGLE_GROUP_ID"}
+    ]
+  }
+]

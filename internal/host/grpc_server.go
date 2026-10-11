@@ -405,6 +405,16 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		common.LogInfo("tunnel registration", "tunnel_id", tunnelID, "creator", creatorEmail, "allowed", allowedEmails)
 	}
 
+	hasOrgGroup := false
+	for _, target := range allowedEmails {
+		if strings.HasPrefix(common.NormalizeEmail(target), "group:") {
+			hasOrgGroup = true
+			if endpointProtocol != "http" || targetURL == "mcp" || s.sharing == nil || !s.cfg.OIDCGroupExists(target) {
+				return rejectTunnelRegistration(stream, "Organization groups require a configured group and managed web resource.")
+			}
+		}
+	}
+
 	// Resolve hosted publishers through shared storage; unknown ownership fails closed.
 	plan := "free"
 	var accountID string
@@ -452,6 +462,10 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 			_ = stream.Send(&pb.TunnelMessage{Message: &pb.TunnelMessage_RegisterResponse{RegisterResponse: &pb.RegisterResponse{Success: false, ErrorMessage: "private host endpoint does not match its reservation"}}})
 			return fmt.Errorf("invalid host registration")
 		}
+	}
+
+	if hasOrgGroup && accountID == "" {
+		return rejectTunnelRegistration(stream, "Organization groups require an authenticated resource owner.")
 	}
 
 	// Create tunnel connection

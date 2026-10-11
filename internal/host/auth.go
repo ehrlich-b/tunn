@@ -95,6 +95,16 @@ func (p *ProxyServer) getAuthFromCookie(r *http.Request) (string, bool) {
 	if !ok {
 		return "", false
 	}
+	if claims["type"] == "org_session" {
+		if token.Method.Alg() != "HS256" {
+			return "", false
+		}
+		if org, valid := p.orgSessionClaims(claims); valid {
+			configured, _ := p.config.OIDCOrg(org.Org)
+			return orgPrincipal(configured, org.Subject), true
+		}
+		return "", false
+	}
 
 	email, err := identityEmail(claims)
 	if err != nil {
@@ -326,7 +336,7 @@ func (p *ProxyServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 	hasMockOIDC := p.config.IsDev() && p.config.MockOIDCIssuer != ""
 	hasEmail := p.emailSender != nil
 	hasGoogle := p.config.GoogleClientID != "" && p.config.GoogleClientSecret != ""
-	hasOAuth := hasGitHub || hasMockOIDC || hasGoogle
+	hasOAuth := hasGitHub || hasMockOIDC || hasGoogle || len(p.config.OIDCOrgs) > 0
 
 	// Build OAuth URL with return_to and device_user_code
 	oauthParams := fmt.Sprintf("return_to=%s", url.QueryEscape(returnTo))
@@ -347,6 +357,7 @@ func (p *ProxyServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 <div id="message"></div>`)
 	}
 
+	p.writeOrgLoginButtons(w, oauthParams)
 	if hasGoogle {
 		_, _ = fmt.Fprintf(w, `<a href="/auth/google?%s" class="btn btn-secondary">Continue with Google</a>`, oauthParams)
 	}
@@ -1008,6 +1019,9 @@ func (p *ProxyServer) handleAccount(w http.ResponseWriter, r *http.Request) {
 		StripeCheckoutURLMonthly: stripeMonthly,
 		StripeCheckoutURLYearly:  stripeYearly,
 		StripeBillingPortalURL:   stripePortal,
+	}
+	if org, ok := p.getOrgSession(r); ok {
+		data.Email = org.Email
 	}
 
 	// Render template

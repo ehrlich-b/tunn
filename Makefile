@@ -162,6 +162,10 @@ test:
 	@echo "Running tests..."
 	go test ./...
 
+.PHONY: test-sso
+test-sso:
+	go test $(GO_TEST_FLAGS) -race -count=1 -timeout=120s -run '^Test(OrgOIDC|OIDC|OrgGroup)' ./internal/host ./internal/config ./internal/metering .
+
 test-verbose:
 	@echo "Running tests with verbose output..."
 	go test -v ./...

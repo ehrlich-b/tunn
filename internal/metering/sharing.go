@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ehrlich-b/tunn/internal/common"
+	"github.com/ehrlich-b/tunn/internal/config"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/meteringv1"
 	"github.com/google/uuid"
 )
@@ -98,7 +99,7 @@ func (s *Store) Sharing(ctx context.Context, in *pb.SharingRequest) (*pb.Sharing
 				}
 				if fresh {
 					for _, email := range in.InitialEmails {
-						if err = s.sharePerson(ctx, tx, r, common.NormalizeEmail(email), time.Now().AddDate(100, 0, 0).UnixMilli(), true); err != nil {
+						if err = s.sharePerson(ctx, tx, r, normalizeSharingTarget(email), time.Now().AddDate(100, 0, 0).UnixMilli(), true); err != nil {
 							return err
 						}
 					}
@@ -113,14 +114,14 @@ func (s *Store) Sharing(ctx context.Context, in *pb.SharingRequest) (*pb.Sharing
 					if r.Mode != "private" {
 						return fmt.Errorf("use a private resource to share with people")
 					}
-					if err = s.sharePerson(ctx, tx, r, common.NormalizeEmail(in.Email), in.ExpiresAt, false); err != nil {
+					if err = s.sharePerson(ctx, tx, r, normalizeSharingTarget(in.Email), in.ExpiresAt, false); err != nil {
 						return err
 					}
 				case "unshare":
-					if !validPerson(common.NormalizeEmail(in.Email), true) {
+					if !validSharingTarget(normalizeSharingTarget(in.Email), true) {
 						return fmt.Errorf("invalid email")
 					}
-					if err = s.revokePerson(ctx, tx, r, common.NormalizeEmail(in.Email)); err != nil {
+					if err = s.revokePerson(ctx, tx, r, normalizeSharingTarget(in.Email)); err != nil {
 						return err
 					}
 				default:
@@ -179,7 +180,7 @@ func (s *Store) revokePerson(ctx context.Context, tx *sql.Tx, r *pb.WebResource,
 			rows.Close()
 			return err
 		}
-		if g.Consumer == "person:"+email {
+		if g.Consumer == sharingConsumer(email) {
 			grants = append(grants, g)
 		}
 	}
@@ -198,7 +199,7 @@ func (s *Store) revokePerson(ctx context.Context, tx *sql.Tx, r *pb.WebResource,
 	return nil
 }
 func (s *Store) sharePerson(ctx context.Context, tx *sql.Tx, r *pb.WebResource, email string, expires int64, domain bool) error {
-	if !validPerson(email, domain) || expires <= s.now().UnixMilli() {
+	if !validSharingTarget(email, domain) || expires <= s.now().UnixMilli() {
 		return fmt.Errorf("verified email and future expiry required")
 	}
 	var count int
@@ -213,8 +214,27 @@ func (s *Store) sharePerson(ctx context.Context, tx *sql.Tx, r *pb.WebResource, 
 	}
 	id := uuid.NewString()
 	digest := sha256.Sum256([]byte(uuid.NewString()))
-	g := &pb.Grant{Id: id, Owner: r.Owner, Endpoint: r.Id, Consumer: "person:" + email, TokenSha256: digest[:], ExpiresAt: expires}
+	g := &pb.Grant{Id: id, Owner: r.Owner, Endpoint: r.Id, Consumer: sharingConsumer(email), TokenSha256: digest[:], ExpiresAt: expires}
 	data, _ := json.Marshal(g)
 	_, err := tx.ExecContext(ctx, `INSERT INTO meter_grants(id,owner,endpoint,digest,expires,data) VALUES(?,?,?,?,?,?)`, id, r.Owner, r.Id, digest[:], expires, data)
 	return err
+}
+
+func validSharingTarget(target string, domain bool) bool {
+	return config.ValidOIDCGroupSubject(target) || validPerson(target, domain)
+}
+
+func sharingConsumer(target string) string {
+	if config.ValidOIDCGroupSubject(target) {
+		return target
+	}
+	return "person:" + target
+}
+
+func normalizeSharingTarget(target string) string {
+	// Org/group IDs are opaque policy identifiers, not normalized email aliases.
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(target)), "group:") {
+		return target
+	}
+	return common.NormalizeEmail(target)
 }

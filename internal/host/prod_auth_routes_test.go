@@ -42,6 +42,8 @@ type prodAuthRoute struct {
 var prodAuthRoutes = []prodAuthRoute{
 	{"GET", "/auth/domain", "/auth/domain", "", [11]int{400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400}},
 	{"GET", "/.well-known/tunn-jwks.json", "/.well-known/tunn-jwks.json", "", [11]int{503, 503, 503, 503, 503, 503, 503, 503, 503, 503, 503}},
+	{"GET", "/auth/org/unknown", "/auth/org/", "", [11]int{404, 404, 404, 404, 404, 404, 404, 404, 404, 404, 404}},
+	{"GET", "/auth/org/unknown/callback", "/auth/org/", "", [11]int{404, 404, 404, 404, 404, 404, 404, 404, 404, 404, 404}},
 	{"GET", "/auth/google", "/auth/google", "", [11]int{503, 503, 503, 503, 503, 503, 503, 503, 503, 503, 503}},
 	{"GET", "/auth/google/callback", "/auth/google/callback", "", [11]int{503, 503, 503, 503, 503, 503, 503, 503, 503, 503, 503}},
 	{"GET", "/api/sharing", "/api/sharing", "", [11]int{401, 200, 200, 200, 401, 401, 401, 401, 401, 401, 401}},

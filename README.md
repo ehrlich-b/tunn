@@ -21,6 +21,11 @@ tunn 8080 --allow=alice@gmail.com,bob@company.com
 
 Visitors log in with GitHub or a magic link. If they're on your list, they're in. Otherwise, access denied.
 
+Relays can also offer [company sign-in and group sharing](docs/org-sso.md)
+with Okta, Microsoft Entra ID and Google Workspace. Once an administrator
+configures the organization and groups, owners can share a private web resource
+from Account → Share access or with `tunn share myapp group:company:engineering`.
+
 ## Install
 
 For the versioned source-checkout install, upgrade and recovery path, use the

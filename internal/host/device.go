@@ -206,6 +206,9 @@ func (p *ProxyServer) showDeviceAuthorizePage(w http.ResponseWriter, r *http.Req
 		return
 	}
 	email := p.getAuthEmail(r)
+	if org, ok := p.getOrgSession(r); ok {
+		email = org.Email
+	}
 	csrfToken, err := p.createCSRFToken(r, "/auth/device/authorize")
 	if err != nil {
 		http.Error(w, "Failed to create confirmation", http.StatusInternalServerError)

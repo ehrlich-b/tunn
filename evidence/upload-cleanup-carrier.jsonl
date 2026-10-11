@@ -1,0 +1,10 @@
+{"Time":"2026-10-11T19:42:00.22288715-04:00","Action":"start","Package":"github.com/ehrlich-b/tunn/internal/host"}
+{"Time":"2026-10-11T19:42:00.316727688-04:00","Action":"run","Package":"github.com/ehrlich-b/tunn/internal/host","Test":"TestHTTPFidelityUploadLimitCleanupCancellation"}
+{"Time":"2026-10-11T19:42:00.316799503-04:00","Action":"output","Package":"github.com/ehrlich-b/tunn/internal/host","Test":"TestHTTPFidelityUploadLimitCleanupCancellation","Output":"=== RUN   TestHTTPFidelityUploadLimitCleanupCancellation\n","OutputType":"frame"}
+{"Time":"2026-10-11T19:42:01.483195152-04:00","Action":"output","Package":"github.com/ehrlich-b/tunn/internal/host","Test":"TestHTTPFidelityUploadLimitCleanupCancellation","Output":"2026/10/11 19:42:01 ERROR failed to proxy request error=\"context canceled\" tunnel_id=api\n"}
+{"Time":"2026-10-11T19:42:01.483248933-04:00","Action":"output","Package":"github.com/ehrlich-b/tunn/internal/host","Test":"TestHTTPFidelityUploadLimitCleanupCancellation","Output":"    response_upload_limit_test.go:114: oversized response = 502 map[Content-Type:[text/plain; charset=utf-8] X-Content-Type-Options:[nosniff]] Failed to proxy request\n","OutputType":"error"}
+{"Time":"2026-10-11T19:42:01.483266455-04:00","Action":"output","Package":"github.com/ehrlich-b/tunn/internal/host","Test":"TestHTTPFidelityUploadLimitCleanupCancellation","Output":"--- FAIL: TestHTTPFidelityUploadLimitCleanupCancellation (1.17s)\n","OutputType":"frame"}
+{"Time":"2026-10-11T19:42:01.483272066-04:00","Action":"fail","Package":"github.com/ehrlich-b/tunn/internal/host","Test":"TestHTTPFidelityUploadLimitCleanupCancellation","Elapsed":1.17}
+{"Time":"2026-10-11T19:42:01.483296512-04:00","Action":"output","Package":"github.com/ehrlich-b/tunn/internal/host","Output":"FAIL\n","OutputType":"frame"}
+{"Time":"2026-10-11T19:42:01.569595984-04:00","Action":"output","Package":"github.com/ehrlich-b/tunn/internal/host","Output":"FAIL\tgithub.com/ehrlich-b/tunn/internal/host\t1.346s\n","OutputType":"frame"}
+{"Time":"2026-10-11T19:42:01.56963206-04:00","Action":"fail","Package":"github.com/ehrlich-b/tunn/internal/host","Elapsed":1.347}

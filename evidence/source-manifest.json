@@ -1,0 +1,24 @@
+{
+  "carrier_sha": "8cb0b92505fdaaaf7497005aea7521e84f157ee1",
+  "implementation_sha": "fb8ae9a695e434538bb914f38c2abc4639d02d6c",
+  "validated_source_sha": "139abea637e4521967766eacad0d7c1d9b48679c",
+  "validated_source_tree": "5856d9277db76608dce38ae5ecfb784ba64f59bb",
+  "branch": "codex/tunn-release-r2fix-20261011",
+  "source_sha256": {
+    "Dockerfile": "c121c9fe3cd1129a4134d55d5d1dc351bdb7b26363db619724fc3a486795d922",
+    "go.mod": "8d751220c7c34d195bf50a5760c61c8b84678075b51c0179364a3d2369326867",
+    "go.sum": "d1c2bc9d414fde718571aa3bda73b7f79f350c2fc6d60eb874d05ba8e87371ad",
+    "internal/host/http_stream.go": "e1c4a8474dabc4a18cffde37f655952489dafc2ccefa5996612ad26abdf80b6a",
+    "internal/host/tcp_stream.go": "7a713292568425943f7fe873cd59038a357d42b68015a7a40d84ed07dc0e81b2",
+    "internal/host/response_upload_limit_test.go": "5c94a441d647183cfd913aa2c468bfe0d59c93861f4793038902310ca0319d41",
+    "internal/host/release_transport_test.go": "450bdafc593ad6bbb5c2caad099051597e0c85234fc4ddd9b7ef443883aef284"
+  },
+  "go_worker_environment": {
+    "GOFLAGS": "-p=4",
+    "GOTOOLCHAIN": "local",
+    "nice": 10,
+    "umask": "022",
+    "final_suite_package_parallelism": 1
+  },
+  "host_go": "go version go1.27.2 linux/amd64"
+}

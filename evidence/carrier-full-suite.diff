@@ -1,0 +1,18 @@
+--- production 110485c8a479572ef6cbaeda8b20d80ccc326ef2: final full suite failures
++++ carrier b63e17f046776e312e1dca01269fb52ab2a5edd2: final full suite failures
+  baseline: exit 0, zero failed tests/packages
+  carrier: exit 0, zero failed tests/packages
+  new failures: 0
+
+  baseline terminal test/subtest outcomes: 3082 (3078 pass, 4 inherited skip)
+  carrier terminal test/subtest outcomes: 3902 (3897 pass, 5 skip; opt-in Pebble passes separately)
+  Six token-fingerprint subtest names differ per run; their unchanged parent test passes on both.
+  All identical full-suite test names retain identical pass/skip outcomes.
+
+--- production 110485c: race failures
++++ carrier: race failures
+- github.com/ehrlich-b/tunn/internal/host TestOpsLoopbackReadinessLifecycleAndDependency (shared HTTP/2 and HTTP/3 TLS config data race)
+  carrier race: exit 0; zero failures and zero detector warnings
+  Native SSH/SFTP, shared SSH/HTTPS and real Chromium sharing pass.
+  Local Pebble HTTP-01, Docker build and supported container help smoke pass.
+  Deployment review findings remain separate from this test-failure diff.

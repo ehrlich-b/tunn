@@ -354,7 +354,11 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 				fmt.Printf("Endpoint token: %s (mode 0600)\n", s.EndpointTokenPath)
 			}
 		} else if s.EndpointProtocol == "tcp" {
-			fmt.Printf("Access: private. Run tunn connect --token-file %s %s\n", s.EndpointTokenPath, s.TunnelID)
+			if s.EndpointTokenPath == "" {
+				fmt.Printf("Access: private. Run tunn connect --account %s (use --stdio for SSH ProxyCommand).\n", s.TunnelID)
+			} else {
+				fmt.Printf("Access: private. Run tunn connect --token-file %s %s\n", s.EndpointTokenPath, s.TunnelID)
+			}
 		} else if s.EndpointTokenPath != "" {
 			fmt.Println("Access: private. Use the endpoint token as Tunn-Authorization: Bearer <token>.")
 			fmt.Printf("Endpoint token: %s (mode 0600)\n", s.EndpointTokenPath)

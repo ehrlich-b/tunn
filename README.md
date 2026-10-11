@@ -261,6 +261,23 @@ never auto-load a local token. TCP is carried as full-duplex, chunked bytes over
 authenticated HTTP/2 CONNECT and preserves half-close; it does not allocate a
 public raw port, so the consuming side currently needs the tunn CLI.
 
+SSH can use a single connector on stdin/stdout without a local listening port:
+
+```bash
+# Publisher: grant access to the publishing account, with no endpoint token.
+tunn tcp --account-only --name forge-ssh 127.0.0.1:22
+# Consumer: log in to the same tunn account, then use this as ProxyCommand.
+tunn connect --stdio --account forge-ssh
+```
+
+`--account` explicitly uses the saved login, ignores endpoint-token environment
+variables/files, and accepts only a name on the configured relay. An
+account-only publisher may grant another account access with `--allow EMAIL`;
+omit it for owner-only access. This uses the relay's existing account allow-list,
+not `tunn grant` tokens (metered consumer grants currently require HTTP).
+See [the forge design](FORGE-SSH.md) and [installation commands](INSTALL-FORGE.md)
+for the user unit, pinned SSH host key, and `ssh forge` configuration.
+
 The same byte path can publish a Unix-domain socket while keeping its path
 private to the publishing machine:
 

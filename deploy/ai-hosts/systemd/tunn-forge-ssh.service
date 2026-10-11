@@ -1,0 +1,32 @@
+[Unit]
+Description=Private forge SSH over tunn account authentication
+# A renewed login must recover even after a long outage or expired credential.
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+WorkingDirectory=%h/.local/state/tunn-forge-ssh
+ExecStartPre=/usr/bin/test -s %h/.local/state/tunn-forge-ssh/credentials/token
+# Clear inherited configuration and proxies; never read a repository's .env.
+# A separate binary and credential directory preserve other installed tunnels.
+ExecStart=/usr/bin/env -i HOME=%h PATH=/usr/local/bin:/usr/bin:/bin TUNN_ENV=prod TUNN_PUBLIC_MODE=false TUNN_SECRET= TUNN_SERVER_ADDR=tunn.to:443 TUNN_DOMAIN=tunn.to TUNN_CONFIG_DIR=%h/.local/state/tunn-forge-ssh/credentials %h/.local/bin/tunn-forge-ssh --verbosity=error tcp --account-only --name forge-ssh 127.0.0.1:22
+Restart=always
+RestartSec=30
+TimeoutStopSec=15
+KillMode=control-group
+UMask=0077
+NoNewPrivileges=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native
+LimitCORE=0
+StandardInput=null
+StandardOutput=null
+StandardError=journal
+LogRateLimitIntervalSec=60s
+LogRateLimitBurst=10
+
+[Install]
+WantedBy=default.target

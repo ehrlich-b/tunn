@@ -1,5 +1,11 @@
 # AI host dogfood kit
 
+For Bryan's account-only `ssh forge` path, use [FORGE-SSH.md](../../FORGE-SSH.md)
+and [INSTALL-FORGE.md](../../INSTALL-FORGE.md). Its separate
+`tunn-forge-ssh.service` publishes only SSH, uses account login rather than a
+copied endpoint token, and does not require MCP/dashboard setup or relay changes.
+Do not run it alongside this kit's `tunn-ai-hosts@ssh`: both claim `forge-ssh`.
+
 This kit prepares `forge` (Debian) and `rig` (the Linux side of WSL2) as tunn
 publishers. It is a supervised canary, pending the gates and reliability limits
 in [SECURITY.md](SECURITY.md). Nothing here installs a relay or changes tunn.to.

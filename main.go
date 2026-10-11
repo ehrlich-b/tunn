@@ -65,7 +65,7 @@ Usage:
   tunn mcp [options] <command…>   Connect a local MCP server to an AI agent
   tunn tcp [options] <host:port>  Publish a private raw TCP endpoint
   tunn unix [options] <path>      Publish a private Unix socket
-  tunn connect [options] <name>   Open a remote TCP endpoint locally
+  tunn connect [options] <name>   Open a remote TCP endpoint locally or on stdio
   tunn token [--rotate] <name>   Print or rotate an endpoint access token
   tunn usage <name>              Export caller usage and audit decisions
   tunn grant create <name>       Issue a metered, expiring consumer token
@@ -82,6 +82,7 @@ Examples:
   tunn tcp --name database localhost:5432
   tunn unix --name docker /var/run/docker.sock
   tunn connect --listen 127.0.0.1:15432 database
+  tunn connect --stdio --account forge-ssh  # SSH ProxyCommand
 
 Options:
 `)
@@ -469,6 +470,7 @@ type tcpCommandOptions struct {
 	tunnelKey     string
 	clientSecret  string
 	public        bool
+	accountOnly   bool
 	target        string
 	adapter       string
 }
@@ -501,6 +503,7 @@ func parseRawPublisherFlags(command string, args []string, normalize func(string
 	shared := new(cliopts.Serve)
 	cliopts.PublicationFlags(fs, shared)
 	asFlag := fs.String("as", "raw", "adapter: raw or http (Unix sockets)")
+	accountOnlyFlag := fs.Bool("account-only", false, "require account login and disable endpoint-token access")
 	if err := fs.Parse(args); err != nil {
 		return nil, err
 	}
@@ -521,12 +524,16 @@ func parseRawPublisherFlags(command string, args []string, normalize func(string
 	if clientSecret == "" {
 		clientSecret = os.Getenv("TUNN_SECRET")
 	}
+	if *accountOnlyFlag && (shared.Public || clientSecret != "") {
+		return nil, fmt.Errorf("--account-only cannot be combined with --public or a publisher secret")
+	}
 	return &tcpCommandOptions{
 		tunnelID:      tunnelID,
 		allowedEmails: allowedEmails,
 		tunnelKey:     shared.TunnelKey,
 		clientSecret:  clientSecret,
 		public:        shared.Public,
+		accountOnly:   *accountOnlyFlag,
 		target:        target,
 		adapter:       strings.ToLower(strings.TrimSpace(*asFlag)),
 	}, nil
@@ -561,7 +568,7 @@ func runTCP(args []string) {
 	opts, err := parseTCPFlags(args)
 	if err != nil {
 		common.LogError("invalid TCP endpoint", "error", err)
-		fmt.Fprintln(os.Stderr, "Usage: tunn tcp [--name NAME] [--allow EMAILS|--public] <host:port>")
+		fmt.Fprintln(os.Stderr, "Usage: tunn tcp [--name NAME] [--account-only] [--allow EMAILS|--public] <host:port>")
 		os.Exit(1)
 	}
 	runRawPublisher(opts, "tcp", "tcp")
@@ -587,6 +594,10 @@ func runRawPublisher(opts *tcpCommandOptions, targetNetwork, endpointProtocol st
 		common.LogError("failed to load config", "error", err)
 		os.Exit(1)
 	}
+	if opts.accountOnly && cfg.PublicMode {
+		common.LogError("--account-only requires authenticated publishing; disable TUNN_PUBLIC_MODE")
+		os.Exit(1)
+	}
 
 	token := opts.clientSecret
 	if token == "" && !cfg.PublicMode {
@@ -609,30 +620,10 @@ func runRawPublisher(opts *tcpCommandOptions, targetNetwork, endpointProtocol st
 		tunnelID = common.RandID(7)
 	}
 
-	allowedEmails := append([]string(nil), opts.allowedEmails...)
-	creatorEmail := ""
-	var accessTokenSHA256 []byte
-	endpointTokenPath := ""
-	if !opts.public {
-		creatorEmail, err = common.ExtractEmailFromJWT(token)
-		if err != nil && len(allowedEmails) == 0 {
-			common.LogError("private raw endpoints require a tunn login token or an explicit --allow", "error", err)
-			os.Exit(1)
-		}
-		if creatorEmail != "" {
-			allowedEmails = appendUniqueEmail(allowedEmails, creatorEmail)
-		}
-		endpointToken, digest, err := client.GenerateEndpointToken()
-		if err != nil {
-			common.LogError("failed to generate endpoint token", "error", err)
-			os.Exit(1)
-		}
-		endpointTokenPath, err = client.SaveEndpointToken(tunnelID, endpointToken)
-		if err != nil {
-			common.LogError("failed to store endpoint token", "error", err)
-			os.Exit(1)
-		}
-		accessTokenSHA256 = digest
+	access, err := prepareRawAccess(opts, token, tunnelID)
+	if err != nil {
+		common.LogError("invalid raw endpoint access", "error", err)
+		os.Exit(1)
 	}
 
 	ctx, cancel := signalContext()
@@ -652,14 +643,14 @@ func runRawPublisher(opts *tcpCommandOptions, targetNetwork, endpointProtocol st
 		PublicPath:        publicPath,
 		ServerAddr:        cfg.ServerAddr,
 		AuthToken:         token,
-		CreatorEmail:      creatorEmail,
-		AccessTokenSHA256: accessTokenSHA256,
-		EndpointTokenPath: endpointTokenPath,
+		CreatorEmail:      access.creator,
+		AccessTokenSHA256: access.digest,
+		EndpointTokenPath: access.path,
 		EndpointProtocol:  endpointProtocol,
 		TargetNetwork:     targetNetwork,
 		DialAddress:       dialAddress,
 		TunnelKey:         tunnelKey,
-		AllowedEmails:     allowedEmails,
+		AllowedEmails:     access.emails,
 		Insecure:          cfg.Insecure || *insecure,
 	}
 	if err := serveClient.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
@@ -674,6 +665,8 @@ type connectCommandOptions struct {
 	token     string
 	tokenFile string
 	public    bool
+	stdio     bool
+	account   bool
 }
 
 func parseConnectFlags(args []string) (*connectCommandOptions, error) {
@@ -683,6 +676,8 @@ func parseConnectFlags(args []string) (*connectCommandOptions, error) {
 	tokenFlag := fs.String("token", "", "endpoint token (prefer --token-file or TUNN_ENDPOINT_TOKEN)")
 	tokenFileFlag := fs.String("token-file", "", "file containing the endpoint token")
 	publicFlag := fs.Bool("public", false, "connect without an endpoint token")
+	stdioFlag := fs.Bool("stdio", false, "bridge stdin/stdout for SSH ProxyCommand (no local listener)")
+	accountFlag := fs.Bool("account", false, "use the saved tunn account login for a named endpoint")
 	if err := fs.Parse(args); err != nil {
 		return nil, err
 	}
@@ -692,17 +687,30 @@ func parseConnectFlags(args []string) (*connectCommandOptions, error) {
 	if *tokenFlag != "" && *tokenFileFlag != "" {
 		return nil, fmt.Errorf("--token and --token-file cannot be used together")
 	}
-	if _, err := net.ResolveTCPAddr("tcp", *listenFlag); err != nil {
-		return nil, fmt.Errorf("invalid listen address: %w", err)
+	if *accountFlag && (*tokenFlag != "" || *tokenFileFlag != "" || *publicFlag) {
+		return nil, fmt.Errorf("--account cannot be combined with --token, --token-file or --public")
 	}
-	return &connectCommandOptions{endpoint: fs.Arg(0), listen: *listenFlag, token: *tokenFlag, tokenFile: *tokenFileFlag, public: *publicFlag}, nil
+	listenSet := false
+	fs.Visit(func(f *flag.Flag) { listenSet = listenSet || f.Name == "listen" })
+	if *stdioFlag && listenSet {
+		return nil, fmt.Errorf("--stdio and --listen cannot be used together")
+	}
+	if *accountFlag && !isValidEndpointName(fs.Arg(0)) {
+		return nil, fmt.Errorf("--account requires an endpoint name on the configured relay, not a URL")
+	}
+	if !*stdioFlag {
+		if _, err := net.ResolveTCPAddr("tcp", *listenFlag); err != nil {
+			return nil, fmt.Errorf("invalid listen address: %w", err)
+		}
+	}
+	return &connectCommandOptions{endpoint: fs.Arg(0), listen: *listenFlag, token: *tokenFlag, tokenFile: *tokenFileFlag, public: *publicFlag, stdio: *stdioFlag, account: *accountFlag}, nil
 }
 
 func runConnect(args []string) {
 	opts, err := parseConnectFlags(args)
 	if err != nil {
 		common.LogError("invalid connect command", "error", err)
-		fmt.Fprintln(os.Stderr, "Usage: tunn connect [--listen 127.0.0.1:PORT] [--token-file FILE] <endpoint>")
+		fmt.Fprintln(os.Stderr, "Usage: tunn connect [--stdio|--listen 127.0.0.1:PORT] [--account|--token-file FILE] <endpoint>")
 		os.Exit(1)
 	}
 	cfg, err := config.LoadConfig()
@@ -715,23 +723,9 @@ func runConnect(args []string) {
 		common.LogError("invalid endpoint", "error", err)
 		os.Exit(1)
 	}
-	token := opts.token
-	if token == "" && opts.tokenFile != "" {
-		data, readErr := os.ReadFile(opts.tokenFile)
-		if readErr != nil {
-			common.LogError("failed to read endpoint token", "error", readErr)
-			os.Exit(1)
-		}
-		token = strings.TrimSpace(string(data))
-	}
-	if token == "" {
-		token = os.Getenv("TUNN_ENDPOINT_TOKEN")
-	}
-	if token == "" && endpointName != "" {
-		token, _ = client.LoadEndpointToken(endpointName)
-	}
-	if token == "" && !opts.public {
-		common.LogError("endpoint token required; use --token-file or TUNN_ENDPOINT_TOKEN")
+	token, err := loadConnectToken(opts, endpointName)
+	if err != nil {
+		common.LogError("failed to load connector credential", "error", err)
 		os.Exit(1)
 	}
 
@@ -743,7 +737,12 @@ func runConnect(args []string) {
 		ListenAddr:  opts.listen,
 		Insecure:    cfg.Insecure || *insecure,
 	}
-	if err := connector.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+	if opts.stdio {
+		err = connector.RunStdio(ctx, os.Stdin, os.Stdout)
+	} else {
+		err = connector.Run(ctx)
+	}
+	if err != nil && !errors.Is(err, context.Canceled) {
 		common.LogError("TCP connector failed", "error", err)
 		os.Exit(1)
 	}

@@ -162,6 +162,10 @@ test:
 	@echo "Running tests..."
 	go test ./...
 
+.PHONY: test-distribution
+test-distribution:
+	go test $(GO_TEST_FLAGS) -count=1 -timeout=90s -run '^TestDistribution' . ./internal/host
+
 test-verbose:
 	@echo "Running tests with verbose output..."
 	go test -v ./...

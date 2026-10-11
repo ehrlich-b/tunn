@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Expose a local MCP server to Claude | tunn</title>
+<meta name="description" content="Publish a local MCP server with tunn, then configure a Claude remote connector with browser consent. Includes CLI commands and prerequisites.">
+<link rel="canonical" href="https://tunn.to/mcp-to-claude">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="tunn">
+<meta property="og:title" content="Expose a local MCP server to Claude">
+<meta property="og:description" content="Publish a local MCP server with tunn, then configure a Claude remote connector with browser consent. Includes CLI commands and prerequisites.">
+<meta property="og:url" content="https://tunn.to/mcp-to-claude">
+<link rel="stylesheet" href="/guides.css">
+</head>
+<body>
+<header class="header"><div class="header-inner"><a class="header-logo" href="/">tunn</a><nav aria-label="Guides"><a href="/ngrok-alternative">ngrok alternative</a><a href="/mcp-to-claude">MCP to Claude</a><a href="/share-dev-server-oauth">OAuth sharing</a></nav></div></header>
+<main><h1>Expose a local MCP server to Claude</h1>
+<p class="lead">Publish your local MCP endpoint, then use its connector URL in Claude.</p>
+<p>Before you start, have tunn installed and a Streamable HTTP MCP server running at <code>http://127.0.0.1:3000/mcp</code>. Use a Claude account with custom connector access; organization accounts may need an owner to add the connector.</p>
+<p class="note">This is a short setup walkthrough, not a measured two-minute guarantee. tunn's OAuth connector flow is covered by local protocol tests. Live Claude interoperability has not been verified for this guide.</p>
+<h2>1. Install and sign in</h2>
+<pre><code>curl -fsSL https://tunn.to/install.sh | sh
+tunn mcp --help
+tunn login</code></pre>
+<p>The help should show a <code>&lt;http-url&gt;</code> input. Complete the browser login prompted by <code>tunn login</code>.</p>
+<h2>2. Publish your local MCP server</h2>
+<pre><code>tunn mcp http://127.0.0.1:3000/mcp</code></pre>
+<p>Use your server's actual port and path if they differ. The CLI prints a <strong>Connector URL</strong> ending in <code>/mcp</code>. Copy that exact URL, including the path. The endpoint is private by default; keep this process and your local server running.</p>
+<p>If your existing server uses stdio instead, launch its executable through tunn:</p>
+<pre><code>tunn mcp -- ./my-mcp-server</code></pre>
+<p>Replace <code>./my-mcp-server</code> with your server's executable and arguments. For a stdio server, <code>--tools</code> restricts which named tools tunn lists and permits callers to invoke:</p>
+<pre><code>tunn mcp --tools read_file,list_directory -- ./my-mcp-server</code></pre>
+<p>Use tool names your server actually provides. This flag applies to stdio servers; it does not filter an HTTP upstream.</p>
+<h2>3. Add the remote connector in Claude</h2>
+<ol>
+<li>Open Claude's <strong>Customize → Connectors</strong> and add a custom connector. For an organization, an owner adds it through organization settings.</li>
+<li>Give it a name and paste the Connector URL printed by tunn.</li>
+<li>Review the detected authentication settings. Use OAuth sign-in and <strong>Register automatically</strong> for the OAuth client; tunn supports dynamic registration of public clients.</li>
+<li>Sign in to tunn in the browser and approve the connector's access to this tunnel.</li>
+<li>Finish adding the connector, then enable it for a conversation from the chat's connectors menu. Ask Claude to use one of your server's tools and check the result.</li>
+</ol>
+<p>These UI steps follow <a href="https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp">Claude's custom connector guide</a>, accessed October 11, 2026. Follow that guide if the UI changes. Claude makes remote connector requests from its cloud infrastructure.</p>
+<h2>Control access and disconnect</h2>
+<p>To let another verified tunn user approve a connector, restart the publisher with their email:</p>
+<pre><code>tunn mcp --allow colleague@example.com http://127.0.0.1:3000/mcp</code></pre>
+<p>At <a href="/account/mcp">Connected MCP clients</a>, the owner can disconnect a client for a tunnel. That revokes its current OAuth tokens and pending authorizations. OAuth tokens expire after one hour; this implementation does not issue refresh tokens, so a client may need to sign in again.</p>
+<h2>If connection fails</h2>
+<p>Check that the local server is running, the publisher is connected, the URL includes <code>/mcp</code>, and you sign in with the owner or an allowed email. HTTP upstreams must already implement MCP. The stdio bridge shares one child process across clients and does not implement stream resumption. See the <a href="https://github.com/ehrlich-b/tunn/blob/110485c8a479572ef6cbaeda8b20d80ccc326ef2/docs/mcp-connectors.md">connector protocol guide</a> for the supported contract.</p></main>
+<footer><a href="https://github.com/ehrlich-b/tunn">Source and documentation</a> · <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></footer>
+</body>
+</html>

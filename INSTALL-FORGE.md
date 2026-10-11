@@ -169,7 +169,7 @@ Host forge
     HostName forge-ssh.tunn.to
     User ehrlich
     Port 22
-    ProxyCommand /usr/bin/env -i HOME=%d PATH=/usr/local/bin:/usr/bin:/bin TUNN_ENV=prod TUNN_PUBLIC_MODE=false TUNN_SECRET= TUNN_SERVER_ADDR=tunn.to:443 TUNN_DOMAIN=tunn.to TUNN_CONFIG_DIR=%d/.local/state/tunn-forge-ssh/credentials %d/.local/bin/tunn-forge-ssh connect --stdio --account forge-ssh
+    ProxyCommand /usr/bin/env -i HOME=$HOME PATH=/usr/local/bin:/usr/bin:/bin TUNN_ENV=prod TUNN_PUBLIC_MODE=false TUNN_SECRET= TUNN_SERVER_ADDR=tunn.to:443 TUNN_DOMAIN=tunn.to TUNN_CONFIG_DIR=$HOME/.local/state/tunn-forge-ssh/credentials $HOME/.local/bin/tunn-forge-ssh connect --stdio --account forge-ssh
     HostKeyAlias forge-tunn
     UserKnownHostsFile ~/.ssh/forge-tunn_known_hosts
     StrictHostKeyChecking yes
@@ -184,7 +184,7 @@ Host forge
     ControlPath none
 ```
 
-The long `ProxyCommand` is one line. `%d` expands to this laptop user's home.
+The long `ProxyCommand` is one line. ssh runs it through your shell, which expands `$HOME`; OpenSSH does not accept `%d` in `ProxyCommand`.
 The clean environment protects this path from a working-directory `.env` or
 inherited development/public/endpoint-token settings. The unit and stanza
 explicitly select TLS-verified production client settings. If the laptop

@@ -89,16 +89,71 @@ func (b *orgBoundedBody) Read(p []byte) (int, error) {
 	return n, err
 }
 
+const orgDiscoveryBackoff = 5 * time.Second
+
+type orgProviderInit struct {
+	done       chan struct{}
+	provider   *orgProvider
+	err        error
+	retryAfter time.Time
+}
+
 func (p *ProxyServer) orgProvider(ctx context.Context, org config.OIDCOrg) (*orgProvider, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	key := org.PolicyDigest()
 	p.orgProvidersMu.Lock()
-	defer p.orgProvidersMu.Unlock()
 	if p.orgProviders == nil {
 		p.orgProviders = map[string]*orgProvider{}
 	}
-	key := org.PolicyDigest()
 	if provider := p.orgProviders[key]; provider != nil {
+		p.orgProvidersMu.Unlock()
 		return provider, nil
 	}
+	if p.orgProviderInits == nil {
+		p.orgProviderInits = map[string]*orgProviderInit{}
+	}
+	if init := p.orgProviderInits[key]; init != nil {
+		select {
+		case <-init.done:
+			if time.Now().Before(init.retryAfter) {
+				p.orgProvidersMu.Unlock()
+				return nil, init.err
+			}
+		default:
+			p.orgProvidersMu.Unlock()
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-init.done:
+				return init.provider, init.err
+			}
+		}
+	}
+	init := &orgProviderInit{done: make(chan struct{})}
+	p.orgProviderInits[key] = init
+	p.orgProvidersMu.Unlock()
+
+	// Only this policy's callers wait. Neither I/O nor waiting holds the cache lock.
+	provider, err := p.discoverOrgProvider(ctx, org)
+	p.orgProvidersMu.Lock()
+	init.provider, init.err = provider, err
+	if err == nil {
+		p.orgProviders[key] = provider
+		delete(p.orgProviderInits, key)
+	} else {
+		init.retryAfter = time.Now().Add(orgDiscoveryBackoff)
+	}
+	close(init.done)
+	p.orgProvidersMu.Unlock()
+	return provider, err
+}
+
+func (p *ProxyServer) discoverOrgProvider(ctx context.Context, org config.OIDCOrg) (*orgProvider, error) {
+	// Bound discovery even for callers without a deadline.
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
 	ctx = oidc.ClientContext(ctx, p.orgHTTPClient(org))
 	provider, err := oidc.NewProvider(ctx, org.Issuer)
 	if err != nil {
@@ -124,8 +179,6 @@ func (p *ProxyServer) orgProvider(ctx context.Context, org config.OIDCOrg) (*org
 		scopes = append(scopes, "https://graph.microsoft.com/User.Read")
 	}
 	out := &orgProvider{provider: provider, oauth: oauth2.Config{ClientID: org.ClientID, ClientSecret: org.ClientSecret, Endpoint: endpoint, RedirectURL: p.orgCallbackURL(org.ID), Scopes: scopes}}
-	// Configuration is immutable until relay restart; this is bounded by org count.
-	p.orgProviders[key] = out
 	return out, nil
 }
 

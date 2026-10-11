@@ -99,6 +99,7 @@ type ProxyServer struct {
 	orgLogins         *orgLoginStore
 	orgProvidersMu    sync.Mutex
 	orgProviders      map[string]*orgProvider
+	orgProviderInits  map[string]*orgProviderInit
 	mcpOAuth          *mcpOAuthStore
 	devices           *deviceCredentialStore
 

@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
@@ -82,6 +83,79 @@ func responseFailureReadMemory(t *testing.T, h http.Handler) (int, string, error
 	return res.StatusCode, body, e
 }
 
+// Direct recorder callers have no net/http panic recovery. They must receive
+// forwarding errors, including the original cause and truncation marker, after
+// the request and its pending stream have been cleaned up.
+func TestProxyToLocalReturnsResponseErrors(t *testing.T) {
+	for _, phase := range []string{"before-head", "after-prefix", "complete"} {
+		t.Run(phase, func(t *testing.T) {
+			stream := &meteringFixtureStream{}
+			tunnel := &TunnelConnection{TunnelID: "api", Stream: stream, Capabilities: map[string]bool{"http-stream-v1": true}, pendingRequests: map[string]chan *pb.HttpResponse{}}
+			cfg := webproxyTestConfig()
+			cfg.Domain = "tunn.test"
+			server := NewTunnelServer(cfg, nil, nil, nil)
+			server.tunnels["api"] = tunnel
+			proxy := &ProxyServer{config: cfg, Domain: cfg.Domain, tunnelServer: server}
+			closes := 0
+			stream.hook = func(message *pb.TunnelMessage) error {
+				if open := message.GetConnectionOpen(); open != nil {
+					accept := &pb.ConnectionAccept{ConnectionId: open.ConnectionId, Success: phase != "before-head", ErrorMessage: "publisher rejected request", HttpResponse: &pb.HttpResponseHead{StatusCode: 202}}
+					tunnel.routeConnectionMessage(&pb.TunnelMessage{Message: &pb.TunnelMessage_ConnectionAccept{ConnectionAccept: accept}})
+					if accept.Success {
+						tunnel.routeConnectionMessage(&pb.TunnelMessage{Message: &pb.TunnelMessage_ConnectionData{ConnectionData: &pb.ConnectionData{ConnectionId: open.ConnectionId, Data: []byte("abc")}}})
+						if phase == "complete" {
+							tunnel.routeConnectionMessage(&pb.TunnelMessage{Message: &pb.TunnelMessage_ConnectionHalfClose{ConnectionHalfClose: &pb.ConnectionHalfClose{ConnectionId: open.ConnectionId}}})
+						}
+					}
+				}
+				if message.GetConnectionClose() != nil {
+					closes++
+				}
+				return nil
+			}
+			request := httptest.NewRequest(http.MethodGet, "http://api.tunn.test/", nil)
+			recorder := httptest.NewRecorder()
+			var writer http.ResponseWriter = recorder
+			var upload *responseFailureUploadBody
+			if phase == "after-prefix" {
+				release := make(chan struct{})
+				unblock := sync.OnceFunc(func() { close(release) })
+				defer unblock()
+				upload = &responseFailureUploadBody{release: release, closed: make(chan struct{})}
+				request.Body, request.ContentLength = upload, -1
+				writer = &responseFailureReleaseWriter{ResponseWriter: recorder, release: unblock}
+			}
+			err := proxy.proxyToLocal(writer, request, "api")
+			var truncated *truncatedHTTPResponseError
+			switch phase {
+			case "before-head":
+				if err == nil || responseHasStarted(err) || errors.As(err, &truncated) || recorder.Code != http.StatusBadGateway {
+					t.Fatalf("pre-header failure: error=%v status=%d body=%q", err, recorder.Code, recorder.Body.String())
+				}
+			case "after-prefix":
+				if !errors.Is(err, io.ErrUnexpectedEOF) || !responseHasStarted(err) || !errors.As(err, &truncated) || recorder.Code != 202 || recorder.Body.String() != "abc" {
+					t.Fatalf("truncated response: error=%v status=%d body=%q", err, recorder.Code, recorder.Body.String())
+				}
+				select {
+				case <-upload.closed:
+				default:
+					t.Fatal("returned without closing the request body")
+				}
+			case "complete":
+				if err != nil || recorder.Code != 202 || recorder.Body.String() != "abc" {
+					t.Fatalf("complete response: error=%v status=%d body=%q", err, recorder.Code, recorder.Body.String())
+				}
+			}
+			tunnel.pendingMu.RLock()
+			pending := len(tunnel.pendingStreams)
+			tunnel.pendingMu.RUnlock()
+			if pending != 0 || closes != 1 {
+				t.Fatalf("cleanup: pending=%d logical closes=%d", pending, closes)
+			}
+		})
+	}
+}
+
 func TestHTTPFidelityUploadFailureAbortsResponse(t *testing.T) {
 	wantStatus, wantBody, wantErr := responseFailureReadMemory(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(202)
@@ -113,7 +187,7 @@ func TestHTTPFidelityUploadFailureAbortsResponse(t *testing.T) {
 	gotStatus, gotBody, gotErr := responseFailureReadMemory(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r.Body = upload
 		r.ContentLength = -1
-		proxy.proxyToLocal(&responseFailureReleaseWriter{ResponseWriter: w, release: unblock}, r, "api")
+		proxy.handleWebProxy(&responseFailureReleaseWriter{ResponseWriter: w, release: unblock}, r)
 	}))
 	select {
 	case <-upload.closed:

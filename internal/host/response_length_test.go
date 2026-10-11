@@ -39,7 +39,7 @@ func TestHTTPFidelityConsumerContentLengths(t *testing.T) {
 					}
 					return nil
 				}
-				response, body, readErr := responseFailureMemoryResponse(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { proxy.proxyToLocal(w, r, "api") }))
+				response, body, readErr := responseFailureMemoryResponse(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { proxy.handleWebProxy(w, r) }))
 				mismatch := fixture.name == "short" || fixture.name == "long"
 				if mismatch {
 					if !errors.Is(readErr, io.ErrUnexpectedEOF) && !errors.Is(readErr, io.EOF) {

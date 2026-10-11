@@ -74,7 +74,7 @@ func TestHTTPFidelityUploadTerminalSchedules(t *testing.T) {
 				defer close(returned)
 				r.Body = upload
 				r.ContentLength = -1
-				proxy.proxyToLocal(w, r, "api")
+				proxy.handleWebProxy(w, r)
 			}))
 			type result struct {
 				response *http.Response
@@ -185,7 +185,7 @@ func TestHTTPFidelityCancellationAfterPrefix(t *testing.T) {
 				// Keep the consumer connection alive while canceling only the
 				// relay request context, so net/http cannot mask a missing abort.
 				r = r.WithContext(ctx)
-				proxy.proxyToLocal(w, r, "api")
+				proxy.handleWebProxy(w, r)
 			}))
 			response, err := client.Get("http://api.tunn.test/")
 			if err != nil {

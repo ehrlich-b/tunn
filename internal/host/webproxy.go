@@ -83,7 +83,13 @@ func (p *ProxyServer) handleWebProxy(w http.ResponseWriter, r *http.Request) {
 
 	// 1. Check if tunnel is local
 	if _, exists := p.tunnelServer.GetTunnel(tunnelID); exists {
-		p.proxyToLocal(w, r, tunnelID)
+		err := p.proxyToLocal(w, r, tunnelID)
+		var truncated *truncatedHTTPResponseError
+		if responseHasStarted(err) && errors.As(err, &truncated) {
+			// Only the net/http boundary may abort the downstream stream.
+			// A normal return would turn an unknown-length partial body into EOF.
+			panic(http.ErrAbortHandler)
+		}
 		return
 	}
 
@@ -137,17 +143,20 @@ func (p *ProxyServer) handleWebProxy(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "Tunnel not found or offline", http.StatusServiceUnavailable)
 }
 
-// proxyToLocal handles proxying for a tunnel hosted on the current node
-func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunnelID string) {
+// proxyToLocal writes the response for a tunnel hosted on the current node and
+// returns forwarding errors after recording them. Errors before response headers
+// receive an HTTP error response; started, truncated responses require the HTTP
+// caller to abort its stream. Direct callers can inspect errors without a panic.
+func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunnelID string) error {
 	tunnel, exists := p.tunnelServer.GetTunnel(tunnelID)
 	if !exists {
 		http.Error(w, "Tunnel offline", 503)
-		return
+		return nil
 	}
 	account, accountErr := p.currentTunnelAccount(r.Context(), tunnel)
 	if owner, ok := r.Context().Value(domainOwnerKey{}).(string); ok && (owner == "" || account == nil || account.ID != owner) {
 		http.Error(w, "Domain tunnel ownership mismatch", http.StatusForbidden)
-		return
+		return nil
 	}
 	session := newIngressMeter(p, tunnel)
 	if account != nil {
@@ -167,20 +176,20 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		session.reason = "account_suspended"
 		w.Header().Set("Tunn-Limit-Reason", session.reason)
 		http.Error(w, session.reason, 403)
-		return
+		return nil
 	}
 	if token, header := grantBearer(r); token != "" {
 		if p.meter == nil {
 			session.reason = "meter_unavailable"
 			http.Error(w, "Usage ledger unavailable", 503)
-			return
+			return nil
 		}
 		digest := sha256.Sum256([]byte(token))
 		grant, err := p.meter.Resolve(r.Context(), &meterpb.ResolveRequest{Owner: session.event.Owner, Endpoint: tunnelID, TokenSha256: digest[:]})
 		if err != nil {
 			session.reason = "meter_unavailable"
 			http.Error(w, "Usage ledger unavailable", 503)
-			return
+			return nil
 		}
 		if strings.HasPrefix(token, "tunn_mcp_") {
 			session.event.AuthMethod = "mcp_oauth"
@@ -192,14 +201,14 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 				session.reason = "invalid_oauth_token"
 				p.mcpChallenge(w, tunnelID, "invalid_token")
 				http.Error(w, "Invalid or expired MCP access token", http.StatusUnauthorized)
-				return
+				return nil
 			}
 		}
 		if grant.Id == "" || tunnel.EndpointProtocol == "tcp" || common.IsWebSocketUpgrade(r.Header) {
 			session.reason = "invalid_grant"
 			w.Header().Set("Tunn-Limit-Reason", session.reason)
 			http.Error(w, "Invalid endpoint grant", 403)
-			return
+			return nil
 		}
 		session.event.Caller = "grant:" + grant.Id
 		session.event.GrantId = grant.Id
@@ -236,7 +245,7 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 					p.mcpChallenge(w, tunnelID, "")
 				}
 				http.Error(w, "Authentication required", http.StatusUnauthorized)
-				return
+				return nil
 			}
 
 			// Build full return URL including the tunnel subdomain
@@ -248,7 +257,7 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 				"tunnel_id", tunnelID,
 				"request_id", session.event.RequestId)
 			http.Redirect(w, r, loginURL, http.StatusFound)
-			return
+			return nil
 		}
 
 		session.event.Caller = metering.CallerEmail(common.NormalizeEmail(userEmail))
@@ -292,7 +301,7 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 
 			if r.URL.Path == "/mcp" || tunnel.EndpointProtocol == "tcp" || platformAuthHeader != "" {
 				http.Error(w, "Access denied", http.StatusForbidden)
-				return
+				return nil
 			}
 
 			w.Header().Set("Content-Type", "text/html")
@@ -303,7 +312,7 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 <p>Contact the tunnel owner to request access.</p>
 `, html.EscapeString(userEmail))
 			writePageEnd(w)
-			return
+			return nil
 		}
 
 		common.LogDebug("allow-list check passed",
@@ -358,7 +367,7 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		if accountErr == nil && account != nil && account.OperationalState == "" {
 			session.reason = "account_unavailable"
 			http.Error(w, "Account status unavailable", 503)
-			return
+			return nil
 		}
 		if accountErr != nil || account == nil || !p.planMeter && !p.checkQuota(r.Context(), account.ID, account.Plan) {
 			session.reason = "account_quota"
@@ -367,12 +376,12 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 				"creator", tunnel.CreatorEmail,
 				"registration_plan", tunnel.Plan)
 			http.Error(w, "Quota exceeded - tunnel owner's monthly limit reached", http.StatusTooManyRequests)
-			return
+			return nil
 		}
 	}
 
 	if !session.admit(r.Context(), w, r) {
-		return
+		return nil
 	}
 	r, stopAccountWatch := p.watchAccountRequest(r, tunnel, account)
 	defer stopAccountWatch()
@@ -396,7 +405,7 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 			meterWriter.bodyMeter = false
 			session.reason = "protocol_mismatch"
 			http.Error(w, "TCP endpoints require tunn connect", http.StatusMethodNotAllowed)
-			return
+			return nil
 		}
 		proxyErr = p.proxyTCPOverGRPC(w, r, tunnel)
 	} else {
@@ -421,15 +430,12 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		meterWriter.bodyMeter = false
 		session.recordError(proxyErr, r.Context())
 		common.LogError("failed to proxy request", "error", proxyErr, "tunnel_id", tunnelID)
-		var truncated *truncatedHTTPResponseError
-		if responseHasStarted(proxyErr) && errors.As(proxyErr, &truncated) {
-			panic(http.ErrAbortHandler)
-		}
 		if !responseHasStarted(proxyErr) {
 			writeIngressError(w, proxyErr)
 		}
-		return
+		return proxyErr
 	}
+	return nil
 }
 
 // Abort the downstream HTTP stream after a failed terminal contract. Returning

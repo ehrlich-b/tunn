@@ -101,7 +101,7 @@ func TestHTTPFidelityWireUploadEOFAbortsResponse(t *testing.T) {
 		}
 		return nil
 	}
-	status, body, actual := responseFailureHalfUpload(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { p.proxyToLocal(w, r, "api") }))
+	status, body, actual := responseFailureHalfUpload(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { p.handleWebProxy(w, r) }))
 	t.Logf("actual HTTP/1 upload: sent 1/2 bytes then half-closed; direct=%v relay status=%d body=%q error=%v", want, status, body, actual)
 	if status != 202 || body != "abc" || !errors.Is(actual, io.ErrUnexpectedEOF) {
 		t.Fatalf("premature upload EOF was presented as a complete response: %d %q %v", status, body, actual)

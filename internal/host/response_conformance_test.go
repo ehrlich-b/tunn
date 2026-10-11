@@ -68,7 +68,7 @@ func TestHTTPFidelityRelayConformance(t *testing.T) {
 					}
 					return nil
 				}
-				res, gotBody, readErr := responseFailureMemoryResponse(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { proxy.proxyToLocal(w, r, "api") }))
+				res, gotBody, readErr := responseFailureMemoryResponse(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { proxy.handleWebProxy(w, r) }))
 				if res == nil {
 					t.Fatal(readErr)
 				}

@@ -56,6 +56,8 @@ var prodAuthRoutes = []prodAuthRoute{
 	{"GET", "/auth/logout", "/auth/logout", "", [11]int{302, 302, 302, 302, 200, 200, 302, 302, 302, 302, 302}},
 	{"POST", "/auth/logout", "/auth/logout", "csrf", [11]int{403, 403, 403, 403, 302, 302, 403, 403, 403, 403, 403}},
 	{"GET", "/account", "/account", "", [11]int{302, 302, 302, 302, 200, 200, 302, 302, 302, 302, 302}},
+	{"GET", "/account/devices", "/account/devices", "", [11]int{302, 302, 302, 302, 200, 200, 302, 302, 302, 302, 302}},
+	{"POST", "/account/devices", "/account/devices", "csrf", [11]int{302, 302, 302, 302, 404, 404, 302, 302, 302, 302, 302}},
 	{"GET", "/account/mcp", "/account/mcp", "", [11]int{302, 302, 302, 302, 200, 200, 302, 302, 302, 302, 302}},
 	{"POST", "/account/mcp?tunnel=tools", "/account/mcp", "csrf", [11]int{302, 302, 302, 302, 303, 303, 302, 302, 302, 302, 302}},
 	{"GET", "/api/mcp/clients?tunnel=tools", "/api/mcp/clients", "", [11]int{401, 200, 200, 200, 401, 401, 401, 401, 401, 401, 401}},
@@ -73,6 +75,7 @@ var prodAuthRoutes = []prodAuthRoute{
 	{"DELETE", "/api/ssh/keys", "/api/ssh/keys", "", [11]int{401, 200, 404, 200, 401, 401, 401, 401, 401, 401, 401}},
 	{"GET", "/auth/ssh-key", "/auth/ssh-key", "", [11]int{400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400}},
 	{"POST", "/api/device/code", "/api/device/code", "", [11]int{200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200}},
+	{"POST", "/api/device/refresh", "/api/device/refresh", "", [11]int{400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400}},
 	{"GET", "/api/device/token", "/api/device/token", "", [11]int{400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400}},
 	{"GET", "/api/endpoints/tools/grants", "/api/endpoints/", "", [11]int{401, 200, 200, 200, 401, 401, 401, 401, 401, 401, 401}},
 	{"POST", "/api/endpoints/tools/grants", "/api/endpoints/", "grant", [11]int{401, 201, 403, 201, 401, 401, 401, 401, 401, 401, 401}},
@@ -103,6 +106,11 @@ func newProdAuthFixture(t *testing.T) *prodAuthFixture {
 	f := newMCPOAuthFixture(t)
 	db := f.p.mcpOAuth.db
 	db.SetMaxOpenConns(1)
+	deviceRegistry, deviceErr := newDeviceCredentialStore(db)
+	if deviceErr != nil {
+		t.Fatal(deviceErr)
+	}
+	f.p.devices = deviceRegistry
 	ctx := context.Background()
 	if _, err := f.p.storage.FindOrCreateByEmails(ctx, []string{"owner@example.com", "alias@example.net"}, "test"); err != nil {
 		t.Fatal(err)

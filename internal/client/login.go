@@ -45,6 +45,7 @@ type TokenResponse struct {
 	TokenType    string `json:"token_type"`
 	ExpiresIn    int    `json:"expires_in"`
 	RefreshToken string `json:"refresh_token,omitempty"`
+	DeviceID     string `json:"device_id,omitempty"`
 	Error        string `json:"error,omitempty"`
 }
 
@@ -92,7 +93,7 @@ func (l *LoginClient) Run(ctx context.Context) error {
 	}
 
 	// Step 4: Save token to file
-	if err := l.saveToken(token.AccessToken); err != nil {
+	if err := l.saveCredentials(token); err != nil {
 		return fmt.Errorf("failed to save token: %w", err)
 	}
 
@@ -191,6 +192,8 @@ func (l *LoginClient) pollForToken(ctx context.Context, deviceResp *DeviceCodeRe
 // checkToken attempts to exchange the device code for a token
 func (l *LoginClient) checkToken(ctx context.Context, deviceCode string) (*TokenResponse, error) {
 	tokenURL := fmt.Sprintf("https://%s/api/device/token?code=%s", l.ServerAddr, url.QueryEscape(deviceCode))
+	name, _ := os.Hostname()
+	tokenURL += "&durable=1&name=" + url.QueryEscape(name)
 
 	client := l.httpClient()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, tokenURL, nil)

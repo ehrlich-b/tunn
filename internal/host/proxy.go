@@ -94,6 +94,7 @@ type ProxyServer struct {
 	domainRegistry *domains.Registry
 	operations     operationalCounters
 	mcpOAuth       *mcpOAuthStore
+	devices        *deviceCredentialStore
 
 	// Proxy storage reference (non-login node only, to update connection on discovery)
 	proxyStorage *storage.ProxyStorage
@@ -161,12 +162,17 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 	var localStorage *storage.LocalStorage
 	var localMeter *metering.Store
 	var localOAuth *mcpOAuthStore
+	var localDevices *deviceCredentialStore
 
 	if cfg.LoginNode {
 		// Login node: initialize SQLite and local storage
 		db, err := store.InitDB(cfg.DBPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize database: %w", err)
+		}
+		localDevices, err = newDeviceCredentialStore(db)
+		if err != nil {
+			return nil, fmt.Errorf("initialize device credentials: %w", err)
 		}
 		localStorage = storage.NewLocalStorage(db)
 		localMeter, err = metering.New(db, metering.WithAccountPlans(), metering.WithOwnerBudgets(cfg.OwnerMonthlyRequests, cfg.OwnerMonthlyBytes))
@@ -252,6 +258,7 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 		storage:            storageImpl,
 		planMeter:          true,
 		mcpOAuth:           localOAuth,
+		devices:            localDevices,
 		proxyStorage:       proxyStorage,
 		isLoginNode:        cfg.LoginNode,
 		usageBuffer:        NewUsageBuffer(),
@@ -863,6 +870,8 @@ func (p *ProxyServer) createHandler() http.Handler {
 	// Device code flow for CLI login
 	mux.HandleFunc("/api/device/code", p.handleDeviceCode)
 	mux.HandleFunc("/api/device/token", p.handleDeviceToken)
+	mux.HandleFunc("/api/device/refresh", p.handleDeviceRefresh)
+	mux.HandleFunc("/account/devices", p.handleDevices)
 	mux.HandleFunc("/api/endpoints/", p.handleMeteringAPI)
 	mux.HandleFunc("/api/usage", p.handleMeteringAPI)
 	mux.HandleFunc("/api/grants", p.handleMeteringAPI)

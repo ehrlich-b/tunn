@@ -22,6 +22,7 @@ Actions: status, suspend, resume, billing-bind, billing-status, billing-events, 
          report-intake, report-respond, fixture-init, migrate, reconcile-legacy, payment-queue, payment-review
 Account operations: --account UUID --expect-version N --reason TEXT
 Billing bind: --account UUID --provider NAME --customer ID --subscription ID
+Billing status: --subscription ID [--after provider/subscription] (payments_next continues account payments)
 Billing fixtures: --events PATH (disposable fixture databases only)
 Reconcile: --snapshots PATH [--apply-fixture | --apply-reviewed] (default: read-only dry run)
 Reviewed apply requires fresh Stripe evidence and receipts; see GO-LIVE.md.
@@ -114,7 +115,7 @@ func executeOperations(args []string, out io.Writer) error {
 	var after string
 	var expected int64
 	var apply, applyReviewed bool
-	fs.StringVar(&after, "after", "", "payment queue cursor")
+	fs.StringVar(&after, "after", "", "payment queue or billing status cursor")
 	fs.StringVar(&dbPath, "db", "", "explicit local database path")
 	fs.StringVar(&configPath, "admin-config", "", "operator-owned configuration")
 	fs.StringVar(&tokenPath, "token-file", "", "administration token")
@@ -244,7 +245,7 @@ func executeOperations(args []string, out io.Writer) error {
 		err = ops.BindBilling(ctx, principal, store.BillingMapping{Provider: provider, CustomerID: customer, SubscriptionID: subscription, AccountID: account})
 		result = map[string]string{"state": "bound", "account_id": account}
 	case "billing-status":
-		result, err = ops.AdminBillingStatus(ctx, principal, provider, subscription)
+		result, err = ops.AdminBillingStatusPage(ctx, principal, provider, subscription, after)
 	case "billing-events":
 		var marker string
 		if err = db.QueryRowContext(ctx, "SELECT value FROM ops_fixture WHERE id=1").Scan(&marker); err != nil || marker != "disposable-local" {

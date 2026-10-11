@@ -35,6 +35,8 @@ func migratePaymentReview(tx *sql.Tx) error {
 	}
 	_, err := tx.Exec(`CREATE TABLE IF NOT EXISTS ops_billing_merged_purchases(provider TEXT NOT NULL,subscription_id TEXT NOT NULL,PRIMARY KEY(provider,subscription_id));
 
+ CREATE INDEX IF NOT EXISTS ops_checkout_payment_account ON ops_checkout_payments(account_id,provider,subscription_id);
+
  CREATE TABLE IF NOT EXISTS ops_payment_review_audit (
  id TEXT PRIMARY KEY,provider TEXT NOT NULL,subscription_id TEXT NOT NULL,account_id TEXT NOT NULL,
  version INTEGER NOT NULL,action TEXT NOT NULL,reason TEXT NOT NULL,actor TEXT NOT NULL,
@@ -104,6 +106,60 @@ func (s *OperationsStore) PaymentReviewQueue(ctx context.Context, p AdminPrincip
 		}
 	}
 	return out, rows.Err()
+}
+
+func (s *OperationsStore) billingStatusPayments(ctx context.Context, p AdminPrincipal, m *BillingMapping, after string) ([]PaymentQueueItem, string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT provider,subscription_id,customer_id,session_id,event_id,account_id,outcome,version,completed_at FROM ops_checkout_payments WHERE outcome!='accepted' AND resolution='' AND ((account_id=? AND account_id!='') OR (provider=? AND subscription_id=?)) AND provider||'/'||subscription_id>? ORDER BY provider,subscription_id LIMIT 101`, m.AccountID, m.Provider, m.SubscriptionID, after)
+	if err != nil {
+		return nil, "", err
+	}
+	defer rows.Close()
+	out := []PaymentQueueItem{}
+	next, found := "", false
+	for rows.Next() {
+		var r PaymentQueueItem
+		if err = rows.Scan(&r.Provider, &r.SubscriptionID, &r.CustomerID, &r.SessionID, &r.EventID, &r.AccountID, &r.Outcome, &r.Version, &r.CompletedAt); err != nil {
+			return nil, "", err
+		}
+		if len(out) == 100 {
+			last := out[len(out)-1]
+			next = last.Provider + "/" + last.SubscriptionID
+			break
+		}
+		scope := r.AccountID
+		if scope == "" {
+			scope = "*"
+		}
+		if err = p.authorize(scope); err != nil {
+			return nil, "", err
+		}
+		found = found || r.Provider == m.Provider && r.SubscriptionID == m.SubscriptionID
+		out = append(out, r)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, "", err
+	}
+	if err = rows.Close(); err != nil {
+		return nil, "", err
+	}
+	if !found {
+		var r PaymentQueueItem
+		err = s.db.QueryRowContext(ctx, `SELECT provider,subscription_id,customer_id,session_id,event_id,account_id,outcome,version,completed_at FROM ops_checkout_payments WHERE provider=? AND subscription_id=? AND outcome!='accepted' AND resolution=''`, m.Provider, m.SubscriptionID).Scan(&r.Provider, &r.SubscriptionID, &r.CustomerID, &r.SessionID, &r.EventID, &r.AccountID, &r.Outcome, &r.Version, &r.CompletedAt)
+		if err != nil && err != sql.ErrNoRows {
+			return nil, "", err
+		}
+		if err == nil {
+			scope := r.AccountID
+			if scope == "" {
+				scope = "*"
+			}
+			if err = p.authorize(scope); err != nil {
+				return nil, "", err
+			}
+			out = append(out, r)
+		}
+	}
+	return out, next, nil
 }
 
 func paymentAccountConflict(ctx context.Context, q operationQuery, account, provider, sub string) (bool, error) {

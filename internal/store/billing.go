@@ -150,11 +150,19 @@ type BillingStatus struct {
 	Mapping         *BillingMapping    `json:"mapping"`
 	PendingEventIDs []string           `json:"pending_event_ids"`
 	Payments        []PaymentQueueItem `json:"payments"`
+	PaymentsNext    string             `json:"payments_next,omitempty"`
 }
 
-// AdminBillingStatus exposes mapping CAS state and up to 100 outstanding
-// receipts for a scoped operator review; it never exposes webhook payloads.
+// AdminBillingStatus exposes mapping CAS state, pending receipts and the first
+// page of account payments to a scoped operator, without webhook payloads.
 func (s *OperationsStore) AdminBillingStatus(ctx context.Context, p AdminPrincipal, provider, subscription string) (*BillingStatus, error) {
+	return s.AdminBillingStatusPage(ctx, p, provider, subscription, "")
+}
+
+// AdminBillingStatusPage pages unresolved payments for the target's account.
+// The requested subscription is also included if it lies outside that page;
+// PaymentsNext advances the account page, independently of that extra item.
+func (s *OperationsStore) AdminBillingStatusPage(ctx context.Context, p AdminPrincipal, provider, subscription, after string) (*BillingStatus, error) {
 	m, err := readBillingMapping(ctx, s.db, provider, subscription)
 	if errors.Is(err, sql.ErrNoRows) {
 		m = &BillingMapping{Provider: provider, SubscriptionID: subscription}
@@ -189,15 +197,9 @@ func (s *OperationsStore) AdminBillingStatus(ctx context.Context, p AdminPrincip
 	if err = rows.Close(); err != nil {
 		return nil, err
 	}
-	queue, err := s.PaymentReviewQueue(ctx, p, "")
+	out.Payments, out.PaymentsNext, err = s.billingStatusPayments(ctx, p, m, after)
 	if err != nil {
 		return nil, err
-	}
-	out.Payments = []PaymentQueueItem{}
-	for _, payment := range queue {
-		if payment.AccountID == m.AccountID || payment.Provider == provider && payment.SubscriptionID == subscription {
-			out.Payments = append(out.Payments, payment)
-		}
 	}
 	return out, nil
 }
@@ -444,11 +446,6 @@ func reconciliationChange(ctx context.Context, tx *sql.Tx, p AdminPrincipal, sna
 	// Receipt selection cannot bypass a quarantined duplicate subscription:
 	// even a later lifecycle receipt must never make it eligible for Pro.
 	if snap.Plan == "pro" {
-		if snap.Provider == "stripe" {
-			if err = stripeAdditionalPurchaseCanGrant(ctx, tx, id, snap.SubscriptionID); err != nil {
-				return nil, err
-			}
-		}
 		if err = checkoutSubscriptionCanGrant(ctx, tx, snap.Provider, snap.SubscriptionID); err != nil {
 			return nil, err
 		}
@@ -589,6 +586,11 @@ func (s *OperationsStore) reconcile(ctx context.Context, p AdminPrincipal, snaps
 			return nil, err
 		}
 		out = append(out, *change)
+		if !applyFixture && !applyReviewed && snap.Provider == "stripe" && snap.Plan == "pro" {
+			if err = stripeAdditionalPurchaseCanGrant(ctx, tx, change.AccountID, snap.SubscriptionID); err != nil {
+				return nil, err
+			}
+		}
 		if (applyFixture || applyReviewed) && change.State != "current" && change.State != "change_expected" {
 			return nil, fmt.Errorf("snapshot cannot apply: %s", change.State)
 		}
@@ -596,10 +598,26 @@ func (s *OperationsStore) reconcile(ctx context.Context, p AdminPrincipal, snaps
 	if !applyFixture && !applyReviewed {
 		return out, nil
 	}
-	for i := range out {
+	// End grants before activating replacements, then check each activation
+	// against earlier writes in this transaction. Any conflict rolls back the
+	// entire batch, including CAS versions, receipts and reconciliation audits.
+	order := make([]int, 0, len(out))
+	for _, plan := range []string{"free", "pro"} {
+		for i, c := range out {
+			if c.Plan == plan {
+				order = append(order, i)
+			}
+		}
+	}
+	for _, i := range order {
 		c := &out[i]
 		if c.State == "current" {
 			continue
+		}
+		if c.Provider == "stripe" && c.Plan == "pro" {
+			if err = stripeAdditionalPurchaseCanGrant(ctx, tx, c.AccountID, c.SubscriptionID); err != nil {
+				return nil, err
+			}
 		}
 		if err = writeBillingState(ctx, tx, c.Provider, c.SubscriptionID, c.Plan, c.Revision, c.ProviderReadAt, billingSnapshotStateDigest(c.BillingSnapshot)); err != nil {
 			return nil, err

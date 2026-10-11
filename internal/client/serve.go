@@ -107,6 +107,9 @@ type ServeClient struct {
 	Inspector           *Inspector        // Optional local, short-lived HTTP request inspector
 	WebSocket           *common.WebSocketOptions
 	RequireUpstreamAuth bool // Require an application Authorization header after tunn auth is stripped
+	// ResponseTrailers is negotiated by Run. Embedded ServeMessages callers
+	// may enable it only when their receiving peer supports the terminal contract.
+	ResponseTrailers bool
 }
 
 // Run establishes a gRPC tunnel with automatic reconnection on failure.
@@ -270,6 +273,7 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 					common.CapabilityHTTPStreamV1,
 					common.CapabilityConnectionStreamV1,
 					common.CapabilityWebSocketV1,
+					common.CapabilityHTTPResponseTrailersV1,
 				},
 				EndpointProtocol: s.EndpointProtocol,
 			},
@@ -301,6 +305,7 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 			return &permanentTunnelError{err: err, kind: FailureProtocol}
 		}
 	}
+	s.ResponseTrailers = containsString(regResp.Capabilities, common.CapabilityHTTPResponseTrailersV1)
 	if connectTimer != nil {
 		connectTimer.Stop()
 	}
@@ -609,6 +614,13 @@ func (s *ServeClient) handleHTTPRequestContext(ctx context.Context, sender messa
 		capture.setProtocol("sse")
 	}
 
+	trailerNames, err := s.responseTrailerNames(resp, httpReq.Method)
+	if err != nil {
+		status, reason = http.StatusBadGateway, "response_error"
+		s.sendErrorResponse(sender, httpReq.ConnectionId, http.StatusBadGateway, err.Error())
+		return
+	}
+
 	// Read response body with size limit to prevent memory exhaustion
 	// Read one extra byte to detect if body exceeds limit
 	var limitedBody []byte
@@ -632,6 +644,16 @@ func (s *ServeClient) handleHTTPRequestContext(ctx context.Context, sender messa
 	body := limitedBody
 	responseBytes = int64(len(body))
 
+	var trailers []*pb.HttpHeader
+	if common.HTTPResponseHasBody(httpReq.Method, resp.StatusCode) {
+		trailers, err = s.responseTrailerFields(resp, trailerNames)
+		if err != nil {
+			status, reason = http.StatusBadGateway, "response_error"
+			s.sendErrorResponse(sender, httpReq.ConnectionId, http.StatusBadGateway, err.Error())
+			return
+		}
+	}
+
 	// Keep exact field lines as well as the explicit legacy fallback.
 	headers, fields := common.EncodeHTTPResponseHeaders(resp.Header)
 
@@ -641,6 +663,8 @@ func (s *ServeClient) handleHTTPRequestContext(ctx context.Context, sender messa
 		StatusCode:   int32(resp.StatusCode),
 		Headers:      headers,
 		HeaderFields: fields,
+		Trailers:     trailers,
+		TrailerNames: trailerNames,
 		Body:         body,
 	}
 

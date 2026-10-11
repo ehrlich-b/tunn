@@ -385,6 +385,12 @@ func (s *ServeClient) handleStreamingHTTPRequest(ctx context.Context, sender mes
 		capture.setProtocol("sse")
 	}
 
+	trailerNames, err := s.responseTrailerNames(response, head.Method)
+	if err != nil {
+		reason = "response_error"
+		sendConnectionRejection(sender, open.ConnectionId, err.Error())
+		return
+	}
 	headers, fields := common.EncodeHTTPResponseHeaders(response.Header)
 	if err := sender.Send(&pb.TunnelMessage{
 		Message: &pb.TunnelMessage_ConnectionAccept{
@@ -395,6 +401,7 @@ func (s *ServeClient) handleStreamingHTTPRequest(ctx context.Context, sender mes
 					StatusCode:   int32(response.StatusCode),
 					Headers:      headers,
 					HeaderFields: fields,
+					TrailerNames: trailerNames,
 				},
 			},
 		},
@@ -425,9 +432,15 @@ func (s *ServeClient) handleStreamingHTTPRequest(ctx context.Context, sender mes
 			}
 		}
 		if readErr == io.EOF {
+			trailers, trailerErr := s.responseTrailerFields(response, trailerNames)
+			if trailerErr != nil {
+				reason = "response_error"
+				_ = sender.Send(&pb.TunnelMessage{Message: &pb.TunnelMessage_ConnectionClose{ConnectionClose: &pb.ConnectionClose{ConnectionId: open.ConnectionId, ErrorMessage: trailerErr.Error()}}})
+				return
+			}
 			if err := sender.Send(&pb.TunnelMessage{
 				Message: &pb.TunnelMessage_ConnectionHalfClose{
-					ConnectionHalfClose: &pb.ConnectionHalfClose{ConnectionId: open.ConnectionId},
+					ConnectionHalfClose: &pb.ConnectionHalfClose{ConnectionId: open.ConnectionId, Trailers: trailers},
 				},
 			}); err != nil {
 				reason = "relay_error"

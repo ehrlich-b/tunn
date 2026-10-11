@@ -421,12 +421,24 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		meterWriter.bodyMeter = false
 		session.recordError(proxyErr, r.Context())
 		common.LogError("failed to proxy request", "error", proxyErr, "tunnel_id", tunnelID)
+		var truncated *truncatedHTTPResponseError
+		if responseHasStarted(proxyErr) && errors.As(proxyErr, &truncated) {
+			panic(http.ErrAbortHandler)
+		}
 		if !responseHasStarted(proxyErr) {
 			writeIngressError(w, proxyErr)
 		}
 		return
 	}
 }
+
+// Abort the downstream HTTP stream after a failed terminal contract. Returning
+// normally would turn an unknown-length partial body into a successful EOF.
+type truncatedHTTPResponseError struct{ err error }
+
+func (e *truncatedHTTPResponseError) Error() string { return e.err.Error() }
+func (e *truncatedHTTPResponseError) Unwrap() error { return e.err }
+func truncatedHTTPResponse(err error) error         { return &truncatedHTTPResponseError{err: err} }
 
 type responseStartedError struct {
 	err error
@@ -527,6 +539,9 @@ func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, 
 	timeout := 30 * time.Second
 	select {
 	case httpResp := <-respChan:
+		if err := validateResponseTrailers(tunnel, httpResp.TrailerNames, httpResp.Trailers); err != nil {
+			return err
+		}
 		// Check bandwidth rate limit (request + response)
 		totalSize := len(body) + len(httpResp.Body)
 		if !tunnel.CheckRateLimit(totalSize) {
@@ -554,6 +569,9 @@ func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, 
 		}
 		// Write response headers
 		copyApplicationResponseHeaderFields(w.Header(), httpResp.Headers, httpResp.HeaderFields)
+		if common.HTTPResponseHasBody(r.Method, int(httpResp.StatusCode)) {
+			declareResponseTrailers(w.Header(), httpResp.TrailerNames)
+		}
 
 		// Write status code
 		w.WriteHeader(int(httpResp.StatusCode))
@@ -569,6 +587,10 @@ func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, 
 		}
 		if writeErr != nil {
 			return &responseStartedError{err: fmt.Errorf("failed to write response body: %w", writeErr)}
+		}
+
+		if common.HTTPResponseHasBody(r.Method, int(httpResp.StatusCode)) {
+			writeResponseTrailers(w.Header(), httpResp.Trailers)
 		}
 
 		common.LogDebug("proxied http response",

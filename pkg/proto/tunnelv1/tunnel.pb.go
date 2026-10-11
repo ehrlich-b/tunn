@@ -832,7 +832,11 @@ type HttpResponse struct {
 	Body []byte `protobuf:"bytes,4,opt,name=body,proto3" json:"body,omitempty"`
 	// If nonempty, header_fields replaces the entire legacy headers map.
 	// Senders also populate headers for old receivers, which lose multiplicity.
-	HeaderFields  []*HttpHeader `protobuf:"bytes,5,rep,name=header_fields,json=headerFields,proto3" json:"header_fields,omitempty"`
+	HeaderFields []*HttpHeader `protobuf:"bytes,5,rep,name=header_fields,json=headerFields,proto3" json:"header_fields,omitempty"`
+	// Response trailers are delivered atomically with this complete body.
+	// Requires negotiated http-response-trailers-v1 support.
+	Trailers      []*HttpHeader `protobuf:"bytes,6,rep,name=trailers,proto3" json:"trailers,omitempty"`
+	TrailerNames  []string      `protobuf:"bytes,7,rep,name=trailer_names,json=trailerNames,proto3" json:"trailer_names,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -898,6 +902,20 @@ func (x *HttpResponse) GetBody() []byte {
 func (x *HttpResponse) GetHeaderFields() []*HttpHeader {
 	if x != nil {
 		return x.HeaderFields
+	}
+	return nil
+}
+
+func (x *HttpResponse) GetTrailers() []*HttpHeader {
+	if x != nil {
+		return x.Trailers
+	}
+	return nil
+}
+
+func (x *HttpResponse) GetTrailerNames() []string {
+	if x != nil {
+		return x.TrailerNames
 	}
 	return nil
 }
@@ -1226,7 +1244,10 @@ type HttpResponseHead struct {
 	StatusCode int32                  `protobuf:"varint,1,opt,name=status_code,json=statusCode,proto3" json:"status_code,omitempty"`
 	Headers    map[string]string      `protobuf:"bytes,2,rep,name=headers,proto3" json:"headers,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// Same whole-list precedence and legacy fallback as HttpResponse.
-	HeaderFields  []*HttpHeader `protobuf:"bytes,3,rep,name=header_fields,json=headerFields,proto3" json:"header_fields,omitempty"`
+	HeaderFields []*HttpHeader `protobuf:"bytes,3,rep,name=header_fields,json=headerFields,proto3" json:"header_fields,omitempty"`
+	// Declared response trailer names; values arrive only in the terminal
+	// ConnectionHalfClose after a successful EOF, never in an error close.
+	TrailerNames  []string `protobuf:"bytes,4,rep,name=trailer_names,json=trailerNames,proto3" json:"trailer_names,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1278,6 +1299,13 @@ func (x *HttpResponseHead) GetHeaders() map[string]string {
 func (x *HttpResponseHead) GetHeaderFields() []*HttpHeader {
 	if x != nil {
 		return x.HeaderFields
+	}
+	return nil
+}
+
+func (x *HttpResponseHead) GetTrailerNames() []string {
+	if x != nil {
+		return x.TrailerNames
 	}
 	return nil
 }
@@ -1339,8 +1367,12 @@ func (x *ConnectionData) GetData() []byte {
 // ConnectionHalfClose declares that the sender has no more bytes while still
 // allowing bytes in the opposite direction.
 type ConnectionHalfClose struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ConnectionId  string                 `protobuf:"bytes,1,opt,name=connection_id,json=connectionId,proto3" json:"connection_id,omitempty"`
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	ConnectionId string                 `protobuf:"bytes,1,opt,name=connection_id,json=connectionId,proto3" json:"connection_id,omitempty"`
+	// HTTP response trailers only, after all data. Requires negotiated
+	// http-response-trailers-v1; at most 64 fields and 16 KiB of metadata.
+	// TCP, WebSocket and HTTP request half-closes leave this field empty.
+	Trailers      []*HttpHeader `protobuf:"bytes,2,rep,name=trailers,proto3" json:"trailers,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1380,6 +1412,13 @@ func (x *ConnectionHalfClose) GetConnectionId() string {
 		return x.ConnectionId
 	}
 	return ""
+}
+
+func (x *ConnectionHalfClose) GetTrailers() []*HttpHeader {
+	if x != nil {
+		return x.Trailers
+	}
+	return nil
 }
 
 // ConnectionClose terminates both directions. error_message is empty for a
@@ -1545,14 +1584,16 @@ const file_proto_tunnel_proto_rawDesc = "" +
 	"\x04body\x18\x05 \x01(\fR\x04body\x1a:\n" +
 	"\fHeadersEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x9c\x02\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xf2\x02\n" +
 	"\fHttpResponse\x12#\n" +
 	"\rconnection_id\x18\x01 \x01(\tR\fconnectionId\x12\x1f\n" +
 	"\vstatus_code\x18\x02 \x01(\x05R\n" +
 	"statusCode\x12<\n" +
 	"\aheaders\x18\x03 \x03(\v2\".tunn.v1.HttpResponse.HeadersEntryR\aheaders\x12\x12\n" +
 	"\x04body\x18\x04 \x01(\fR\x04body\x128\n" +
-	"\rheader_fields\x18\x05 \x03(\v2\x13.tunn.v1.HttpHeaderR\fheaderFields\x1a:\n" +
+	"\rheader_fields\x18\x05 \x03(\v2\x13.tunn.v1.HttpHeaderR\fheaderFields\x12/\n" +
+	"\btrailers\x18\x06 \x03(\v2\x13.tunn.v1.HttpHeaderR\btrailers\x12#\n" +
+	"\rtrailer_names\x18\a \x03(\tR\ftrailerNames\x1a:\n" +
 	"\fHeadersEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"6\n" +
@@ -1580,20 +1621,22 @@ const file_proto_tunnel_proto_rawDesc = "" +
 	"\rconnection_id\x18\x01 \x01(\tR\fconnectionId\x12\x18\n" +
 	"\asuccess\x18\x02 \x01(\bR\asuccess\x12#\n" +
 	"\rerror_message\x18\x03 \x01(\tR\ferrorMessage\x12>\n" +
-	"\rhttp_response\x18\x04 \x01(\v2\x19.tunn.v1.HttpResponseHeadR\fhttpResponse\"\xeb\x01\n" +
+	"\rhttp_response\x18\x04 \x01(\v2\x19.tunn.v1.HttpResponseHeadR\fhttpResponse\"\x90\x02\n" +
 	"\x10HttpResponseHead\x12\x1f\n" +
 	"\vstatus_code\x18\x01 \x01(\x05R\n" +
 	"statusCode\x12@\n" +
 	"\aheaders\x18\x02 \x03(\v2&.tunn.v1.HttpResponseHead.HeadersEntryR\aheaders\x128\n" +
-	"\rheader_fields\x18\x03 \x03(\v2\x13.tunn.v1.HttpHeaderR\fheaderFields\x1a:\n" +
+	"\rheader_fields\x18\x03 \x03(\v2\x13.tunn.v1.HttpHeaderR\fheaderFields\x12#\n" +
+	"\rtrailer_names\x18\x04 \x03(\tR\ftrailerNames\x1a:\n" +
 	"\fHeadersEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"I\n" +
 	"\x0eConnectionData\x12#\n" +
 	"\rconnection_id\x18\x01 \x01(\tR\fconnectionId\x12\x12\n" +
-	"\x04data\x18\x02 \x01(\fR\x04data\":\n" +
+	"\x04data\x18\x02 \x01(\fR\x04data\"k\n" +
 	"\x13ConnectionHalfClose\x12#\n" +
-	"\rconnection_id\x18\x01 \x01(\tR\fconnectionId\"[\n" +
+	"\rconnection_id\x18\x01 \x01(\tR\fconnectionId\x12/\n" +
+	"\btrailers\x18\x02 \x03(\v2\x13.tunn.v1.HttpHeaderR\btrailers\"[\n" +
 	"\x0fConnectionClose\x12#\n" +
 	"\rconnection_id\x18\x01 \x01(\tR\fconnectionId\x12#\n" +
 	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\"C\n" +
@@ -1659,18 +1702,20 @@ var file_proto_tunnel_proto_depIdxs = []int32{
 	19, // 15: tunn.v1.HttpRequest.headers:type_name -> tunn.v1.HttpRequest.HeadersEntry
 	20, // 16: tunn.v1.HttpResponse.headers:type_name -> tunn.v1.HttpResponse.HeadersEntry
 	9,  // 17: tunn.v1.HttpResponse.header_fields:type_name -> tunn.v1.HttpHeader
-	12, // 18: tunn.v1.ConnectionOpen.http_request:type_name -> tunn.v1.HttpRequestHead
-	21, // 19: tunn.v1.HttpRequestHead.headers:type_name -> tunn.v1.HttpRequestHead.HeadersEntry
-	14, // 20: tunn.v1.ConnectionAccept.http_response:type_name -> tunn.v1.HttpResponseHead
-	22, // 21: tunn.v1.HttpResponseHead.headers:type_name -> tunn.v1.HttpResponseHead.HeadersEntry
-	9,  // 22: tunn.v1.HttpResponseHead.header_fields:type_name -> tunn.v1.HttpHeader
-	0,  // 23: tunn.v1.TunnelService.EstablishTunnel:input_type -> tunn.v1.TunnelMessage
-	0,  // 24: tunn.v1.TunnelService.EstablishTunnel:output_type -> tunn.v1.TunnelMessage
-	24, // [24:25] is the sub-list for method output_type
-	23, // [23:24] is the sub-list for method input_type
-	23, // [23:23] is the sub-list for extension type_name
-	23, // [23:23] is the sub-list for extension extendee
-	0,  // [0:23] is the sub-list for field type_name
+	9,  // 18: tunn.v1.HttpResponse.trailers:type_name -> tunn.v1.HttpHeader
+	12, // 19: tunn.v1.ConnectionOpen.http_request:type_name -> tunn.v1.HttpRequestHead
+	21, // 20: tunn.v1.HttpRequestHead.headers:type_name -> tunn.v1.HttpRequestHead.HeadersEntry
+	14, // 21: tunn.v1.ConnectionAccept.http_response:type_name -> tunn.v1.HttpResponseHead
+	22, // 22: tunn.v1.HttpResponseHead.headers:type_name -> tunn.v1.HttpResponseHead.HeadersEntry
+	9,  // 23: tunn.v1.HttpResponseHead.header_fields:type_name -> tunn.v1.HttpHeader
+	9,  // 24: tunn.v1.ConnectionHalfClose.trailers:type_name -> tunn.v1.HttpHeader
+	0,  // 25: tunn.v1.TunnelService.EstablishTunnel:input_type -> tunn.v1.TunnelMessage
+	0,  // 26: tunn.v1.TunnelService.EstablishTunnel:output_type -> tunn.v1.TunnelMessage
+	26, // [26:27] is the sub-list for method output_type
+	25, // [25:26] is the sub-list for method input_type
+	25, // [25:25] is the sub-list for extension type_name
+	25, // [25:25] is the sub-list for extension extendee
+	0,  // [0:25] is the sub-list for field type_name
 }
 
 func init() { file_proto_tunnel_proto_init() }

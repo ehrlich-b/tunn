@@ -4,9 +4,10 @@ const (
 	// CapabilityHTTPStreamV1 enables the connection-oriented HTTP data path.
 	// Clients that omit it remain compatible with relays using buffered
 	// HttpRequest and HttpResponse messages.
-	CapabilityHTTPStreamV1       = "http-stream-v1"
-	CapabilityConnectionStreamV1 = "connection-stream-v1"
-	CapabilityWebSocketV1        = "websocket-v1"
+	CapabilityHTTPStreamV1           = "http-stream-v1"
+	CapabilityConnectionStreamV1     = "connection-stream-v1"
+	CapabilityWebSocketV1            = "websocket-v1"
+	CapabilityHTTPResponseTrailersV1 = "http-response-trailers-v1"
 
 	TCPConnectPath   = "/_tunn/connect"
 	TCPConnectHeader = "Tunn-Protocol"

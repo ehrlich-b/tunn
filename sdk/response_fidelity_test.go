@@ -2,10 +2,13 @@ package tunn
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"reflect"
+	"sync"
 
 	"github.com/ehrlich-b/tunn/internal/common"
 	"strings"
@@ -18,15 +21,18 @@ import (
 // observeResponse extends the existing memory TLS/gRPC fixture, keeping the
 // real SDK HTTP pipe and client serializer in both modes.
 type observedResponse struct {
-	status  int
-	headers map[string]string
-	fields  []*pb.HttpHeader
-	body    string
-	frames  []*pb.TunnelMessage
-	err     error
+	trailers     []*pb.HttpHeader
+	trailerNames []string
+	rejection    string
+	status       int
+	headers      map[string]string
+	fields       []*pb.HttpHeader
+	body         string
+	frames       []*pb.TunnelMessage
+	err          error
 }
 
-func observeResponse(t *testing.T, mode, method string, handler http.Handler) observedResponse {
+func observeResponse(t *testing.T, mode, method string, handler http.Handler, relayTrailers ...bool) observedResponse {
 	t.Helper()
 	result := make(chan observedResponse, 1)
 	dial, tlsConfig := startFixture(t, func(stream pb.TunnelService_EstablishTunnelServer) (err error) {
@@ -43,7 +49,12 @@ func observeResponse(t *testing.T, mode, method string, handler http.Handler) ob
 		if err != nil {
 			return err
 		}
-		if err = acceptRegistration(stream, reg); err != nil {
+		if len(relayTrailers) > 0 && !relayTrailers[0] {
+			err = stream.Send(&pb.TunnelMessage{Message: &pb.TunnelMessage_RegisterResponse{RegisterResponse: &pb.RegisterResponse{Success: true, PublicUrl: "https://" + reg.TunnelId + ".sdk.test", Capabilities: []string{"http-stream-v1", "connection-stream-v1", "websocket-v1"}}}})
+		} else {
+			err = acceptRegistration(stream, reg)
+		}
+		if err != nil {
 			return err
 		}
 		if mode == "buffered" {
@@ -68,19 +79,30 @@ func observeResponse(t *testing.T, mode, method string, handler http.Handler) ob
 				response := message.GetHttpResponse()
 				got.status, got.headers, got.body = int(response.StatusCode), response.Headers, string(response.Body)
 				got.fields = response.HeaderFields
+				got.trailers, got.trailerNames = response.Trailers, response.TrailerNames
 				delivered = true
 				result <- got
 				return drainUntilCanceled(stream)
 			case message.GetConnectionAccept() != nil:
 				accept := message.GetConnectionAccept()
-				if !accept.Success || accept.HttpResponse == nil {
-					return fmt.Errorf("response rejected: %s", accept.ErrorMessage)
+				if !accept.Success {
+					got.rejection = accept.ErrorMessage
+					delivered = true
+					result <- got
+					return drainUntilCanceled(stream)
+				}
+				if accept.HttpResponse == nil {
+					return fmt.Errorf("missing response metadata")
 				}
 				got.status, got.headers = int(accept.HttpResponse.StatusCode), accept.HttpResponse.Headers
 				got.fields = accept.HttpResponse.HeaderFields
+				got.trailerNames = accept.HttpResponse.TrailerNames
 			case message.GetConnectionData() != nil:
 				got.body += string(message.GetConnectionData().Data)
 			case message.GetConnectionHalfClose() != nil, message.GetConnectionClose() != nil:
+				if terminal := message.GetConnectionHalfClose(); terminal != nil {
+					got.trailers = terminal.Trailers
+				}
 				delivered = true
 				result <- got
 				return drainUntilCanceled(stream)
@@ -225,6 +247,186 @@ func TestHTTPFidelityBodySemantics(t *testing.T) {
 					t.Fatalf("terminal frames: %d", terminal)
 				}
 				t.Logf("body=%d bytes, Content-Length=%q, terminal frames=%d", len(got.body), headers.Get("Content-Length"), terminal)
+			})
+		}
+	}
+}
+
+func fidelityTrailerHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Add("Trailer", "X-End")
+	w.WriteHeader(http.StatusAccepted)
+	_, _ = io.WriteString(w, "prefix")
+	w.(http.Flusher).Flush()
+	w.Header().Add("X-End", "one,two")
+	w.Header().Add("X-End", "three")
+}
+
+func TestHTTPFidelityTrailers(t *testing.T) {
+	handler := http.HandlerFunc(fidelityTrailerHandler)
+	reference, body := directHandlerResponse(t, "GET", handler)
+	for _, mode := range []string{"buffered", "streaming"} {
+		t.Run(mode, func(t *testing.T) {
+			got := observeResponse(t, mode, "GET", handler)
+			trailers := common.DecodeHTTPResponseHeaders(nil, got.trailers)
+			if got.body != body || !reflect.DeepEqual(trailers, reference.Trailer) || !reflect.DeepEqual(got.trailerNames, []string{"X-End"}) {
+				t.Fatalf("response: body=%q names=%v trailers=%v reference=%v", got.body, got.trailerNames, trailers, reference.Trailer)
+			}
+			terminal := 0
+			for _, frame := range got.frames {
+				if frame.GetHttpResponse() != nil || frame.GetConnectionHalfClose() != nil {
+					terminal++
+				}
+				if frame.GetConnectionClose() != nil {
+					t.Fatal("trailers ended with an error close")
+				}
+			}
+			if terminal != 1 {
+				t.Fatalf("terminal frame count: %d", terminal)
+			}
+			t.Logf("delivered %d/2 trailer values, %d body bytes, %d terminal frame", len(got.trailers), len(got.body), terminal)
+		})
+		t.Run(mode+"/old-relay", func(t *testing.T) {
+			got := observeResponse(t, mode, "GET", handler, false)
+			if mode == "buffered" {
+				if got.status != 502 || !strings.Contains(got.body, "upgraded relay") {
+					t.Fatalf("unsupported trailers: %d %q", got.status, got.body)
+				}
+			} else if !strings.Contains(got.rejection, "upgraded relay") || got.body != "" {
+				t.Fatalf("unsupported trailers: %+v", got)
+			}
+		})
+	}
+}
+
+func TestHTTPFidelityFlushedPrefix(t *testing.T) {
+	prefix := make(chan string, 1)
+	release := make(chan struct{})
+	finish := sync.OnceFunc(func() { close(release) })
+	defer finish()
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "prefix")
+		w.(http.Flusher).Flush()
+		select {
+		case <-release:
+			_, _ = io.WriteString(w, "suffix")
+		case <-r.Context().Done():
+		}
+	})
+	dial, tlsConfig := startFixture(t, func(stream pb.TunnelService_EstablishTunnelServer) error {
+		reg, err := registration(stream)
+		if err != nil {
+			return err
+		}
+		if err = acceptRegistration(stream, reg); err != nil {
+			return err
+		}
+		if err = stream.Send(&pb.TunnelMessage{Message: &pb.TunnelMessage_ConnectionOpen{ConnectionOpen: &pb.ConnectionOpen{ConnectionId: "flush", Protocol: "http", HttpRequest: &pb.HttpRequestHead{Method: "GET", Path: "/"}}}}); err != nil {
+			return err
+		}
+		if err = stream.Send(&pb.TunnelMessage{Message: &pb.TunnelMessage_ConnectionHalfClose{ConnectionHalfClose: &pb.ConnectionHalfClose{ConnectionId: "flush"}}}); err != nil {
+			return err
+		}
+		for {
+			message, err := stream.Recv()
+			if err != nil {
+				return err
+			}
+			if chunk := message.GetConnectionData(); chunk != nil {
+				prefix <- string(chunk.Data)
+				return drainUntilCanceled(stream)
+			}
+		}
+	})
+	o := fixtureOptions()
+	o.Origin, o.TLSConfig = "http://sdk-handler.invalid", tlsConfig
+	tunnel := startFixtureTunnel(t, context.Background(), o, dial, testHandlerOrigin(handler))
+	select {
+	case got := <-prefix:
+		if got != "prefix" {
+			t.Fatalf("prefix: %q", got)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("flush did not expose prefix while handler was waiting")
+	}
+	finish()
+	if err := tunnel.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHTTPFidelityWriteDeadline(t *testing.T) {
+	outcome := make(chan error, 1)
+	origin := testHandlerOrigin(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		controller := http.NewResponseController(w)
+		if err := controller.SetWriteDeadline(time.Now().Add(100 * time.Millisecond)); err != nil {
+			outcome <- err
+			return
+		}
+		_, _ = io.WriteString(w, "prefix")
+		outcome <- controller.Flush()
+	}))
+	origin.start(context.Background())
+	defer origin.close()
+	connection, err := origin.dial(context.Background(), "tcp", "sdk-handler.invalid:80")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	if _, err = io.WriteString(connection, "GET / HTTP/1.1\r\nHost: sdk-handler.invalid\r\nConnection: close\r\n\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	// The peer deliberately never reads. The existing net.Pipe write is
+	// interrupted by ResponseController's deadline, with no listener involved.
+	select {
+	case err := <-outcome:
+		var timeout net.Error
+		if !errors.As(err, &timeout) || !timeout.Timeout() {
+			t.Fatalf("write deadline: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("slow pipe consumer did not hit bounded write deadline")
+	}
+}
+
+func TestHTTPFidelityEarlyFailure(t *testing.T) {
+	for _, c := range []struct {
+		name    string
+		handler http.Handler
+	}{
+		{"body-reader-error", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(202)
+			_, _ = io.WriteString(w, "prefix")
+			w.(http.Flusher).Flush()
+			panic(http.ErrAbortHandler)
+		})},
+		{"undeclared-trailer", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(202)
+			_, _ = io.WriteString(w, "prefix")
+			w.(http.Flusher).Flush()
+			w.Header().Set(http.TrailerPrefix+"X-Late", "unsupported")
+		})},
+	} {
+		for _, mode := range []string{"buffered", "streaming"} {
+			t.Run(c.name+"/"+mode, func(t *testing.T) {
+				got := observeResponse(t, mode, "GET", c.handler)
+				if mode == "buffered" {
+					if got.status != 502 {
+						t.Fatalf("failed body became status %d", got.status)
+					}
+				} else {
+					if got.status != 202 || got.body != "prefix" {
+						t.Fatalf("final status/body changed: %d %q", got.status, got.body)
+					}
+					terminal := got.frames[len(got.frames)-1].GetConnectionClose()
+					if terminal == nil || terminal.ErrorMessage == "" {
+						t.Fatal("failed body became successful EOF")
+					}
+					for _, frame := range got.frames {
+						if frame.GetConnectionHalfClose() != nil {
+							t.Fatal("failed body emitted successful terminal frame")
+						}
+					}
+				}
 			})
 		}
 	}

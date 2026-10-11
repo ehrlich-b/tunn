@@ -1,8 +1,10 @@
 package common
 
 import (
+	"fmt"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
@@ -49,4 +51,30 @@ func DecodeHTTPResponseHeaders(legacy map[string]string, fields []*pb.HttpHeader
 
 func HTTPResponseHasBody(method string, status int) bool {
 	return method != http.MethodHead && status >= 200 && status != http.StatusNoContent && status != http.StatusNotModified
+}
+
+// HTTPResponseContentLength distinguishes a known zero length from an absent
+// length. Malformed or repeated lengths cannot be used as completion evidence.
+func HTTPResponseContentLength(header http.Header) (int64, error) {
+	values := header.Values("Content-Length")
+	if len(values) == 0 {
+		return -1, nil
+	}
+	if len(values) != 1 {
+		return 0, fmt.Errorf("invalid response Content-Length")
+	}
+	value := strings.TrimSpace(values[0])
+	if value == "" {
+		return 0, fmt.Errorf("invalid response Content-Length")
+	}
+	for _, digit := range value {
+		if digit < '0' || digit > '9' {
+			return 0, fmt.Errorf("invalid response Content-Length")
+		}
+	}
+	length, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid response Content-Length")
+	}
+	return length, nil
 }

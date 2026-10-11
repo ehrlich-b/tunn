@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -86,13 +84,17 @@ func (p *ProxyServer) proxyStreamingHTTPOverGRPC(w http.ResponseWriter, r *http.
 			if event.accept.HttpResponse.StatusCode < 100 || event.accept.HttpResponse.StatusCode > 599 {
 				return fmt.Errorf("local target returned invalid HTTP status %d", event.accept.HttpResponse.StatusCode)
 			}
+			if err := validateResponseTrailers(tunnel, event.accept.HttpResponse.TrailerNames, nil); err != nil {
+				return err
+			}
 			var responseSize int64
-			if r.Method != http.MethodHead && event.accept.HttpResponse.StatusCode != 204 && event.accept.HttpResponse.StatusCode != 304 {
-				for key, values := range common.DecodeHTTPResponseHeaders(event.accept.HttpResponse.Headers, event.accept.HttpResponse.HeaderFields) {
-					value := strings.Join(values, ", ")
-					if strings.EqualFold(key, "Content-Length") {
-						responseSize, _ = strconv.ParseInt(value, 10, 64)
-					}
+			if common.HTTPResponseHasBody(r.Method, int(event.accept.HttpResponse.StatusCode)) {
+				length, err := common.HTTPResponseContentLength(common.DecodeHTTPResponseHeaders(event.accept.HttpResponse.Headers, event.accept.HttpResponse.HeaderFields))
+				if err != nil {
+					return err
+				}
+				if length >= 0 {
+					responseSize = length
 				}
 			}
 			if err := checkMeteredResponse(r, responseSize); err != nil {
@@ -168,7 +170,18 @@ func (p *ProxyServer) writeStreamingHTTPResponse(
 	requestResult <-chan requestBodyResult,
 	requestFinished *bool,
 ) error {
+	expected := int64(-1)
+	if common.HTTPResponseHasBody(r.Method, int(head.StatusCode)) {
+		var err error
+		expected, err = common.HTTPResponseContentLength(common.DecodeHTTPResponseHeaders(head.Headers, head.HeaderFields))
+		if err != nil {
+			return err
+		}
+	}
 	copyApplicationResponseHeaderFields(w.Header(), head.Headers, head.HeaderFields)
+	if common.HTTPResponseHasBody(r.Method, int(head.StatusCode)) {
+		declareResponseTrailers(w.Header(), head.TrailerNames)
+	}
 	if meterForRequest(r) != nil && r.Method != http.MethodHead && head.StatusCode != 204 && head.StatusCode != 304 {
 		// HTTP/1 trailers require chunked framing. The upstream length was already
 		// checked, but a concurrent upload/revocation may still terminate egress.
@@ -194,6 +207,9 @@ func (p *ProxyServer) writeStreamingHTTPResponse(
 		case event := <-pending.events:
 			switch {
 			case event.data != nil:
+				if expected >= 0 && *responseBytes+int64(len(event.data)) > expected {
+					return truncatedHTTPResponse(fmt.Errorf("response exceeds Content-Length"))
+				}
 				if !tunnel.CheckRateLimit(len(event.data)) {
 					return fmt.Errorf("bandwidth rate limit exceeded")
 				}
@@ -205,14 +221,21 @@ func (p *ProxyServer) writeStreamingHTTPResponse(
 					flusher.Flush()
 				}
 			case event.halfClose:
+				if err := validateResponseTrailers(tunnel, head.TrailerNames, event.trailers); err != nil {
+					return truncatedHTTPResponse(err)
+				}
+				if expected >= 0 && *responseBytes != expected {
+					return truncatedHTTPResponse(io.ErrUnexpectedEOF)
+				}
+				writeResponseTrailers(w.Header(), event.trailers)
 				return nil
 			case event.close != nil:
 				if event.close.ErrorMessage == "" {
-					return nil
+					return truncatedHTTPResponse(io.ErrUnexpectedEOF)
 				}
-				return connectionCloseError(event.close)
+				return truncatedHTTPResponse(connectionCloseError(event.close))
 			case event.accept != nil:
-				return fmt.Errorf("local target sent duplicate HTTP response metadata")
+				return truncatedHTTPResponse(fmt.Errorf("local target sent duplicate HTTP response metadata"))
 			}
 
 		case result := <-requestResult:
@@ -223,7 +246,7 @@ func (p *ProxyServer) writeStreamingHTTPResponse(
 				}
 			}
 		case <-pending.done:
-			return fmt.Errorf("tunnel disconnected during streamed HTTP response")
+			return truncatedHTTPResponse(fmt.Errorf("tunnel disconnected during streamed HTTP response"))
 		case <-r.Context().Done():
 			return r.Context().Err()
 		}

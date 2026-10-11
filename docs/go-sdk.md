@@ -174,6 +174,18 @@ uses the map. The map remains available for older peers and joins repeated
 values with `, `. Exact multiplicity needs both upgraded endpoints. The legacy
 host cookie-splitting heuristic cannot recover all valid cookie values.
 
+Declared response trailers require both endpoints to negotiate
+`http-response-trailers-v1`. The streaming head fixes `trailer_names`; exactly
+one successful `ConnectionHalfClose` carries their final values after all body
+chunks. An error uses `ConnectionClose` and delivers no trailers. Buffered
+responses carry declared names and final values with their complete body.
+The contract allows at most 64 declared names, 64 field values, and 16 KiB total
+of declared names plus field names and values. Invalid, forbidden, undeclared
+or oversized trailers fail explicitly. A new client rejects declared trailers
+when the relay lacks support; old clients cannot promise delivery. Request
+trailers and undeclared response trailers are unsupported. Platform fields and
+cookie namespaces remain filtered, including in trailers.
+
 The supported response matrix is:
 
 | Handler behavior | Buffered path | Streaming path |
@@ -183,9 +195,9 @@ The supported response matrix is:
 | HEAD, 204 and 304 | No body read or forwarded bytes | Same; metadata completes without waiting for body frames |
 | Empty or status-only response | Entire response collected before sending | Metadata followed by half-close |
 | Known or unknown body length | Limited body read to EOF | Chunks read to EOF |
-| Response trailers | Not serialized | Not serialized in terminal frame |
+| Declared response trailers | Values accompany the complete buffered response | Values accompany the successful half-close after all body chunks |
 | Flush | Buffered until EOF | Metadata/chunks become visible before EOF |
-| Body-reader error or early close | Error response before headers | Error close after accepted metadata |
+| Body-reader error or early close | 502 before headers | Error close; the downstream HTTP stream is aborted after final metadata |
 | Informational 1xx before final status | Upstream client consumes 1xx | Same; only final metadata serialized |
 
 `make test-http-fidelity` uses the existing memory TLS/gRPC SDK fixture, an
@@ -197,9 +209,9 @@ and independent old protobuf descriptors. It requires no listening sockets.
 This API exposes HTTP publishing only. Public raw TCP, Unix endpoints, raw TLS,
 MCP child supervision, host-mode/service installation, inspector/replay APIs,
 control-plane provisioning, account caches/login, token rotation, custom-domain
-management and JS/Python/Rust wrappers are outside this SDK. Existing HTTP
-transport limits also remain: trailers, gRPC
-application forwarding and WebSocket compression have no new fidelity promise.
+management and JS/Python/Rust wrappers are outside this SDK. HTTP informational responses before the final status, request trailers,
+undeclared response trailers, gRPC application forwarding and WebSocket
+compression have no fidelity promise.
 
 A later JS/Python/Rust binding needs only typed publisher options/credentials,
 start/cancel/close, a bounded event stream, retained ready/terminal results and

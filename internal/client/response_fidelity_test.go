@@ -49,3 +49,36 @@ func TestHTTPFidelityNoBodyRead(t *testing.T) {
 		}
 	}
 }
+
+type fidelityFailingBody struct{ closed int }
+
+func (b *fidelityFailingBody) Read(dst []byte) (int, error) {
+	return copy(dst, "abc"), io.ErrUnexpectedEOF
+}
+func (b *fidelityFailingBody) Close() error { b.closed++; return nil }
+
+func TestHTTPFidelityBytesWithReadError(t *testing.T) {
+	for _, mode := range []string{"buffered", "streaming"} {
+		t.Run(mode, func(t *testing.T) {
+			body := &fidelityFailingBody{}
+			client := &ServeClient{TargetURL: "http://fixture.invalid", HTTPTransport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: 202, Header: make(http.Header), Body: body, ContentLength: -1}, nil
+			})}
+			sender := &mockEstablishTunnelClient{}
+			if mode == "buffered" {
+				client.handleHTTPRequestContext(context.Background(), sender, &pb.HttpRequest{ConnectionId: "error", Method: "GET", Path: "/"})
+				if sender.getSentCount() != 1 || sender.getSentMsg(0).GetHttpResponse().StatusCode != 502 {
+					t.Fatal("buffered error changed to success")
+				}
+			} else {
+				client.handleStreamingHTTPRequest(context.Background(), sender, &pb.ConnectionOpen{ConnectionId: "error", Protocol: "http", HttpRequest: &pb.HttpRequestHead{Method: "GET", Path: "/"}}, strings.NewReader(""))
+				if sender.getSentCount() != 3 || sender.getSentMsg(0).GetConnectionAccept().HttpResponse.StatusCode != 202 || string(sender.getSentMsg(1).GetConnectionData().Data) != "abc" || sender.getSentMsg(2).GetConnectionClose().ErrorMessage == "" {
+					t.Fatal("bytes/error did not retain final metadata and fail terminal frame")
+				}
+			}
+			if body.closed != 1 {
+				t.Fatalf("body closed %d times", body.closed)
+			}
+		})
+	}
+}

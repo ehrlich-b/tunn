@@ -32,3 +32,20 @@ func TestHTTPFidelityHeaderEncoding(t *testing.T) {
 		t.Fatal("field lines did not round trip")
 	}
 }
+
+func TestHTTPFidelityContentLength(t *testing.T) {
+	for _, c := range []struct {
+		values  []string
+		want    int64
+		invalid bool
+	}{{nil, -1, false}, {[]string{"0"}, 0, false}, {[]string{"3"}, 3, false}, {[]string{"-1"}, 0, true}, {[]string{""}, 0, true}, {[]string{"3, 3"}, 0, true}, {[]string{"3", "3"}, 0, true}, {[]string{"+3"}, 0, true}, {[]string{"9223372036854775808"}, 0, true}} {
+		header := make(http.Header)
+		if c.values != nil {
+			header["Content-Length"] = c.values
+		}
+		got, err := HTTPResponseContentLength(header)
+		if (err != nil) != c.invalid || (!c.invalid && got != c.want) {
+			t.Fatalf("Content-Length %v: %d %v", c.values, got, err)
+		}
+	}
+}

@@ -55,6 +55,10 @@ func (s *ingressMeter) recordError(err error, ctx context.Context) {
 		if errors.As(err, &limit) {
 			s.reason = limit.decision.Reason
 		}
+		var tooLarge *requestBodyTooLargeError
+		if errors.As(err, &tooLarge) {
+			s.reason = "request_body_too_large"
+		}
 	}
 	if ctx.Err() != nil && !errors.As(context.Cause(ctx), new(*ingressLimitError)) && !errors.As(context.Cause(ctx), new(*meterUnavailableError)) {
 		s.reason = "caller_disconnected"
@@ -524,6 +528,12 @@ func (p *ProxyServer) handleMeteringAPI(w http.ResponseWriter, r *http.Request) 
 }
 
 func writeIngressError(w http.ResponseWriter, err error) {
+	var tooLarge *requestBodyTooLargeError
+	if errors.As(err, &tooLarge) {
+		w.Header().Set("Tunn-Limit-Reason", "request_body_too_large")
+		http.Error(w, tooLarge.Error(), http.StatusRequestEntityTooLarge)
+		return
+	}
 	var unavailable *meterUnavailableError
 	if errors.As(err, &unavailable) {
 		w.Header().Set("Tunn-Limit-Reason", "meter_unavailable")

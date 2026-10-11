@@ -23,6 +23,9 @@ type requestBodyResult struct {
 // connection-oriented data path. Unlike the legacy path, the response may
 // remain open indefinitely for SSE and MCP standalone event streams.
 func (p *ProxyServer) proxyStreamingHTTPOverGRPC(w http.ResponseWriter, r *http.Request, tunnel *TunnelConnection) error {
+	if r.ContentLength > MaxBodySize {
+		return &requestBodyTooLargeError{MaxBodySize}
+	}
 	connectionID, err := requestConnectionID(r)
 	if err != nil {
 		return fmt.Errorf("failed to generate connection ID: %w", err)
@@ -97,6 +100,21 @@ func (p *ProxyServer) proxyStreamingHTTPOverGRPC(w http.ResponseWriter, r *http.
 			if err := checkMeteredResponse(r, responseSize); err != nil {
 				return err
 			}
+			// For unknown-length uploads, validate the cap before committing an
+			// upstream response. An early 200 must not hide an oversized request.
+			if r.ContentLength < 0 && !requestFinished {
+				select {
+				case result := <-requestResult:
+					requestFinished = true
+					if result.err != nil {
+						return result.err
+					}
+				case <-r.Context().Done():
+					return r.Context().Err()
+				case <-headerTimer.C:
+					return fmt.Errorf("timeout waiting for streamed HTTP request body")
+				}
+			}
 			if err := p.writeStreamingHTTPResponse(w, r, tunnel, pending, event.accept.HttpResponse, &requestBytes, &responseBytes, requestResult, &requestFinished); err != nil {
 				return &responseStartedError{err: err}
 			}
@@ -122,11 +140,18 @@ func streamConnectionInput(body io.ReadCloser, tunnel *TunnelConnection, connect
 	defer func() { _ = body.Close() }()
 	buffer := make([]byte, common.StreamChunkSize)
 	for {
-		n, err := body.Read(buffer)
+		readBuffer := buffer
+		if maxBytes > 0 {
+			remaining := maxBytes - count.Load() + 1
+			if remaining < int64(len(readBuffer)) {
+				readBuffer = readBuffer[:remaining]
+			}
+		}
+		n, err := body.Read(readBuffer)
 		if n > 0 {
 			current := count.Add(int64(n))
 			if maxBytes > 0 && current > maxBytes {
-				return current, fmt.Errorf("request body too large (max %d bytes)", maxBytes)
+				return current, &requestBodyTooLargeError{maxBytes}
 			}
 			if !tunnel.CheckRateLimit(n) {
 				return current, fmt.Errorf("bandwidth rate limit exceeded")

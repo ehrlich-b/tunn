@@ -155,6 +155,9 @@ SELECT account_id,'legacy','legacy',month,max(0,bytes_used-coalesce((SELECT sum(
 			return nil, err
 		}
 	}
+	if err := s.initSharing(); err != nil {
+		return nil, err
+	}
 	return s, nil
 }
 

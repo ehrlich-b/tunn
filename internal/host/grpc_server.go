@@ -13,8 +13,10 @@ import (
 
 	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/ehrlich-b/tunn/internal/config"
+	"github.com/ehrlich-b/tunn/internal/metering"
 	"github.com/ehrlich-b/tunn/internal/storage"
 	"github.com/ehrlich-b/tunn/internal/store"
+	meterpb "github.com/ehrlich-b/tunn/pkg/proto/meteringv1"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
 	"github.com/golang-jwt/jwt/v4"
 	"golang.org/x/time/rate"
@@ -61,6 +63,7 @@ func isValidDNSLabel(tunnelID string) bool {
 type TunnelServer struct {
 	pb.UnimplementedTunnelServiceServer
 
+	sharing    metering.SharingBackend
 	hosts      *store.HostStore
 	mu         sync.RWMutex
 	tunnels    map[string]*TunnelConnection
@@ -75,6 +78,8 @@ type TunnelServer struct {
 
 // TunnelConnection represents an active tunnel connection
 type TunnelConnection struct {
+	ResourceID         string
+	ExposureMode       string
 	HostID             string
 	TunnelID           string
 	TargetURL          string
@@ -202,6 +207,10 @@ func NewTunnelServer(cfg *config.Config, userTokens map[string]string, accounts 
 		storage:    store,
 	}
 }
+
+// SetSharingBackend configures the durable permission authority before serving.
+// It must be called before EstablishTunnel handlers are started.
+func (s *TunnelServer) SetSharingBackend(backend metering.SharingBackend) { s.sharing = backend }
 
 // EstablishTunnel implements the bidirectional streaming RPC for tunnel control
 func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelServer) error {
@@ -485,6 +494,16 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		return rejectTunnelRegistration(stream, "Device token expired during registration; retry renewal.")
 	}
 
+	// Validate exposure before claiming the name in shared storage.
+	if endpointProtocol == "http" && targetURL != "mcp" && regClient.ExposureVersion != 0 {
+		if regClient.ExposureVersion != 1 || (regClient.ExposureMode != "private" && regClient.ExposureMode != "public") || regClient.ExposureMode == "public" && (len(allowedEmails) > 0 || len(regClient.AccessTokenSha256) > 0) {
+			return rejectTunnelRegistration(stream, "Invalid or unsupported web exposure mode.")
+		}
+		if (regClient.ExposureMode != "public" && (s.sharing == nil || accountID == "")) || accountID != "" && s.sharing == nil {
+			return rejectTunnelRegistration(stream, "Web sharing requires an account and the sharing authority.")
+		}
+	}
+
 	// Check if tunnel exists locally first
 	s.mu.Lock()
 	if _, exists := s.tunnels[tunnelID]; exists {
@@ -551,6 +570,36 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 			return fmt.Errorf("tunnel limit reached for %s", creatorEmail)
 		}
 		s.mu.Unlock()
+	}
+
+	// Versioned HTTP exposure: legacy clients keep their documented semantics.
+	// Modern web sharing always needs the durable authority and an account owner.
+	if endpointProtocol == "http" && targetURL != "mcp" {
+		mode := "private"
+		if regClient.ExposureVersion > 1 {
+			return rejectTunnelRegistration(stream, "Unsupported exposure version; update relay.")
+		}
+		if regClient.ExposureVersion == 0 {
+			if len(allowedEmails) == 0 && len(regClient.AccessTokenSha256) == 0 {
+				mode = "legacy-public"
+			}
+		} else {
+			mode = regClient.ExposureMode
+			if mode != "private" && mode != "public" || mode == "public" && (len(allowedEmails) > 0 || len(regClient.AccessTokenSha256) > 0) {
+				return rejectTunnelRegistration(stream, "Invalid web exposure mode.")
+			}
+		}
+		conn.ExposureMode = mode
+		if s.sharing != nil && accountID != "" {
+			result, err := s.sharing.Sharing(stream.Context(), &meterpb.SharingRequest{Operation: "register", Owner: accountID, Endpoint: tunnelID, Mode: mode, InitialEmails: allowedEmails})
+			if err != nil || result == nil || len(result.Resources) != 1 {
+				if registeredWithStorage {
+					_ = s.storage.UnregisterTunnel(stream.Context(), tunnelID)
+				}
+				return rejectTunnelRegistration(stream, "Web permission authority unavailable.")
+			}
+			conn.ResourceID = result.Resources[0].Id
+		}
 	}
 
 	// Add to local map (re-check for race condition)
@@ -621,7 +670,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 			RegisterResponse: &pb.RegisterResponse{
 				Success:      true,
 				PublicUrl:    publicURL,
-				Capabilities: []string{common.CapabilityHTTPStreamV1, common.CapabilityConnectionStreamV1, common.CapabilityWebSocketV1, common.CapabilityHTTPResponseTrailersV1, deviceReauthCapability},
+				Capabilities: []string{common.CapabilityHTTPStreamV1, common.CapabilityConnectionStreamV1, common.CapabilityWebSocketV1, common.CapabilityHTTPResponseTrailersV1, deviceReauthCapability, "web-sharing-v1"},
 			},
 		},
 	}

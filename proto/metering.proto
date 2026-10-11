@@ -5,6 +5,7 @@ import "google/protobuf/empty.proto";
 
 // Only the login node serves this API, behind the existing node-secret interceptor.
 service Metering {
+  rpc Sharing(SharingRequest) returns (SharingResponse);
   rpc Resolve(ResolveRequest) returns (Grant);
   rpc CreateGrant(Grant) returns (Grant);
   rpc ListGrants(ListGrantsRequest) returns (ListGrantsResponse);
@@ -105,3 +106,23 @@ message ExportResponse {
   int64 until = 8;
   bool usage_truncated = 9; // time-window counters may lack evicted events
 }
+
+// Durable web permissions live with the existing grant and audit authority.
+message WebResource {
+  string id = 1;
+  string owner = 2;
+  string endpoint = 3;
+  string mode = 4;
+  repeated Grant people = 5;
+}
+message SharingRequest {
+  string operation = 1; // register, get, list, share, unshare
+  string owner = 2;
+  string endpoint = 3;
+  string resource_id = 4; // binds ingress to an immutable generation
+  string mode = 5;
+  repeated string initial_emails = 6;
+  string email = 7;
+  int64 expires_at = 8;
+}
+message SharingResponse { repeated WebResource resources = 1; }

@@ -52,6 +52,7 @@ func TestSDKIntegrationDomainAccountMergeAndSuspension(t *testing.T) {
 	}
 	const publisherCredential = "sdk-account-fixture-credential"
 	server := host.NewTunnelServer(&config.Config{Domain: "sdk.test"}, map[string]string{owner.PrimaryEmail: publisherCredential}, store.NewAccountStore(db), local)
+	server.SetSharingBackend(ledger)
 	dial, tlsConfig := startFixture(t, server.EstablishTunnel)
 	o := fixtureOptions()
 	o.Name, o.TLSConfig, o.Credentials.AuthToken = binding.Tunnel, tlsConfig, publisherCredential

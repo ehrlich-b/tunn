@@ -68,6 +68,9 @@ Usage:
   tunn connect [options] <name>   Open a remote TCP endpoint locally
   tunn token [--rotate] <name>   Print or rotate an endpoint access token
   tunn usage <name>              Export caller usage and audit decisions
+  tunn share <name> <email>      Share private web access without restarting
+  tunn unshare <name> <email>    Revoke web access and active streams
+  tunn access <name>             Show who has access
   tunn grant create <name>       Issue a metered, expiring consumer token
   tunn grant revoke <name> <id>  Revoke one consumer grant
   tunn domain add|verify|list|delete  Manage Pro custom domains
@@ -135,6 +138,8 @@ Options:
 		runEndpointToken(args[1:])
 	case "domain":
 		runDomains(args[1:])
+	case "share", "unshare", "access":
+		runSharing(args[0], args[1:])
 	case "usage", "grant":
 		runMetering(args[0], args[1:])
 	case "magic-link":
@@ -988,12 +993,13 @@ func runServe(args []string) {
 		// Use client secret as auth token (self-hosters)
 		token = clientSecret
 	} else if !cfg.PublicMode {
-		// Load JWT from token file
-		token, credentials, err = client.LoadTunnelToken(context.Background(), cfg.ServerAddr, cfg.Insecure || *insecure)
+		login := &client.LoginClient{ServerAddr: cfg.ServerAddr, Insecure: cfg.Insecure || *insecure}
+		token, credentials, err = loadOrEnrollWebPublisher(context.Background(), cfg.ServerAddr, cfg.Insecure || *insecure, client.LoadTunnelToken, login.Run)
 		if err != nil {
-			common.LogError("not logged in - run 'tunn login' first, or use --secret for self-hosted servers", "error", err)
+			common.LogError("publisher enrollment failed", "error", err)
 			os.Exit(1)
 		}
+
 	}
 
 	// Get tunnel key from flag or env var
@@ -1018,8 +1024,9 @@ func runServe(args []string) {
 	}
 
 	serveClient := &client.ServeClient{
-		TunnelID:            tunnelID,
-		TargetURL:           normalizedTarget,
+		TunnelID:  tunnelID,
+		TargetURL: normalizedTarget,
+		Public:    opts.public, RequireSharing: true,
 		ServerAddr:          cfg.ServerAddr,
 		AuthToken:           token,
 		Credentials:         credentials,

@@ -58,7 +58,8 @@ func TestSDKExternalResponseConsumer(t *testing.T) {
 			command.Env = append(command.Env, entry)
 		}
 	}
-	command.Env = append(command.Env, "TUNN_SERVER_ADDR="+relay.Listener.Addr().String(), "TUNN_AUTH_TOKEN="+cfg.ClientSecret)
+	// Response conformance uses an explicit endpoint credential under private defaults.
+	command.Env = append(command.Env, "TUNN_SERVER_ADDR="+relay.Listener.Addr().String(), "TUNN_AUTH_TOKEN="+cfg.ClientSecret, "TUNN_ENDPOINT_TOKEN=tunn_ep_response-consumer-fixture")
 	output, err := command.CombinedOutput()
 	if err != nil {
 		t.Fatalf("external SDK response consumer: %v\n%s", err, output)

@@ -64,6 +64,8 @@ func (s *streamSender) Send(msg *pb.TunnelMessage) error {
 
 // ServeClient is the new gRPC-based tunnel client for "tunn serve"
 type ServeClient struct {
+	Public             bool // Explicit anonymous web exposure; false is private.
+	RequireSharing     bool // Reject relays without versioned web sharing before ready.
 	TunnelID           string
 	TargetURL          string
 	DisplayTarget      string // Optional redacted target shown in the CLI
@@ -297,10 +299,21 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 		}
 	}
 
+	exposureVersion := uint32(0)
+	exposureMode := ""
+	if s.RequireSharing && s.EndpointProtocol != "tcp" && s.PublicPath != "/mcp" {
+		exposureVersion = 1
+		exposureMode = "private"
+		if s.Public {
+			exposureMode = "public"
+		}
+	}
 	// Send registration message
 	regMsg := &pb.TunnelMessage{
 		Message: &pb.TunnelMessage_RegisterClient{
 			RegisterClient: &pb.RegisterClient{
+				ExposureVersion:   exposureVersion,
+				ExposureMode:      exposureMode,
 				TunnelId:          s.TunnelID,
 				TargetUrl:         s.registrationTarget(),
 				AuthToken:         s.AuthToken,
@@ -339,6 +352,9 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 
 	if !regResp.Success {
 		return &permanentTunnelError{err: fmt.Errorf("registration failed: %s", regResp.ErrorMessage), kind: FailureRegistration}
+	}
+	if s.RequireSharing && exposureVersion == 1 && !containsString(regResp.Capabilities, "web-sharing-v1") {
+		return &permanentTunnelError{err: fmt.Errorf("relay lacks private web sharing; update the relay"), kind: FailureProtocol}
 	}
 	if s.ValidatePublicURL != nil {
 		if err := s.ValidatePublicURL(regResp.PublicUrl); err != nil {
@@ -384,8 +400,16 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 			fmt.Println("Paste this URL into Claude.ai or ChatGPT's MCP connector settings.")
 		}
 
-		// Warn if tunnel is open to the internet (no --allow specified)
-		if len(s.AllowedEmails) == 0 && len(accessTokenDigest) == 0 {
+		if exposureVersion == 1 {
+			if s.Public {
+				fmt.Println("Access: explicitly public.")
+			} else {
+				fmt.Println("Access: private. Only the owner and people shared with can open this URL.")
+				fmt.Printf("People: https://%s/account/sharing?tunnel=%s\n", s.ServerAddr, s.TunnelID)
+			}
+		}
+		// Legacy/non-web access status
+		if exposureVersion == 0 && len(s.AllowedEmails) == 0 && len(accessTokenDigest) == 0 {
 			fmt.Println("Warning: Tunnel is open to the internet. Use --allow=email@example.com to restrict access.")
 		} else if s.PublicPath == "/mcp" {
 			fmt.Println("Access: private. Sign in to tunn and approve the connector's access to this tunnel.")

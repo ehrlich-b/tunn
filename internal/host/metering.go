@@ -60,6 +60,11 @@ func (s *ingressMeter) recordError(err error, ctx context.Context) {
 			s.reason = "request_body_too_large"
 		}
 	}
+	var permission *webPermissionError
+	if errors.As(context.Cause(ctx), &permission) {
+		s.reason = permission.reason
+		return
+	}
 	if ctx.Err() != nil && !errors.As(context.Cause(ctx), new(*ingressLimitError)) && !errors.As(context.Cause(ctx), new(*meterUnavailableError)) {
 		s.reason = "caller_disconnected"
 	}

@@ -102,7 +102,7 @@ func registration(stream pb.TunnelService_EstablishTunnelServer) (*pb.RegisterCl
 }
 
 func acceptRegistration(stream pb.TunnelService_EstablishTunnelServer, reg *pb.RegisterClient) error {
-	return stream.Send(&pb.TunnelMessage{Message: &pb.TunnelMessage_RegisterResponse{RegisterResponse: &pb.RegisterResponse{Success: true, PublicUrl: "https://" + reg.TunnelId + ".sdk.test", Capabilities: []string{"http-stream-v1", "connection-stream-v1", "websocket-v1", "http-response-trailers-v1"}}}})
+	return stream.Send(&pb.TunnelMessage{Message: &pb.TunnelMessage_RegisterResponse{RegisterResponse: &pb.RegisterResponse{Success: true, PublicUrl: "https://" + reg.TunnelId + ".sdk.test", Capabilities: []string{"web-sharing-v1", "http-stream-v1", "connection-stream-v1", "websocket-v1", "http-response-trailers-v1"}}}})
 }
 
 func drainUntilCanceled(stream pb.TunnelService_EstablishTunnelServer) error {
@@ -369,7 +369,7 @@ func TestSDKProtocolResponses(t *testing.T) {
 					if scenario == "credential-url" {
 						domain = "credential-sentinel-sdk.test"
 					}
-					return stream.Send(&pb.TunnelMessage{Message: &pb.TunnelMessage_RegisterResponse{RegisterResponse: &pb.RegisterResponse{Success: true, PublicUrl: "https://" + reg.TunnelId + "." + domain}}})
+					return stream.Send(&pb.TunnelMessage{Message: &pb.TunnelMessage_RegisterResponse{RegisterResponse: &pb.RegisterResponse{Success: true, PublicUrl: "https://" + reg.TunnelId + "." + domain, Capabilities: []string{"web-sharing-v1"}}}})
 				}
 				if err := acceptRegistration(stream, reg); err != nil {
 					return err

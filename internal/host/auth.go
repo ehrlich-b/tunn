@@ -277,10 +277,23 @@ func (p *ProxyServer) sanitizeReturnTo(returnTo string) string {
 		if err != nil {
 			return "/"
 		}
-		// Check if it's our domain or a subdomain
-		if parsed.Host == p.config.Domain || strings.HasSuffix(parsed.Host, "."+p.config.Domain) {
+		// Permit the configured HTTPS port on the platform and its subdomains.
+		platform, err := url.Parse("https://" + p.loginAuthority())
+		if err != nil {
+			return "/"
+		}
+		port := parsed.Port()
+		if port == "" {
+			port = "443"
+		}
+		platformPort := platform.Port()
+		if platformPort == "" {
+			platformPort = "443"
+		}
+		if parsed.User == nil && port == platformPort && (parsed.Hostname() == p.config.Domain || strings.HasSuffix(parsed.Hostname(), "."+p.config.Domain)) {
 			return returnTo
 		}
+
 	}
 
 	return "/"
@@ -299,7 +312,8 @@ func (p *ProxyServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 	hasGitHub := p.config.GitHubClientID != ""
 	hasMockOIDC := p.config.IsDev() && p.config.MockOIDCIssuer != ""
 	hasEmail := p.emailSender != nil
-	hasOAuth := hasGitHub || hasMockOIDC
+	hasGoogle := p.config.GoogleClientID != "" && p.config.GoogleClientSecret != ""
+	hasOAuth := hasGitHub || hasMockOIDC || hasGoogle
 
 	// Build OAuth URL with return_to and device_user_code
 	oauthParams := fmt.Sprintf("return_to=%s", url.QueryEscape(returnTo))
@@ -320,6 +334,9 @@ func (p *ProxyServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 <div id="message"></div>`)
 	}
 
+	if hasGoogle {
+		_, _ = fmt.Fprintf(w, `<a href="/auth/google?%s" class="btn btn-secondary">Continue with Google</a>`, oauthParams)
+	}
 	// Show OAuth button (GitHub in prod, Mock OIDC in dev)
 	if hasGitHub {
 		_, _ = fmt.Fprintf(w, `<a href="/auth/github?%s" class="btn btn-github">Continue with GitHub</a>`, oauthParams)

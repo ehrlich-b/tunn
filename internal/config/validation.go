@@ -114,6 +114,9 @@ func (c *Config) validateSettings() error {
 // ValidateHost applies requirements specific to starting a relay, after CLI
 // overrides. LoadConfig also serves client commands, which need no host secrets.
 func (c *Config) ValidateHost() error {
+	if err := c.ValidateOIDCOrgs(); err != nil {
+		return err
+	}
 	if c.IsProd() {
 		if c.PublicMode {
 			return fmt.Errorf("TUNN_PUBLIC_MODE is only supported in development")

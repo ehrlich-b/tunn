@@ -40,6 +40,8 @@ type prodAuthRoute struct {
 // their own proof (OAuth code, email link, webhook signature, or CSRF); a 400
 // below means account credentials do not substitute for that missing proof.
 var prodAuthRoutes = []prodAuthRoute{
+	{"GET", "/auth/org/unknown", "/auth/org/", "", [11]int{404, 404, 404, 404, 404, 404, 404, 404, 404, 404, 404}},
+	{"GET", "/auth/org/unknown/callback", "/auth/org/", "", [11]int{404, 404, 404, 404, 404, 404, 404, 404, 404, 404, 404}},
 	{"GET", "/auth/google", "/auth/google", "", [11]int{503, 503, 503, 503, 503, 503, 503, 503, 503, 503, 503}},
 	{"GET", "/auth/google/callback", "/auth/google/callback", "", [11]int{503, 503, 503, 503, 503, 503, 503, 503, 503, 503, 503}},
 	{"GET", "/api/sharing", "/api/sharing", "", [11]int{401, 200, 200, 200, 401, 401, 401, 401, 401, 401, 401}},

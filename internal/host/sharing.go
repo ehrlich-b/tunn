@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/ehrlich-b/tunn/internal/common"
+	"github.com/ehrlich-b/tunn/internal/config"
 	"github.com/ehrlich-b/tunn/internal/metering"
 	"github.com/ehrlich-b/tunn/internal/storage"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/meteringv1"
@@ -36,6 +37,10 @@ func (p *ProxyServer) webResource(ctx context.Context, t *TunnelConnection) (*pb
 	return out.Resources[0], nil
 }
 func webPersonAllowed(r *pb.WebResource, emails []string, creator string, now time.Time) bool {
+	return webIdentityAllowed(r, emails, nil, creator, now)
+}
+
+func webIdentityAllowed(r *pb.WebResource, emails, groups []string, creator string, now time.Time) bool {
 	if r.Mode == "public" {
 		return true
 	}
@@ -43,6 +48,13 @@ func webPersonAllowed(r *pb.WebResource, emails []string, creator string, now ti
 		return true
 	}
 	for _, g := range r.People {
+		if !g.Revoked && g.ExpiresAt > now.UnixMilli() && strings.HasPrefix(g.Consumer, "group:") {
+			for _, membership := range groups {
+				if g.Consumer == membership {
+					return true
+				}
+			}
+		}
 		if !g.Revoked && g.ExpiresAt > now.UnixMilli() && strings.HasPrefix(g.Consumer, "person:") && isEmailBucketAllowed(emails, []string{strings.TrimPrefix(g.Consumer, "person:")}) {
 			return true
 		}
@@ -54,6 +66,11 @@ func webPersonAllowed(r *pb.WebResource, emails []string, creator string, now ti
 // WebSocket sessions stop within five seconds, including authority outages.
 func (p *ProxyServer) watchWebPermission(r *http.Request, t *TunnelConnection, emails []string, anonymous bool) (*http.Request, func()) {
 	ctx, cancel := context.WithCancelCause(r.Context())
+	initialOrg, hasOrg := p.getOrgSession(r)
+	if hasOrg {
+		configured, _ := p.config.OIDCOrg(initialOrg.Org)
+		hasOrg = len(emails) == 1 && emails[0] == orgPrincipal(configured, initialOrg.Subject)
+	}
 	go func() {
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
@@ -65,7 +82,16 @@ func (p *ProxyServer) watchWebPermission(r *http.Request, t *TunnelConnection, e
 				check, stop := context.WithTimeout(ctx, 2*time.Second)
 				resource, err := p.webResource(check, t)
 				stop()
-				if err != nil || anonymous && resource.Mode == "private" || len(emails) > 0 && !webPersonAllowed(resource, emails, t.CreatorEmail, time.Now()) {
+				var groups []string
+				orgExpired := false
+				if hasOrg && len(emails) > 0 {
+					current, valid := p.getOrgSession(r)
+					orgExpired = !valid || current.Org != initialOrg.Org || current.Subject != initialOrg.Subject
+					if !orgExpired {
+						groups = current.Groups
+					}
+				}
+				if err != nil || orgExpired || anonymous && resource.Mode == "private" || len(emails) > 0 && !webIdentityAllowed(resource, emails, groups, t.CreatorEmail, p.currentTime()) {
 					if err != nil {
 						cancel(&webPermissionError{"permission_authority_unavailable"})
 					} else {
@@ -138,6 +164,7 @@ func (p *ProxyServer) handleSharingAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		var input struct {
 			Email     string `json:"email"`
+			Group     string `json:"group"`
 			ExpiresAt int64  `json:"expires_at"`
 		}
 		d := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
@@ -152,6 +179,17 @@ func (p *ProxyServer) handleSharingAPI(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		in.Email, in.ExpiresAt = input.Email, input.ExpiresAt
+		if input.Group != "" {
+			if input.Email != "" {
+				http.Error(w, "Choose an email or an organization group", 400)
+				return
+			}
+			in.Email = "group:" + input.Group
+		}
+		if !p.validShareGroup(in.Email, r.Method == "DELETE") {
+			http.Error(w, "Unknown organization group", 400)
+			return
+		}
 		if r.Method == "POST" {
 			in.Operation = "share"
 			if in.ExpiresAt == 0 {
@@ -198,9 +236,10 @@ var sharingPage = template.Must(template.New("sharing").Funcs(template.FuncMap{
 <a href="/account">Account</a><h1>Share access</h1>
 {{if .Resource}}<h2>{{.Resource.Endpoint}}</h2><p>Access: {{.Resource.Mode}}</p><p>Owner: {{.Owner}}</p>
 <input id="link" readonly value="{{.URL}}"><button type="button" onclick="navigator.clipboard.writeText(document.getElementById('link').value)">Copy link</button>
-<h3>People who can open this resource</h3><p>The owner always has access. Endpoint tokens and machine grants are separate credentials. Removing a person stops their browser requests and open streams within five seconds. An invitation link requires sign-in as an allowed person.</p>
+<h3>People and groups who can open this resource</h3><p>The owner always has access. Removing access stops browser requests and open streams within five seconds. Company groups require company sign-in. Group membership is refreshed at sign-in, at least every 15 minutes.</p>
 {{range .Resource.People}}{{if active .}}<form method="post"><input type="hidden" name="csrf_token" value="{{$.CSRF}}"><input type="hidden" name="email" value="{{email .}}"><p>{{email .}} · {{expires .}} <button name="action" value="unshare">Remove access</button></p></form>{{end}}{{end}}
 {{if eq .Resource.Mode "private"}}<form method="post"><input type="hidden" name="csrf_token" value="{{.CSRF}}"><label>Email <input required type="email" name="email"></label><label>Expires at (UTC, optional) <input type="datetime-local" name="expires"></label><button name="action" value="share">Share</button></form>{{else}}<p>Publish again with the current CLI without --public to make this resource private.</p>{{end}}
+{{if and (eq .Resource.Mode "private") .Groups}}<form method="post"><input type="hidden" name="csrf_token" value="{{.CSRF}}"><label>Company group <select required name="group">{{range .Groups}}<option value="{{.Subject}}">{{.Name}}</option>{{end}}</select></label><label>Expires at (UTC, optional) <input type="datetime-local" name="expires"></label><button name="action" value="share">Share</button></form>{{end}}
 {{if .MachineGrants}}<h3>Machine access</h3><p>These credentials are managed separately with tunn grant revoke.</p>{{range .MachineGrants}}{{if active .}}<p>{{.Consumer}} · {{.Id}} · {{expires .}}</p>{{end}}{{end}}{{end}}
 <h3>Recent access</h3><table><tr><th>Time (UTC)</th><th>Person / credential</th><th>Result</th></tr>{{range .Events}}<tr><td>{{.Time}}</td><td>{{.Caller}}</td><td>{{.Result}}</td></tr>{{end}}</table>
 {{else}}<p>Select a web resource.</p>{{range .Resources}}<p><a href="?tunnel={{.Endpoint}}">{{.Endpoint}}</a> · {{.Mode}}</p>{{end}}{{end}}</body></html>`))
@@ -235,6 +274,17 @@ func (p *ProxyServer) handleSharingPage(w http.ResponseWriter, r *http.Request) 
 		}
 		in.Operation = r.PostFormValue("action")
 		in.Email = r.PostFormValue("email")
+		if group := r.PostFormValue("group"); group != "" {
+			if in.Email != "" {
+				http.Error(w, "Choose an email or a company group", 400)
+				return
+			}
+			in.Email = group
+		}
+		if !p.validShareGroup(in.Email, in.Operation == "unshare") {
+			http.Error(w, "Unknown company group", 400)
+			return
+		}
 		if in.Operation != "share" && in.Operation != "unshare" {
 			http.Error(w, "Invalid action", 400)
 			return
@@ -267,7 +317,16 @@ func (p *ProxyServer) handleSharingPage(w http.ResponseWriter, r *http.Request) 
 		MachineGrants    []*pb.Grant
 		Owner, URL, CSRF string
 		Events           []struct{ Time, Caller, Result string }
+		Groups           []struct{ Subject, Name string }
 	}{Resources: out.Resources, Owner: a.PrimaryEmail}
+	if org, ok := p.getOrgSession(r); ok {
+		data.Owner = org.Email
+	}
+	for _, org := range p.config.OIDCOrgs {
+		for _, group := range org.Groups {
+			data.Groups = append(data.Groups, struct{ Subject, Name string }{"group:" + org.ID + ":" + group.ID, org.Name + " · " + group.Name})
+		}
+	}
 	if endpoint != "" && len(out.Resources) == 1 {
 		data.Resource = out.Resources[0]
 		if grants, err := p.meter.ListGrants(r.Context(), &pb.ListGrantsRequest{Owner: a.ID, Endpoint: endpoint}); err == nil {
@@ -302,6 +361,13 @@ func (p *ProxyServer) loginAuthority() string {
 		return p.config.PublicAddr
 	}
 	return p.config.Domain
+}
+
+func (p *ProxyServer) validShareGroup(subject string, removing bool) bool {
+	if !strings.HasPrefix(subject, "group:") {
+		return true
+	}
+	return p.config.OIDCGroupExists(subject) || removing && config.ValidOIDCGroupSubject(subject)
 }
 
 type webPermissionError struct{ reason string }

@@ -68,8 +68,8 @@ Usage:
   tunn connect [options] <name>   Open a remote TCP endpoint locally
   tunn token [--rotate] <name>   Print or rotate an endpoint access token
   tunn usage <name>              Export caller usage and audit decisions
-  tunn share <name> <email>      Share private web access without restarting
-  tunn unshare <name> <email>    Revoke web access and active streams
+  tunn share <name> <recipient>  Share web access: email or group:ORG:GROUP
+  tunn unshare <name> <recipient> Revoke web access and active streams
   tunn access <name>             Show who has access
   tunn grant create <name>       Issue a metered, expiring consumer token
   tunn grant revoke <name> <id>  Revoke one consumer grant

@@ -90,3 +90,24 @@ func TestWebPublisherEnrollmentContinuesOriginalCommand(t *testing.T) {
 		}
 	}
 }
+
+func TestOIDCGroupShareCLI(t *testing.T) {
+	for _, command := range []string{"share", "unshare"} {
+		o, err := parseSharing(command, []string{"preview", "group:company:engineering"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			body, _ := io.ReadAll(r.Body)
+			if !strings.Contains(string(body), `"email":"group:company:engineering"`) || r.Header.Get("Authorization") != "Bearer owner-token" {
+				t.Error("CLI lost owner/group binding")
+			}
+			io.WriteString(w, `{"resources":[]}`)
+		}))
+		o.Server = strings.TrimPrefix(server.URL, "https://")
+		if err := executeSharing(context.Background(), command, o, "owner-token", server.Client(), io.Discard); err != nil {
+			t.Fatal(err)
+		}
+		server.Close()
+	}
+}

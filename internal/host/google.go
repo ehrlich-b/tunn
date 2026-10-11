@@ -23,16 +23,24 @@ func (p *ProxyServer) googleCallbackURL() string {
 	return "https://" + p.config.PublicAddr + "/auth/google/callback"
 }
 func (p *ProxyServer) handleGoogleLogin(w http.ResponseWriter, r *http.Request) {
+	if org := r.URL.Query().Get("org"); org != "" {
+		configured, found := p.config.OIDCOrg(org)
+		if !found || configured.Provider != "google" {
+			http.NotFound(w, r)
+			return
+		}
+		p.handleOrgOIDCFor(w, r, org, false)
+		return
+	}
 	if p.config.GoogleClientID == "" || p.config.GoogleClientSecret == "" {
 		http.Error(w, "Google login is not configured", 503)
 		return
 	}
-	verifier, err := generateRandomState()
+	verifier, err := newOIDCPKCEVerifier()
 	if err != nil {
 		http.Error(w, "Login unavailable", 500)
 		return
 	}
-	verifier = strings.TrimRight(verifier, "=")
 	state, err := p.createOAuthState(p.sanitizeReturnTo(r.URL.Query().Get("return_to")), r.URL.Query().Get("device_user_code"))
 	if err != nil {
 		http.Error(w, "Login unavailable", 500)
@@ -50,6 +58,12 @@ func (p *ProxyServer) handleGoogleLogin(w http.ResponseWriter, r *http.Request) 
 	digest := sha256.Sum256([]byte(verifier))
 	params := url.Values{"client_id": {p.config.GoogleClientID}, "redirect_uri": {p.googleCallbackURL()}, "response_type": {"code"}, "scope": {"openid email"}, "state": {state}, "code_challenge": {base64.RawURLEncoding.EncodeToString(digest[:])}, "code_challenge_method": {"S256"}}
 	http.Redirect(w, r, googleAuthorizeURL+"?"+params.Encode(), 302)
+}
+
+// The consumer and Workspace flows use the same random S256 verifier format.
+func newOIDCPKCEVerifier() (string, error) {
+	verifier, err := generateRandomState()
+	return strings.TrimRight(verifier, "="), err
 }
 func (p *ProxyServer) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 	if p.config.GoogleClientID == "" || p.config.GoogleClientSecret == "" {

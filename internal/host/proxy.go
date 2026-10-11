@@ -87,15 +87,19 @@ type ProxyServer struct {
 	mockOIDC *mockoidc.Server
 
 	// Unified storage interface (local for login node, proxy for others)
-	storage          storage.Storage
-	meter            metering.Backend
-	planMeter        bool
-	domains          domains.Backend
-	domainRegistry   *domains.Registry
-	operations       operationalCounters
-	googleHTTPClient *http.Client // Optional provider transport for tests.
-	mcpOAuth         *mcpOAuthStore
-	devices          *deviceCredentialStore
+	storage           storage.Storage
+	meter             metering.Backend
+	planMeter         bool
+	domains           domains.Backend
+	domainRegistry    *domains.Registry
+	operations        operationalCounters
+	googleHTTPClient  *http.Client // Optional provider transport for tests.
+	orgOIDCHTTPClient *http.Client
+	orgLogins         *orgLoginStore
+	orgProvidersMu    sync.Mutex
+	orgProviders      map[string]*orgProvider
+	mcpOAuth          *mcpOAuthStore
+	devices           *deviceCredentialStore
 
 	// Proxy storage reference (non-login node only, to update connection on discovery)
 	proxyStorage *storage.ProxyStorage
@@ -115,6 +119,9 @@ type ProxyServer struct {
 
 // NewProxyServer creates a new dual-listener proxy server
 func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
+	if err := cfg.ValidateOIDCOrgs(); err != nil {
+		return nil, err
+	}
 	if cfg.HostModeEnabled && (!cfg.LoginNode || cfg.PublicMode || cfg.NodeAddresses != "" || cfg.FlyAppName != "") {
 		return nil, fmt.Errorf("host mode requires one authenticated, standalone login relay")
 	}
@@ -164,6 +171,7 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 	var localMeter *metering.Store
 	var localOAuth *mcpOAuthStore
 	var localDevices *deviceCredentialStore
+	var localOrgLogins *orgLoginStore
 
 	if cfg.LoginNode {
 		// Login node: initialize SQLite and local storage
@@ -176,6 +184,12 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 			return nil, fmt.Errorf("initialize device credentials: %w", err)
 		}
 		localStorage = storage.NewLocalStorage(db)
+		if len(cfg.OIDCOrgs) > 0 {
+			localOrgLogins, err = newOrgLoginStore(db)
+			if err != nil {
+				return nil, fmt.Errorf("initialize organization logins: %w", err)
+			}
+		}
 		localMeter, err = metering.New(db, metering.WithAccountPlans(), metering.WithOwnerBudgets(cfg.OwnerMonthlyRequests, cfg.OwnerMonthlyBytes))
 		if err != nil {
 			return nil, fmt.Errorf("initialize ingress meter: %w", err)
@@ -260,6 +274,7 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 		planMeter:          true,
 		mcpOAuth:           localOAuth,
 		devices:            localDevices,
+		orgLogins:          localOrgLogins,
 		proxyStorage:       proxyStorage,
 		isLoginNode:        cfg.LoginNode,
 		usageBuffer:        NewUsageBuffer(),
@@ -854,6 +869,7 @@ func (p *ProxyServer) createHandler() http.Handler {
 	mux.HandleFunc("/auth/github", p.handleGitHubLogin)
 	mux.HandleFunc("/auth/google", p.handleGoogleLogin)
 	mux.HandleFunc("/auth/google/callback", p.handleGoogleCallback)
+	mux.HandleFunc("/auth/org/", p.handleOrgOIDC)
 	mux.HandleFunc("/auth/mock", p.handleMockLogin)
 	mux.HandleFunc("/auth/callback", p.handleCallback)
 	mux.HandleFunc("/auth/magic", p.handleMagicLinkRequest)

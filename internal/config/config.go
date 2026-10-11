@@ -53,6 +53,7 @@ type Config struct {
 	// GitHub OAuth configuration
 	GoogleClientID     string
 	GoogleClientSecret string
+	OIDCOrgs           []OIDCOrg // Administrator-controlled organization sign-in and group mappings.
 	GitHubClientID     string
 	GitHubClientSecret string
 	JWTSecret          string // Secret for signing our own JWTs
@@ -126,6 +127,9 @@ func LoadConfig() (*Config, error) {
 
 	cfg.GoogleClientID = os.Getenv("TUNN_GOOGLE_CLIENT_ID")
 	cfg.GoogleClientSecret = os.Getenv("TUNN_GOOGLE_CLIENT_SECRET")
+	if err := cfg.loadOIDCOrgs(os.Getenv("TUNN_OIDC_ORGS_FILE")); err != nil {
+		return nil, err
+	}
 	cfg.CustomDomainsEnabled = os.Getenv("TUNN_CUSTOM_DOMAINS") == "true"
 	cfg.HTTP01Addr = getEnvOrDefault("TUNN_HTTP01_ADDR", ":80")
 	cfg.ACMEDirectory = getEnvOrDefault("TUNN_ACME_DIRECTORY", "https://acme-v02.api.letsencrypt.org/directory")

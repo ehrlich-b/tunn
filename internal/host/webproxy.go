@@ -183,6 +183,7 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 	grantAuthenticated := false
 	var webResource *meterpb.WebResource
 	var webEmails []string
+	var orgIdentity *orgSession
 	if tunnel.ResourceID != "" {
 		var err error
 		webResource, err = p.webResource(r.Context(), tunnel)
@@ -256,6 +257,9 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		userEmail, platformAuthHeader, capabilityAuthenticated, authenticated := p.getAuthFromTunnelBearer(r, tunnel)
 		if !authenticated {
 			userEmail, authenticated = p.getAuthFromCookie(r)
+			if authenticated {
+				orgIdentity, _ = p.getOrgSession(r)
+			}
 		}
 		if !authenticated {
 			session.reason = "authentication_required"
@@ -287,6 +291,9 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		if platformAuthHeader != "" {
 			session.event.AuthMethod = "jwt"
 		}
+		if orgIdentity != nil {
+			session.event.AuthMethod = "org_oidc"
+		}
 		if capabilityAuthenticated {
 			session.event.Caller = metering.TokenID(tunnel.accessTokenDigest())
 			session.event.AuthMethod = "endpoint_token"
@@ -301,7 +308,7 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		allowed := capabilityAuthenticated
 		if !capabilityAuthenticated {
 			// Get user's email bucket (all emails associated with their account)
-			if p.storage != nil && p.storage.Available() {
+			if orgIdentity == nil && p.storage != nil && p.storage.Available() {
 				if bucket, err := p.storage.GetEmailBucket(r.Context(), userEmail); err == nil {
 					userEmails = bucket
 				}
@@ -312,7 +319,11 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 			allowListWithCreator := append(append([]string(nil), tunnel.AllowedEmails...), tunnel.CreatorEmail)
 			if webResource != nil {
 				webEmails = append([]string(nil), userEmails...)
-				allowed = webPersonAllowed(webResource, userEmails, tunnel.CreatorEmail, time.Now())
+				var groups []string
+				if orgIdentity != nil {
+					groups = orgIdentity.Groups
+				}
+				allowed = webIdentityAllowed(webResource, userEmails, groups, tunnel.CreatorEmail, p.currentTime())
 			} else {
 				allowed = isEmailBucketAllowed(userEmails, allowListWithCreator)
 			}

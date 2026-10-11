@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"io"
@@ -187,11 +188,6 @@ func (p *ProxyServer) handleOrgOIDCFor(w http.ResponseWriter, r *http.Request, i
 		p.finishOrgOIDC(ctx, w, r, org)
 		return
 	}
-	provider, err := p.orgProvider(ctx, org)
-	if err != nil {
-		http.Error(w, "Organization login provider unavailable", 503)
-		return
-	}
 	state, err := generateRandomState()
 	if err != nil {
 		http.Error(w, "Login unavailable", 500)
@@ -208,13 +204,24 @@ func (p *ProxyServer) handleOrgOIDCFor(w http.ResponseWriter, r *http.Request, i
 		return
 	}
 	now := p.currentTime()
-	login := orgLogin{Org: org.ID, Nonce: nonce, Verifier: verifier, ReturnTo: p.sanitizeReturnTo(r.URL.Query().Get("return_to")), DeviceCode: r.URL.Query().Get("device_user_code"), Expires: now.Add(10 * time.Minute).Unix()}
+	login := orgLogin{Org: org.ID, Source: orgLoginSource(r), Nonce: nonce, Verifier: verifier, ReturnTo: p.sanitizeReturnTo(r.URL.Query().Get("return_to")), DeviceCode: r.URL.Query().Get("device_user_code"), Expires: now.Add(10 * time.Minute).Unix()}
 	if len(login.ReturnTo) > 2048 || len(login.DeviceCode) > 64 {
 		http.Error(w, "Invalid login destination", 400)
 		return
 	}
 	if err = p.orgLogins.begin(ctx, state, login, now); err != nil {
+		if errors.Is(err, errOrgLoginAdmission) {
+			w.Header().Set("Retry-After", "600")
+			http.Error(w, "Too many pending organization logins", http.StatusTooManyRequests)
+			return
+		}
 		http.Error(w, "Organization login authority unavailable", 503)
+		return
+	}
+	provider, err := p.orgProvider(ctx, org)
+	if err != nil {
+		_, _ = p.orgLogins.consume(ctx, state, org.ID, now)
+		http.Error(w, "Organization login provider unavailable", 503)
 		return
 	}
 	setOrgLoginCookie(w, state, 600)

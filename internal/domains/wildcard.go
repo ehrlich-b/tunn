@@ -24,23 +24,27 @@ func rejectOverlap(ctx context.Context, tx *sql.Tx, name string) error {
 		return err
 	}
 	defer rows.Close()
-	base := strings.TrimPrefix(name, "*.")
 	for rows.Next() {
 		var other string
 		if err := rows.Scan(&other); err != nil {
 			return err
 		}
-		ob := strings.TrimPrefix(other, "*.")
-		if (strings.HasPrefix(name, "*.") || strings.HasPrefix(other, "*.")) && (base == ob || strings.HasSuffix(base, "."+ob) || strings.HasSuffix(ob, "."+base)) {
+		if overlaps(name, other) {
 			return status.Error(codes.AlreadyExists, "overlapping domain already claimed")
 		}
 	}
 	return rows.Err()
 }
 func (r *Registry) proveWildcard(ctx context.Context, d *pb.Domain) error {
+	if err := r.wildcardDNSProof(ctx, d); err != nil {
+		return err
+	}
+	return r.entitled(ctx, d)
+}
+func (r *Registry) wildcardDNSProof(ctx context.Context, d *pb.Domain) error {
 	// A unique CNAME is also valid proof; a generic edge CNAME is routing only.
 	if cname, err := r.dns.LookupCNAME(ctx, d.Name); err == nil && strings.EqualFold(strings.TrimSuffix(cname, "."), d.CnameTarget) {
-		return r.entitled(ctx, d)
+		return nil
 	}
 	resolver, ok := r.dns.(interface {
 		LookupTXT(context.Context, string) ([]string, error)
@@ -54,7 +58,7 @@ func (r *Registry) proveWildcard(ctx context.Context, d *pb.Domain) error {
 	}
 	for _, record := range records {
 		if record == d.CnameTarget {
-			return r.entitled(ctx, d)
+			return nil
 		}
 	}
 	return fmt.Errorf("wildcard TXT ownership proof missing")
@@ -77,49 +81,34 @@ func (r *Registry) wildcardCertificate(ctx context.Context, parent *pb.Domain, h
 	defer func() { <-r.issueGate }()
 	// Recheck after waiting; deletion/reassignment and expired leases fail closed.
 	current, err := r.Route(ctx, &pb.Domain{Name: name})
-	if err != nil || current.Name != parent.Name || current.Owner != parent.Owner || current.CnameTarget != parent.CnameTarget {
+	if err != nil || current.Name != parent.Name || current.Owner != parent.Owner || current.CnameTarget != parent.CnameTarget || current.Tunnel != parent.Tunnel {
 		return nil, status.Error(codes.FailedPrecondition, "domain claim changed")
 	}
 	var cert, key []byte
 	var expiry int64
 	err = r.db.QueryRowContext(ctx, `SELECT certificate,key,not_after FROM wildcard_certificates WHERE name=? AND parent=? AND target=?`, name, parent.Name, parent.CnameTarget).Scan(&cert, &key, &expiry)
 	if err == nil && expiry > r.now().Add(RenewBefore).Unix() {
-		key, err = r.decrypt(name, key)
-		return &pb.CertificatePair{CertificatePem: cert, KeyPem: key}, err
+		return r.cachedWildcard(ctx, parent, name)
 	}
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
 	}
-	oldCert, oldKey, oldExpiry := cert, key, expiry
+	oldExpiry := expiry
 	if err := r.prove(ctx, parent); err != nil {
 		r.fail(context.WithoutCancel(ctx), parent, "dns_verification_failed")
 		return nil, status.Error(codes.FailedPrecondition, "DNS ownership proof lost")
 	}
-	// Count unsuccessful orders too, durably across restarts and relay nodes.
-	var ownerAttempts, globalAttempts, recent int
-	cutoff := r.now().Add(-time.Hour).Unix()
-	if err := r.db.QueryRowContext(ctx, `SELECT count(*),coalesce(sum(owner=?),0),coalesce(sum(name=? AND at>?),0) FROM domain_issue_attempts WHERE at>?`, parent.Owner, name, r.now().Add(-time.Minute).Unix(), cutoff).Scan(&globalAttempts, &ownerAttempts, &recent); err != nil {
-		return nil, err
-	}
-	if ownerAttempts >= 10 || globalAttempts >= 100 || recent > 0 {
+	if err := r.admitIssuance(ctx, parent.Owner, name); err != nil {
 		if oldExpiry > r.now().Unix() {
-			oldKey, e := r.decrypt(name, oldKey)
-			return &pb.CertificatePair{CertificatePem: oldCert, KeyPem: oldKey}, e
+			return r.cachedWildcard(ctx, parent, name)
 		}
-		return nil, status.Error(codes.ResourceExhausted, "certificate issuance rate limit; retry later")
-	}
-	if r.issuer == nil {
-		return nil, status.Error(codes.Unavailable, "certificate issuer unavailable")
-	}
-	if _, err := r.db.ExecContext(ctx, `INSERT INTO domain_issue_attempts(owner,name,at) VALUES(?,?,?)`, parent.Owner, name, r.now().Unix()); err != nil {
 		return nil, err
 	}
-	_, _ = r.db.ExecContext(ctx, `DELETE FROM domain_issue_attempts WHERE at<?`, cutoff)
 	cert, key, err = r.issuer.Issue(ctx, name, func(ctx context.Context, token, value string) (func(), error) {
 		if token == "" || strings.ContainsAny(token, "/\\") || len(token) > 256 || len(value) > 1024 {
 			return nil, fmt.Errorf("invalid HTTP-01 challenge")
 		}
-		result, err := r.db.ExecContext(ctx, `INSERT INTO domain_challenges(name,target,token,value,expires) SELECT ?,target,?,?,? FROM custom_domains WHERE name=? AND owner=? AND target=? AND verified_until>? ON CONFLICT(name) DO UPDATE SET target=excluded.target,token=excluded.token,value=excluded.value,expires=excluded.expires`, name, token, value, r.now().Add(10*time.Minute).Unix(), parent.Name, parent.Owner, parent.CnameTarget, r.now().Unix())
+		result, err := r.db.ExecContext(ctx, `INSERT INTO domain_challenges(name,target,token,value,expires) SELECT ?,target,?,?,? FROM custom_domains WHERE name=? AND owner=? AND target=? AND state='ready' AND verified_until>? AND EXISTS(SELECT 1 FROM accounts a JOIN reserved_subdomains s ON s.account_id=a.id WHERE a.id=custom_domains.owner AND a.plan='pro' AND s.subdomain=?) ON CONFLICT(name) DO UPDATE SET target=excluded.target,token=excluded.token,value=excluded.value,expires=excluded.expires`, name, token, value, r.now().Add(10*time.Minute).Unix(), parent.Name, parent.Owner, parent.CnameTarget, r.now().Unix(), parent.Tunnel)
 		if err != nil {
 			return nil, err
 		}
@@ -135,8 +124,7 @@ func (r *Registry) wildcardCertificate(ctx context.Context, parent *pb.Domain, h
 		if proofErr := r.prove(ctx, parent); proofErr != nil {
 			r.fail(context.WithoutCancel(ctx), parent, "dns_verification_failed")
 		} else if oldExpiry > r.now().Unix() {
-			oldKey, e := r.decrypt(name, oldKey)
-			return &pb.CertificatePair{CertificatePem: oldCert, KeyPem: oldKey}, e
+			return r.cachedWildcard(ctx, parent, name)
 		}
 		return nil, status.Error(codes.Unavailable, "certificate issuance failed")
 	}
@@ -162,7 +150,7 @@ func (r *Registry) wildcardCertificate(ctx context.Context, parent *pb.Domain, h
 	if err != nil {
 		return nil, err
 	}
-	result, err := r.db.ExecContext(ctx, `INSERT INTO wildcard_certificates(name,parent,target,certificate,key,not_after) SELECT ?,name,target,?,?,? FROM custom_domains WHERE name=? AND owner=? AND target=? AND verified_until>? ON CONFLICT(name) DO UPDATE SET parent=excluded.parent,target=excluded.target,certificate=excluded.certificate,key=excluded.key,not_after=excluded.not_after`, name, cert, sealed, leaf.NotAfter.Unix(), parent.Name, parent.Owner, parent.CnameTarget, r.now().Unix())
+	result, err := r.db.ExecContext(ctx, `INSERT INTO wildcard_certificates(name,parent,target,certificate,key,not_after) SELECT ?,name,target,?,?,? FROM custom_domains WHERE name=? AND owner=? AND target=? AND state='ready' AND verified_until>? AND EXISTS(SELECT 1 FROM accounts a JOIN reserved_subdomains s ON s.account_id=a.id WHERE a.id=custom_domains.owner AND a.plan='pro' AND s.subdomain=?) ON CONFLICT(name) DO UPDATE SET parent=excluded.parent,target=excluded.target,certificate=excluded.certificate,key=excluded.key,not_after=excluded.not_after`, name, cert, sealed, leaf.NotAfter.Unix(), parent.Name, parent.Owner, parent.CnameTarget, r.now().Unix(), parent.Tunnel)
 	if err != nil {
 		return nil, err
 	}
@@ -170,7 +158,7 @@ func (r *Registry) wildcardCertificate(ctx context.Context, parent *pb.Domain, h
 	if err != nil || n != 1 {
 		return nil, status.Error(codes.Aborted, "claim changed during issuance")
 	}
-	return &pb.CertificatePair{CertificatePem: cert, KeyPem: key}, nil
+	return r.cachedWildcard(ctx, parent, name)
 }
 func (r *Registry) refreshWildcardCertificates(ctx context.Context) error {
 	rows, err := r.db.QueryContext(ctx, `SELECT name FROM wildcard_certificates WHERE not_after<=? ORDER BY name`, r.now().Add(RenewBefore).Unix())
@@ -220,4 +208,22 @@ func reserveWildcardApp(ctx context.Context, tx *sql.Tx, owner, name string, now
 	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO reserved_subdomains(subdomain,account_id,created_at) VALUES(?,?,?)`, name, owner, now.Unix())
 	return err
+}
+
+// Read the key under the current reservation predicate, including cached and
+// failed-renewal responses; an earlier Route check cannot authorize this read.
+func (r *Registry) cachedWildcard(ctx context.Context, parent *pb.Domain, name string) (*pb.CertificatePair, error) {
+	var cert, key []byte
+	err := r.db.QueryRowContext(ctx, `SELECT c.certificate,c.key FROM wildcard_certificates c JOIN custom_domains d ON d.name=c.parent AND d.target=c.target JOIN accounts a ON a.id=d.owner JOIN reserved_subdomains s ON s.account_id=d.owner WHERE c.name=? AND d.name=? AND d.owner=? AND d.target=? AND d.state='ready' AND d.verified_until>? AND a.plan='pro' AND s.subdomain=? AND c.not_after>?`, name, parent.Name, parent.Owner, parent.CnameTarget, r.now().Unix(), parent.Tunnel, r.now().Unix()).Scan(&cert, &key)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, status.Error(codes.FailedPrecondition, "app reservation or domain authority changed")
+	}
+	if err != nil {
+		return nil, err
+	}
+	key, err = r.decrypt(name, key)
+	if err != nil {
+		return nil, err
+	}
+	return &pb.CertificatePair{CertificatePem: cert, KeyPem: key}, nil
 }

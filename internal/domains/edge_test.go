@@ -228,7 +228,10 @@ func TestEdgeDomainVerificationGateHonorsCancellation(t *testing.T) {
 	if err := <-done; status.Code(err) != codes.Unavailable {
 		t.Fatalf("fixture issuance error=%v", err)
 	}
-	// An ended order releases the gate for the next verification.
+	// An ended order releases the gate, but its failed attempt still enforces
+	// the shared retry delay. Advance the fixture clock past that delay.
+	nextAttempt := r.now().Add(time.Minute)
+	r.now = func() time.Time { return nextAttempt }
 	r.issuer = issuerFunc(func(context.Context, string, PresentChallenge) ([]byte, []byte, error) {
 		cert, key := fakeCert(t, d.Name, r.now())
 		return cert, key, nil

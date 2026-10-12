@@ -3,7 +3,16 @@
 `*.apps.ehrlich.dev` is a publisher-owned namespace. A single-label name maps to
 that publisher's identically named reserved tunnel; nested names and the bare
 `apps.ehrlich.dev` are excluded. Existing concrete domain bindings keep their
-original contract. Overlapping exact/wildcard claims are rejected. Every local
+original contract. Verified exact/wildcard claims exclude overlapping claims.
+Unverified claims expire after 24 hours and do not establish exclusive ownership.
+When a pending claim conflicts, `tunn domain add` returns a unique competing DNS
+proof target: publish the specified CNAME (exact name) or TXT (wildcard parent),
+then repeat the same add within 24 hours. Successful fresh proof atomically
+replaces only overlapping unverified claims, including an exact-name claim.
+Proof requests share the four-domain limit per account. Expiry does not release
+independently reserved tunnel names. Verified owners retain namespace protection
+when their DNS lease fails; routing still fails closed until proof is restored.
+Every local
 or remotely routed request rechecks the tunnel account against the domain owner.
 Wildcard app ingress forces a verified Google browser session and exact primary
 owner email even for public resources, allow-lists, or bearer grants.
@@ -49,7 +58,10 @@ AES-GCM encrypted private key in SQLite. Any terminating relay requests them
 through authenticated internal RPC. Concurrent first requests reuse one order;
 no per-node orders or private-key persistence are introduced. On-demand RPC/TLS
 selection allows up to three minutes for initial issuance. Cache hits do not
-contact ACME. Processing responses without a Location header resume polling
+contact ACME. Concrete-domain verify refreshes ownership proof and reuses its
+valid certificate until the same 30-day renewal window; concrete and app orders
+share the persisted issuance ledger, including verification failures that reached
+the issuer and scheduled renewals. Processing responses without a Location header resume polling
 the original order through the ACME library; no JWS/HTTP protocol is hand-coded. The login node renews existing app certificates within 30 days of
 expiry during its hourly refresh. Persisted limits count failed attempts:
 10 orders per owner/hour, 100 globally/hour, and a one-minute retry delay per
@@ -83,11 +95,33 @@ Provision a secure random Ed25519 seed using operator tooling, file mode 0600.
 The corresponding public key must match. Each request reads the ring so an
 atomic file replacement rotates keys without restarting. Rotation across nodes:
 first distribute old and new public keys to every ring/JWKS, leaving old active;
-then switch the active private key on every signing relay; retain the old public
-key for at least three minutes after the last old signature (two-minute lifetime
-plus JWKS cache/skew); then remove it and the retired private seed. Private keys
-are never shared with apps. Keep the previous public key in the ring without
-`d`; key IDs must be unique. Update all relays before issuing with a new `kid`.
+allow every app verifier to refresh its JWKS (60 seconds for the snippet below,
+plus any upstream HTTP cache delay); then switch the active private key on every
+signing relay. Remove the retired private seed from signing rings once all nodes
+have switched, retaining its public key without `d`. For normal rotation, retain
+the old public key for at least the two-minute assertion lifetime plus the maximum
+clock skew/leeway accepted by your apps after the last old signature. Three
+minutes provides a 60-second timing margin when apps use the snippet's zero
+leeway. Key IDs must be unique. Update all relays before issuing with a new `kid`.
+Private keys are never shared with apps.
+
+Emergency revocation has a separate delay: remove the compromised key from all
+rings/JWKS immediately and stop signing with it. The snippet explicitly caches
+JWKS for 60 seconds and disables the optional per-key cache. A fresh token signed
+with a removed key can still pass until that JWKS cache expires; assertion expiry
+does not constrain a compromised seed's ability to mint fresh tokens. Rejection
+begins after each app can fetch the updated JWKS and its 60-second client cache
+expires. The endpoint's `Cache-Control: max-age=60` does not configure PyJWT's
+internal cache; an upstream HTTP cache can add its own delay. For immediate
+revocation, purge upstream caches and recreate app verifier clients, or disable
+affected ingress until every verifier rejects the key. Other app implementations
+must document and test their actual cache and leeway settings.
+
+The cache parameters follow the [PyJWT 2.10.1 client implementation](https://github.com/jpadilla/pyjwt/blob/2.10.1/jwt/jwks_client.py).
+Run `python3 evidence/fix-r3-domains/verifier-regression.py` with PyJWT 2.10.1 and
+cryptography to test this exact snippet using local synthetic keys: a removed key
+is accepted at cache age 59 seconds and rejected at 61, 181, and 301 seconds;
+the new key and the existing identity-validation boundaries are checked too.
 
 Ten-line Python verifier (`pip install 'PyJWT[crypto]'`; call at app ingress):
 
@@ -95,7 +129,7 @@ Ten-line Python verifier (`pip install 'PyJWT[crypto]'`; call at app ingress):
 import jwt
 ISSUER = "https://tunn.to:443"  # Match TUNN_PUBLIC_ADDR/login authority exactly.
 HOST = "dashboard.apps.ehrlich.dev"
-keys = jwt.PyJWKClient("https://tunn.to/.well-known/tunn-jwks.json")
+keys = jwt.PyJWKClient("https://tunn.to/.well-known/tunn-jwks.json", lifespan=60, cache_keys=False)
 def verify(headers):
     token = headers["X-Tunn-Identity"]
     key = keys.get_signing_key_from_jwt(token).key

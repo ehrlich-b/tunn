@@ -344,3 +344,66 @@ func TestDomainAccountNamespaceRevocationClosesIdleRequest(t *testing.T) {
 		t.Fatal("namespace removal retained idle connection")
 	}
 }
+
+func TestDomainAccountMailboxMovementCannotRebindSession(t *testing.T) {
+	p, tunnel, _, db := appProxyFixtureDB(t)
+	owner := appSessionCookie(t, p, bryanEmail, "github", true, appHost)
+	other, err := p.storage.FindOrCreateByEmails(context.Background(), []string{"other@example.com"}, "magic_link")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Move the mailbox without an authorized account merge. The old signed UUID
+	// still identifies the former owner, and must lose access rather than follow it.
+	if _, err := db.Exec(`UPDATE account_emails SET account_id=? WHERE email=?`, other.ID, bryanEmail); err != nil {
+		t.Fatal(err)
+	}
+	current, err := p.storage.GetAccountByEmail(context.Background(), bryanEmail)
+	if err != nil || current.ID != other.ID || current.ID == tunnel.AccountID {
+		t.Fatal("mailbox movement fixture")
+	}
+	if appOpenWithCookie(p, owner).Code != 403 {
+		t.Fatal("old signed account followed a moved mailbox")
+	}
+	// Fresh mailbox proof yields the new account, not the namespace owner.
+	fresh := appSessionCookie(t, p, bryanEmail, "magic_link", true, appHost)
+	if appOpenWithCookie(p, fresh).Code != 403 {
+		t.Fatal("new mailbox account acquired namespace ownership")
+	}
+}
+
+func TestDomainAccountVerifiedMergeResolvesExistingCookie(t *testing.T) {
+	p, tunnel, pub, db := appProxyFixtureDB(t)
+	guest := appSessionCookie(t, p, "merge@example.com", "github", true, appHost)
+	if appOpenWithCookie(p, guest).Code != 403 {
+		t.Fatal("guest before verified merge")
+	}
+	// The existing merge rule chooses a paid survivor. This changes disposable
+	// fixture data only, so the original namespace owner survives deterministically.
+	if _, err := db.Exec(`UPDATE accounts SET plan='pro' WHERE id=?`, tunnel.AccountID); err != nil {
+		t.Fatal(err)
+	}
+	merged, err := p.storage.FindOrCreateByEmails(context.Background(), []string{bryanEmail, "merge@example.com"}, "github")
+	if err != nil || merged.ID != tunnel.AccountID {
+		t.Fatal("verified merge", err)
+	}
+	stream := tunnel.Stream.(*meteringFixtureStream)
+	hook := stream.hook
+	var assertion string
+	stream.hook = func(msg *pb.TunnelMessage) error {
+		if req := msg.GetHttpRequest(); req != nil {
+			assertion = req.Headers[identity.Header]
+		}
+		return hook(msg)
+	}
+	if w := appOpenWithCookie(p, guest); w.Code != 200 {
+		t.Fatal("merged cookie unresolved", w.Code, w.Body)
+	}
+	token, err := jwt.Parse(assertion, func(*jwt.Token) (any, error) { return pub, nil }, jwt.WithValidMethods([]string{"EdDSA"}))
+	if err != nil || !token.Valid {
+		t.Fatal(err)
+	}
+	claims := token.Claims.(jwt.MapClaims)
+	if claims["sub"] != tunnel.AccountID || claims["account_id"] != tunnel.AccountID || claims["email"] != "merge@example.com" {
+		t.Fatal("assertion used retired UUID")
+	}
+}

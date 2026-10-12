@@ -11,8 +11,6 @@ import (
 	"regexp"
 	"strings"
 	"testing"
-
-	"github.com/ehrlich-b/tunn/internal/storage"
 )
 
 func securityFormToken(t *testing.T, body string) string {
@@ -160,7 +158,8 @@ type securityRoundTripper func(*http.Request) (*http.Response, error)
 func (f securityRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 func TestSecurityOAuthCallbackRequiresInitiatingBrowser(t *testing.T) {
-	p := securityProxy(storage.NewProxyStorage())
+	// Successful account-bound login requires the local account authority.
+	p := securityProxy(securityDB(t))
 	start := httptest.NewRecorder()
 	p.handleGitHubLogin(start, httptest.NewRequest("GET", "https://tunn.test/auth/github", nil))
 	location, err := url.Parse(start.Header().Get("Location"))

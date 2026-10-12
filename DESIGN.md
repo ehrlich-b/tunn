@@ -54,3 +54,5 @@ issued remain cryptographically valid for at most two minutes.
 Deployment is a coordinator action. No Google OAuth setup is required for app
 access. Preserve visitor/node signing configuration, Ed25519 identity keys,
 encrypted domain storage, ACME, DNS ownership proof and direct port 80/443 ingress.
+
+The prior organization SSO design is preserved in [ORG-SSO-DESIGN.md](ORG-SSO-DESIGN.md).

@@ -175,6 +175,9 @@ func TestGitHubProviderFailuresDoNotIssueSessionOrAccount(t *testing.T) {
 		{"emails_wrong_type", 200, `{"access_token":"fixture"}`, 200, `{"email":"owner@example.invalid"}`, false, 2},
 		{"emails_empty", 200, `{"access_token":"fixture"}`, 200, `[]`, false, 2},
 		{"emails_unverified", 200, `{"access_token":"fixture"}`, 200, `[{"email":"owner@example.invalid","primary":true,"verified":false}]`, false, 2},
+		{"unverified_primary_verified_secondary", 200, `{"access_token":"fixture"}`, 200, `[{"email":"owner@example.invalid","primary":true,"verified":false},{"email":"secondary@example.invalid","primary":false,"verified":true}]`, false, 2},
+		{"unicode_primary", 200, `{"access_token":"fixture"}`, 200, `[{"email":"ｅhrlich.bryan@gmail.com","primary":true,"verified":true}]`, false, 2},
+		{"unicode_secondary", 200, `{"access_token":"fixture"}`, 200, `[{"email":"owner@example.invalid","primary":true,"verified":true},{"email":"ｅhrlich.bryan@gmail.com","primary":false,"verified":true}]`, false, 2},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p, db := stripeCorrectnessFixture(t)

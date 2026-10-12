@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
@@ -42,6 +43,11 @@ func appKeyFile(t *testing.T, p *ProxyServer) ed25519.PublicKey {
 }
 func appProxyFixture(t *testing.T) (*ProxyServer, *TunnelConnection, ed25519.PublicKey) {
 	t.Helper()
+	p, tunnel, pub, _ := appProxyFixtureDB(t)
+	return p, tunnel, pub
+}
+func appProxyFixtureDB(t *testing.T) (*ProxyServer, *TunnelConnection, ed25519.PublicKey, *sql.DB) {
+	t.Helper()
 	p, registry, dns := domainProxyFixture(t)
 	p.config.PublicAddr = "tunn.test"
 	p.config.GitHubClientID = "fixture-client"
@@ -72,7 +78,7 @@ func appProxyFixture(t *testing.T) (*ProxyServer, *TunnelConnection, ed25519.Pub
 	}
 	p.storage = storage.NewLocalStorage(db)
 	tunnel.CreatorEmail = bryanEmail
-	return p, tunnel, appKeyFile(t, p)
+	return p, tunnel, appKeyFile(t, p), db
 }
 func appSessionCookie(t *testing.T, p *ProxyServer, email, provider string, verified bool, aud string) *http.Cookie {
 	t.Helper()

@@ -128,7 +128,7 @@ cryptography to test this exact snippet using local synthetic keys: a removed ke
 is accepted at cache age 59 seconds and rejected at 61, 181, and 301 seconds;
 the new key and the existing identity-validation boundaries are checked too.
 
-Ten-line Python verifier (`pip install 'PyJWT[crypto]'`; call at app ingress):
+Python verifier (`pip install 'PyJWT[crypto]'`; call at app ingress):
 
 ```python
 import jwt
@@ -139,7 +139,8 @@ def verify(headers):
     token = headers["X-Tunn-Identity"]
     key = keys.get_signing_key_from_jwt(token).key
     c = jwt.decode(token, key, algorithms=["EdDSA"], audience=HOST, issuer=ISSUER, options={"require": ["exp", "iat", "nbf", "sub", "account_id", "email", "provider"]})
-    if c.get("email_verified") is not True or c["sub"] != c["account_id"]: raise ValueError("unverified identity")
+    valid = c.get("email_verified") is True and isinstance(c["account_id"], str) and bool(c["account_id"]) and c["sub"] == c["account_id"]
+    if not valid or c["provider"] not in ("github", "magic_link", "google") or c.get("idp") != c["provider"]: raise ValueError("unverified identity")
     return c["email"]
 ```
 

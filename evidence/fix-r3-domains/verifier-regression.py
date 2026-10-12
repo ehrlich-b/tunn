@@ -30,7 +30,7 @@ def fetch(*args, **kwargs):
 
 def token(key=old, kid='old', **changes):
     now = int(time.time())
-    claims = {'iss': scope['ISSUER'], 'aud': scope['HOST'], 'sub': 'owner-subject', 'email': 'one@example.com', 'email_verified': True, 'idp': 'google', 'iat': now, 'nbf': now, 'exp': now + 120}
+    claims = {'iss': scope['ISSUER'], 'aud': scope['HOST'], 'sub': 'ad38bf44-0c4a-40ce-bdee-2d8579bf63cc', 'account_id': 'ad38bf44-0c4a-40ce-bdee-2d8579bf63cc', 'provider': 'google', 'email': 'one@example.com', 'email_verified': True, 'idp': 'google', 'iat': now, 'nbf': now, 'exp': now + 120}
     claims.update(changes)
     return jwt.encode(claims, key, algorithm='EdDSA', headers={'kid': kid})
 def verify(raw):
@@ -43,8 +43,12 @@ def rejected(raw):
     raise AssertionError('unsafe token accepted')
 
 with patch('jwt.jwks_client.urllib.request.urlopen', fetch):
-    assert verify(token()) == 'one@example.com'
-    for raw in [token(aud='other.example.com'), token(iss='https://evil.test'), token(email_verified=False), token(idp='github'), token(exp=int(time.time())-1), jwt.encode({}, '', algorithm='none', headers={'kid': 'old'}), jwt.encode({}, b'public-key-as-secret', algorithm='HS256', headers={'kid': 'old'})]:
+    for provider in ['github', 'magic_link', 'google']:
+        assert verify(token(provider=provider, idp=provider)) == 'one@example.com'
+    missing_account = jwt.decode(token(), options={'verify_signature': False})
+    del missing_account['account_id']
+    rejected(jwt.encode(missing_account, old, algorithm='EdDSA', headers={'kid': 'old'}))
+    for raw in [token(aud='other.example.com'), token(iss='https://evil.test'), token(email_verified=False), token(idp='github'), token(provider='unknown', idp='unknown'), token(sub='different-account'), token(sub='', account_id=''), token(exp=int(time.time())-1), jwt.encode({}, '', algorithm='none', headers={'kid': 'old'}), jwt.encode({}, b'public-key-as-secret', algorithm='HS256', headers={'kid': 'old'})]:
         rejected(raw)
     assert scope['keys'].jwk_set_cache.lifespan == 60, 'documented verifier must explicitly bound its JWKS cache to 60 seconds'
     initial_fetches = len(fetches)
@@ -63,4 +67,4 @@ with patch('jwt.jwks_client.urllib.request.urlopen', fetch):
         with patch('jwt.jwk_set_cache.time.monotonic', return_value=stamp + age):
             rejected(token())
             assert verify(token(new, 'new')) == 'one@example.com'
-print(json.dumps({'PyJWT_version': jwt.__version__, 'JWKS_cache_seconds': 60, 'removed_key_accepted_at_59_seconds': True, 'removed_key_rejected_at_61_181_301_seconds': True, 'new_key_accepted': True, 'negative_identity_checks': 'PASS', 'network': 'mocked local JWKS only'}, indent=2))
+print(json.dumps({'PyJWT_version': jwt.__version__, 'JWKS_cache_seconds': 60, 'removed_key_accepted_at_59_seconds': True, 'removed_key_rejected_at_61_181_301_seconds': True, 'new_key_accepted': True, 'supported_providers': ['github', 'magic_link', 'google'], 'negative_identity_checks': 'PASS', 'network': 'mocked local JWKS only'}, indent=2))

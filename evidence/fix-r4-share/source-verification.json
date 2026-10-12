@@ -1,0 +1,33 @@
+{
+  "base": "1188c576529660211a5c4a0a39d2e964eafeb9ac",
+  "branch": "codex/tunn-r4share-20261012",
+  "protected_files": {
+    "internal/host/domains.go": {
+      "base_sha256": "70df0eb14931312b32df74e60cbb92e3a214a2f17b41e6f0fcb0c5ba76291276",
+      "working_sha256": "70df0eb14931312b32df74e60cbb92e3a214a2f17b41e6f0fcb0c5ba76291276",
+      "unchanged": true
+    },
+    "internal/host/review_security_test.go": {
+      "base_sha256": "2b78b98f0365ea360d5a14314c282476fc5690987dde02d7a01024bfc84ac971",
+      "working_sha256": "2b78b98f0365ea360d5a14314c282476fc5690987dde02d7a01024bfc84ac971",
+      "unchanged": true
+    },
+    "FIX-R3.md": {
+      "base_sha256": "e10ad0c199ca61b4e7f582a8ff1187705baf48ce2630942da216103292dd8f7a",
+      "working_sha256": "e10ad0c199ca61b4e7f582a8ff1187705baf48ce2630942da216103292dd8f7a",
+      "unchanged": true
+    }
+  },
+  "implementation_and_tests": {
+    "go.mod": "41c0f92700944d4645b7d4d56a556315ac6acd816f1622290b9525b509c5c032",
+    "internal/metering/sharing.go": "bf8490a7e2344b05cf267ac6286352c53d6e9716ee0e95f7802a426c0e301a35",
+    "internal/metering/sharing_limits.go": "449da2f2274558a3c48475c811c5afd99bb9fdb58f6e0c28a32c22b40dc05657",
+    "internal/metering/store.go": "527a2a65a68140a06602293d27e5b07e8fb29828235443d7414b09f8980cd84f",
+    "internal/metering/remote.go": "714ace7b4100a076d3a023457928854b8f6087c07d67c145fc96ad55cfc073b9",
+    "internal/metering/admission_errors.go": "6690916a079476e925cf1b535dc7c4433a8facedb3d9915ad3df7d39a1345ffd",
+    "internal/metering/admission_errors_test.go": "7d963acb654e384aa59c24f96f5a4324923aca7b459c75ad3cfc4035ca71d9e1",
+    "internal/metering/r4_sharing_test.go": "800724a6f5a36ef875a142c863180336994c61ee0ae6b4d876f3be02ff75bca1",
+    "internal/host/r4_name_reclaim_test.go": "e41807a924077062a557146ce151c492f2a2fbee551bcbe9867a2ae3ebadeb90",
+    "internal/host/r4_remote_rate_test.go": "42bf1290d0789498245a4417882479bd4c27e102f65cd075a2b023a6f9456b9f"
+  }
+}

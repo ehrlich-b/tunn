@@ -1,0 +1,46 @@
+package metering
+
+import (
+	"errors"
+	"fmt"
+	"testing"
+
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+)
+
+func TestR4AdmissionTranslationRequiresTypedAuthorityReason(t *testing.T) {
+	typed := func(code codes.Code, domain, reason string) error {
+		t.Helper()
+		s, err := status.New(code, ErrSharingRate.Error()).WithDetails(&errdetails.ErrorInfo{Domain: domain, Reason: reason})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s.Err()
+	}
+	for _, err := range []error{
+		nil,
+		errors.New(ErrSharingRate.Error()),
+		status.Error(codes.ResourceExhausted, ErrSharingRate.Error()),
+		typed(codes.ResourceExhausted, "other-service", "SHARING_RATE"),
+		typed(codes.ResourceExhausted, admissionErrorDomain, "OTHER_LIMIT"),
+		typed(codes.PermissionDenied, admissionErrorDomain, "SHARING_RATE"),
+		status.Error(codes.Unavailable, "authority unavailable"),
+		status.Error(codes.DeadlineExceeded, "authority timeout"),
+	} {
+		if got := decodeAdmissionError(err); got != err {
+			t.Fatalf("unrecognized error changed: %v -> %v", err, got)
+		}
+	}
+	for _, sentinel := range []error{ErrSharingRate, ErrCapacity} {
+		// Wrapping retains both local identity and the wire details.
+		wrapped := fmt.Errorf("authority admission: %w", sentinel)
+		if !errors.Is(wrapped, sentinel) {
+			t.Fatal("local sentinel identity lost")
+		}
+		if got := decodeAdmissionError(status.Convert(wrapped).Err()); got != sentinel {
+			t.Fatalf("wrapped admission translation=%v want=%v", got, sentinel)
+		}
+	}
+}

@@ -49,42 +49,49 @@ func (s *Store) initSharing() error {
 				return err
 			}
 		}
-		rows, err := tx.Query(`SELECT g.data FROM meter_grants g JOIN web_resources r ON r.id=g.endpoint AND r.owner=g.owner
-   WHERE EXISTS (SELECT 1 FROM meter_grants newer WHERE newer.owner=g.owner AND newer.endpoint=g.endpoint AND newer.rowid>g.rowid
-   AND json_extract(CAST(newer.data AS TEXT),'$.consumer')=json_extract(CAST(g.data AS TEXT),'$.consumer'))`)
-		if err != nil {
+		// Repair ownership before testing for orphans so merged live resources
+		// retain their current decisions, including revocations.
+		if err := s.retireSharingGrants(context.Background(), tx, "resource-retired", `NOT EXISTS (
+            SELECT 1 FROM web_resources r WHERE r.id=g.endpoint AND r.owner=g.owner)`); err != nil {
 			return err
 		}
-		var obsolete []*pb.Grant
-		for rows.Next() {
-			var data []byte
-			if err = rows.Scan(&data); err != nil {
-				break
-			}
-			g := new(pb.Grant)
-			if err = json.Unmarshal(data, g); err != nil {
-				break
-			}
-			obsolete = append(obsolete, g)
-		}
-		scanErr := rows.Err()
-		rows.Close()
-		if err != nil {
-			return err
-		}
-		if scanErr != nil {
-			return scanErr
-		}
-		for _, g := range obsolete {
-			if err = s.sharingAudit(context.Background(), tx, g.Owner, g.Endpoint, g.Consumer, "legacy-history", g); err != nil {
-				return err
-			}
-			if _, err = tx.Exec(`DELETE FROM meter_grants WHERE id=?`, g.Id); err != nil {
-				return err
-			}
-		}
-		return nil
+		return s.retireSharingGrants(context.Background(), tx, "legacy-history", `EXISTS (
+            SELECT 1 FROM meter_grants newer WHERE newer.owner=g.owner AND newer.endpoint=g.endpoint AND newer.rowid>g.rowid
+            AND json_extract(CAST(newer.data AS TEXT),'$.consumer')=json_extract(CAST(g.data AS TEXT),'$.consumer'))`)
 	})
+}
+
+// retireSharingGrants moves obsolete person/group decisions into bounded audit
+// in the caller's transaction. Machine grants have an independent lifecycle.
+// The predicates are internal SQL; request values are always bound arguments.
+func (s *Store) retireSharingGrants(ctx context.Context, tx *sql.Tx, action, predicate string, args ...any) error {
+	for {
+		// Process one decision at a time to keep upgrade memory bounded. Rowid
+		// order also preserves the order of historical decisions in the audit.
+		var data []byte
+		var id, owner, resource string
+		err := tx.QueryRowContext(ctx, `SELECT g.id,g.owner,g.endpoint,g.data FROM meter_grants g
+            WHERE (substr(json_extract(CAST(g.data AS TEXT),'$.consumer'),1,7)='person:'
+                OR substr(json_extract(CAST(g.data AS TEXT),'$.consumer'),1,6)='group:')
+            AND (`+predicate+`) ORDER BY g.rowid LIMIT 1`, args...).Scan(&id, &owner, &resource, &data)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		g := new(pb.Grant)
+		if err = json.Unmarshal(data, g); err != nil {
+			return err
+		}
+		g.Id, g.Owner, g.Endpoint = id, owner, resource
+		if err = s.sharingAudit(ctx, tx, owner, resource, g.Consumer, action, g); err != nil {
+			return err
+		}
+		if _, err = tx.ExecContext(ctx, `DELETE FROM meter_grants WHERE id=?`, id); err != nil {
+			return err
+		}
+	}
 }
 
 func validPerson(email string, domain bool) bool {
@@ -147,6 +154,11 @@ func (s *Store) Sharing(ctx context.Context, in *pb.SharingRequest) (*pb.Sharing
 				}
 				if err != nil && !errors.Is(err, sql.ErrNoRows) {
 					return err
+				}
+				if fresh && err == nil {
+					if err = s.retireSharingGrants(ctx, tx, "resource-retired", `g.endpoint=?`, r.Id); err != nil {
+						return err
+					}
 				}
 				if fresh {
 					r.Id = uuid.NewString()

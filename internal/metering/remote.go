@@ -104,5 +104,6 @@ func (r *Remote) Sharing(ctx context.Context, in *pb.SharingRequest) (*pb.Sharin
 	}
 	ctx, cancel := rpcContext(ctx)
 	defer cancel()
-	return c.Sharing(ctx, in)
+	out, err := c.Sharing(ctx, in)
+	return out, decodeAdmissionError(err)
 }

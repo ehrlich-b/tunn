@@ -1,0 +1,8 @@
+{
+  "Replace": {
+    "/work/lanes/tunn-r4share/tunn/internal/metering/sharing.go": "/work/lanes/tunn-r4share/tunn/evidence/fix-r4-share/before-source/sharing.go.txt",
+    "/work/lanes/tunn-r4share/tunn/internal/metering/sharing_limits.go": "/work/lanes/tunn-r4share/tunn/evidence/fix-r4-share/before-source/sharing_limits.go.txt",
+    "/work/lanes/tunn-r4share/tunn/internal/metering/remote.go": "/work/lanes/tunn-r4share/tunn/evidence/fix-r4-share/before-source/remote.go.txt",
+    "/work/lanes/tunn-r4share/tunn/internal/metering/store.go": "/work/lanes/tunn-r4share/tunn/evidence/fix-r4-share/before-source/store.go.txt"
+  }
+}

@@ -182,14 +182,17 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		return nil
 	}
 
-	appEmail, appSubject := "", ""
+	appEmail, appOwner := "", false
 	if r.Context().Value(domainAppKey{}) == true {
-		var allowed bool
-		appEmail, appSubject, allowed = p.authorizeDomainApp(w, r, account)
+		appSession, allowed := p.authorizeDomainApp(w, r, account, tunnel)
 		if !allowed {
 			return nil
 		}
-		assertion, err := p.appAssertion(requestHostname(r.Host), appSubject, appEmail)
+		appEmail, _ = appSession["email"].(string)
+		appID, _ := appSession["account_id"].(string)
+		appProvider, _ := appSession["provider"].(string)
+		appOwner = account != nil && appID == account.ID
+		assertion, err := p.appAssertion(requestHostname(r.Host), appID, appEmail, appProvider)
 		if err != nil {
 			http.Error(w, "Identity signer unavailable", 503)
 			return nil
@@ -336,8 +339,8 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 			"path", r.URL.Path)
 
 		userEmails := []string{userEmail}
-		allowed := capabilityAuthenticated
-		if !capabilityAuthenticated {
+		allowed := capabilityAuthenticated || appOwner
+		if !capabilityAuthenticated && !appOwner {
 			// Get user's email bucket (all emails associated with their account)
 			if orgIdentity == nil && p.storage != nil && p.storage.Available() {
 				if bucket, err := p.storage.GetEmailBucket(r.Context(), userEmail); err == nil {
@@ -431,7 +434,11 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 			r = clonedRequest
 		}
 	}
-	if webResource != nil {
+	if r.Context().Value(domainAppKey{}) == true {
+		var stop func()
+		r, stop = p.watchAppPermission(r, tunnel)
+		defer stop()
+	} else if webResource != nil {
 		var stop func()
 		r, stop = p.watchWebPermission(r, tunnel, webEmails, webResource.Mode != "private" && !grantAuthenticated)
 		defer stop()

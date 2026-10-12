@@ -68,7 +68,7 @@ func (p *ProxyServer) setAuthCookie(w http.ResponseWriter, email string) error {
 // getAuthFromCookie reads and validates the JWT auth cookie, returning the email if valid
 func (p *ProxyServer) getAuthFromCookie(r *http.Request) (string, bool) {
 	if _, err := r.Cookie(appCookie); err == nil && p.customerHost(r.Host) {
-		claims, ok := p.googleSession(r)
+		claims, ok := p.accountSession(r)
 		email, _ := claims["email"].(string)
 		return email, ok
 	}
@@ -334,14 +334,6 @@ func unsafeReturnCharacters(value string) bool {
 func (p *ProxyServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 	// Sanitize return_to (prevents open redirect) - passed via URL to OAuth endpoint
 	returnTo := p.sanitizeReturnTo(r.URL.Query().Get("return_to"))
-	if r.URL.Query().Get("google_only") == "1" {
-		w.Header().Set("Cache-Control", "no-store")
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		writePageStart(w, "Sign in to your app")
-		_, _ = fmt.Fprintf(w, `<h1>Sign in to your app</h1><a href="/auth/google?return_to=%s" class="btn">Continue with Google</a>`, template.HTMLEscapeString(url.QueryEscape(returnTo)))
-		writePageEnd(w)
-		return
-	}
 	deviceUserCode := r.URL.Query().Get("device_user_code")
 
 	// Check if this is a tunnel access login
@@ -522,23 +514,21 @@ func (p *ProxyServer) handleCallback(w http.ResponseWriter, r *http.Request) {
 	// Primary email is first in the list
 	primaryEmail := emails[0]
 
-	// Set JWT auth cookie (stateless, survives restarts)
-	if err := p.setAuthCookie(w, primaryEmail); err != nil {
-		common.LogError("failed to set auth cookie", "error", err)
-		http.Error(w, "Failed to complete login", http.StatusInternalServerError)
+	// Resolve verified provider emails before issuing an account-bound session.
+	if p.storage == nil || !p.storage.Available() {
+		http.Error(w, "Account authority unavailable", 503)
 		return
 	}
-
-	common.LogInfo("user authenticated via GitHub", "email", primaryEmail, "all_emails", emails)
-
-	// Create or update account in database with ALL emails (enables account merging)
-	if p.storage.Available() {
-		_, err := p.storage.FindOrCreateByEmails(r.Context(), emails, "github")
-		if err != nil {
-			common.LogError("failed to create account", "emails", emails, "error", err)
-			// Continue anyway - JWT auth still works without DB record
-		}
+	account, err := p.storage.FindOrCreateByEmails(r.Context(), emails, "github")
+	if err != nil {
+		http.Error(w, "Account authority unavailable", 503)
+		return
 	}
+	if err := p.setAccountCookie(w, account, primaryEmail, "github"); err != nil {
+		http.Error(w, "Failed to complete login", 500)
+		return
+	}
+	common.LogInfo("user authenticated via GitHub", "email", primaryEmail)
 
 	// Check if this is a device code flow (CLI login) - redirect to confirmation page
 	if oauthState.DeviceUserCode != "" && p.storage.Available() {
@@ -644,6 +634,9 @@ func (p *ProxyServer) getGitHubEmails(accessToken string) ([]string, error) {
 	var emails []string
 	for _, e := range ghEmails {
 		if e.Verified {
+			if !validGoogleEmail(e.Email) {
+				return nil, fmt.Errorf("invalid verified email")
+			}
 			if e.Primary {
 				primaryEmail = e.Email
 			} else {
@@ -657,8 +650,8 @@ func (p *ProxyServer) getGitHubEmails(accessToken string) ([]string, error) {
 		emails = append([]string{primaryEmail}, emails...)
 	}
 
-	if len(emails) == 0 {
-		return nil, fmt.Errorf("no verified emails found")
+	if primaryEmail == "" {
+		return nil, fmt.Errorf("no verified primary email found")
 	}
 
 	return emails, nil

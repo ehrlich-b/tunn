@@ -154,7 +154,7 @@ func TestR3OldGoogleSessionsWithoutAuthorityAreRejected(t *testing.T) {
 	if _, ok := p.getAuthFromCookie(req); ok {
 		t.Fatal("historical Google cookie retained account authority")
 	}
-	if _, ok := p.googleSession(req); ok {
+	if _, ok := p.accountSession(req); ok {
 		t.Fatal("historical Google cookie retained app handoff authority")
 	}
 }

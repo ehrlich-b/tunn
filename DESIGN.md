@@ -1,51 +1,56 @@
-# Organization SSO and group sharing
+# Wildcard app authorization by tunn account
 
-Research: 2026-10-11; baseline: `7f5d619`. [BRIEF](../BRIEF.md) and the complete [live inbox](../IDEAS-INBOX.md) govern scope: the 13:10 cut and 13:11 addition authorize only **Okta, Microsoft Entra ID and Google Workspace OIDC sign-in and group sharing**. SAML, identity linking, SCIM, posture, AI identities and outbound OIDC-provider endpoints are deferred. The previous design is preserved in [docs/durable-device-design.md](docs/durable-device-design.md). Read the short [enterprise roadmap](ENTERPRISE-ZT.md) first.
+A verified wildcard namespace and each app's reserved name belong to a durable
+tunn account UUID. Routing rechecks that the connected publisher has that UUID.
+The owner signs in through GitHub (verified primary email), an email magic link,
+or Google when configured. All three callbacks resolve the verified identity
+through the existing account authority before signing a session with account ID,
+verified email and provider. A provider is authentication metadata, not access
+policy. Google retains its existing authoritative-mailbox/subject safeguards.
 
-## Value, effort and build order
+App ingress requires this account session even for public publication. The
+owning account is allowed independently of its primary email. Other accounts
+require a live, explicit person share or the legacy publisher email allow-list;
+resource generation, grant expiry and removal retain existing semantics. Public
+mode and bearer/capability credentials do not bypass this wildcard boundary.
+This preserves the namespace's private access gate while enabling normal sharing.
 
-| Rank | Role | Value / effort | Decision |
-| --- | --- | --- | --- |
-| 1 | Identity-aware proxy using customer OIDC and group policy | High / medium | Build now, using existing resource share/revoke. Upstream company sign-in, not a new consumer identity provider. |
-| 2 | Signed app identity at the proxy | High / medium | Integrate the `tunn-apps-domain` lane's reviewed JWT/JWKS commit when available; no duplicate signer. |
-| 3 | SAML service provider for org login | Customer-dependent / high | Deferred; add for a customer unable to use OIDC. |
-| 4 | Brokered OIDC issuer for apps needing their own login | Selective / high | Deferred plumbing. A proxy cannot automatically create app accounts or native application roles. |
-| 5 | SAML IdP for legacy applications | Narrow / very high | Deferred stretch behind independent security review. |
+The app gate resolves the signed UUID and checks that its verified email remains
+in that account's bucket. It never resolves ownership from provider-email text.
+Existing linking rules remain: fresh mailbox proof joins the account containing
+that exact case-folded email; GitHub can join verified mailbox buckets through
+its verified email set, with the existing merge and suspension rules. Google
+also binds issuer/subject and only links authoritative Gmail/Workspace mailboxes.
+External login callbacks reject non-ASCII email lookalikes before normalization;
+plus-addresses and dot variants are not invented aliases. Explicit verified
+account merges resolve to their surviving UUID. A stale cookie whose mailbox
+moved without that merge cannot rebind itself to another account. Legacy
+email-only or Google-only app cookies require one new sign-in for this binding.
 
-## Market and pricing evidence
+An attacker with a different GitHub account or different mailbox gets their own
+UUID and receives 403 after login unless explicitly shared. A username, claimed
+email, request header, unverified provider mailbox, or matching owner email in a
+session for a different UUID confers no ownership. Actual verified control of an
+already linked mailbox is account authentication under tunn's existing rules.
 
-Small-company IT/security teams pay the SSO tax through enterprise upgrades/minimum seats; developers also pay in support time. [sso.tax](https://sso.tax/) lists GitHub $4 → $21/user/month (+425%, entry dated 2020-04-14), Figma $12 → $45 (+275%, 2019-10-19), and Docker $9 → $24 (+167%, 2023-10-16). These are dated dataset observations, **not verified 2026 quotes**. Compare actual contracts before promising savings.
+The platform signs a 60-second hostname/path/nonce handoff. Its callback requires
+the secure host nonce, live namespace, live account/email binding and durable
+one-use nonce consumption. A secure, HTTP-only, host-only one-hour app cookie is
+bound to the exact hostname; the seven-day platform cookie never reaches apps.
+Identity headers are stripped, then EdDSA assertions carry canonical account ID
+in both `sub` and `account_id`, verified email and provider, exact hostname `aud`,
+issuer, `kid`, and a two-minute expiry; existing public JWKS/key rotation remain.
 
-The wedge is a service the publisher can put behind tunn. A proxy cannot force an unrelated SaaS vendor to enable SAML, remove its enterprise charge, provision app accounts, or disable an alternate public origin. “ANY app” depends on control of ingress/login. Test faster first share and repeated access with existing tools, consistent with the adjacent VISION/DECK, rather than building an identity network.
+New requests recheck namespace, reservation, publisher/account state and live
+sharing. Idle SSE/WebSocket requests poll those authorities and session expiry
+every second with a two-second check deadline and close on revocation/outage
+(designed bound five seconds). Account suspension, email removal, sharing removal
+and namespace/reservation loss revoke access. Ordinary logout clears its platform
+cookie; it does not globally revoke existing app cookies. Their one-hour expiry,
+authority changes, or visitor signing-key rotation provide the existing session
+revocation mechanisms. Apps validate assertions at ingress; assertions already
+issued remain cryptographically valid for at most two minutes.
 
-| Alternative | Public pricing checked on research date | Comparison |
-| --- | --- | --- |
-| [Cloudflare Access](https://www.cloudflare.com/plans/zero-trust-services/) | Current page advertises free proof of concept and sales packaging; the [vendor SMB guide](https://cf-assets.www.cloudflare.com/slt3lc6tev37/7oEleWnoR1ggS7GfMUb3oO/bc05cd36279b0e4bc5fcc942f2a3264e/Cloudflare-security-guide-for-small-and-medium-enterprises.pdf) describes up to 50 free users. The familiar $7/user/month was not confirmed on the current rendered page. | Strong free IdP gate; win on setup/sharing. |
-| [Pomerium](https://www.pomerium.com/pricing) | Core open source; Zero Personal free; Zero Business $9/user/month monthly or $7 annually; Enterprise custom. | Closest proxy benchmark; enterprise directory sync/delegated policy already exists. |
-| [Teleport](https://goteleport.com/pricing/) | Get Pricing/usage-based active-user and resource offer; no universal numeric list figure established. [Feature matrix](https://goteleport.com/docs/feature-matrix/) distinguishes paid governance. | Broader infrastructure identity and privileged-session product. |
-| [oauth2-proxy](https://oauth2-proxy.github.io/oauth2-proxy/) / [Authelia](https://www.authelia.com/) | Open-source software, no license charge; hosting/operations remain. | Existing ingress gates; self-operation and UX distinguish tunn. |
-| [authentik](https://goauthentik.io/pricing/) | Open source free; Enterprise $5/internal user/month and $0.02/external user/month annually; Enterprise Plus starts $20k/year. | Broader identity platform/proxy. |
-| [WorkOS](https://workos.com/pricing) | SSO $125/connection/month for 1–15 connections, volume discounts; directory sync separate. | Vendor SDK/service, not standalone tunn ingress. |
-| [Okta Access Gateway](https://www.okta.com/pricing/) | Included/add-on by workforce edition; Enterprise inquiry pricing. Starter suite $6/user/month is **not** a gateway quote. | Compare gateway entitlement and deployment needs. |
-
-## Trust boundary and flow
-
-Admin supplies a private config file: stable org slug, provider, exact issuer, client ID/secret, exact allowed domains and bounded mappings from shareable group slugs to remote group IDs/names or Entra app roles. Users cannot supply issuers/discovery URLs. Restart every relay for policy changes; old org browser sessions become invalid.
-
-Authorization code + PKCE S256 → one-use persisted state bound to browser/org/callback → ID-token verification with [coreos/go-oidc v3.21.0](https://github.com/coreos/go-oidc/releases/tag/v3.21.0) → issuer, audience/authorized party, expiry, issue time, nonce and tenant/domain checks → group resolution → bounded signed 15-minute org session. No provider access/refresh tokens are saved or forwarded. Verified HTTPS, network deadlines and response bounds protect discovery/JWKS/API calls; the maintained library verifies signatures and rotation.
-
-The baseline email-bucket account model merges verified emails across providers. **Org login must never pass a provider email to it.** Account compatibility uses an opaque deterministic principal derived from `(org, issuer, sub)`; same emails and consumer Google sessions confer no org authority. This is subject isolation, not identity linking. Group grants use `group:<org>:<group>` with existing immutable resource IDs, owner checks, expiry/revocation ledger and streaming permission checks. Only a validated org browser session carries groups; email, endpoint and device credentials do not.
-
-Okta: configure an ID-token `groups` claim with the `groups` scope as described by [Okta](https://developer.okta.com/docs/guides/customize-tokens-groups-claim/). Entra: pin a tenant-specific v2 issuer and signed `tid`; use group object IDs and `roles` as separate mappings. Email/`preferred_username` are display/domain filters, never account identifiers or mailbox proof. Detect `_claim_names.groups`/`hasgroups` overage, ignore `_claim_sources` URLs, verify fixed Graph `/me` against signed `oid`, and fetch all bounded membership pages. [Entra overage/roles](https://learn.microsoft.com/en-us/security/zero-trust/develop/configure-tokens-group-claims-app-roles); [Graph permissions](https://learn.microsoft.com/en-us/graph/api/user-list-transitivememberof?view=graph-rest-1.0).
-
-Workspace: reuse Google's existing sign-in entry and authorization/PKCE helpers. Require signed `hd` in allowed domains **and** `email_verified`; Gmail cannot satisfy company login. [Google guidance](https://developers.google.com/identity/openid-connect/reference) requires `hd`, not an email suffix, for Workspace membership. Resolve immutable group IDs with [Admin SDK groups.list](https://developers.google.com/workspace/admin/directory/reference/rest/v1/groups/list), a domain-wide delegated service account restricted to `admin.directory.group.readonly`, and an impersonated administrator allowed to read groups. Enable Directory API and grant admin consent; ordinary user OAuth is insufficient. Direct membership only; nested expansion is not promised.
-
-Membership is a login-time snapshot renewed by sign-in after at most 15 minutes (or earlier upstream token expiry). Missing/malformed claims never grant access; overage/API errors fail closed. Removing a tunn grant denies the next request and cancels managed web streams within the existing five-second polling bound. Expiry/config removal must also cancel org streams. Immediate IdP offboarding via SCIM is deferred. Device credentials remain independently revocable and cannot prove group membership. Group grants cover managed browser/HTTP resources, not origin OS roles, SSH keys or all machine clients.
-
-## Deferred SAML notes
-
-Use a maintained SP library, never hand-written XML-DSig. `crewjam/saml` provides SP/IdP/metadata plumbing, with signature bypasses in [2020](https://github.com/crewjam/saml/security/advisories/GHSA-rrfw-hg9m-j47h) and [multiple assertions in 2022](https://github.com/crewjam/saml/security/advisories/GHSA-j2jp-wvqg-wc2g), plus XML processing, decompression and XSS advisories in its [history](https://github.com/crewjam/saml/security/advisories). `goxmldsig` is a canonicalization/signature component, not an SP; its [advisories](https://github.com/russellhaering/goxmldsig/security/advisories) include 2020 signature validation bypass, March 2026 loop-variable signature bypass and August 2026 canonicalization memory amplification. Recent fixes make fresh exact-version/transitive vulnerability review essential. Neither is approved here. Alternatives: [gosaml2](https://github.com/russellhaering/gosaml2) or an external broker such as authentik; compare maintenance and parser boundaries when SAML is authorized.
-
-Future attack corpus: XSW variants, duplicate IDs/ambiguous assertions, signature stripping and comment-injected NameID; validate the exact signed node and canonicalization result. Persist assertion-ID replay protection; bound skew and enforce audience/recipient/destination/outstanding `InResponseTo`; bind opaque RelayState to a stored safe redirect; pin metadata and overlap keys during rotation. Begin SP-initiated only, reject unsolicited IdP initiation, and explicitly scope encrypted assertions and SLO/session revocation. The original SAML corpus is **deferred by the scope cut**, not passed.
-
-[docs/org-sso.md](docs/org-sso.md) records setup and review/deploy prerequisites: tenant binding, group API permissions, cookie trust, origin bypass and offboarding bounds. [Validation evidence](docs/org-sso-validation.md) records the fixture and full-suite results. Full suite plus race required; commit locally, never push/deploy or touch billing.
+Deployment is a coordinator action. No Google OAuth setup is required for app
+access. Preserve visitor/node signing configuration, Ed25519 identity keys,
+encrypted domain storage, ACME, DNS ownership proof and direct port 80/443 ingress.

@@ -26,21 +26,6 @@ import (
 
 const bryanEmail = "ehrlich.bryan@gmail.com"
 
-type appFixtureStorage struct {
-	storage.Storage
-	replay storage.Storage
-}
-
-func (s *appFixtureStorage) GetAccount(ctx context.Context, id string) (*storage.Account, error) {
-	a, e := s.Storage.GetAccount(ctx, id)
-	if a != nil {
-		a.PrimaryEmail = bryanEmail
-	}
-	return a, e
-}
-func (s *appFixtureStorage) MarkMagicTokenUsed(ctx context.Context, id string, expiry time.Time) (bool, error) {
-	return s.replay.MarkMagicTokenUsed(ctx, id, expiry)
-}
 func appKeyFile(t *testing.T, p *ProxyServer) ed25519.PublicKey {
 	t.Helper()
 	pub, key, err := ed25519.GenerateKey(rand.Reader)
@@ -59,6 +44,8 @@ func appProxyFixture(t *testing.T) (*ProxyServer, *TunnelConnection, ed25519.Pub
 	t.Helper()
 	p, registry, dns := domainProxyFixture(t)
 	p.config.PublicAddr = "tunn.test"
+	p.config.GitHubClientID = "fixture-client"
+	p.emailSender = new(accountsMailCapture)
 	d, err := registry.Add(context.Background(), &domainpb.Domain{Name: "*.apps.ehrlich.dev", Tunnel: "dashboard", Owner: "ad38bf44-0c4a-40ce-bdee-2d8579bf63cc"})
 	if err != nil {
 		t.Fatal(err)
@@ -77,7 +64,14 @@ func appProxyFixture(t *testing.T) (*ProxyServer, *TunnelConnection, ed25519.Pub
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	p.storage = &appFixtureStorage{Storage: p.storage, replay: storage.NewLocalStorage(db)}
+	if _, err := db.Exec(`INSERT INTO accounts(id,primary_email,plan,created_at) VALUES(?,?,'free',1)`, tunnel.AccountID, bryanEmail); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO account_emails(email,account_id,verified_via,added_at) VALUES(?,?,'github',1)`, bryanEmail, tunnel.AccountID); err != nil {
+		t.Fatal(err)
+	}
+	p.storage = storage.NewLocalStorage(db)
+	tunnel.CreatorEmail = bryanEmail
 	return p, tunnel, appKeyFile(t, p)
 }
 func appSessionCookie(t *testing.T, p *ProxyServer, email, provider string, verified bool, aud string) *http.Cookie {
@@ -87,12 +81,20 @@ func appSessionCookie(t *testing.T, p *ProxyServer, email, provider string, veri
 	if aud == "" {
 		name, domain = authCookieName, ".tunn.test"
 	}
-	if err := p.signedSession(w, jwt.MapClaims{"email": email, "sub": "google:123", "provider": provider, "email_verified": verified, "google_authoritative": verified, "issuer": common.GoogleIssuer, "aud": aud}, name, domain, time.Hour); err != nil {
+	id := "invalid"
+	if validGoogleEmail(email) {
+		account, err := p.storage.FindOrCreateByEmails(context.Background(), []string{email}, provider)
+		if err != nil {
+			t.Fatal(err)
+		}
+		id = account.ID
+	}
+	if err := p.signedSession(w, jwt.MapClaims{"account_id": id, "email": strings.ToLower(email), "sub": "google:123", "provider": provider, "email_verified": verified, "google_authoritative": verified, "issuer": common.GoogleIssuer, "aud": aud}, name, domain, time.Hour); err != nil {
 		t.Fatal(err)
 	}
 	return w.Result().Cookies()[0]
 }
-func TestDomainAppBryanOnlyAndSignedIdentity(t *testing.T) {
+func TestDomainAppAccountOwnerAndSignedIdentity(t *testing.T) {
 	p, tunnel, pub := appProxyFixture(t)
 	stream := tunnel.Stream.(*meteringFixtureStream)
 	hook := stream.hook
@@ -109,8 +111,8 @@ func TestDomainAppBryanOnlyAndSignedIdentity(t *testing.T) {
 		want            int
 	}{
 		{bryanEmail, "google", true, 200}, {"EHRLICH.BRYAN@GMAIL.COM", "google", true, 200},
-		{"other@gmail.com", "google", true, 403}, {"ehrlich.bryan+apps@gmail.com", "google", true, 403}, {"ehrlich.bryan@gmail.com.evil.test", "google", true, 403}, {"еhrlich.bryan@gmail.com", "google", true, 403}, {"ｅhrlich.bryan@gmail.com", "google", true, 403},
-		{bryanEmail, "github", true, 302}, {bryanEmail, "google", false, 302},
+		{"other@gmail.com", "google", true, 403}, {"ehrlich.bryan+apps@gmail.com", "google", true, 403}, {"ehrlich.bryan@gmail.com.evil.test", "google", true, 403}, {"еhrlich.bryan@gmail.com", "google", true, 302}, {"ｅhrlich.bryan@gmail.com", "google", true, 302},
+		{bryanEmail, "github", true, 200}, {bryanEmail, "magic_link", true, 200}, {"other@gmail.com", "github", true, 403}, {"other@example.com", "magic_link", true, 403}, {bryanEmail, "google", false, 302},
 	} {
 		headers = nil
 		r := httptest.NewRequest("GET", "https://dashboard.apps.ehrlich.dev/", nil)
@@ -142,7 +144,7 @@ func TestDomainAppBryanOnlyAndSignedIdentity(t *testing.T) {
 			t.Fatalf("assertion=%v", err)
 		}
 		claims := token.Claims.(jwt.MapClaims)
-		if !claims.VerifyAudience("dashboard.apps.ehrlich.dev", true) || claims.VerifyAudience("other.apps.ehrlich.dev", true) || claims["email"] != bryanEmail || claims["sub"] != "google:123" || claims["iss"] != "https://tunn.test" {
+		if !claims.VerifyAudience("dashboard.apps.ehrlich.dev", true) || claims.VerifyAudience("other.apps.ehrlich.dev", true) || claims["email"] != bryanEmail || claims["sub"] != tunnel.AccountID || claims["account_id"] != tunnel.AccountID || claims["provider"] != tc.provider || claims["idp"] != tc.provider || claims["email_verified"] != true || claims["iss"] != "https://tunn.test" {
 			t.Fatal(claims)
 		}
 		if claims["exp"].(float64)-claims["iat"].(float64) != 120 {
@@ -158,7 +160,7 @@ func TestDomainAppBryanOnlyAndSignedIdentity(t *testing.T) {
 		w := httptest.NewRecorder()
 		p.createHandler().ServeHTTP(w, r)
 		if w.Code != 302 {
-			t.Fatal("bearer bypassed Google gate", w.Code)
+			t.Fatal("bearer bypassed account gate", w.Code)
 		}
 	}
 	r := httptest.NewRequest("GET", "https://dashboard.apps.ehrlich.dev/", nil)
@@ -193,12 +195,12 @@ func TestDomainSSOBrowserBindingReplayAndRepeatApp(t *testing.T) {
 	nonce := initial.Result().Cookies()[0]
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, httptest.NewRequest("GET", login, nil))
-	if w.Code != 302 || !strings.Contains(w.Header().Get("Location"), "google_only=1") {
-		t.Fatal("missing Google-only page")
+	if w.Code != 302 || strings.Contains(w.Header().Get("Location"), "google_only") {
+		t.Fatal("missing normal login page")
 	}
 	page := httptest.NewRecorder()
 	handler.ServeHTTP(page, httptest.NewRequest("GET", "https://tunn.test"+w.Header().Get("Location"), nil))
-	if !strings.Contains(page.Body.String(), "Continue with Google") || strings.Contains(page.Body.String(), "GitHub") {
+	if !strings.Contains(page.Body.String(), "GitHub") || strings.Contains(page.Body.String(), "Continue with Google") {
 		t.Fatal("wrong login providers")
 	}
 	r := httptest.NewRequest("GET", login, nil)
@@ -259,7 +261,7 @@ func TestDomainSSOBrowserBindingReplayAndRepeatApp(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatal("SSO did not open app", w.Code, w.Body.String())
 	}
-	// A central Google session serves another app handoff without another IdP login.
+	// A central account session serves another app handoff without another IdP login.
 	r = httptest.NewRequest("GET", login, nil)
 	r.AddCookie(appSessionCookie(t, p, bryanEmail, "google", true, ""))
 	w = httptest.NewRecorder()

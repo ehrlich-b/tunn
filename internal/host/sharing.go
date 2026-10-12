@@ -45,6 +45,10 @@ func webIdentityAllowed(r *pb.WebResource, emails, groups []string, creator stri
 	if r.Mode == "public" {
 		return true
 	}
+	return webExplicitIdentityAllowed(r, emails, groups, creator, now)
+}
+
+func webExplicitIdentityAllowed(r *pb.WebResource, emails, groups []string, creator string, now time.Time) bool {
 	if creator != "" && isEmailBucketAllowed(emails, []string{creator}) {
 		return true
 	}

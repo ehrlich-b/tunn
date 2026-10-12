@@ -167,11 +167,12 @@ func (p *ProxyServer) handleGoogleCallback(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "Account identity authority unavailable", 503)
 		return
 	}
-	if _, err = identityStore.FindOrCreateGoogleIdentity(r.Context(), identity.Sub, email, identity.HostedDomain, identity.Verified); err != nil {
+	account, err := identityStore.FindOrCreateGoogleIdentity(r.Context(), identity.Sub, email, identity.HostedDomain, identity.Verified)
+	if err != nil {
 		http.Error(w, "Google identity cannot be linked; sign in with a fresh email link", 403)
 		return
 	}
-	if err = p.signedSession(w, jwt.MapClaims{"email": email, "sub": identity.Sub, "provider": "google", "email_verified": true, "google_authoritative": true, "issuer": common.GoogleIssuer}, authCookieName, "."+p.config.Domain, authCookieLifetime); err != nil {
+	if err = p.signedSession(w, jwt.MapClaims{"account_id": account.ID, "email": email, "sub": identity.Sub, "provider": "google", "email_verified": true, "google_authoritative": true, "issuer": common.GoogleIssuer}, authCookieName, "."+p.config.Domain, authCookieLifetime); err != nil {
 		http.Error(w, "Login unavailable", 500)
 		return
 	}

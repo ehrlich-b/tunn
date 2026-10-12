@@ -45,7 +45,11 @@ func (p *ProxyServer) handleMagicLinkRequest(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	email := common.NormalizeEmail(strings.TrimSpace(req.Email))
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+	if !validGoogleEmail(email) {
+		http.Error(w, "Invalid email address", 400)
+		return
+	}
 	parsed, parseErr := mail.ParseAddress(email)
 	if len(email) > 254 || parseErr != nil || parsed.Address != email || strings.ContainsAny(email, "\r\n") {
 		http.Error(w, "Invalid email address", http.StatusBadRequest)
@@ -136,19 +140,21 @@ func (p *ProxyServer) handleMagicLinkVerify(w http.ResponseWriter, r *http.Reque
 
 	common.LogInfo("magic link verified", "email", email)
 
-	// Create or update account in database (if storage available)
-	if p.storage.Available() {
-		_, err := p.storage.FindOrCreateByEmails(r.Context(), []string{email}, "magic_link")
-		if err != nil {
-			common.LogError("failed to create account", "email", email, "error", err)
-			// Continue anyway - JWT auth still works without DB record
-		}
+	if !validGoogleEmail(email) {
+		http.Error(w, "Invalid email", 400)
+		return
 	}
-
-	// Set JWT auth cookie (stateless, survives restarts)
-	if err := p.setAuthCookie(w, email); err != nil {
-		common.LogError("failed to set auth cookie", "error", err)
-		http.Error(w, "Failed to complete login", http.StatusInternalServerError)
+	if p.storage == nil || !p.storage.Available() {
+		http.Error(w, "Account authority unavailable", 503)
+		return
+	}
+	account, err := p.storage.FindOrCreateByEmails(r.Context(), []string{email}, "magic_link")
+	if err != nil {
+		http.Error(w, "Account authority unavailable", 503)
+		return
+	}
+	if err := p.setAccountCookie(w, account, email, "magic_link"); err != nil {
+		http.Error(w, "Failed to complete login", 500)
 		return
 	}
 

@@ -14,8 +14,11 @@ independently reserved tunnel names. Verified owners retain namespace protection
 when their DNS lease fails; routing still fails closed until proof is restored.
 Every local
 or remotely routed request rechecks the tunnel account against the domain owner.
-Wildcard app ingress forces a verified Google browser session and exact primary
-owner email even for public resources, allow-lists, or bearer grants.
+Wildcard app ingress requires a verified tunn account browser session. The
+namespace/reserved-name owner UUID is authorized through GitHub, email magic
+link, or optional Google login. Other accounts require explicit live person
+sharing or the legacy email allow-list. Public mode and bearer grants do not
+bypass this boundary. See [the account design](../DESIGN.md).
 
 ## Before deployment
 
@@ -29,17 +32,17 @@ key), `TUNN_ACME_EMAIL`, and `TUNN_ACME_DIRECTORY` (staging before production).
 The default directory is `https://acme-v02.api.letsencrypt.org/directory`. Back up the encrypted
 database together with its encryption secret through existing operator tooling.
 
-Configure Google OAuth client ID/secret on the login authority and its exact
-callback `https://tunn.to:443/auth/google/callback` (or the exact configured
-`TUNN_PUBLIC_ADDR`). Enable the Google client for the intended users. Set the
-owner's primary email to `ehrlich.bryan@gmail.com`; an account alias alone is
-insufficient. Keep applications on loopback, publisher credentials durable, and
+Use the login authority's existing GitHub or email magic-link configuration.
+Google OAuth is optional; no Google prompts, client secrets, callback setup or
+owner-primary-email change are required for wildcard access. Existing browser
+sessions lacking a signed account ID require one new sign-in after deployment.
+Keep applications on loopback, publisher credentials durable, and
 publisher/app systemd services active. The wildcard CNAME must be DNS-only and
 point to `tunn.to`; TXT proof must remain available. Public TCP/80 on every edge
 must reach the HTTP-01 listener directly, and TCP/443 must reach tunn TLS.
 Existing node-secret/TLS RPC protection distributes challenges and certificates.
 
-REQUIRED-UNRUN: real production CA issuance/renewal after DNS changes, real Google
+REQUIRED-UNRUN: real production CA issuance/renewal after DNS changes, real GitHub/email
 login as Bryan and another account, and a browser SSO acceptance check across
 apps/relay nodes. Local test CA success does not constitute production issuance.
 
@@ -77,9 +80,11 @@ The edge strips every client-supplied `X-Tunn-Identity` and `X-Tunn-User-Email`,
 then injects its own on authenticated wildcard app requests, including HTTP
 streaming and WebSocket handshakes. Public platform requests retain neither
 spoofable header. The assertion uses EdDSA with `kid`, `iss=https://tunn.to:443`
-(or configured login authority), `aud=<hostname>` without port, Google subject
-`sub`, `email`, `email_verified=true`, `idp=google`, `iat`, `nbf`, and a two-minute
-`exp`. The subject is Google's subject, not an email alias or publisher ID.
+(or configured login authority), `aud=<hostname>` without port, canonical tunn account UUID
+in both `sub` and `account_id`, `email`, `email_verified=true`,
+`provider` and `idp` (`github`, `magic_link`, or `google`), `iat`, `nbf`, and a
+two-minute `exp`. The subject is the authenticated caller account, which may
+differ from the publisher account for explicitly shared access.
 JWKS is public at `https://tunn.to/.well-known/tunn-jwks.json`; no private key
 appears there. Apps may trust the plain email header only when all ingress comes
 through a trusted tunn publisher; otherwise verify the JWT and the expected
@@ -133,23 +138,29 @@ keys = jwt.PyJWKClient("https://tunn.to/.well-known/tunn-jwks.json", lifespan=60
 def verify(headers):
     token = headers["X-Tunn-Identity"]
     key = keys.get_signing_key_from_jwt(token).key
-    c = jwt.decode(token, key, algorithms=["EdDSA"], audience=HOST, issuer=ISSUER, options={"require": ["exp", "iat", "nbf", "sub", "email"]})
-    if c.get("email_verified") is not True or c.get("idp") != "google": raise ValueError("unverified identity")
+    c = jwt.decode(token, key, algorithms=["EdDSA"], audience=HOST, issuer=ISSUER, options={"require": ["exp", "iat", "nbf", "sub", "account_id", "email", "provider"]})
+    if c.get("email_verified") is not True or c["sub"] != c["account_id"]: raise ValueError("unverified identity")
     return c["email"]
 ```
 
 ## SSO handoff
 
-The existing [Google flow](https://developers.google.com/identity/openid-connect/openid-connect)
-uses PKCE and verified UserInfo. Only its session records provider, verified
-email and subject. Custom app origins never receive the parent-domain session.
+Supported login callbacks establish a verified tunn account session before the
+handoff. GitHub requires a verified primary email; email requires a fresh one-use
+magic link. Google stays optional and retains PKCE and authoritative-mailbox
+checks. Custom app origins never receive the parent-domain session.
 The edge creates an HTTP-only host nonce, signs hostname/path/nonce, and sends
-it to the login authority. The authority validates the verified domain, requires
-a Google session (with a Google-only login page if missing), and signs a
-60-second audience-bound handoff. The app callback requires that browser nonce,
-live domain binding, and durable one-use replay consumption across nodes, then
+it to the login authority. The authority validates the namespace and account
+binding, uses the normal configured login page if needed, and signs a 60-second
+audience-bound handoff. The app callback requires that browser nonce, live domain
+and account binding, and durable one-use replay consumption across nodes, then
 sets a secure HTTP-only host cookie. Redirect responses use no-store and
 no-referrer; the callback redirects immediately to a local path and forwards
-neither handoff token nor tunn cookies to the app. Signing/authority failures
-fail closed. Google sessions from other emails complete login then receive 403
-at the app. Existing sessions do not automatically become Google sessions.
+neither handoff token nor tunn cookies to the app. Authority failures fail closed.
+Unrelated accounts complete login then receive 403 unless explicitly shared.
+New requests and idle streaming/WebSocket connections recheck live account and
+sharing authority. Removing a person, suspending an account, removing a mailbox,
+or losing namespace/reservation authority closes idle connections within the
+designed five-second bound. Platform logout does not invalidate other app cookies;
+they expire after one hour, or revoke through live authority/key changes. Existing
+EdDSA assertions can remain valid for their two-minute lifetime.

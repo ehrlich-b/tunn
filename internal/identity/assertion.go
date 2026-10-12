@@ -63,14 +63,14 @@ func Load(path string) (*Ring, error) {
 	}
 	return &ring, nil
 }
-func (r *Ring) Sign(issuer, hostname, subject, email string, now time.Time) (string, error) {
+func (r *Ring) Sign(issuer, hostname, accountID, email, provider string, now time.Time) (string, error) {
 	for _, k := range r.Keys {
 		if k.Kid == r.Active {
 			seed, err := base64.RawURLEncoding.DecodeString(k.D)
 			if err != nil || len(seed) != 32 {
 				return "", fmt.Errorf("invalid signing seed")
 			}
-			token := jwt.NewWithClaims(jwt.SigningMethodEdDSA, jwt.MapClaims{"iss": issuer, "aud": hostname, "sub": subject, "email": email, "email_verified": true, "idp": "google", "iat": now.Unix(), "nbf": now.Unix(), "exp": now.Add(Lifetime).Unix()})
+			token := jwt.NewWithClaims(jwt.SigningMethodEdDSA, jwt.MapClaims{"iss": issuer, "aud": hostname, "sub": accountID, "account_id": accountID, "email": email, "email_verified": true, "idp": provider, "provider": provider, "iat": now.Unix(), "nbf": now.Unix(), "exp": now.Add(Lifetime).Unix()})
 			token.Header["kid"] = k.Kid
 			return token.SignedString(ed25519.NewKeyFromSeed(seed))
 		}

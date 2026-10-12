@@ -35,7 +35,7 @@ func TestAssertionRotationAudienceExpiryAndPublicJWKS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	token, err := ring.Sign("https://tunn.test", "api.apps.ehrlich.dev", "subject", "ehrlich.bryan@gmail.com", time.Now())
+	token, err := ring.Sign("https://tunn.test", "api.apps.ehrlich.dev", "subject", "ehrlich.bryan@gmail.com", "github", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +45,7 @@ func TestAssertionRotationAudienceExpiryAndPublicJWKS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fresh, err := ring.Sign("https://tunn.test", "api.apps.ehrlich.dev", "subject", "ehrlich.bryan@gmail.com", time.Now())
+	fresh, err := ring.Sign("https://tunn.test", "api.apps.ehrlich.dev", "subject", "ehrlich.bryan@gmail.com", "github", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +70,7 @@ func TestAssertionRotationAudienceExpiryAndPublicJWKS(t *testing.T) {
 			t.Fatal("audience binding failed")
 		}
 	}
-	expired, _ := ring.Sign("https://tunn.test", "api.apps.ehrlich.dev", "subject", "email", time.Now().Add(-3*time.Minute))
+	expired, _ := ring.Sign("https://tunn.test", "api.apps.ehrlich.dev", "subject", "email", "magic_link", time.Now().Add(-3*time.Minute))
 	if _, err := verify(expired); err == nil {
 		t.Fatal("expired assertion accepted")
 	}

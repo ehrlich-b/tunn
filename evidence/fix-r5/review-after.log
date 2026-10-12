@@ -1,0 +1,35 @@
+=== RUN   TestR5ConcreteCachedKeyRechecksAuthority
+=== RUN   TestR5ConcreteCachedKeyRechecksAuthority/reservation
+    r5_cached_authority_test.go:61: revocation committed after Route authorization and before certificate/key SELECT
+=== RUN   TestR5ConcreteCachedKeyRechecksAuthority/entitlement
+    r5_cached_authority_test.go:61: revocation committed after Route authorization and before certificate/key SELECT
+=== RUN   TestR5ConcreteCachedKeyRechecksAuthority/lease
+    r5_cached_authority_test.go:61: revocation committed after Route authorization and before certificate/key SELECT
+--- PASS: TestR5ConcreteCachedKeyRechecksAuthority (0.85s)
+    --- PASS: TestR5ConcreteCachedKeyRechecksAuthority/reservation (0.29s)
+    --- PASS: TestR5ConcreteCachedKeyRechecksAuthority/entitlement (0.30s)
+    --- PASS: TestR5ConcreteCachedKeyRechecksAuthority/lease (0.27s)
+=== RUN   TestR5ConcreteCachedKeyRechecksAuthority
+=== RUN   TestR5ConcreteCachedKeyRechecksAuthority/reservation
+    r5_cached_authority_test.go:61: revocation committed after Route authorization and before certificate/key SELECT
+=== RUN   TestR5ConcreteCachedKeyRechecksAuthority/entitlement
+    r5_cached_authority_test.go:61: revocation committed after Route authorization and before certificate/key SELECT
+=== RUN   TestR5ConcreteCachedKeyRechecksAuthority/lease
+    r5_cached_authority_test.go:61: revocation committed after Route authorization and before certificate/key SELECT
+--- PASS: TestR5ConcreteCachedKeyRechecksAuthority (0.85s)
+    --- PASS: TestR5ConcreteCachedKeyRechecksAuthority/reservation (0.27s)
+    --- PASS: TestR5ConcreteCachedKeyRechecksAuthority/entitlement (0.28s)
+    --- PASS: TestR5ConcreteCachedKeyRechecksAuthority/lease (0.30s)
+=== RUN   TestR5ConcreteCachedKeyRechecksAuthority
+=== RUN   TestR5ConcreteCachedKeyRechecksAuthority/reservation
+    r5_cached_authority_test.go:61: revocation committed after Route authorization and before certificate/key SELECT
+=== RUN   TestR5ConcreteCachedKeyRechecksAuthority/entitlement
+    r5_cached_authority_test.go:61: revocation committed after Route authorization and before certificate/key SELECT
+=== RUN   TestR5ConcreteCachedKeyRechecksAuthority/lease
+    r5_cached_authority_test.go:61: revocation committed after Route authorization and before certificate/key SELECT
+--- PASS: TestR5ConcreteCachedKeyRechecksAuthority (1.02s)
+    --- PASS: TestR5ConcreteCachedKeyRechecksAuthority/reservation (0.31s)
+    --- PASS: TestR5ConcreteCachedKeyRechecksAuthority/entitlement (0.33s)
+    --- PASS: TestR5ConcreteCachedKeyRechecksAuthority/lease (0.37s)
+PASS
+ok  	github.com/ehrlich-b/tunn/internal/domains	3.741s

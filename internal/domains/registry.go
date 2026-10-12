@@ -471,7 +471,13 @@ func (r *Registry) Certificate(ctx context.Context, in *pb.Domain) (*pb.Certific
 		return r.wildcardCertificate(ctx, d, in.Name)
 	}
 	var cert, key []byte
-	if err := r.db.QueryRowContext(ctx, `SELECT certificate,key FROM custom_domains WHERE name=? AND owner=? AND target=?`, d.Name, d.Owner, d.CnameTarget).Scan(&cert, &key); err != nil {
+	// Recheck current authority in the key read; Route may precede revocation.
+	now := r.now().Unix()
+	err = r.db.QueryRowContext(ctx, `SELECT certificate,key FROM custom_domains WHERE name=? AND owner=? AND target=? AND state='ready' AND verified_until>? AND not_after>? AND EXISTS(SELECT 1 FROM accounts a JOIN reserved_subdomains s ON s.subdomain=custom_domains.tunnel WHERE a.id=custom_domains.owner AND a.plan='pro' AND s.account_id=a.id)`, d.Name, d.Owner, d.CnameTarget, now, now).Scan(&cert, &key)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, status.Error(codes.FailedPrecondition, "app reservation or domain authority changed")
+	}
+	if err != nil {
 		return nil, err
 	}
 	key, err = r.decrypt(d.Name, key)

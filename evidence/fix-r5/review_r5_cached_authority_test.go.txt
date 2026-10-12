@@ -1,0 +1,76 @@
+package domains
+
+import (
+    "context"
+    "database/sql"
+    "database/sql/driver"
+    "path/filepath"
+    "strings"
+    "testing"
+
+    pb "github.com/ehrlich-b/tunn/pkg/proto/domainv1"
+    "modernc.org/sqlite"
+)
+
+// A driver-boundary hook schedules an ordinary committed database mutation
+// immediately before the key SELECT. Product source and preceding Route checks
+// are unchanged. This models another caller running after entitlement SELECT.
+type r5Connector struct { path string; before func(); }
+func (c *r5Connector) Connect(context.Context) (driver.Conn,error) {
+    conn,err := (&sqlite.Driver{}).Open(c.path)
+    if err != nil { return nil,err }
+    return &r5Conn{Conn:conn, before:c.before},nil
+}
+func (c *r5Connector) Driver() driver.Driver { return &sqlite.Driver{} }
+type r5Conn struct { driver.Conn; before func() }
+func (c *r5Conn) QueryContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows,error) {
+    if strings.HasPrefix(query,"SELECT certificate,key FROM custom_domains") && c.before != nil {
+        before := c.before
+        c.before = nil
+        before()
+    }
+    return c.Conn.(driver.QueryerContext).QueryContext(ctx,query,args)
+}
+func (c *r5Conn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result,error) {
+    return c.Conn.(driver.ExecerContext).ExecContext(ctx,query,args)
+}
+
+func TestR5ConcreteCachedKeyRechecksAuthority(t *testing.T) {
+    for _, mutation := range []string{"reservation", "entitlement", "lease"} {
+        t.Run(mutation,func(t *testing.T) {
+            r,dns,_ := domainFixture(t,nil)
+            ctx := context.Background()
+            claim := addDomain(t,r,"work.example.com","site","one")
+            dns.records[claim.Name] = claim.CnameTarget
+            r.issuer = issuerFunc(func(_ context.Context,name string,_ PresentChallenge)([]byte,[]byte,error){
+                cert,key := fakeCert(t,name,r.now()); return cert,key,nil
+            })
+            if _,err := r.Verify(ctx,claim); err != nil { t.Fatal(err) }
+            path := filepath.Join(t.TempDir(),"authority.db")
+            if _,err := r.db.Exec(`VACUUM INTO ?`,path); err != nil { t.Fatal(err) }
+            writer,err := sql.Open("sqlite",path)
+            if err != nil { t.Fatal(err) }
+            defer writer.Close()
+            fired := false
+            hook := func() {
+                fired = true
+                query := `UPDATE reserved_subdomains SET account_id='two' WHERE subdomain='site'`
+                if mutation == "entitlement" { query = `UPDATE accounts SET plan='free' WHERE id='one'` }
+                if mutation == "lease" { query = `UPDATE custom_domains SET state='dns_verification_failed',verified_until=0 WHERE name='work.example.com'` }
+                if _,err := writer.ExecContext(ctx,query); err != nil { t.Fatal(err) }
+                t.Log("revocation committed after Route authorization and before certificate/key SELECT")
+            }
+            hooked := sql.OpenDB(&r5Connector{path:path,before:hook})
+            defer hooked.Close()
+            hooked.SetMaxOpenConns(1)
+            r.db = hooked
+            pair,err := r.Certificate(ctx,&pb.Domain{Name:claim.Name})
+            if !fired { t.Fatal("key-read scheduling hook did not execute") }
+            _,nextErr := r.Certificate(ctx,&pb.Domain{Name:claim.Name})
+            if nextErr == nil { t.Fatal("subsequent routing failed to enforce revocation") }
+            if err == nil && pair != nil && len(pair.KeyPem)>0 {
+                t.Fatalf("returned cached private key after committed %s revocation; next lookup denies: %v",mutation,nextErr)
+            }
+        })
+    }
+}

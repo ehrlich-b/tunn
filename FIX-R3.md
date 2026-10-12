@@ -182,3 +182,71 @@ issuer configured. Optional Chromium/Pebble gates are not enabled.
 All edits and commits are confined to this clone. No push, GitHub write,
 deployment, production database access, provider login, real ACME, email,
 payment, resource-exhaustion input, or sub-agent work occurred.
+
+## Round 5
+
+Base: `8d0bf599b68b25af9ad6f5b030255a986fcf828c`; branch:
+`codex/tunn-r4fix-20261012`. Continued the merged round-three/four domain and
+sharing fixes from a clean tree. Read the full round-five BRIEF.md and independent
+REVIEW.md, including R5-D1, its deterministic cached-key probe, and scratch-only
+query control before implementation.
+
+**R5-D1:** the concrete `Certificate` key SELECT retains name, owner and target
+predicates and now requires current ready state, an unexpired DNS lease and
+certificate, Pro entitlement, and the current tunnel reservation owned by the
+same domain owner in that SQL operation. It checks the live domain row's tunnel
+rather than trusting the earlier Route result. No matching authorized row returns
+the existing wildcard-path `FailedPrecondition` denial, `app reservation or
+domain authority changed`, with no certificate pair or decrypted key.
+
+`TestR5ConcreteCachedKeyRechecksAuthority` permanently retains all three requested
+interleavings: reservation reassigned, owner downgraded from Pro, and lease/state
+cleared after Route authorization and immediately before the key SELECT. A driver
+hook commits one ordinary one-row mutation through an independent SQLite
+connection. Additional cases isolate readiness loss, lease expiry and certificate
+expiry, including equality at the fixed current time. Each case first requires
+successful retrieval of the exact issued certificate/key, then requires that the
+hook executes, the mutation affects one row, the in-flight key read returns the
+existing denial and a nil pair, and the next request also denies access.
+
+Evidence in `evidence/fix-r5/`:
+
+- `regression-before.log` / `.exit`: all six cases **FAIL** on untouched base
+  application source, returning a key after committed revocation (exit 1).
+- `regression-base-recheck.log` / `.exit`: a source-only overlay of registry.go
+  from the requested base reproduces all six failures at final working source.
+- `regression-after.log` / `.exit`: all six permanent cases **PASS** on three
+  repeated race runs, with zero race warnings (18 interleavings, exit 0).
+- `review-after.log` / `.exit`: the byte-identical original reviewer probe
+  **PASSES** on three repeated race runs (nine interleavings, exit 0).
+- `verifier-regression.log` / `.exit`: the existing exact documented Python
+  verifier regression **PASSES**, with synthetic keys and mocked JWKS (exit 0).
+- `source-manifest.json` hashes the validated implementation/test source and
+  records the original probe's path/hash; its unchanged copy is retained as
+  `review_r5_cached_authority_test.go.txt`.
+
+Full acceptance gates use no source/test overlay and `-count=1` for each test run:
+
+| Gate | Result | Evidence |
+| --- | --- | --- |
+| `go vet -p 4 ./...` | **PASS**, exit 0 | `vet.log` / `.exit` |
+| `go test -p 4 -count=1 -parallel=2 -timeout=600s ./...` | **PASS**, 18 tested packages | `full.log` / `.exit` |
+| `go test -race -p 4 -count=1 -parallel=2 -timeout=600s ./...`, first run | **PASS**, 18 tested packages, zero race warnings | `race-1.log` / `.exit` |
+| Same full race command, second uncached run | **PASS**, 18 tested packages, zero race warnings | `race-2.log` / `.exit` |
+
+All existing domain and sharing regressions run in the full suites, with both
+Chromium sharing/cache journeys enabled using installed read-only browser/Python
+inputs. SDK consumer integration runs in both full race gates. The opt-in Pebble
+gate remains disabled. Synthetic DNS, local issuers and test databases exercise
+certificate issuance without real ACME or provider access.
+
+`commands.md` records exact commands and overlay reproduction; `summary.json`
+records gate exits and package counts. All Go runs use `GOMAXPROCS=4`, `-p 4`,
+`umask 022`, and `GOCACHE`, `GOTMPDIR` and `TMPDIR` under the already gitignored
+`$PWD/.scratch`. The retained cache helper only reads shared immutable artifacts
+and writes new entries inside the clone; module downloads and telemetry are off.
+
+All edits, generated evidence and commits are confined to this clone. No push,
+GitHub write, fly invocation, production DB access, provider login, real ACME,
+email, payment, resource-exhaustion input or sub-agent work occurred. No existing
+test or authorization check was weakened.

@@ -1,0 +1,29 @@
+=== RUN   TestR5ConcreteCachedKeyRechecksAuthority
+=== RUN   TestR5ConcreteCachedKeyRechecksAuthority/reservation
+    r5_cached_authority_test.go:104: revocation committed after Route authorization and before certificate/key SELECT
+    r5_cached_authority_test.go:119: cached key read after committed reservation revocation: pair=true err=<nil>; next lookup denies: rpc error: code = PermissionDenied desc = domain entitlement or tunnel ownership lost
+=== RUN   TestR5ConcreteCachedKeyRechecksAuthority/entitlement
+    r5_cached_authority_test.go:104: revocation committed after Route authorization and before certificate/key SELECT
+    r5_cached_authority_test.go:119: cached key read after committed entitlement revocation: pair=true err=<nil>; next lookup denies: rpc error: code = PermissionDenied desc = domain entitlement or tunnel ownership lost
+=== RUN   TestR5ConcreteCachedKeyRechecksAuthority/lease_and_state
+    r5_cached_authority_test.go:104: revocation committed after Route authorization and before certificate/key SELECT
+    r5_cached_authority_test.go:119: cached key read after committed lease_and_state revocation: pair=true err=<nil>; next lookup denies: rpc error: code = FailedPrecondition desc = domain DNS or certificate is not ready
+=== RUN   TestR5ConcreteCachedKeyRechecksAuthority/lease_expired
+    r5_cached_authority_test.go:104: revocation committed after Route authorization and before certificate/key SELECT
+    r5_cached_authority_test.go:119: cached key read after committed lease_expired revocation: pair=true err=<nil>; next lookup denies: rpc error: code = FailedPrecondition desc = domain DNS or certificate is not ready
+=== RUN   TestR5ConcreteCachedKeyRechecksAuthority/state_cleared
+    r5_cached_authority_test.go:104: revocation committed after Route authorization and before certificate/key SELECT
+    r5_cached_authority_test.go:119: cached key read after committed state_cleared revocation: pair=true err=<nil>; next lookup denies: rpc error: code = FailedPrecondition desc = domain DNS or certificate is not ready
+=== RUN   TestR5ConcreteCachedKeyRechecksAuthority/certificate_expired
+    r5_cached_authority_test.go:104: revocation committed after Route authorization and before certificate/key SELECT
+    r5_cached_authority_test.go:119: cached key read after committed certificate_expired revocation: pair=true err=<nil>; next lookup denies: rpc error: code = FailedPrecondition desc = domain DNS or certificate is not ready
+--- FAIL: TestR5ConcreteCachedKeyRechecksAuthority (1.66s)
+    --- FAIL: TestR5ConcreteCachedKeyRechecksAuthority/reservation (0.28s)
+    --- FAIL: TestR5ConcreteCachedKeyRechecksAuthority/entitlement (0.30s)
+    --- FAIL: TestR5ConcreteCachedKeyRechecksAuthority/lease_and_state (0.27s)
+    --- FAIL: TestR5ConcreteCachedKeyRechecksAuthority/lease_expired (0.27s)
+    --- FAIL: TestR5ConcreteCachedKeyRechecksAuthority/state_cleared (0.26s)
+    --- FAIL: TestR5ConcreteCachedKeyRechecksAuthority/certificate_expired (0.28s)
+FAIL
+FAIL	github.com/ehrlich-b/tunn/internal/domains	1.680s
+FAIL

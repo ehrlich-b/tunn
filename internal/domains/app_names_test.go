@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/ehrlich-b/tunn/internal/storage"
 	"github.com/ehrlich-b/tunn/internal/store"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/domainv1"
@@ -275,5 +276,74 @@ func TestNamespaceDeletionDuringIssuanceCannotReturnKeys(t *testing.T) {
 				t.Fatalf("orphan keys: %d %v", count, err)
 			}
 		})
+	}
+}
+
+func TestNamespaceIDsCannotBeReservedThroughAnyWriterOrAfterDeletion(t *testing.T) {
+	r, dns, db := domainFixture(t, nil)
+	ctx := context.Background()
+	d := addDomain(t, r, "*.apps.customer.test", "grafana", "one")
+	id := d.AppNames[0].Tunnel
+	dns.records[d.Name] = d.CnameTarget
+	if _, err := r.Verify(ctx, d); err != nil {
+		t.Fatal(err)
+	}
+	hosts, err := store.NewHostStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, deleted := range []bool{false, true} {
+		if deleted {
+			if _, err := r.Delete(ctx, d); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := store.NewAccountStore(db).ReserveSubdomain("two", id); err == nil {
+			t.Fatal("AccountStore claimed internal ID")
+		}
+		if _, err := r.Add(ctx, &pb.Domain{Name: "unrelated.other.test", Tunnel: id, Owner: "two"}); status.Code(err) != codes.PermissionDenied {
+			t.Fatalf("exact-domain reservation path: %v", err)
+		}
+		if err := hosts.Register("two", common.HostManifest{Machine: "other-host", Tunnels: []common.HostEndpointSpec{{Name: id, Kind: "http"}}}); err == nil {
+			t.Fatal("host reserved internal ID")
+		}
+		if _, err := db.Exec(`INSERT INTO reserved_subdomains VALUES(?,'two',1)`, id); err == nil {
+			t.Fatal("SQL insert bypassed scoped-ID gate")
+		}
+		if err := store.NewAccountStore(db).ReserveSubdomain("two", "ordinary"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`UPDATE reserved_subdomains SET subdomain=? WHERE subdomain='ordinary'`, id); err == nil {
+			t.Fatal("SQL update bypassed scoped-ID gate")
+		}
+		if deleted {
+			local := storage.NewLocalStorageWithClock(db, r.now)
+			if reg, err := local.RegisterTunnel(ctx, id, "one", "node"); err != nil || reg.Allowed {
+				t.Fatalf("revoked internal ID became shared publisher: %+v %v", reg, err)
+			}
+		}
+	}
+	var count int
+	if err := db.QueryRow(`SELECT count(*) FROM reserved_subdomains WHERE subdomain=?`, id).Scan(&count); err != nil || count != 0 {
+		t.Fatal("internal ID consumed shared reservation")
+	}
+}
+
+func TestNamespaceMigrationPreservesHistoricalGlobalInternalStyleName(t *testing.T) {
+	r, _, db := domainFixture(t, nil)
+	id := "ns-" + strings.Repeat("a", 48)
+	// Model a global name written by an older head before these safety triggers.
+	if _, err := db.Exec(`DROP TRIGGER namespace_shared_insert_guard; INSERT INTO reserved_subdomains VALUES(?,'one',1)`, id); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MigrateNamespaceNames(db); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.NewAccountStore(db).ReserveSubdomain("one", id); err != nil {
+		t.Fatalf("historical reservation retry failed: %v", err)
+	}
+	local := storage.NewLocalStorageWithClock(db, r.now)
+	if reg, err := local.RegisterTunnel(context.Background(), id, "one", "node"); err != nil || !reg.Allowed {
+		t.Fatalf("historical publisher denied: %+v %v", reg, err)
 	}
 }

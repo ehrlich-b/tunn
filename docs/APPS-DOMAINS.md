@@ -30,7 +30,15 @@ legacy flag) and `app_name_limit` (50 for Pro). The 51st new name returns HTTP
 429 / ResourceExhausted with the namespace and plan limit. Repeating an existing
 name remains idempotent at capacity. Equal labels in different namespaces use
 separate internal publisher IDs unless they reuse the same owner's pre-existing
-global reservation. Internal scoped IDs cannot be claimed as shared reservations.
+global reservation. The `ns-` plus 48 lowercase hexadecimal-digit syntax is reserved to internal
+publishers; all shared-reservation writers and SQL inserts/renames reject new
+names in that syntax. Existing historical global rows are preserved. Deleted
+namespace IDs fail publisher reconnect rather than becoming shared reservations.
+The read-only `POST /api/domains/publisher` lookup resolves one verified app under
+its owning account. It accepts a live durable publisher device or an existing
+owner JWT; durable tokens still cannot list, add, verify or delete domain claims.
+Terminating edges forward durable lookup to the login node for device revocation
+and account checks. This endpoint does not create any name or claim.
 
 At authority startup, one transaction creates the namespace-name table and
 claim cleanup triggers, backfills historical wildcard bindings, and records

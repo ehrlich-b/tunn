@@ -186,6 +186,9 @@ func (r *Registry) Add(ctx context.Context, in *pb.Domain) (*pb.Domain, error) {
 			return nil, err
 		}
 		if errors.Is(err, sql.ErrNoRows) {
+			if err := store.CheckNewSharedReservation(in.Tunnel); err != nil {
+				return nil, status.Error(codes.PermissionDenied, err.Error())
+			}
 			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM reserved_subdomains WHERE account_id=?`, in.Owner).Scan(&count); err != nil {
 				return nil, err
 			}

@@ -2,12 +2,12 @@ package client
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestDomainClientUsesOwnerOriginAndRefusesRedirects(t *testing.T) {
@@ -58,25 +58,28 @@ func TestNamespacePublisherLookupPreservesLegacyAndScopedIDs(t *testing.T) {
 			if legacy {
 				tunnel = "grafana"
 			}
-			body := fmt.Sprintf(`{"domains":[{"name":"*.apps.customer.test","state":"ready","verified_until":%d,"app_names":[{"label":"grafana","tunnel":%q,"legacy":%t}],"app_name_limit":50}]}`, time.Now().Add(time.Hour).Unix(), tunnel, legacy)
-			c := &ManagementClient{ServerURL: "https://relay.test", OwnerToken: "owner-fixture", HTTPClient: &http.Client{Transport: meteringTransportFunc(func(r *http.Request) (*http.Response, error) {
-				if r.Method != "GET" || r.URL.Path != "/api/domains" || r.Header.Get("Authorization") != "Bearer owner-fixture" {
+			statusCode := 200
+			body := fmt.Sprintf(`{"tunnel":%q}`, tunnel)
+			c := &ManagementClient{ServerURL: "https://relay.test", OwnerToken: "publisher-fixture", HTTPClient: &http.Client{Transport: meteringTransportFunc(func(r *http.Request) (*http.Response, error) {
+				var input struct {
+					Name string `json:"name"`
+				}
+				if r.Method != "POST" || r.URL.Path != "/api/domains/publisher" || r.Header.Get("Authorization") != "Bearer publisher-fixture" || json.NewDecoder(r.Body).Decode(&input) != nil || input.Name != "grafana.apps.customer.test" {
 					t.Fatalf("unexpected lookup: %s %s", r.Method, r.URL.Path)
 				}
-				return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)), Request: r}, nil
+				return &http.Response{StatusCode: statusCode, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)), Request: r}, nil
 			})}}
 			if got, err := c.NamespaceTunnel(context.Background(), "APPS.Customer.Test.", "grafana"); err != nil || got != tunnel {
 				t.Fatalf("lookup=%s %v", got, err)
 			}
-			if _, err := c.NamespaceTunnel(context.Background(), "apps.customer.test", "missing"); err == nil || !strings.Contains(err.Error(), "tunn domain add") {
-				t.Fatalf("missing app: %v", err)
-			}
-			if _, err := c.NamespaceTunnel(context.Background(), "apps.other.test", "grafana"); err == nil {
-				t.Fatal("lookup escaped owned namespace")
-			}
-			body = strings.Replace(body, `"state":"ready"`, `"state":"pending"`, 1)
+			statusCode = 403
 			if _, err := c.NamespaceTunnel(context.Background(), "apps.customer.test", "grafana"); err == nil {
-				t.Fatal("pending namespace published")
+				t.Fatal("denied lookup succeeded")
+			}
+			statusCode = 200
+			body = `{"tunnel":"../invalid"}`
+			if _, err := c.NamespaceTunnel(context.Background(), "apps.customer.test", "grafana"); err == nil {
+				t.Fatal("invalid publisher ID accepted")
 			}
 		})
 	}

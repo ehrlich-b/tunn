@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"database/sql"
+	"fmt"
+	"strings"
 	"time"
 )
 
@@ -25,6 +27,13 @@ func MigrateNamespaceNames(db *sql.DB) error {
  created_at INTEGER NOT NULL, PRIMARY KEY(parent,label));
  CREATE INDEX IF NOT EXISTS namespace_app_names_tunnel ON namespace_app_names(tunnel);
  CREATE UNIQUE INDEX IF NOT EXISTS namespace_app_names_scoped_tunnel ON namespace_app_names(tunnel) WHERE legacy=0;
+ CREATE TRIGGER IF NOT EXISTS namespace_shared_insert_guard BEFORE INSERT ON reserved_subdomains
+ WHEN length(NEW.subdomain)=51 AND substr(NEW.subdomain,1,3)='ns-' AND substr(NEW.subdomain,4) NOT GLOB '*[^0-9a-f]*'
+ AND NOT EXISTS(SELECT 1 FROM reserved_subdomains WHERE subdomain=NEW.subdomain)
+ BEGIN SELECT RAISE(ABORT,'namespace publisher IDs cannot be reserved as shared subdomains'); END;
+ CREATE TRIGGER IF NOT EXISTS namespace_shared_update_guard BEFORE UPDATE OF subdomain ON reserved_subdomains
+ WHEN NEW.subdomain!=OLD.subdomain AND length(NEW.subdomain)=51 AND substr(NEW.subdomain,1,3)='ns-' AND substr(NEW.subdomain,4) NOT GLOB '*[^0-9a-f]*'
+ BEGIN SELECT RAISE(ABORT,'namespace publisher IDs cannot be reserved as shared subdomains'); END;
  CREATE TRIGGER IF NOT EXISTS namespace_claim_deleted AFTER DELETE ON custom_domains BEGIN
  DELETE FROM namespace_app_names WHERE parent=OLD.name AND target=OLD.target;
  DELETE FROM wildcard_certificates WHERE parent=OLD.name AND target=OLD.target;
@@ -63,13 +72,44 @@ func MigrateNamespaceNames(db *sql.DB) error {
 // Scoped IDs are reserved to a live, verified namespace and never auto-reserve a
 // *.tunn.to slot. Ownership follows the parent account through account merges.
 func (s *AccountStore) NamespaceTunnelOwner(ctx context.Context, tunnel string, now time.Time) (owner string, scoped bool, err error) {
+	if !IsNamespacePublisherID(tunnel) {
+		return "", false, nil
+	}
 	var exists int
-	if err = s.db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type='table' AND name='namespace_app_names'`).Scan(&exists); err != nil || exists == 0 {
+	if err = s.db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type='table' AND name='namespace_app_names'`).Scan(&exists); err != nil {
 		return
+	}
+	if exists == 0 {
+		return s.missingNamespaceOwner(ctx, tunnel)
 	}
 	err = s.db.QueryRowContext(ctx, `SELECT CASE WHEN d.proven=1 AND d.state='ready' AND d.verified_until>? AND a.plan='pro' THEN d.owner ELSE '' END FROM namespace_app_names n JOIN custom_domains d ON d.name=n.parent AND d.target=n.target JOIN accounts a ON a.id=d.owner WHERE n.tunnel=? AND n.legacy=0`, now.Unix(), tunnel).Scan(&owner)
 	if err == sql.ErrNoRows {
-		return "", false, nil
+		return s.missingNamespaceOwner(ctx, tunnel)
 	}
 	return owner, err == nil, err
+}
+
+// Internal IDs stay reserved to the namespace transport after revocation. Older
+// global reservations in this syntax retain their original contract.
+func (s *AccountStore) missingNamespaceOwner(ctx context.Context, tunnel string) (string, bool, error) {
+	var exists int
+	err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM reserved_subdomains WHERE subdomain=?`, tunnel).Scan(&exists)
+	return "", exists == 0, err
+}
+func IsNamespacePublisherID(name string) bool {
+	if len(name) != 51 || !strings.HasPrefix(name, "ns-") {
+		return false
+	}
+	for _, c := range name[3:] {
+		if !(c >= '0' && c <= '9') && !(c >= 'a' && c <= 'f') {
+			return false
+		}
+	}
+	return true
+}
+func CheckNewSharedReservation(name string) error {
+	if IsNamespacePublisherID(name) {
+		return fmt.Errorf("namespace publisher IDs cannot be reserved as shared subdomains")
+	}
+	return nil
 }

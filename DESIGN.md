@@ -16,7 +16,12 @@ expiry or replacement removes its names and stored app keys/challenges through
 SQLite triggers, independently of foreign-key settings. A different account
 cannot add names or publish scoped IDs belonging to this namespace. Every route,
 challenge and certificate/key response checks current claim/binding authority.
-Scoped publication never auto-reserves a global name. New namespace bindings
+Scoped publication never auto-reserves a global name. A narrow, read-only publisher lookup verifies live durable-device authority
+and the app owner; device tokens still cannot manage or list domain claims.
+The `ns-` plus 48 lowercase hexadecimal-digit syntax is internal; all reservation
+writers and SQLite reject new shared reservations in that syntax, and revoked
+IDs cannot reconnect as shared publishers. Historical global rows in that syntax
+remain valid. New namespace bindings
 can reuse an already-owned global reservation; that independent reservation stays
 reserved. The previous schema cannot identify app-only global reservations, so
 none are automatically released. Rollback must disable app domains; old images

@@ -245,22 +245,21 @@ func (p *ProxyServer) appAccountAccess(r *http.Request, session jwt.MapClaims, o
 	if account == nil || owner == nil || account.OperationalState != "active" || owner.OperationalState != "active" {
 		return nil, http.StatusForbidden
 	}
-	if account.ID == owner.ID {
-		return account, http.StatusOK
-	}
 	emails := make([]string, 0, len(account.Emails))
 	for _, e := range account.Emails {
 		emails = append(emails, e.Email)
 	}
-	allowed := false
+	// Owners still depend on live resource generation and authority. The same
+	// lookup must run for initial admission and every idle-stream poll.
+	allowed := account.ID == owner.ID
 	if tunnel.ResourceID != "" {
 		resource, err := p.webResource(r.Context(), tunnel)
 		if err != nil {
 			return nil, http.StatusServiceUnavailable
 		}
-		allowed = webExplicitIdentityAllowed(resource, emails, nil, "", p.currentTime())
+		allowed = allowed || webExplicitIdentityAllowed(resource, emails, nil, "", p.currentTime())
 	} else {
-		allowed = isEmailBucketAllowed(emails, tunnel.AllowedEmails)
+		allowed = allowed || isEmailBucketAllowed(emails, tunnel.AllowedEmails)
 	}
 	if !allowed {
 		return nil, http.StatusForbidden

@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -405,5 +406,132 @@ func TestDomainAccountVerifiedMergeResolvesExistingCookie(t *testing.T) {
 	claims := token.Claims.(jwt.MapClaims)
 	if claims["sub"] != tunnel.AccountID || claims["account_id"] != tunnel.AccountID || claims["email"] != "merge@example.com" {
 		t.Fatal("assertion used retired UUID")
+	}
+}
+
+// Fail only the sharing lookup; account, domain and metering authorities remain
+// live so another watcher cannot accidentally satisfy the owner regression.
+type appSharingOutage struct {
+	metering.Backend
+	sharing     metering.SharingBackend
+	unavailable atomic.Bool
+}
+
+func (s *appSharingOutage) Sharing(ctx context.Context, in *mp.SharingRequest) (*mp.SharingResponse, error) {
+	if s.unavailable.Load() {
+		return nil, fmt.Errorf("fixture sharing-only outage")
+	}
+	return s.sharing.Sharing(ctx, in)
+}
+
+func TestDomainAccountOwnerResourceRevocation(t *testing.T) {
+	for _, transport := range []string{"stream", "websocket"} {
+		for _, failure := range []string{"sharing-outage", "missing-generation", "replaced-generation"} {
+			t.Run(transport+"/"+failure, func(t *testing.T) {
+				p, tunnel, _, db := appProxyFixtureDB(t)
+				ledger, err := metering.New(db)
+				if err != nil {
+					t.Fatal(err)
+				}
+				outage := &appSharingOutage{Backend: ledger, sharing: ledger}
+				p.meter = outage
+				appResource(t, p, tunnel, "private")
+				cookie := appSessionCookie(t, p, bryanEmail, "github", true, appHost)
+				tunnel.Capabilities = map[string]bool{common.CapabilityHTTPStreamV1: true, common.CapabilityWebSocketV1: true}
+				tunnel.pendingStreams = make(map[string]*pendingConnection)
+				stream := tunnel.Stream.(*meteringFixtureStream)
+				stream.hook = func(msg *pb.TunnelMessage) error {
+					if open := msg.GetConnectionOpen(); open != nil && transport == "websocket" {
+						tunnel.routeConnectionMessage(&pb.TunnelMessage{Message: &pb.TunnelMessage_ConnectionAccept{ConnectionAccept: &pb.ConnectionAccept{ConnectionId: open.ConnectionId, Success: true, HttpResponse: &pb.HttpResponseHead{StatusCode: 101, Headers: map[string]string{"Upgrade": "websocket", "Connection": "upgrade", "Sec-WebSocket-Accept": common.WebSocketAccept("dGhlIHNhbXBsZSBub25jZQ==")}}}}})
+					}
+					if half := msg.GetConnectionHalfClose(); half != nil && transport == "stream" {
+						tunnel.routeConnectionMessage(&pb.TunnelMessage{Message: &pb.TunnelMessage_ConnectionAccept{ConnectionAccept: &pb.ConnectionAccept{ConnectionId: half.ConnectionId, Success: true, HttpResponse: &pb.HttpResponseHead{StatusCode: 200, Headers: map[string]string{"Content-Type": "text/event-stream"}}}}})
+						tunnel.routeConnectionMessage(&pb.TunnelMessage{Message: &pb.TunnelMessage_ConnectionData{ConnectionData: &pb.ConnectionData{ConnectionId: half.ConnectionId, Data: []byte("data: ready\n\n")}}})
+					}
+					return nil
+				}
+				handlerDone := make(chan struct{})
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					defer close(handlerDone)
+					p.createHandler().ServeHTTP(w, r)
+				}))
+				defer server.Close()
+				var reader io.Reader
+				var closeTransport func()
+				if transport == "stream" {
+					req, _ := http.NewRequest("GET", server.URL+"/events", nil)
+					req.Host = appHost
+					req.AddCookie(cookie)
+					server.Client().Timeout = 6 * time.Second
+					resp, err := server.Client().Do(req)
+					if err != nil || resp.StatusCode != 200 {
+						t.Fatal("owner SSE open", resp, err)
+					}
+					reader = resp.Body
+					closeTransport = func() { resp.Body.Close() }
+					ready := make([]byte, len("data: ready\n\n"))
+					if _, err := io.ReadFull(reader, ready); err != nil {
+						t.Fatal(err)
+					}
+				} else {
+					conn, err := net.DialTimeout("tcp", server.Listener.Addr().String(), time.Second)
+					if err != nil {
+						t.Fatal(err)
+					}
+					conn.SetDeadline(time.Now().Add(6 * time.Second))
+					closeTransport = func() { conn.Close() }
+					req, _ := http.NewRequest("GET", server.URL+"/events", nil)
+					req.Host = appHost
+					req.AddCookie(cookie)
+					req.Header.Set("Upgrade", "websocket")
+					req.Header.Set("Connection", "upgrade")
+					req.Header.Set("Sec-WebSocket-Version", "13")
+					req.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+					if err := req.Write(conn); err != nil {
+						closeTransport()
+						t.Fatal(err)
+					}
+					buffered := bufio.NewReader(conn)
+					resp, err := http.ReadResponse(buffered, req)
+					if err != nil || resp.StatusCode != 101 {
+						closeTransport()
+						t.Fatal("owner WebSocket open", resp, err)
+					}
+					reader = buffered
+				}
+				defer func() {
+					closeTransport()
+					select {
+					case <-handlerDone:
+					case <-time.After(2 * time.Second):
+						t.Error("transport handler did not stop")
+					}
+				}()
+				started := time.Now()
+				switch failure {
+				case "sharing-outage":
+					outage.unavailable.Store(true)
+				case "missing-generation":
+					_, err = db.Exec(`DELETE FROM web_resources WHERE endpoint=?`, tunnel.TunnelID)
+				case "replaced-generation":
+					_, err = db.Exec(`UPDATE web_resources SET id='replacement-generation' WHERE endpoint=?`, tunnel.TunnelID)
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				_, readErr := io.ReadAll(reader)
+				elapsed := time.Since(started)
+				if elapsed >= 5*time.Second {
+					t.Fatalf("owner %s survived %s for %s: %v", transport, failure, elapsed, readErr)
+				}
+				if transport == "stream" && readErr == nil {
+					t.Fatal("revoked owner SSE completed successfully")
+				}
+				if appOpenWithCookie(p, cookie).Code != 503 {
+					t.Fatal("new owner request did not fail closed")
+				}
+				t.Logf("%s cutoff: %s", failure, elapsed)
+			})
+		}
 	}
 }

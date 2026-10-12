@@ -1,0 +1,49 @@
+=== RUN   TestReviewAccountMergeRevivesRevokedPersonAndAllowsLegacyDowngrade
+2026/10/12 02:13:15 INFO access denied - user not on allow-list email=alice@example.com bucket=[alice@example.com] tunnel_id=api allowed_emails=[]
+    r3_review_characterization_test.go:85: merge: web_resource.owner=a21aee28-fb2b-4069-89d6-035e72dd8742, person_grant.owner=290188ec-87a8-4d67-ad85-bbe914904203; merged owner cannot get/unshare
+    r3_review_characterization_test.go:96: modern reconnect created a new generation and restored revoked alice access (HTTP 200)
+2026/10/12 02:13:15 INFO new tunnel stream established
+2026/10/12 02:13:15 INFO client registering tunnel_id=legacy-review target=http
+2026/10/12 02:13:15 INFO tunnel registration tunnel_id=legacy-review creator=owner@example.com allowed=[]
+2026/10/12 02:13:15 INFO tunnel registered tunnel_id=legacy-review url=https://legacy-review.tunn.test
+2026/10/12 02:13:15 INFO client closed stream tunnel_id=legacy-review
+2026/10/12 02:13:15 INFO tunnel disconnected tunnel_id=legacy-review
+    r3_review_characterization_test.go:115: actual unversioned gRPC registration changed the merged owner's managed private resource to legacy-public
+--- PASS: TestReviewAccountMergeRevivesRevokedPersonAndAllowsLegacyDowngrade (0.36s)
+=== RUN   TestReviewPersonMatchingAndResourceIsolation
+    r3_review_characterization_test.go:137: email "ALICE@GMAIL.COM" => 200
+    r3_review_characterization_test.go:137: email "ａｌｉｃｅ@gmail.com" => 200
+2026/10/12 02:13:15 INFO access denied - user not on allow-list email=аlice@gmail.com bucket=[аlice@gmail.com] tunnel_id=api allowed_emails=[]
+    r3_review_characterization_test.go:137: email "аlice@gmail.com" => 403
+2026/10/12 02:13:15 INFO access denied - user not on allow-list email=alice+tag@gmail.com bucket=[alice+tag@gmail.com] tunnel_id=api allowed_emails=[]
+    r3_review_characterization_test.go:137: email "alice+tag@gmail.com" => 403
+2026/10/12 02:13:15 INFO access denied - user not on allow-list email=a.lice@gmail.com bucket=[a.lice@gmail.com] tunnel_id=api allowed_emails=[]
+    r3_review_characterization_test.go:137: email "a.lice@gmail.com" => 403
+2026/10/12 02:13:15 INFO access denied - user not on allow-list email=alice@googlemail.com bucket=[alice@googlemail.com] tunnel_id=api allowed_emails=[]
+    r3_review_characterization_test.go:137: email "alice@googlemail.com" => 403
+2026/10/12 02:13:15 INFO access denied - user not on allow-list email=alice@gmail.com.evil.test bucket=[alice@gmail.com.evil.test] tunnel_id=api allowed_emails=[]
+    r3_review_characterization_test.go:137: email "alice@gmail.com.evil.test" => 403
+2026/10/12 02:13:15 INFO access denied - user not on allow-list email=alice@ɡmail.com bucket=[alice@ɡmail.com] tunnel_id=api allowed_emails=[]
+    r3_review_characterization_test.go:137: email "alice@ɡmail.com" => 403
+2026/10/12 02:13:15 INFO access denied - user not on allow-list email=stranger@example.com bucket=[stranger@example.com] tunnel_id=api allowed_emails=[]
+--- PASS: TestReviewPersonMatchingAndResourceIsolation (0.25s)
+=== RUN   TestReviewGoogleThirdPartyEmailLinksExistingGithubOwner
+    r3_review_characterization_test.go:202: Google subject with verified third-party email and no hd received session for existing GitHub owner, including its other verified alias; its session successfully added attacker@example.com to that owner's private resource
+--- PASS: TestReviewGoogleThirdPartyEmailLinksExistingGithubOwner (0.19s)
+=== RUN   TestReviewOAuthStateRedirectAndCookieScope
+    r3_review_characterization_test.go:213: browser-ambiguous relative return_to "/\\evil.test/" -> "/"
+    r3_review_characterization_test.go:213: browser-ambiguous relative return_to "/\t/evil.test/" -> "/"
+--- PASS: TestReviewOAuthStateRedirectAndCookieScope (0.14s)
+=== RUN   TestReviewBrowserCacheCookieAndBackslashRedirect
+2026/10/12 02:13:17 INFO access denied - user not on allow-list email=alice@example.com bucket=[alice@example.com] tunnel_id=api allowed_emails=[]
+2026/10/12 02:13:17 INFO homepage human ip=127.0.0.1 ua="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/140.0.7339.16 Safari/537.36"
+    r3_review_characterization_test.go:308: {"first_asset": {"status": 200, "text": "PRIVATE-ASSET-REVIEW", "cache": "public, max-age=3600", "vary": null, "headers": {"cache-control": "public, max-age=3600", "content-length": "20", "content-type": "text/plain", "date": "Mon, 12 Oct 2026 06:13:17 GMT", "tunn-bytes-remaining": "-1", "tunn-request-id": "ddb6f8e28b3bee5a167d84e88a3eb768", "tunn-requests-remaining": "-1"}}, "cached_after_revocation": true, "network_after_revocation": 403, "platform_cookie_visible_to_js": false, "backslash_redirect_final_url": "https://tunn.test:45697/"}
+        
+--- PASS: TestReviewBrowserCacheCookieAndBackslashRedirect (1.50s)
+PASS
+ok  	github.com/ehrlich-b/tunn/internal/host	3.461s
+=== RUN   TestReviewRepeatedSharingExhaustsGlobalGrantCapacity
+    r3_review_characterization_test.go:39: 3 identical share operations retained 3 global grant rows and blocked an unrelated owner's machine grant; production cap=10000
+--- PASS: TestReviewRepeatedSharingExhaustsGlobalGrantCapacity (0.17s)
+PASS
+ok  	github.com/ehrlich-b/tunn/internal/metering	1.197s

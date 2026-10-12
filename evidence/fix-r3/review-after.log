@@ -1,0 +1,44 @@
+=== RUN   TestReviewAccountMergeRevivesRevokedPersonAndAllowsLegacyDowngrade
+2026/10/12 02:42:18 INFO access denied - user not on allow-list email=alice@example.com bucket=[alice@example.com] tunnel_id=api allowed_emails=[]
+    r3_review_safety_test.go:74: expected the split-owner bug
+--- FAIL: TestReviewAccountMergeRevivesRevokedPersonAndAllowsLegacyDowngrade (0.35s)
+=== RUN   TestReviewPersonMatchingAndResourceIsolation
+    r3_review_safety_test.go:137: email "ALICE@GMAIL.COM" => 200
+    r3_review_safety_test.go:137: email "ａｌｉｃｅ@gmail.com" => 200
+2026/10/12 02:42:18 INFO access denied - user not on allow-list email=аlice@gmail.com bucket=[аlice@gmail.com] tunnel_id=api allowed_emails=[]
+    r3_review_safety_test.go:137: email "аlice@gmail.com" => 403
+2026/10/12 02:42:18 INFO access denied - user not on allow-list email=alice+tag@gmail.com bucket=[alice+tag@gmail.com] tunnel_id=api allowed_emails=[]
+    r3_review_safety_test.go:137: email "alice+tag@gmail.com" => 403
+2026/10/12 02:42:18 INFO access denied - user not on allow-list email=a.lice@gmail.com bucket=[a.lice@gmail.com] tunnel_id=api allowed_emails=[]
+    r3_review_safety_test.go:137: email "a.lice@gmail.com" => 403
+2026/10/12 02:42:18 INFO access denied - user not on allow-list email=alice@googlemail.com bucket=[alice@googlemail.com] tunnel_id=api allowed_emails=[]
+    r3_review_safety_test.go:137: email "alice@googlemail.com" => 403
+2026/10/12 02:42:18 INFO access denied - user not on allow-list email=alice@gmail.com.evil.test bucket=[alice@gmail.com.evil.test] tunnel_id=api allowed_emails=[]
+    r3_review_safety_test.go:137: email "alice@gmail.com.evil.test" => 403
+2026/10/12 02:42:18 INFO access denied - user not on allow-list email=alice@ɡmail.com bucket=[alice@ɡmail.com] tunnel_id=api allowed_emails=[]
+    r3_review_safety_test.go:137: email "alice@ɡmail.com" => 403
+2026/10/12 02:42:18 INFO access denied - user not on allow-list email=stranger@example.com bucket=[stranger@example.com] tunnel_id=api allowed_emails=[]
+--- PASS: TestReviewPersonMatchingAndResourceIsolation (0.29s)
+=== RUN   TestReviewGoogleThirdPartyEmailLinksExistingGithubOwner
+    r3_review_safety_test.go:177: callback=403 Google does not verify current ownership of this email; sign in with a fresh email link
+--- FAIL: TestReviewGoogleThirdPartyEmailLinksExistingGithubOwner (0.21s)
+=== RUN   TestReviewOAuthStateRedirectAndCookieScope
+    r3_review_safety_test.go:213: browser-ambiguous relative return_to "/\\evil.test/" -> "/"
+    r3_review_safety_test.go:213: browser-ambiguous relative return_to "/\t/evil.test/" -> "/"
+--- PASS: TestReviewOAuthStateRedirectAndCookieScope (0.16s)
+=== RUN   TestReviewBrowserCacheCookieAndBackslashRedirect
+2026/10/12 02:42:20 INFO access denied - user not on allow-list email=alice@example.com bucket=[alice@example.com] tunnel_id=api allowed_emails=[]
+2026/10/12 02:42:20 INFO access denied - user not on allow-list email=alice@example.com bucket=[alice@example.com] tunnel_id=api allowed_emails=[]
+2026/10/12 02:42:20 INFO homepage human ip=127.0.0.1 ua="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/140.0.7339.16 Safari/537.36"
+    r3_review_safety_test.go:308: {"first_asset": {"status": 200, "text": "PRIVATE-ASSET-REVIEW", "cache": "no-store", "vary": "Cookie, Authorization, Tunn-Authorization", "headers": {"cache-control": "no-store", "content-length": "20", "content-type": "text/plain", "date": "Mon, 12 Oct 2026 06:42:20 GMT", "pragma": "no-cache", "tunn-bytes-remaining": "-1", "tunn-request-id": "9401d288b0e4055af81ef190c832cc1b", "tunn-requests-remaining": "-1", "vary": "Cookie, Authorization, Tunn-Authorization"}}, "cached_after_revocation": false, "network_after_revocation": 403, "platform_cookie_visible_to_js": false, "backslash_redirect_final_url": "https://tunn.test:35231/"}
+        
+    r3_review_safety_test.go:317: map[backslash_redirect_final_url:https://tunn.test:35231/ cached_after_revocation:false first_asset:map[cache:no-store headers:map[cache-control:no-store content-length:20 content-type:text/plain date:Mon, 12 Oct 2026 06:42:20 GMT pragma:no-cache tunn-bytes-remaining:-1 tunn-request-id:9401d288b0e4055af81ef190c832cc1b tunn-requests-remaining:-1 vary:Cookie, Authorization, Tunn-Authorization] status:200 text:PRIVATE-ASSET-REVIEW vary:Cookie, Authorization, Tunn-Authorization] network_after_revocation:403 platform_cookie_visible_to_js:false]
+--- FAIL: TestReviewBrowserCacheCookieAndBackslashRedirect (1.10s)
+FAIL
+FAIL	github.com/ehrlich-b/tunn/internal/host	2.149s
+=== RUN   TestReviewRepeatedSharingExhaustsGlobalGrantCapacity
+    r3_security_test.go:33: unrelated grant error=<nil>
+--- FAIL: TestReviewRepeatedSharingExhaustsGlobalGrantCapacity (0.26s)
+FAIL
+FAIL	github.com/ehrlich-b/tunn/internal/metering	0.282s
+FAIL

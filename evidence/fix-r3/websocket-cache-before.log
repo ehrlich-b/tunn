@@ -1,0 +1,17 @@
+2026/10/12 02:41:09 INFO connecting to proxy server=127.0.0.1:44287
+2026/10/12 02:41:09 INFO gRPC stream established
+2026/10/12 02:41:09 INFO no auth token - using public mode
+2026/10/12 02:41:09 INFO new tunnel stream established
+2026/10/12 02:41:09 INFO registration sent tunnel_id=websocket-fixture protocol=http
+2026/10/12 02:41:09 INFO client registering tunnel_id=websocket-fixture target=http
+2026/10/12 02:41:09 INFO public mode - skipping auth tunnel_id=websocket-fixture
+2026/10/12 02:41:09 INFO tunnel registered tunnel_id=websocket-fixture url=https://websocket-fixture.tunn.test
+2026/10/12 02:41:09 INFO tunnel registered successfully public_url=https://websocket-fixture.tunn.test
+https://websocket-fixture.tunn.test -> http://127.0.0.1:44133
+2026/10/12 02:41:09 INFO tunnel disconnected tunnel_id=websocket-fixture
+2026/10/12 02:41:09 ERROR failed to proxy request error="context canceled" tunnel_id=websocket-fixture
+--- FAIL: TestR3PrivateWebSocketUpgradeCachePolicy (0.01s)
+    r3_cache_test.go:195: protected response retained upstream caching map[Connection:[Upgrade] Sec-Websocket-Accept:[s3pPLMBiTxaQ9kYGzzhZRbK+xOo=] Upgrade:[websocket]]
+FAIL
+FAIL	github.com/ehrlich-b/tunn/internal/host	0.024s
+FAIL

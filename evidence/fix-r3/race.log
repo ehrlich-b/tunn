@@ -1,0 +1,6 @@
+ok  	github.com/ehrlich-b/tunn/internal/common	1.043s
+ok  	github.com/ehrlich-b/tunn/internal/host	256.795s
+ok  	github.com/ehrlich-b/tunn/internal/metering	7.876s
+ok  	github.com/ehrlich-b/tunn/internal/store	49.403s
+ok  	github.com/ehrlich-b/tunn/internal/storage	7.735s
+?   	github.com/ehrlich-b/tunn/pkg/proto/internalv1	[no test files]

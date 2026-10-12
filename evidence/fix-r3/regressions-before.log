@@ -1,0 +1,23 @@
+=== RUN   TestR3AccountMergePreservesRevocationAndPrivateMode
+2026/10/12 02:14:25 INFO access denied - user not on allow-list email=alice@example.com bucket=[alice@example.com] tunnel_id=api allowed_emails=[]
+    r3_security_test.go:73: merge split resource and grant ownership
+--- FAIL: TestR3AccountMergePreservesRevocationAndPrivateMode (0.02s)
+=== RUN   TestR3GoogleThirdPartyEmailCannotAcquireOwner
+    r3_security_test.go:176: non-authoritative callback=302 <a href="/account">Found</a>.
+        
+--- FAIL: TestR3GoogleThirdPartyEmailCannotAcquireOwner (0.01s)
+=== RUN   TestR3BrowserCacheCannotBypassRevocation
+2026/10/12 02:14:26 INFO access denied - user not on allow-list email=alice@example.com bucket=[alice@example.com] tunnel_id=api allowed_emails=[]
+2026/10/12 02:14:26 INFO homepage human ip=127.0.0.1 ua="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/140.0.7339.16 Safari/537.36"
+    r3_security_test.go:289: {"first_asset": {"status": 200, "text": "PRIVATE-ASSET-REVIEW", "cache": "public, max-age=3600", "vary": null, "headers": {"cache-control": "public, max-age=3600", "content-length": "20", "content-type": "text/plain", "date": "Mon, 12 Oct 2026 06:14:26 GMT", "tunn-bytes-remaining": "-1", "tunn-request-id": "44b249db09b8da2bbe30b88b8d63cc1b", "tunn-requests-remaining": "-1"}}, "cached_after_revocation": true, "network_after_revocation": 403, "platform_cookie_visible_to_js": false, "backslash_redirect_final_url": "https://tunn.test:45615/"}
+        
+    r3_security_test.go:298: map[backslash_redirect_final_url:https://tunn.test:45615/ cached_after_revocation:true first_asset:map[cache:public, max-age=3600 headers:map[cache-control:public, max-age=3600 content-length:20 content-type:text/plain date:Mon, 12 Oct 2026 06:14:26 GMT tunn-bytes-remaining:-1 tunn-request-id:44b249db09b8da2bbe30b88b8d63cc1b tunn-requests-remaining:-1] status:200 text:PRIVATE-ASSET-REVIEW vary:<nil>] network_after_revocation:403 platform_cookie_visible_to_js:false]
+--- FAIL: TestR3BrowserCacheCannotBypassRevocation (0.98s)
+FAIL
+FAIL	github.com/ehrlich-b/tunn/internal/host	1.018s
+=== RUN   TestR3RepeatedSharingPreservesGlobalGrantCapacity
+    r3_security_test.go:33: unrelated grant error=metering storage capacity reached
+--- FAIL: TestR3RepeatedSharingPreservesGlobalGrantCapacity (0.01s)
+FAIL
+FAIL	github.com/ehrlich-b/tunn/internal/metering	0.015s
+FAIL

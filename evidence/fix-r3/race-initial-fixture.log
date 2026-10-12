@@ -1,0 +1,133 @@
+ok  	github.com/ehrlich-b/tunn/internal/common	1.079s
+2026/10/12 02:34:57 INFO quota exceeded, rejecting request tunnel_id=api creator=owner@example.com registration_plan=pro
+2026/10/12 02:35:00 ERROR failed to proxy request error="context canceled" tunnel_id=a-http
+2026/10/12 02:35:00 ERROR failed to proxy request error="context canceled" tunnel_id=a-connect
+2026/10/12 02:35:00 ERROR failed to proxy request error="context canceled" tunnel_id=a-websocket
+2026/10/12 02:35:00 INFO new tunnel stream established
+2026/10/12 02:35:00 INFO client registering tunnel_id=reconnect target=http
+2026/10/12 02:35:00 INFO tunnel registration tunnel_id=reconnect creator=account-a@example.invalid allowed=[]
+2026/10/12 02:35:02 INFO new tunnel stream established
+2026/10/12 02:35:02 INFO client registering tunnel_id=gpu-http target=http
+2026/10/12 02:35:02 INFO tunnel registration tunnel_id=gpu-http creator=owner@example.com allowed=[owner@example.com]
+2026/10/12 02:35:02 INFO new tunnel stream established
+2026/10/12 02:35:02 INFO client registering tunnel_id=gpu-http target=http
+2026/10/12 02:35:02 INFO tunnel registration tunnel_id=gpu-http creator=owner@example.com allowed=[owner@example.com]
+2026/10/12 02:35:02 INFO new tunnel stream established
+2026/10/12 02:35:02 INFO client registering tunnel_id=configured-user target=http
+2026/10/12 02:35:02 INFO user token auth tunnel_id=configured-user email=owner@example.com
+2026/10/12 02:35:03 ERROR failed to proxy request error="context canceled" tunnel_id=api
+2026/10/12 02:35:05 ERROR failed to proxy request error="context canceled" tunnel_id=api
+2026/10/12 02:35:06 ERROR failed to proxy request error="context canceled" tunnel_id=api
+2026/10/12 02:35:07 ERROR failed to proxy request error="context canceled" tunnel_id=api
+2026/10/12 02:35:08 INFO sent magic link email=first@example.invalid
+2026/10/12 02:35:08 INFO sent magic link email=first@example.invalid
+2026/10/12 02:35:08 INFO sent magic link email=first@example.invalid
+2026/10/12 02:35:08 INFO magic link rate limited email=first@example.invalid
+2026/10/12 02:35:08 INFO sent magic link email=first@example.invalid
+2026/10/12 02:35:08 ERROR failed to check magic link rate limit email=other@example.invalid error="fixture storage failure"
+2026/10/12 02:35:08 ERROR failed to send magic link email email=other@example.invalid error="fixture mail failure"
+2026/10/12 02:35:08 INFO received Stripe webhook type=checkout.session.completed id=checkout
+2026/10/12 02:35:08 INFO received Stripe webhook type=checkout.session.completed id=checkout
+2026/10/12 02:35:08 INFO received Stripe webhook type=customer.subscription.deleted id=deleted
+2026/10/12 02:35:08 INFO received Stripe webhook type=customer.subscription.deleted id=deleted
+2026/10/12 02:35:08 INFO received Stripe webhook type=invoice.future id=unknown
+2026/10/12 02:35:08 INFO received Stripe webhook type=invoice.future id=unknown
+https://websocket-fixture.tunn.test -> http://127.0.0.1:43139
+Warning: Tunnel is open to the internet. Use --allow=email@example.com to restrict access.
+https://websocket-fixture.tunn.test -> http://127.0.0.1:45349
+Warning: Tunnel is open to the internet. Use --allow=email@example.com to restrict access.
+https://websocket-fixture.tunn.test -> http://127.0.0.1:35389
+Warning: Tunnel is open to the internet. Use --allow=email@example.com to restrict access.
+==================
+WARNING: DATA RACE
+Read at 0x00c0000475b8 by goroutine 73795:
+  github.com/ehrlich-b/tunn/internal/host.(*ProxyServer).isPlatformHost()
+      /work/lanes/tunn-r3fix/tunn/internal/host/csrf.go:37 +0xad
+  github.com/ehrlich-b/tunn/internal/host.(*ProxyServer).customerHost()
+      /work/lanes/tunn-r3fix/tunn/internal/host/domains.go:34 +0x158
+  github.com/ehrlich-b/tunn/internal/host.(*ProxyServer).protectedResponse()
+      /work/lanes/tunn-r3fix/tunn/internal/host/private_cache.go:72 +0x74
+  github.com/ehrlich-b/tunn/internal/host.(*ProxyServer).createHandler.func1()
+      /work/lanes/tunn-r3fix/tunn/internal/host/proxy.go:930 +0x64
+  net/http.HandlerFunc.ServeHTTP()
+      /usr/local/go/src/net/http/server.go:2358 +0x47
+  github.com/ehrlich-b/tunn/internal/host.TestR3BrowserCacheCannotBypassRevocation.func2()
+      /work/lanes/tunn-r3fix/tunn/internal/host/r3_cache_test.go:67 +0x5a1
+  net/http.HandlerFunc.ServeHTTP()
+      /usr/local/go/src/net/http/server.go:2358 +0x47
+  net/http.serverHandler.ServeHTTP()
+      /usr/local/go/src/net/http/server.go:3436 +0x2a1
+  net/http.(*conn).serve()
+      /usr/local/go/src/net/http/server.go:2157 +0xeda
+  net/http.(*Server).Serve.gowrap3()
+      /usr/local/go/src/net/http/server.go:3604 +0x46
+
+Previous write at 0x00c0000475b8 by goroutine 73760:
+  github.com/ehrlich-b/tunn/internal/host.TestR3BrowserCacheCannotBypassRevocation()
+      /work/lanes/tunn-r3fix/tunn/internal/host/r3_cache_test.go:73 +0x9ef
+  testing.tRunner()
+      /usr/local/go/src/testing/testing.go:2195 +0x21c
+  testing.(*T).Run.gowrap1()
+      /usr/local/go/src/testing/testing.go:2260 +0x38
+
+Goroutine 73795 (running) created at:
+  net/http.(*Server).Serve()
+      /usr/local/go/src/net/http/server.go:3604 +0x929
+  net/http/httptest.(*Server).goServe.func1()
+      /usr/local/go/src/net/http/httptest/server.go:586 +0xac
+
+Goroutine 73760 (running) created at:
+  testing.(*T).Run()
+      /usr/local/go/src/testing/testing.go:2260 +0xb12
+  testing.runTests.func1()
+      /usr/local/go/src/testing/testing.go:2744 +0x84
+  testing.tRunner()
+      /usr/local/go/src/testing/testing.go:2195 +0x21c
+  testing.runTests()
+      /usr/local/go/src/testing/testing.go:2742 +0x9e9
+  testing.(*M).Run()
+      /usr/local/go/src/testing/testing.go:2602 +0xf44
+  main.main()
+      _testmain.go:792 +0x164
+==================
+--- FAIL: TestR3BrowserCacheCannotBypassRevocation (1.87s)
+    r3_cache_test.go:84: {"first_asset": {"status": 200, "text": "PRIVATE-ASSET-REVIEW", "cache": "no-store", "vary": "Cookie, Authorization, Tunn-Authorization", "headers": {"cache-control": "no-store", "content-length": "20", "content-type": "text/plain", "date": "Mon, 12 Oct 2026 06:38:44 GMT", "pragma": "no-cache", "tunn-bytes-remaining": "-1", "tunn-request-id": "04e5632e5e03853b18a57944ba9f9639", "tunn-requests-remaining": "-1", "vary": "Cookie, Authorization, Tunn-Authorization"}}, "cached_after_revocation": false, "network_after_revocation": 403, "platform_cookie_visible_to_js": false, "backslash_redirect_final_url": "https://tunn.test:37601/"}
+        
+    testing.go:1867: race detected during execution of test
+https://integration.tunn.test -> http://127.0.0.1:33165
+Warning: Tunnel is open to the internet. Use --allow=email@example.com to restrict access.
+https://websocket-fixture.tunn.test -> http://127.0.0.1:41465
+Warning: Tunnel is open to the internet. Use --allow=email@example.com to restrict access.
+https://websocket-fixture.tunn.test -> http://127.0.0.1:33717
+Warning: Tunnel is open to the internet. Use --allow=email@example.com to restrict access.
+https://websocket-fixture.tunn.test -> http://127.0.0.1:41365
+Warning: Tunnel is open to the internet. Use --allow=email@example.com to restrict access.
+https://websocket-fixture.tunn.test -> http://127.0.0.1:35183
+Warning: Tunnel is open to the internet. Use --allow=email@example.com to restrict access.
+https://websocket-fixture.tunn.test -> http://127.0.0.1:39605
+https://websocket-fixture.tunn.test -> http://127.0.0.1:37749
+Access: private. Use the endpoint token as Tunn-Authorization: Bearer <token>.
+Endpoint token: /work/lanes/tunn-r3fix/tunn/.r3/tmp/TestWebSocketBearerHTTPRotationAndRevocation2772110214/001/endpoints/websocket-fixture.token (mode 0600)
+https://websocket-fixture.tunn.test -> http://127.0.0.1:36411
+Warning: Tunnel is open to the internet. Use --allow=email@example.com to restrict access.
+https://websocket-fixture.tunn.test -> http://127.0.0.1:37065
+Warning: Tunnel is open to the internet. Use --allow=email@example.com to restrict access.
+https://websocket-fixture.tunn.test -> http://127.0.0.1:43973
+Warning: Tunnel is open to the internet. Use --allow=email@example.com to restrict access.
+https://websocket-fixture.tunn.test -> http://127.0.0.1:40209
+Warning: Tunnel is open to the internet. Use --allow=email@example.com to restrict access.
+https://websocket-fixture.tunn.test -> http://127.0.0.1:34801
+Warning: Tunnel is open to the internet. Use --allow=email@example.com to restrict access.
+https://websocket-fixture.tunn.test -> http://127.0.0.1:33691
+https://websocket-fixture.tunn.test -> http://127.0.0.1:40373
+Warning: Tunnel is open to the internet. Use --allow=email@example.com to restrict access.
+https://websocket-fixture.tunn.test -> http://127.0.0.1:39141
+https://websocket-fixture.tunn.test -> https://127.0.0.1:33723
+Warning: Tunnel is open to the internet. Use --allow=email@example.com to restrict access.
+FAIL
+FAIL	github.com/ehrlich-b/tunn/internal/host	302.537s
+ok  	github.com/ehrlich-b/tunn/internal/metering	9.383s
+ok  	github.com/ehrlich-b/tunn/internal/store	70.361s
+ok  	github.com/ehrlich-b/tunn/internal/storage	9.457s
+?   	github.com/ehrlich-b/tunn/pkg/proto/internalv1	[no test files]
+FAIL

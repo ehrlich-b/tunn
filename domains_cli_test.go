@@ -1,8 +1,15 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"flag"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -35,5 +42,30 @@ func TestParseWildcardDomainOptions(t *testing.T) {
 		if _, err := parseDomainOptions(args); err != nil {
 			t.Fatalf("%v: %v", args, err)
 		}
+	}
+}
+
+func TestDomainCLIReportsCompetingProof(t *testing.T) {
+	t.Setenv("TUNN_ENV", "dev")
+	tokenFile := filepath.Join(t.TempDir(), "owner-token")
+	if err := os.WriteFile(tokenFile, []byte("owner-token"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	const instructions = "unverified claim: prove ownership with TXT _tunn-verification.apps.example.com = dv-caller.tunn.test and retry add within 24 hours"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/domains" || r.Header.Get("Authorization") != "Bearer owner-token" {
+			t.Errorf("unexpected owner API request: %s %s", r.Method, r.URL.Path)
+		}
+		var input struct{ Name, Tunnel string }
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil || input.Name != "*.apps.example.com" || input.Tunnel != "dashboard" {
+			t.Errorf("unexpected domain binding: %+v err=%v", input, err)
+		}
+		http.Error(w, instructions, http.StatusConflict)
+	}))
+	defer server.Close()
+	// runDomains prints this error verbatim to stderr.
+	err := executeDomains([]string{"add", "*.apps.example.com", "--tunnel", "dashboard", "--server", server.URL, "--owner-token-file", tokenFile}, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "HTTP 409: "+instructions) {
+		t.Fatalf("CLI discarded competing proof instructions: %v", err)
 	}
 }

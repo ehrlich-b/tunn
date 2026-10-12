@@ -101,3 +101,84 @@ No push, GitHub write, deployment, production database access, provider login,
 real-CA ACME call, email, payment, resource-exhaustion input or sub-agent work
 occurred. Local tests use synthetic DNS and local issuers. Existing deployment
 constraints and live-domain acceptance gates remain in force.
+
+## Round 4
+
+Base: `1188c576529660211a5c4a0a39d2e964eafeb9ac`; branch:
+`codex/tunn-r4fix-20261012`. Continued the existing round-three implementation
+and evidence from a clean starting tree. Read the complete
+`/work/lanes/tunn-r4fix/BRIEF.md`, independent
+`/work/lanes/tunn-r3fix/review-r4-apps-domain/REVIEW.md`, its public-API
+regression, and `evidence/public-proof-control.log` before changes.
+
+**R4-D1:** `domainHTTPError` now preserves the registry's safe `AlreadyExists`
+status message in the authenticated management response. Pending conflicts
+return HTTP 409 with the caller's own TXT record, unique target and retry
+instructions. The registry still excludes proven owners and scopes pending
+targets to the requesting account; its ownership/security implementation is
+unchanged.
+
+`TestR4PublicAPIExposesCompetingProof` exercises both the overlapping wildcard
+`*.apps.example.com` and the exact-name wildcard `*.example.com`, with an
+unverified incumbent `*.example.com`. Each case requires authenticated,
+uncached HTTP 409 proof instructions, publishes exactly the delivered TXT
+through a test resolver with no CNAME proof, and retries the public Add to
+obtain HTTP 201 with the correct owner/target. It also requires distinct targets
+for competing accounts, denies unauthenticated disclosure and use of another
+account's published proof, and excludes a competitor after ownership is proven,
+even when the competitor publishes its own matching TXT.
+
+**Membership test stability:**
+`TestReviewMembershipRemovalAndNoRefreshExtension` reads the signed issued
+session expiry before the second login, then sets the verifier clock to that
+whole-second expiry minus one second and plus one second. The existing old
+snapshot acceptance, immediate fresh-membership removal, and expired-snapshot
+denial assertions are retained. No production session clock or authorization
+check changed.
+
+Before/after evidence is retained in `evidence/fix-r4/`:
+
+- `regression-before.log` / `.exit`: both public TXT recovery cases **FAIL** on
+  unchanged base application source with `409 Domain already claimed` (exit 1).
+- `regression-base-recheck.log` / `.exit`: an explicit overlay of the sole
+  changed application file from `1188c57` reproduces both **FAIL** results at
+  the final source (exit 1).
+- `review-before.log` / `.exit`: the independent original API regression also
+  **FAILS** before the fix (exit 1). Its byte-identical source copy is retained
+  as `review_r4_reclaim_test.go.txt`; its hash is in `source-manifest.json`.
+- `regression-after.log` / `.exit`: expanded API recovery/isolation, issued
+  membership expiry, and CLI error propagation all **PASS** (exit 0).
+- `regression-race-after.log` / `.exit`: the same three focused regressions
+  **PASS** under race (exit 0), including both TXT conflict cases.
+- `review-after.log` / `.exit`: the byte-identical independent review API
+  regression **PASSES** under race after the fix (exit 0).
+- `cli-build.log`, `cli-proof.log` and their exit files: built CLI **PASS**
+  against a synthetic loopback owner API; actual stderr includes the complete
+  TXT proof instructions, and the expected authenticated request is checked.
+
+Full acceptance gates, with no source/test overlays and `-count=1` on each
+test run:
+
+| Gate | Result | Evidence |
+| --- | --- | --- |
+| `go vet -p 4 ./...` | **PASS**, exit 0 | `vet.log` / `.exit` |
+| `go test -p 4 -count=1 -parallel=2 -timeout=600s ./...` | **PASS**, 18 tested packages | `full.log` / `.exit` |
+| `go test -race -p 4 -count=1 -parallel=2 -timeout=600s ./...`, first run | **PASS**, 18 tested packages, zero race warnings | `race-1.log` / `.exit` |
+| Same full race command, second uncached test run | **PASS**, 18 tested packages, zero race warnings | `race-2.log` / `.exit` |
+
+Both full race runs include the SDK consumer integration. `summary.json`
+records all exit statuses and full-suite package counts; `source-manifest.json`
+records the validated application/test source hashes. The round-four commit
+includes that validated source and its evidence.
+
+`commands.md` records exact commands and overlay reproduction; `env.sh` reuses
+the existing cache helper, which reads immutable shared artifacts and writes
+new cache entries only inside this clone. All Go commands use `GOMAXPROCS=4`
+and `-p 4`, with `GOCACHE`, `GOTMPDIR` and `TMPDIR` under the gitignored
+`$PWD/.scratch`; module network access and telemetry are disabled. The new
+domain tests use local databases and small synthetic DNS inputs, with no CA
+issuer configured. Optional Chromium/Pebble gates are not enabled.
+
+All edits and commits are confined to this clone. No push, GitHub write,
+deployment, production database access, provider login, real ACME, email,
+payment, resource-exhaustion input, or sub-agent work occurred.

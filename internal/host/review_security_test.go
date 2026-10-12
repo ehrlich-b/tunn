@@ -112,16 +112,23 @@ func TestReviewMembershipRemovalAndNoRefreshExtension(t *testing.T) {
 	}
 	r, _ := f.begin(t, nil, "")
 	oldCookie := orgResponseCookie(t, f.finish(r))
+	issuedRequest := httptest.NewRequest(http.MethodGet, "https://api.tunn.test/", nil)
+	issuedRequest.AddCookie(oldCookie)
+	issuedSession, ok := f.p.getOrgSession(issuedRequest)
+	if !ok {
+		t.Fatal("issued membership snapshot is invalid")
+	}
+	issuedExpiry := time.Unix(issuedSession.Expires, 0)
 	r, _ = f.begin(t, func(c jwt.MapClaims) { c["groups"] = []string{} }, "")
 	removedCookie := orgResponseCookie(t, f.finish(r))
 	if orgOpen(f.p, oldCookie).Code != 200 || orgOpen(f.p, removedCookie).Code != 403 {
 		t.Fatal("membership snapshot or fresh removal inconsistent")
 	}
-	f.p.now = func() time.Time { return time.Now().Add(899 * time.Second) }
+	f.p.now = func() time.Time { return issuedExpiry.Add(-time.Second) }
 	if orgOpen(f.p, oldCookie).Code != 200 {
 		t.Fatal("snapshot unexpectedly expired before bound")
 	}
-	f.p.now = func() time.Time { return time.Now().Add(901 * time.Second) }
+	f.p.now = func() time.Time { return issuedExpiry.Add(time.Second) }
 	if orgOpen(f.p, oldCookie).Code == 200 {
 		t.Fatal("membership retained beyond 15 minutes")
 	}

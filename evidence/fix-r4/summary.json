@@ -1,0 +1,120 @@
+{
+  "base": "1188c576529660211a5c4a0a39d2e964eafeb9ac",
+  "branch": "codex/tunn-r4fix-20261012",
+  "checks": {
+    "regression-before": {
+      "exit": 1,
+      "expected_exit": 1
+    },
+    "regression-base-recheck": {
+      "exit": 1,
+      "expected_exit": 1
+    },
+    "review-before": {
+      "exit": 1,
+      "expected_exit": 1
+    },
+    "regression-after": {
+      "exit": 0,
+      "expected_exit": 0
+    },
+    "regression-race-after": {
+      "exit": 0,
+      "expected_exit": 0
+    },
+    "review-after": {
+      "exit": 0,
+      "expected_exit": 0
+    },
+    "vet": {
+      "exit": 0,
+      "expected_exit": 0
+    },
+    "full": {
+      "exit": 0,
+      "expected_exit": 0,
+      "passed_packages": [
+        "github.com/ehrlich-b/tunn",
+        "github.com/ehrlich-b/tunn/internal/client",
+        "github.com/ehrlich-b/tunn/internal/cliopts",
+        "github.com/ehrlich-b/tunn/internal/common",
+        "github.com/ehrlich-b/tunn/internal/config",
+        "github.com/ehrlich-b/tunn/internal/domains",
+        "github.com/ehrlich-b/tunn/internal/host",
+        "github.com/ehrlich-b/tunn/internal/hostmode",
+        "github.com/ehrlich-b/tunn/internal/identity",
+        "github.com/ehrlich-b/tunn/internal/mcpbridge",
+        "github.com/ehrlich-b/tunn/internal/metering",
+        "github.com/ehrlich-b/tunn/internal/mockoidc",
+        "github.com/ehrlich-b/tunn/internal/relaytransport",
+        "github.com/ehrlich-b/tunn/internal/sshfront",
+        "github.com/ehrlich-b/tunn/internal/storage",
+        "github.com/ehrlich-b/tunn/internal/store",
+        "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1",
+        "github.com/ehrlich-b/tunn/sdk"
+      ],
+      "passed_package_count": 18,
+      "race_warnings": 0
+    },
+    "race-1": {
+      "exit": 0,
+      "expected_exit": 0,
+      "passed_packages": [
+        "github.com/ehrlich-b/tunn",
+        "github.com/ehrlich-b/tunn/internal/client",
+        "github.com/ehrlich-b/tunn/internal/cliopts",
+        "github.com/ehrlich-b/tunn/internal/common",
+        "github.com/ehrlich-b/tunn/internal/config",
+        "github.com/ehrlich-b/tunn/internal/domains",
+        "github.com/ehrlich-b/tunn/internal/host",
+        "github.com/ehrlich-b/tunn/internal/hostmode",
+        "github.com/ehrlich-b/tunn/internal/identity",
+        "github.com/ehrlich-b/tunn/internal/mcpbridge",
+        "github.com/ehrlich-b/tunn/internal/metering",
+        "github.com/ehrlich-b/tunn/internal/mockoidc",
+        "github.com/ehrlich-b/tunn/internal/relaytransport",
+        "github.com/ehrlich-b/tunn/internal/sshfront",
+        "github.com/ehrlich-b/tunn/internal/storage",
+        "github.com/ehrlich-b/tunn/internal/store",
+        "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1",
+        "github.com/ehrlich-b/tunn/sdk"
+      ],
+      "passed_package_count": 18,
+      "race_warnings": 0
+    },
+    "race-2": {
+      "exit": 0,
+      "expected_exit": 0,
+      "passed_packages": [
+        "github.com/ehrlich-b/tunn",
+        "github.com/ehrlich-b/tunn/internal/client",
+        "github.com/ehrlich-b/tunn/internal/cliopts",
+        "github.com/ehrlich-b/tunn/internal/common",
+        "github.com/ehrlich-b/tunn/internal/config",
+        "github.com/ehrlich-b/tunn/internal/domains",
+        "github.com/ehrlich-b/tunn/internal/host",
+        "github.com/ehrlich-b/tunn/internal/hostmode",
+        "github.com/ehrlich-b/tunn/internal/identity",
+        "github.com/ehrlich-b/tunn/internal/mcpbridge",
+        "github.com/ehrlich-b/tunn/internal/metering",
+        "github.com/ehrlich-b/tunn/internal/mockoidc",
+        "github.com/ehrlich-b/tunn/internal/relaytransport",
+        "github.com/ehrlich-b/tunn/internal/sshfront",
+        "github.com/ehrlich-b/tunn/internal/storage",
+        "github.com/ehrlich-b/tunn/internal/store",
+        "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1",
+        "github.com/ehrlich-b/tunn/sdk"
+      ],
+      "passed_package_count": 18,
+      "race_warnings": 0
+    },
+    "cli-build": {
+      "exit": 0,
+      "expected_exit": 0
+    },
+    "cli-proof": {
+      "exit": 0,
+      "expected_exit": 0
+    }
+  }
+}

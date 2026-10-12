@@ -77,7 +77,8 @@ func domainHTTPError(w http.ResponseWriter, err error) {
 		message = "Domain not found"
 	case codes.AlreadyExists:
 		code = 409
-		message = "Domain already claimed"
+		// The authority scopes competing proof instructions to this caller.
+		message = status.Convert(err).Message()
 	case codes.FailedPrecondition:
 		code = 409
 		message = status.Convert(err).Message()

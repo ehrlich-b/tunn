@@ -16,6 +16,7 @@ import (
 	"github.com/ehrlich-b/tunn/internal/config"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/meteringv1"
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/proto"
 )
 
 // SharingBackend uses the same authenticated login-node connection as grants.
@@ -43,11 +44,17 @@ var resourceName = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
 // A name reclaimed by another owner gets a fresh immutable resource ID. Same-owner
 // reconnects retain permissions; registration never replays a revoked allow-list.
 func (s *Store) Sharing(ctx context.Context, in *pb.SharingRequest) (*pb.SharingResponse, error) {
+	in = proto.Clone(in).(*pb.SharingRequest)
 	out := &pb.SharingResponse{}
 	if in.Owner == "" || in.Operation != "list" && !resourceName.MatchString(in.Endpoint) {
 		return nil, fmt.Errorf("invalid resource owner or name")
 	}
 	err := s.transaction(ctx, func(tx *sql.Tx) error {
+		var err error
+		in.Owner, err = canonicalOwner(tx, in.Owner)
+		if err != nil {
+			return err
+		}
 		if in.Operation == "list" {
 			rows, err := tx.QueryContext(ctx, `SELECT id,owner,endpoint,mode FROM web_resources WHERE owner=? ORDER BY endpoint`, in.Owner)
 			if err != nil {

@@ -164,7 +164,7 @@ test:
 
 .PHONY: test-sso
 test-sso:
-	go test $(GO_TEST_FLAGS) -race -count=1 -timeout=120s -run '^Test(OrgOIDC|OIDC|OrgGroup)' ./internal/host ./internal/config ./internal/metering .
+	go test $(GO_TEST_FLAGS) -race -count=1 -timeout=240s -run '^Test(OrgOIDC|OIDC|OrgGroup|OrgLogin|OrgSSO|OrgDiscovery|Review|ReturnToBrowserNormalization|SanitizeReturnTo|Google|DomainSSO|DomainApp)' ./internal/host ./internal/config ./internal/metering .
 .PHONY: test-distribution
 test-distribution:
 	go test $(GO_TEST_FLAGS) -count=1 -timeout=90s -run '^TestDistribution' . ./internal/host

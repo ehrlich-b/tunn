@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -513,5 +515,40 @@ func runMCPHelperProcess() {
 				write(fmt.Sprintf(`{"jsonrpc":"2.0","id":%s,"error":{"code":-32601,"message":"method not found"}}`, request.ID))
 			}
 		}
+	}
+}
+
+func TestBridgeCloseUnusedConnection(t *testing.T) {
+	bridge := startTestBridge(t)
+	address, err := url.Parse(bridge.URL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, err := net.Dial("tcp", address.Host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	deadline := time.Now().Add(time.Second)
+	for {
+		bridge.httpConnMu.Lock()
+		accepted := len(bridge.httpNewConns) > 0
+		bridge.httpConnMu.Unlock()
+		if accepted {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("server did not accept speculative connection")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+	defer cancel()
+	if err := bridge.Close(ctx); err != nil {
+		t.Fatal("unused connection delayed shutdown", err)
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(time.Second))
+	if _, err := conn.Read(make([]byte, 1)); err != io.EOF {
+		t.Fatal("unused connection leaked", err)
 	}
 }

@@ -2,6 +2,27 @@
 
 This branch implements the 13:10/13:11 scope in [IDEAS-INBOX](../../IDEAS-INBOX.md): customer Okta, Microsoft Entra ID and Google Workspace sign-in with per-app group sharing. It is an OIDC client of those providers. [DESIGN](../DESIGN.md) ranks the remaining protocol roles; [ENTERPRISE-ZT](../ENTERPRISE-ZT.md) is the short enterprise roadmap. No SAML, identity linking, SCIM or new OIDC issuer is enabled.
 
+## Disable organization SSO for a custom-domain release
+
+Leave `TUNN_OIDC_ORGS_FILE` unset or empty on **every** relay and restart all
+nodes. Alternatively, point it at a private 0600/0400 JSON file containing
+`[]`. There is no default organization. With zero configured organizations,
+GET `/auth/org/<id>`, its callback, and `/auth/google?org=<id>` return 404 before
+forwarding, discovery, login-state allocation or session creation. These URL
+patterns remain registered; no functional organization SSO entry is exposed.
+The login node does not initialize the organization-login store, and the login
+page renders no organization buttons. Existing organization sessions fail the
+configured-policy check after removal.
+
+Keep the existing personal Google/GitHub credentials and domain configuration.
+Personal `/auth/google` (without `org`) and GitHub login use signed browser state,
+not the organization pending-state table. Custom-domain login and the
+`*.apps.ehrlich.dev` Google gate use personal Google sessions and their separate
+handoff/replay storage. Organization-state exhaustion cannot consume their
+login slots, even when organizations are enabled. Custom domains can therefore
+ship with organization SSO disabled while real-tenant organization acceptance
+remains pending, subject to the custom-domain release's own acceptance gates.
+
 ## Administrator setup
 
 1. Register a confidential web OIDC application with authorization-code login. Register the **exact** callback `https://<TUNN_PUBLIC_ADDR>/auth/org/<org-id>/callback`. The path contains a stable, lower-case organization slug; a changed public address needs updated callback registration and a relay restart.
@@ -21,6 +42,32 @@ Entra JWT groups can overflow beyond 200. `_claim_names.groups`/`hasgroups` trig
 Google sign-in requests `openid profile email` and supplies `hd` as a UI hint, but authorization checks the **verified ID-token** `hd` against configured domains and requires boolean `email_verified=true` and an allowed email domain. A Gmail identity with a supplied/claimed hosted-domain hint is refused. [Google hosted-domain guidance](https://developers.google.com/identity/openid-connect/reference).
 
 Google ID tokens do not provide Workspace group membership. For group mappings, enable Admin SDK Directory API, create a service account with domain-wide delegation, and authorize **only** `https://www.googleapis.com/auth/admin.directory.group.readonly` in the Workspace admin console. Store its JSON signing credentials in a private 0600/0400 file and set `google_credentials_file`; set `google_directory_admin` to an impersonated company administrator with permission to read groups. The delegated JWT is restricted to that scope, admin and Google's token endpoint. `groups.list` uses the signed, stable user `sub` as Directory `userKey` (unique user ID), and follows bounded `nextPageToken` pages. Map immutable group IDs, not mutable group email addresses. This returns direct membership; nested groups require a future Cloud Identity/transitive integration. If no group mappings exist, omit both delegation fields to use Workspace sign-in alone. [Directory groups.list and scope](https://developers.google.com/workspace/admin/directory/reference/rest/v1/groups/list), [Directory authorization](https://developers.google.com/workspace/admin/directory/v1/guides/authorizing).
+
+## Login availability and token validation
+
+Pending organization logins are bounded to 8 per network peer per organization,
+128 per organization, and 4,096 globally across the maximum 32 organizations.
+Admission happens before discovery and persisted state is committed atomically.
+Abandoned flows expire in ten minutes; consumed flows free capacity immediately.
+HTTP 429 indicates admission refusal. Peer identity uses the TCP remote address,
+with IPv6 privacy addresses grouped by /64; supplied forwarding headers and
+cookies do not widen admission. Reverse proxies and forwarding relay nodes
+conservatively share their peer's limit. The one-time schema upgrade invalidates
+pending pre-upgrade sign-ins; users restart those flows. Completed sessions are
+unaffected. Limits and callback replay protection survive subsequent restarts.
+
+Provider initialization is coalesced per organization policy. Cached unrelated
+providers remain available during a stalled discovery; waiting callers respect
+their own cancellation. Discovery is bounded to ten seconds with five seconds
+of failure backoff. ID tokens may contain only the configured client audience;
+additional application audiences are rejected even with a matching `azp`.
+
+For an emergency signing-key compromise, remove the compromised key at the IdP
+and restart **every relay** to clear discovery/JWKS caches. A usable cached key
+has no periodic removal check; normal rotation refreshes on an unknown key.
+Provider key removal alone does not promise immediate invalidation. Revoke
+relevant tunn grants/devices separately and account for existing browser
+sessions' maximum fifteen-minute lifetime.
 
 ## The share-button journey
 

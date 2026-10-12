@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"io"
@@ -88,16 +89,71 @@ func (b *orgBoundedBody) Read(p []byte) (int, error) {
 	return n, err
 }
 
+const orgDiscoveryBackoff = 5 * time.Second
+
+type orgProviderInit struct {
+	done       chan struct{}
+	provider   *orgProvider
+	err        error
+	retryAfter time.Time
+}
+
 func (p *ProxyServer) orgProvider(ctx context.Context, org config.OIDCOrg) (*orgProvider, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	key := org.PolicyDigest()
 	p.orgProvidersMu.Lock()
-	defer p.orgProvidersMu.Unlock()
 	if p.orgProviders == nil {
 		p.orgProviders = map[string]*orgProvider{}
 	}
-	key := org.PolicyDigest()
 	if provider := p.orgProviders[key]; provider != nil {
+		p.orgProvidersMu.Unlock()
 		return provider, nil
 	}
+	if p.orgProviderInits == nil {
+		p.orgProviderInits = map[string]*orgProviderInit{}
+	}
+	if init := p.orgProviderInits[key]; init != nil {
+		select {
+		case <-init.done:
+			if time.Now().Before(init.retryAfter) {
+				p.orgProvidersMu.Unlock()
+				return nil, init.err
+			}
+		default:
+			p.orgProvidersMu.Unlock()
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-init.done:
+				return init.provider, init.err
+			}
+		}
+	}
+	init := &orgProviderInit{done: make(chan struct{})}
+	p.orgProviderInits[key] = init
+	p.orgProvidersMu.Unlock()
+
+	// Only this policy's callers wait. Neither I/O nor waiting holds the cache lock.
+	provider, err := p.discoverOrgProvider(ctx, org)
+	p.orgProvidersMu.Lock()
+	init.provider, init.err = provider, err
+	if err == nil {
+		p.orgProviders[key] = provider
+		delete(p.orgProviderInits, key)
+	} else {
+		init.retryAfter = time.Now().Add(orgDiscoveryBackoff)
+	}
+	close(init.done)
+	p.orgProvidersMu.Unlock()
+	return provider, err
+}
+
+func (p *ProxyServer) discoverOrgProvider(ctx context.Context, org config.OIDCOrg) (*orgProvider, error) {
+	// Bound discovery even for callers without a deadline.
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
 	ctx = oidc.ClientContext(ctx, p.orgHTTPClient(org))
 	provider, err := oidc.NewProvider(ctx, org.Issuer)
 	if err != nil {
@@ -123,8 +179,6 @@ func (p *ProxyServer) orgProvider(ctx context.Context, org config.OIDCOrg) (*org
 		scopes = append(scopes, "https://graph.microsoft.com/User.Read")
 	}
 	out := &orgProvider{provider: provider, oauth: oauth2.Config{ClientID: org.ClientID, ClientSecret: org.ClientSecret, Endpoint: endpoint, RedirectURL: p.orgCallbackURL(org.ID), Scopes: scopes}}
-	// Configuration is immutable until relay restart; this is bounded by org count.
-	p.orgProviders[key] = out
 	return out, nil
 }
 
@@ -187,11 +241,6 @@ func (p *ProxyServer) handleOrgOIDCFor(w http.ResponseWriter, r *http.Request, i
 		p.finishOrgOIDC(ctx, w, r, org)
 		return
 	}
-	provider, err := p.orgProvider(ctx, org)
-	if err != nil {
-		http.Error(w, "Organization login provider unavailable", 503)
-		return
-	}
 	state, err := generateRandomState()
 	if err != nil {
 		http.Error(w, "Login unavailable", 500)
@@ -208,13 +257,24 @@ func (p *ProxyServer) handleOrgOIDCFor(w http.ResponseWriter, r *http.Request, i
 		return
 	}
 	now := p.currentTime()
-	login := orgLogin{Org: org.ID, Nonce: nonce, Verifier: verifier, ReturnTo: p.sanitizeReturnTo(r.URL.Query().Get("return_to")), DeviceCode: r.URL.Query().Get("device_user_code"), Expires: now.Add(10 * time.Minute).Unix()}
+	login := orgLogin{Org: org.ID, Source: orgLoginSource(r), Nonce: nonce, Verifier: verifier, ReturnTo: p.sanitizeReturnTo(r.URL.Query().Get("return_to")), DeviceCode: r.URL.Query().Get("device_user_code"), Expires: now.Add(10 * time.Minute).Unix()}
 	if len(login.ReturnTo) > 2048 || len(login.DeviceCode) > 64 {
 		http.Error(w, "Invalid login destination", 400)
 		return
 	}
 	if err = p.orgLogins.begin(ctx, state, login, now); err != nil {
+		if errors.Is(err, errOrgLoginAdmission) {
+			w.Header().Set("Retry-After", "600")
+			http.Error(w, "Too many pending organization logins", http.StatusTooManyRequests)
+			return
+		}
 		http.Error(w, "Organization login authority unavailable", 503)
+		return
+	}
+	provider, err := p.orgProvider(ctx, org)
+	if err != nil {
+		_, _ = p.orgLogins.consume(ctx, state, org.ID, now)
+		http.Error(w, "Organization login provider unavailable", 503)
 		return
 	}
 	setOrgLoginCookie(w, state, 600)
@@ -332,6 +392,16 @@ func validateOrgClaims(org config.OIDCOrg, token *oidc.IDToken, now time.Time) (
 	var claims orgClaims
 	if token.Claims(&claims) != nil || token.Subject == "" || len(token.Subject) > 255 || strings.ContainsAny(token.Subject, "\x00\r\n") || token.IssuedAt.Unix() <= 0 || token.IssuedAt.After(now.Add(time.Minute)) || !token.Expiry.After(token.IssuedAt) || !token.Expiry.After(now) || len(token.Audience) > 1 && claims.AuthorizedParty == "" || claims.AuthorizedParty != "" && claims.AuthorizedParty != org.ClientID {
 		return "", claims, fmt.Errorf("invalid organization claims")
+	}
+	// The verifier checks that our client occurs in aud, not that every audience
+	// is trusted. This configuration trusts only its one registered client ID.
+	if len(token.Audience) == 0 {
+		return "", claims, fmt.Errorf("missing organization audience")
+	}
+	for _, audience := range token.Audience {
+		if audience != org.ClientID {
+			return "", claims, fmt.Errorf("untrusted organization audience")
+		}
 	}
 	if claims.EmailVerified != nil && !*claims.EmailVerified {
 		return "", claims, fmt.Errorf("unverified email")

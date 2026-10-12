@@ -927,6 +927,9 @@ func (p *ProxyServer) createHandler() http.Handler {
 	mux.HandleFunc("/", p.handleWebProxy)
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if p.protectedResponse(r) {
+			w = protectResponse(w)
+		}
 		// Publishers own every path on their tunnel origin. Serving platform
 		// forms there would let their scripts read session-bound CSRF tokens.
 		if p.customerHost(r.Host) && r.URL.Path == appCallback {

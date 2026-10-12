@@ -165,6 +165,7 @@ func (p *ProxyServer) handleWebProxy(w http.ResponseWriter, r *http.Request) {
 // receive an HTTP error response; started, truncated responses require the HTTP
 // caller to abort its stream. Direct callers can inspect errors without a panic.
 func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunnelID string) error {
+	w = protectResponse(w)
 	tunnel, exists := p.tunnelServer.GetTunnel(tunnelID)
 	if !exists {
 		http.Error(w, "Tunnel offline", http.StatusServiceUnavailable)

@@ -14,7 +14,7 @@ ON CONFLICT(account_id,month) DO UPDATE SET bytes_used=account_usage.bytes_used+
 		return err
 	}
 	// Metering is optional; account-only stores need not initialize the ledger.
-	for _, table := range []string{"meter_usage", "meter_events", "meter_grants"} {
+	for _, table := range []string{"meter_usage", "meter_events", "meter_grants", "web_resources"} {
 		var exists int
 		if err := tx.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&exists); err != nil {
 			return err
@@ -22,7 +22,11 @@ ON CONFLICT(account_id,month) DO UPDATE SET bytes_used=account_usage.bytes_used+
 		if exists == 0 {
 			continue
 		}
-		if table == "meter_usage" {
+		if table == "web_resources" {
+			if _, err := tx.Exec("UPDATE web_resources SET owner=? WHERE owner=?", to, from); err != nil {
+				return err
+			}
+		} else if table == "meter_usage" {
 			if _, err := tx.Exec(`INSERT INTO meter_usage(owner,endpoint,caller,month,requests,admitted,request_bytes,response_bytes)
 SELECT ?,endpoint,caller,month,requests,admitted,request_bytes,response_bytes FROM meter_usage WHERE owner=?
 ON CONFLICT(owner,endpoint,caller,month) DO UPDATE SET

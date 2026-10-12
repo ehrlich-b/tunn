@@ -234,7 +234,10 @@ func waitStreamingHTTPResponseStart(
 }
 
 func streamConnectionInput(body io.ReadCloser, tunnel *TunnelConnection, connectionID string, count *atomic.Int64, maxBytes int64) (int64, error) {
-	defer func() { _ = body.Close() }()
+	// The caller owns body cleanup. Closing unfinished HTTP/1 input sets a
+	// read deadline and can cancel Request.Context through net/http's read
+	// loop. The response owner must receive the upload result first, so that
+	// cancellation cannot replace a body-limit error with a generic 502.
 	buffer := make([]byte, common.StreamChunkSize)
 	for {
 		readBuffer := buffer

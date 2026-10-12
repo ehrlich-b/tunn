@@ -1,6 +1,8 @@
 # -------- build stage --------
 FROM --platform=linux/amd64 golang:1.26-alpine AS builder
 WORKDIR /src
+ENV GOFLAGS=-p=4
+SHELL ["nice", "-n", "10", "/bin/sh", "-c"]
 # Cache dependencies
 COPY go.mod go.sum ./
 RUN go mod download

@@ -1,0 +1,7 @@
+{"ImportPath":"github.com/ehrlich-b/tunn/internal/host [github.com/ehrlich-b/tunn/internal/host.test]","Action":"build-output","Output":"# github.com/ehrlich-b/tunn/internal/host [github.com/ehrlich-b/tunn/internal/host.test]\n"}
+{"ImportPath":"github.com/ehrlich-b/tunn/internal/host [github.com/ehrlich-b/tunn/internal/host.test]","Action":"build-output","Output":"internal/host/response_upload_limit_test.go:106:7: undefined: httptest\n"}
+{"ImportPath":"github.com/ehrlich-b/tunn/internal/host [github.com/ehrlich-b/tunn/internal/host.test]","Action":"build-output","Output":"internal/host/response_upload_limit_test.go:111:7: undefined: httptest\n"}
+{"ImportPath":"github.com/ehrlich-b/tunn/internal/host [github.com/ehrlich-b/tunn/internal/host.test]","Action":"build-fail"}
+{"Time":"2026-10-11T19:40:10.679241991-04:00","Action":"start","Package":"github.com/ehrlich-b/tunn/internal/host"}
+{"Time":"2026-10-11T19:40:10.679366062-04:00","Action":"output","Package":"github.com/ehrlich-b/tunn/internal/host","Output":"FAIL\tgithub.com/ehrlich-b/tunn/internal/host [build failed]\n","OutputType":"frame"}
+{"Time":"2026-10-11T19:40:10.679385088-04:00","Action":"fail","Package":"github.com/ehrlich-b/tunn/internal/host","Elapsed":0,"FailedBuild":"github.com/ehrlich-b/tunn/internal/host [github.com/ehrlich-b/tunn/internal/host.test]"}

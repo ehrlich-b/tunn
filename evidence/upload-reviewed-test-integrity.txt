@@ -1,0 +1,2 @@
+Reviewed regression function byte-identical to carrier 8cb0b92505fdaaaf7497005aea7521e84f157ee1
+SHA-256: a449d32d187500bf1d2c3f09c03c63699339df3dc66258226d98d380c27182d2

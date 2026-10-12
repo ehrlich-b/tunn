@@ -1,0 +1,10 @@
+Carrier baseline 8cb0b92505fdaaaf7497005aea7521e84f157ee1:
+  supplied full-suite.diff: full suite 0 failures; race 0 failures/warnings
+Fix source 139abea637e4521967766eacad0d7c1d9b48679c:
+  full-serial.jsonl: exit 0; test/subtest outcomes {'pass': 3899, 'skip': 5}; leaf tests {'pass': 3499, 'skip': 5}; packages {'pass': 18, 'skip': 8}; 0 race warnings
+  full-race-serial.jsonl: exit 1; test/subtest outcomes {'pass': 3896, 'skip': 5, 'fail': 3}; leaf tests {'pass': 3496, 'skip': 5, 'fail': 3}; packages {'pass': 17, 'skip': 8, 'fail': 1}; 0 race warnings
+  Race failures: inherited MCP cleanup timeouts only, independently reproduced
+  under default -race on unchanged carrier 8cb0b92 (carrier-mcp-race-repeat.jsonl).
+  All final race failed tests/packages are in that exact-source baseline failure set.
+  New failed tests/packages vs independently reproduced carrier baseline: 0
+Intermediate failures are preserved in summary.json and commands.md.

@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ehrlich-b/tunn/internal/common"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/meteringv1"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
@@ -21,14 +22,20 @@ import (
 )
 
 const (
-	MaxEvents                 = 10000
-	MaxUsageRows              = 100000
-	MaxGrants                 = 10000
-	RetentionMonths           = 13
-	FreeMonthlyRequests int64 = 100000
-	ProMonthlyRequests  int64 = 1000000
-	FreeMonthlyBytes    int64 = 1000000000
-	ProMonthlyBytes     int64 = 50000000000
+	MaxEvents                          = 10000
+	MaxUsageRows                       = 100000
+	MaxGrants                          = 10000
+	MaxOwnerGrants                     = 256
+	MaxResourcePeople                  = 64
+	MaxOwnerResources                  = 64
+	MaxSharingAudit                    = 10000
+	MaxOwnerSharingAudit               = common.MaxOwnerSharingAudit
+	MaxSharingMutationsPerMinute       = 60
+	RetentionMonths                    = 13
+	FreeMonthlyRequests          int64 = 100000
+	ProMonthlyRequests           int64 = 1000000
+	FreeMonthlyBytes             int64 = 1000000000
+	ProMonthlyBytes              int64 = 50000000000
 )
 
 var ErrCapacity = errors.New("metering storage capacity reached")
@@ -51,9 +58,11 @@ type Store struct {
 	mu  sync.Mutex
 	now func() time.Time
 	// Fixed hard caps, reduced in retention tests.
-	maxEvents, maxUsage, maxGrants int
-	ownerRequests, ownerBytes      int64
-	accountPlans                   bool
+	maxEvents, maxUsage, maxGrants                             int
+	maxOwnerGrants, maxResourcePeople, maxOwnerResources       int
+	maxSharingAudit, maxOwnerSharingAudit, maxSharingMutations int
+	ownerRequests, ownerBytes                                  int64
+	accountPlans                                               bool
 }
 
 type Option func(*Store)
@@ -69,7 +78,7 @@ func WithOwnerBudgets(requests, bytes int64) Option {
 func WithAccountPlans() Option { return func(s *Store) { s.accountPlans = true } }
 
 func New(db *sql.DB, options ...Option) (*Store, error) {
-	s := &Store{db: db, now: time.Now, maxEvents: MaxEvents, maxUsage: MaxUsageRows, maxGrants: MaxGrants}
+	s := &Store{db: db, now: time.Now, maxEvents: MaxEvents, maxUsage: MaxUsageRows, maxGrants: MaxGrants, maxOwnerGrants: MaxOwnerGrants, maxResourcePeople: MaxResourcePeople, maxOwnerResources: MaxOwnerResources, maxSharingAudit: MaxSharingAudit, maxOwnerSharingAudit: MaxOwnerSharingAudit, maxSharingMutations: MaxSharingMutationsPerMinute}
 	for _, option := range options {
 		option(s)
 	}
@@ -194,7 +203,7 @@ func (s *Store) Resolve(ctx context.Context, r *pb.ResolveRequest) (*pb.Grant, e
 func (s *Store) CreateGrant(ctx context.Context, g *pb.Grant) (*pb.Grant, error) {
 	g = proto.Clone(g).(*pb.Grant)
 	now := s.now()
-	if g.Owner == "" || len(g.Owner) > 254 || g.Endpoint == "" || len(g.Endpoint) > 63 || len(g.Consumer) > 254 || len(g.TokenSha256) != sha256.Size || g.ExpiresAt <= now.UnixMilli() || g.ExpiresAt > now.Add(365*24*time.Hour).UnixMilli() || g.RequestsPerMinute < 0 || g.MonthlyRequests < 0 || g.MonthlyBytes < 0 {
+	if g.Owner == "" || len(g.Owner) > 254 || g.Endpoint == "" || len(g.Endpoint) > 63 || len(g.Consumer) > 254 || strings.HasPrefix(g.Consumer, "person:") || strings.HasPrefix(g.Consumer, "group:") || len(g.TokenSha256) != sha256.Size || g.ExpiresAt <= now.UnixMilli() || g.ExpiresAt > now.Add(365*24*time.Hour).UnixMilli() || g.RequestsPerMinute < 0 || g.MonthlyRequests < 0 || g.MonthlyBytes < 0 {
 		return nil, fmt.Errorf("invalid grant: require endpoint, owner, SHA-256 digest, expiry within one year and nonnegative limits")
 	}
 	g.Id = uuid.NewString()
@@ -214,12 +223,8 @@ func (s *Store) CreateGrant(ctx context.Context, g *pb.Grant) (*pb.Grant, error)
 		if _, err := tx.Exec(`DELETE FROM meter_grants WHERE expires<?`, cutoff.UnixMilli()); err != nil {
 			return err
 		}
-		var count int
-		if err := tx.QueryRow(`SELECT count(*) FROM meter_grants`).Scan(&count); err != nil {
+		if err := s.grantCapacity(ctx, tx, g.Owner, g.Endpoint, false); err != nil {
 			return err
-		}
-		if count >= s.maxGrants {
-			return ErrCapacity
 		}
 		data, err := json.Marshal(g)
 		if err != nil {

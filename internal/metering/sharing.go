@@ -10,7 +10,6 @@ import (
 	"net/mail"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/ehrlich-b/tunn/internal/config"
@@ -27,8 +26,65 @@ type SharingBackend interface {
 func (s *Store) initSharing() error {
 	_, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS web_resources (
  endpoint TEXT PRIMARY KEY, owner TEXT NOT NULL, id TEXT UNIQUE NOT NULL, mode TEXT NOT NULL);
- CREATE INDEX IF NOT EXISTS web_resources_owner ON web_resources(owner);`)
-	return err
+ CREATE INDEX IF NOT EXISTS web_resources_owner ON web_resources(owner);
+ CREATE INDEX IF NOT EXISTS meter_grants_owner_endpoint ON meter_grants(owner,endpoint);
+ CREATE TABLE IF NOT EXISTS sharing_audit (
+ sequence INTEGER PRIMARY KEY AUTOINCREMENT, owner TEXT NOT NULL, resource TEXT NOT NULL,
+ actor TEXT NOT NULL, target TEXT NOT NULL, action TEXT NOT NULL,
+ decided_at INTEGER NOT NULL, grant_id TEXT NOT NULL, expires INTEGER NOT NULL, revoked INTEGER NOT NULL);
+ CREATE INDEX IF NOT EXISTS sharing_audit_owner ON sharing_audit(owner,sequence);
+ CREATE TABLE IF NOT EXISTS sharing_mutation_rate (owner TEXT PRIMARY KEY, minute INTEGER NOT NULL, count INTEGER NOT NULL);`)
+	if err != nil {
+		return err
+	}
+	// Old versions stored history as extra grant rows. Preserve the newest
+	// decision (including revocation), move older decisions to bounded audit.
+	return s.transaction(context.Background(), func(tx *sql.Tx) error {
+		var merges int
+		if err := tx.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type='table' AND name='account_merges'`).Scan(&merges); err != nil {
+			return err
+		}
+		if merges != 0 {
+			if _, err := tx.Exec(`UPDATE web_resources SET owner=COALESCE((SELECT account_id FROM account_merges WHERE old_id=web_resources.owner),owner)`); err != nil {
+				return err
+			}
+		}
+		rows, err := tx.Query(`SELECT g.data FROM meter_grants g JOIN web_resources r ON r.id=g.endpoint AND r.owner=g.owner
+   WHERE EXISTS (SELECT 1 FROM meter_grants newer WHERE newer.owner=g.owner AND newer.endpoint=g.endpoint AND newer.rowid>g.rowid
+   AND json_extract(CAST(newer.data AS TEXT),'$.consumer')=json_extract(CAST(g.data AS TEXT),'$.consumer'))`)
+		if err != nil {
+			return err
+		}
+		var obsolete []*pb.Grant
+		for rows.Next() {
+			var data []byte
+			if err = rows.Scan(&data); err != nil {
+				break
+			}
+			g := new(pb.Grant)
+			if err = json.Unmarshal(data, g); err != nil {
+				break
+			}
+			obsolete = append(obsolete, g)
+		}
+		scanErr := rows.Err()
+		rows.Close()
+		if err != nil {
+			return err
+		}
+		if scanErr != nil {
+			return scanErr
+		}
+		for _, g := range obsolete {
+			if err = s.sharingAudit(context.Background(), tx, g.Owner, g.Endpoint, g.Consumer, "legacy-history", g); err != nil {
+				return err
+			}
+			if _, err = tx.Exec(`DELETE FROM meter_grants WHERE id=?`, g.Id); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 func validPerson(email string, domain bool) bool {
@@ -55,6 +111,11 @@ func (s *Store) Sharing(ctx context.Context, in *pb.SharingRequest) (*pb.Sharing
 		if err != nil {
 			return err
 		}
+		if in.Operation == "share" || in.Operation == "unshare" || in.Operation == "register" {
+			if err = s.sharingMutationAdmission(ctx, tx, in.Owner); err != nil {
+				return err
+			}
+		}
 		if in.Operation == "list" {
 			rows, err := tx.QueryContext(ctx, `SELECT id,owner,endpoint,mode FROM web_resources WHERE owner=? ORDER BY endpoint`, in.Owner)
 			if err != nil {
@@ -78,6 +139,9 @@ func (s *Store) Sharing(ctx context.Context, in *pb.SharingRequest) (*pb.Sharing
 			err := tx.QueryRowContext(ctx, `SELECT id,owner,mode FROM web_resources WHERE endpoint=?`, in.Endpoint).Scan(&r.Id, &r.Owner, &r.Mode)
 			fresh := errors.Is(err, sql.ErrNoRows) || err == nil && r.Owner != in.Owner
 			if in.Operation == "register" {
+				if len(in.InitialEmails) > s.maxResourcePeople {
+					return ErrCapacity
+				}
 				if in.Mode != "private" && in.Mode != "public" && in.Mode != "legacy-public" {
 					return fmt.Errorf("invalid exposure")
 				}
@@ -96,7 +160,16 @@ func (s *Store) Sharing(ctx context.Context, in *pb.SharingRequest) (*pb.Sharing
 					if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM web_resources`).Scan(&count); err != nil {
 						return err
 					}
-					if count >= MaxGrants {
+					if count >= s.maxGrants {
+						return ErrCapacity
+					}
+				}
+				if fresh {
+					var owned int
+					if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM web_resources WHERE owner=?`, in.Owner).Scan(&owned); err != nil {
+						return err
+					}
+					if owned >= s.maxOwnerResources {
 						return ErrCapacity
 					}
 				}
@@ -106,7 +179,7 @@ func (s *Store) Sharing(ctx context.Context, in *pb.SharingRequest) (*pb.Sharing
 				}
 				if fresh {
 					for _, email := range in.InitialEmails {
-						if err = s.sharePerson(ctx, tx, r, normalizeSharingTarget(email), time.Now().AddDate(100, 0, 0).UnixMilli(), true); err != nil {
+						if err = s.sharePerson(ctx, tx, r, normalizeSharingTarget(email), s.now().AddDate(100, 0, 0).UnixMilli(), true); err != nil {
 							return err
 						}
 					}
@@ -198,6 +271,9 @@ func (s *Store) revokePerson(ctx context.Context, tx *sql.Tx, r *pb.WebResource,
 	}
 	for _, g := range grants {
 		g.Revoked = true
+		if err = s.sharingAudit(ctx, tx, r.Owner, r.Id, g.Consumer, "unshare", g); err != nil {
+			return err
+		}
 		data, _ := json.Marshal(g)
 		if _, err = tx.ExecContext(ctx, `UPDATE meter_grants SET data=? WHERE id=?`, data, g.Id); err != nil {
 			return err
@@ -209,22 +285,42 @@ func (s *Store) sharePerson(ctx context.Context, tx *sql.Tx, r *pb.WebResource, 
 	if !validSharingTarget(email, domain) || expires <= s.now().UnixMilli() {
 		return fmt.Errorf("verified email and future expiry required")
 	}
-	var count int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM meter_grants`).Scan(&count); err != nil {
+	consumer := sharingConsumer(email)
+	var data []byte
+	err := tx.QueryRowContext(ctx, `SELECT data FROM meter_grants WHERE owner=? AND endpoint=? AND json_extract(CAST(data AS TEXT),'$.consumer')=?`, r.Owner, r.Id, consumer).Scan(&data)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
-	if count >= s.maxGrants {
-		return ErrCapacity
+	var g *pb.Grant
+	if err == nil {
+		g = new(pb.Grant)
+		if err = json.Unmarshal(data, g); err != nil {
+			return err
+		}
+		// Renewal and re-sharing update the current decision in place, even when
+		// the global cap is full. A revoked decision stays durable until re-shared.
+		g.ExpiresAt, g.Revoked = expires, false
+		data, err = json.Marshal(g)
+		if err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `UPDATE meter_grants SET expires=?,data=? WHERE id=?`, expires, data, g.Id)
+	} else {
+		if err = s.grantCapacity(ctx, tx, r.Owner, r.Id, true); err != nil {
+			return err
+		}
+		digest := sha256.Sum256([]byte(uuid.NewString()))
+		g = &pb.Grant{Id: uuid.NewString(), Owner: r.Owner, Endpoint: r.Id, Consumer: consumer, TokenSha256: digest[:], ExpiresAt: expires}
+		data, err = json.Marshal(g)
+		if err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `INSERT INTO meter_grants(id,owner,endpoint,digest,expires,data) VALUES(?,?,?,?,?,?)`, g.Id, r.Owner, r.Id, digest[:], expires, data)
 	}
-	if err := s.revokePerson(ctx, tx, r, email); err != nil {
+	if err != nil {
 		return err
 	}
-	id := uuid.NewString()
-	digest := sha256.Sum256([]byte(uuid.NewString()))
-	g := &pb.Grant{Id: id, Owner: r.Owner, Endpoint: r.Id, Consumer: sharingConsumer(email), TokenSha256: digest[:], ExpiresAt: expires}
-	data, _ := json.Marshal(g)
-	_, err := tx.ExecContext(ctx, `INSERT INTO meter_grants(id,owner,endpoint,digest,expires,data) VALUES(?,?,?,?,?,?)`, id, r.Owner, r.Id, digest[:], expires, data)
-	return err
+	return s.sharingAudit(ctx, tx, r.Owner, r.Id, consumer, "share", g)
 }
 
 func validSharingTarget(target string, domain bool) bool {

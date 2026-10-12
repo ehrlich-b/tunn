@@ -1,6 +1,9 @@
 package store
 
-import "database/sql"
+import (
+	"database/sql"
+	"github.com/ehrlich-b/tunn/internal/common"
+)
 
 // mergeAccountAccounting runs in the inventory/email merge transaction. Combine
 // overlapping counters, and preserve grant limits, rate windows and event state.
@@ -14,7 +17,7 @@ ON CONFLICT(account_id,month) DO UPDATE SET bytes_used=account_usage.bytes_used+
 		return err
 	}
 	// Metering is optional; account-only stores need not initialize the ledger.
-	for _, table := range []string{"meter_usage", "meter_events", "meter_grants", "web_resources", "account_provider_identities"} {
+	for _, table := range []string{"meter_usage", "meter_events", "meter_grants", "web_resources", "account_provider_identities", "sharing_audit", "sharing_mutation_rate"} {
 		var exists int
 		if err := tx.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&exists); err != nil {
 			return err
@@ -22,7 +25,23 @@ ON CONFLICT(account_id,month) DO UPDATE SET bytes_used=account_usage.bytes_used+
 		if exists == 0 {
 			continue
 		}
-		if table == "account_provider_identities" {
+		if table == "sharing_mutation_rate" {
+			if _, err := tx.Exec(`INSERT INTO sharing_mutation_rate(owner,minute,count) SELECT ?,minute,count FROM sharing_mutation_rate WHERE owner=?
+   ON CONFLICT(owner) DO UPDATE SET count=CASE WHEN sharing_mutation_rate.minute=excluded.minute THEN sharing_mutation_rate.count+excluded.count WHEN excluded.minute>sharing_mutation_rate.minute THEN excluded.count ELSE sharing_mutation_rate.count END,
+   minute=max(sharing_mutation_rate.minute,excluded.minute)`, to, from); err != nil {
+				return err
+			}
+			if _, err := tx.Exec("DELETE FROM sharing_mutation_rate WHERE owner=?", from); err != nil {
+				return err
+			}
+		} else if table == "sharing_audit" {
+			if _, err := tx.Exec("UPDATE sharing_audit SET owner=? WHERE owner=?", to, from); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(`DELETE FROM sharing_audit WHERE sequence IN (SELECT sequence FROM sharing_audit WHERE owner=? ORDER BY sequence DESC LIMIT -1 OFFSET ?)`, to, common.MaxOwnerSharingAudit); err != nil {
+				return err
+			}
+		} else if table == "account_provider_identities" {
 			if _, err := tx.Exec("UPDATE account_provider_identities SET account_id=? WHERE account_id=?", to, from); err != nil {
 				return err
 			}

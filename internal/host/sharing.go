@@ -3,6 +3,7 @@ package host
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"io"
@@ -204,7 +205,7 @@ func (p *ProxyServer) handleSharingAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	out, err := p.sharingBackend().Sharing(r.Context(), in)
 	if err != nil {
-		http.Error(w, "Resource unavailable or invalid sharing request", 400)
+		writeSharingFailure(w, err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -304,7 +305,7 @@ func (p *ProxyServer) handleSharingPage(w http.ResponseWriter, r *http.Request) 
 	}
 	out, err := p.sharingBackend().Sharing(r.Context(), in)
 	if err != nil {
-		http.Error(w, "Resource unavailable or invalid sharing request", 400)
+		writeSharingFailure(w, err)
 		return
 	}
 	if r.Method == "POST" {
@@ -373,3 +374,16 @@ func (p *ProxyServer) validShareGroup(subject string, removing bool) bool {
 type webPermissionError struct{ reason string }
 
 func (e *webPermissionError) Error() string { return e.reason }
+
+func writeSharingFailure(w http.ResponseWriter, err error) {
+	if errors.Is(err, metering.ErrSharingRate) {
+		w.Header().Set("Retry-After", "60")
+		http.Error(w, "Sharing rate limit reached; try again shortly", 429)
+		return
+	}
+	if errors.Is(err, metering.ErrCapacity) {
+		http.Error(w, "Sharing capacity reached", 429)
+		return
+	}
+	http.Error(w, "Resource unavailable or invalid sharing request", 400)
+}

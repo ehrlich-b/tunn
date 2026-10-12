@@ -8,7 +8,7 @@ import (
 	pb "github.com/ehrlich-b/tunn/pkg/proto/meteringv1"
 )
 
-var ErrSharingRate = errors.New("sharing mutation rate exceeded")
+var ErrSharingRate error = &admissionError{message: "sharing mutation rate exceeded", reason: "SHARING_RATE"}
 
 func (s *Store) grantCapacity(ctx context.Context, tx *sql.Tx, owner, resource string, person bool) error {
 	var global, owned int

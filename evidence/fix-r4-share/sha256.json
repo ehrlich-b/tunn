@@ -1,0 +1,115 @@
+{
+  "evidence/fix-r4-share/after-initial.exit": {
+    "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+  },
+  "evidence/fix-r4-share/after-initial.log.gz": {
+    "sha256": "52530b8ab7b75b4505257dd9b735f6ceaf2abcb74ae66e4614b312cf4114f020",
+    "uncompressed_sha256": "9a22f8310a2cbd703c50f8bc9869ac7c015ecaf3d59e7e1905ee9a535113b863"
+  },
+  "evidence/fix-r4-share/before-expanded.exit": {
+    "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+  },
+  "evidence/fix-r4-share/before-expanded.log.gz": {
+    "sha256": "e8b355d5e6497fc045c29872e3a34958788610c513ee4af503e952b7257eaa1a",
+    "uncompressed_sha256": "d0db8f182a42d4bda74edf956df5ddf205043242940390382406510f82e8df4d"
+  },
+  "evidence/fix-r4-share/before-overlay.json": {
+    "sha256": "5c79373b45d14291e273a826b19fa6d4c88e6e32f41514861a863fd8c6904b64"
+  },
+  "evidence/fix-r4-share/before-source/remote.go.txt": {
+    "sha256": "625e87960e29f222e4751c53a3374ec57ab5b17f461667a69f93f3452ce4f8c5"
+  },
+  "evidence/fix-r4-share/before-source/sharing.go.txt": {
+    "sha256": "937f8a6d75e2c4ac883bcfa9dbffaa5608900eb293f358872f39b743612b3bc3"
+  },
+  "evidence/fix-r4-share/before-source/sharing_limits.go.txt": {
+    "sha256": "182d99753f7895fb9af813dac341d53692288f83b89c6a7017b772f159489605"
+  },
+  "evidence/fix-r4-share/before-source/store.go.txt": {
+    "sha256": "dba4f48ed9c64748aebdc49a92d1c1095f7cfc36dfe983b612f258d7e13e8abc"
+  },
+  "evidence/fix-r4-share/before.exit": {
+    "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+  },
+  "evidence/fix-r4-share/before.log.gz": {
+    "sha256": "03f0d9a367fd2a42194d6e0c78f6d4fbce32998a9bb6c6d87b05c46e3c355d3a",
+    "uncompressed_sha256": "ef15a5941723bb362aee1305455b8cbc4ac26dc60c0f5eb611759c6280c6f8cf"
+  },
+  "evidence/fix-r4-share/commands.md": {
+    "sha256": "261b1bef2d9e448fda21b39771549b0cafd13ece8f1aba2bf75f2f479c21f651"
+  },
+  "evidence/fix-r4-share/env.sh": {
+    "sha256": "870a9ce69c262b5302701218bae87ac333ad43f77f08c99a2cdc75c096608a3c"
+  },
+  "evidence/fix-r4-share/full.exit": {
+    "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+  },
+  "evidence/fix-r4-share/full.jsonl.gz": {
+    "sha256": "742f663c02370dd0bc597ebf208bd6803204ab5eca13c430538013c00843ed3a",
+    "uncompressed_sha256": "9d0996259bc03b6a4f988568d954839e2346f7a977961b5e1c403b671f10114d"
+  },
+  "evidence/fix-r4-share/full.stderr": {
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "evidence/fix-r4-share/make-before-overlay.py": {
+    "sha256": "798a15da1ce25fed2edfadc8eba28af85c318ad6aa836ea56344d126b476f96d"
+  },
+  "evidence/fix-r4-share/module-tidy-final.exit": {
+    "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+  },
+  "evidence/fix-r4-share/module-tidy-final.log.gz": {
+    "sha256": "9ceffb7310338057cfe71a4ae1e2c98d2c485d81cdef906532a801f457a38d64",
+    "uncompressed_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "evidence/fix-r4-share/module-tidy.log.gz": {
+    "sha256": "0a1c77f0177949a4473a2df0dc6b4c8453d31e136b81f065a4b814f6f1ff158b",
+    "uncompressed_sha256": "3a8e6155819b55f3852853c4d00668224122a16558634fe4cde5769a9d028df2"
+  },
+  "evidence/fix-r4-share/race-1.exit": {
+    "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+  },
+  "evidence/fix-r4-share/race-1.jsonl.gz": {
+    "sha256": "ff4cddb0370f12911c904973eee92c215e1f80c78a5591e15ffe28d8e8794adc",
+    "uncompressed_sha256": "9945d91fb9c0cbb4a71f63a6b3a03ea2d0206e22dfc477748d8124871a1ab5f9"
+  },
+  "evidence/fix-r4-share/race-1.stderr": {
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "evidence/fix-r4-share/race-2.exit": {
+    "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+  },
+  "evidence/fix-r4-share/race-2.jsonl.gz": {
+    "sha256": "3a6bc49897269f8ce88a66680f64d810526b875cd2348cc35c8fcb6f47ee6cc5",
+    "uncompressed_sha256": "b746b539cfc883238712a031b749050d5c05da17de1901993ca5e79c9774ec3c"
+  },
+  "evidence/fix-r4-share/race-2.stderr": {
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "evidence/fix-r4-share/regressions-browser-path-initial.exit": {
+    "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+  },
+  "evidence/fix-r4-share/regressions-browser-path-initial.log.gz": {
+    "sha256": "69b7f7e46af202b6c2249db8c9b51f1ff5b919c83c918eeb8df54045e4df97de",
+    "uncompressed_sha256": "2041a8857aa73900cfc0338bd86364afa6c461b169e4028ce1cec7683ec98655"
+  },
+  "evidence/fix-r4-share/regressions.exit": {
+    "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+  },
+  "evidence/fix-r4-share/regressions.log.gz": {
+    "sha256": "1882dc1868cfa6d7e79988f02c6af75ab7156f998d2463fdb65ca48b354ea327",
+    "uncompressed_sha256": "6f465471c1ecf00506d91a2f229a12564418006d70d4570f4108aa4fa4d6ee4f"
+  },
+  "evidence/fix-r4-share/source-verification.json": {
+    "sha256": "77ac3f88cd18fae8cd1424cb89d5739c67d4ccd1b6df462a14728208b3b5e1e3"
+  },
+  "evidence/fix-r4-share/summary.json": {
+    "sha256": "610eb7e3d30be0eacc2327d76c35c6fa85b2afd1af9df4154ed71a55fa1ac532"
+  },
+  "evidence/fix-r4-share/vet.exit": {
+    "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+  },
+  "evidence/fix-r4-share/vet.log.gz": {
+    "sha256": "9ceffb7310338057cfe71a4ae1e2c98d2c485d81cdef906532a801f457a38d64",
+    "uncompressed_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}

@@ -38,7 +38,7 @@ const (
 	ProMonthlyBytes              int64 = 50000000000
 )
 
-var ErrCapacity = errors.New("metering storage capacity reached")
+var ErrCapacity error = &admissionError{message: "metering storage capacity reached", reason: "CAPACITY"}
 
 // Backend is also implemented by the authenticated internal gRPC client.
 type Backend interface {
@@ -77,6 +77,12 @@ func WithOwnerBudgets(requests, bytes int64) Option {
 // Account lookup errors fail closed; relay-supplied plan strings are never trusted.
 func WithAccountPlans() Option { return func(s *Store) { s.accountPlans = true } }
 
+// WithOwnerGrantLimit lowers the per-owner grant limit within the hard storage
+// bound. It applies to both machine grants and resource sharing decisions.
+func WithOwnerGrantLimit(limit int) Option {
+	return func(s *Store) { s.maxOwnerGrants = limit }
+}
+
 func New(db *sql.DB, options ...Option) (*Store, error) {
 	s := &Store{db: db, now: time.Now, maxEvents: MaxEvents, maxUsage: MaxUsageRows, maxGrants: MaxGrants, maxOwnerGrants: MaxOwnerGrants, maxResourcePeople: MaxResourcePeople, maxOwnerResources: MaxOwnerResources, maxSharingAudit: MaxSharingAudit, maxOwnerSharingAudit: MaxOwnerSharingAudit, maxSharingMutations: MaxSharingMutationsPerMinute}
 	for _, option := range options {
@@ -84,6 +90,9 @@ func New(db *sql.DB, options ...Option) (*Store, error) {
 	}
 	if s.ownerRequests < 0 || s.ownerBytes < 0 {
 		return nil, fmt.Errorf("owner budgets must be nonnegative")
+	}
+	if s.maxOwnerGrants <= 0 || s.maxOwnerGrants > MaxOwnerGrants {
+		return nil, fmt.Errorf("owner grant limit must be between 1 and %d", MaxOwnerGrants)
 	}
 	// SQLite transactions must share one connection, including in-memory fixtures.
 	db.SetMaxOpenConns(1)

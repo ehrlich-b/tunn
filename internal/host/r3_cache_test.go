@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/ehrlich-b/tunn/internal/client"
 	"github.com/ehrlich-b/tunn/internal/common"
 	mp "github.com/ehrlich-b/tunn/pkg/proto/meteringv1"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
@@ -67,10 +68,10 @@ func TestR3BrowserCacheCannotBypassRevocation(t *testing.T) {
 			handler.ServeHTTP(w, r)
 		}
 	}))
+	u, _ := url.Parse("https://" + server.Listener.Addr().String())
+	p.config.PublicAddr = "tunn.test:" + u.Port()
 	server.StartTLS()
 	defer server.Close()
-	u, _ := url.Parse(server.URL)
-	p.config.PublicAddr = "tunn.test:" + u.Port()
 	script, err := filepath.Abs("../../scripts/integration-tests/r3-cache-browser.py")
 	if err != nil {
 		t.Fatal(err)
@@ -179,4 +180,17 @@ func TestR3PrivateCachePolicyOnAdmissionErrorsAndPlatformRedirects(t *testing.T)
 			assertR3PrivateCachePolicy(t, w.Result().Header)
 		})
 	}
+}
+
+func TestR3PrivateWebSocketUpgradeCachePolicy(t *testing.T) {
+	stack := startWebSocketStack(t, func(p *client.ServeClient) { p.AllowedEmails = []string{"alice@example.com"} })
+	conn, _, response, err := stack.dial("/echo", http.Header{"Cookie": {stack.cookie(t, "alice@example.com")}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if response.StatusCode != http.StatusSwitchingProtocols {
+		t.Fatal("upgrade status", response.StatusCode)
+	}
+	assertR3PrivateCachePolicy(t, response.Header)
 }

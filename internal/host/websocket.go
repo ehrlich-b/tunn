@@ -81,6 +81,8 @@ func (p *ProxyServer) proxyWebSocketOverGRPC(w http.ResponseWriter, r *http.Requ
 	}
 	headers := make(http.Header)
 	copyApplicationResponseHeaders(headers, head.Headers)
+	// Upgrades write headers directly to the hijacked connection.
+	privateResponseHeaders(headers)
 	if !common.ValidWebSocketResponse(headers, r.Header.Get("Sec-WebSocket-Key")) {
 		return fmt.Errorf("invalid WebSocket acceptance")
 	}

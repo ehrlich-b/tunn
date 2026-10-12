@@ -463,3 +463,11 @@ func (s *LocalStorage) BeginBillingCheckout(ctx context.Context, id string) (str
 func (s *LocalStorage) PrepareBillingCheckout(ctx context.Context, id, destination string) (string, string, error) {
 	return s.OperationsStore().PrepareBillingCheckout(ctx, id, destination)
 }
+
+func (s *LocalStorage) FindOrCreateGoogleIdentity(ctx context.Context, subject, email, hostedDomain string, verified bool) (*Account, error) {
+	acc, err := s.accounts.FindOrCreateGoogleIdentity(ctx, subject, email, hostedDomain, verified)
+	if err != nil {
+		return nil, err
+	}
+	return storeAccountToStorage(acc), nil
+}

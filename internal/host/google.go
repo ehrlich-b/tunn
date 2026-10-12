@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ehrlich-b/tunn/internal/common"
+	"github.com/ehrlich-b/tunn/internal/storage"
 	"github.com/golang-jwt/jwt/v4"
 )
 
@@ -136,9 +138,10 @@ func (p *ProxyServer) handleGoogleCallback(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	var identity struct {
-		Sub      string `json:"sub"`
-		Email    string `json:"email"`
-		Verified bool   `json:"email_verified"`
+		Sub          string `json:"sub"`
+		Email        string `json:"email"`
+		Verified     bool   `json:"email_verified"`
+		HostedDomain string `json:"hd"`
 	}
 	err = json.NewDecoder(io.LimitReader(resp.Body, 65536)).Decode(&identity)
 	resp.Body.Close()
@@ -155,11 +158,20 @@ func (p *ProxyServer) handleGoogleCallback(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "Account authority unavailable", 503)
 		return
 	}
-	if _, err = p.storage.FindOrCreateByEmails(r.Context(), []string{email}, "google"); err != nil {
-		http.Error(w, "Account authority unavailable", 503)
+	if !common.GoogleAuthoritativeEmail(email, identity.HostedDomain, identity.Verified) {
+		http.Error(w, "Google does not verify current ownership of this email; sign in with a fresh email link", 403)
 		return
 	}
-	if err = p.signedSession(w, jwt.MapClaims{"email": email, "sub": identity.Sub, "provider": "google", "email_verified": true}, authCookieName, "."+p.config.Domain, authCookieLifetime); err != nil {
+	identityStore, ok := p.storage.(storage.GoogleIdentityStorage)
+	if !ok {
+		http.Error(w, "Account identity authority unavailable", 503)
+		return
+	}
+	if _, err = identityStore.FindOrCreateGoogleIdentity(r.Context(), identity.Sub, email, identity.HostedDomain, identity.Verified); err != nil {
+		http.Error(w, "Google identity cannot be linked; sign in with a fresh email link", 403)
+		return
+	}
+	if err = p.signedSession(w, jwt.MapClaims{"email": email, "sub": identity.Sub, "provider": "google", "email_verified": true, "google_authoritative": true, "issuer": common.GoogleIssuer}, authCookieName, "."+p.config.Domain, authCookieLifetime); err != nil {
 		http.Error(w, "Login unavailable", 500)
 		return
 	}

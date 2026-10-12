@@ -106,3 +106,8 @@ type BillingCheckout interface {
 type DurableBillingCheckout interface {
 	PrepareBillingCheckout(context.Context, string, string) (string, string, error)
 }
+
+// GoogleIdentityStorage binds only authoritative Google emails to a provider subject.
+type GoogleIdentityStorage interface {
+	FindOrCreateGoogleIdentity(context.Context, string, string, string, bool) (*Account, error)
+}

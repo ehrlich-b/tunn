@@ -422,3 +422,15 @@ func (s *ProxyStorage) PrepareBillingCheckout(ctx context.Context, id, destinati
 	}
 	return r.Reference, r.Destination, nil
 }
+
+func (s *ProxyStorage) FindOrCreateGoogleIdentity(ctx context.Context, subject, email, hostedDomain string, verified bool) (*Account, error) {
+	client := s.getClient()
+	if client == nil {
+		return nil, ErrNotAvailable
+	}
+	resp, err := client.FindOrCreateByEmails(ctx, &internalv1.FindOrCreateByEmailsRequest{Emails: []string{email}, VerifiedVia: "google", GoogleSubject: subject, GoogleHostedDomain: hostedDomain, GoogleEmailVerified: verified})
+	if err != nil {
+		return nil, err
+	}
+	return protoAccountToStorage(resp), nil
+}

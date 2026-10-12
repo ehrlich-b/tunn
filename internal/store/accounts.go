@@ -61,6 +61,20 @@ func (s *AccountStore) FindOrCreateByEmails(emails []string, verifiedVia string)
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	account, err := s.findOrCreateByEmailsTx(tx, emails, verifiedVia)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = tx.Commit(); err != nil {
+		return nil, err
+	}
+	return account, nil
+}
+
+// findOrCreateByEmailsTx lets provider binding and email attachment commit together.
+func (s *AccountStore) findOrCreateByEmailsTx(tx *sql.Tx, emails []string, verifiedVia string) (*Account, error) {
+
 	// Find all accounts that own any of these emails
 	placeholders := make([]string, len(emails))
 	args := make([]interface{}, len(emails))
@@ -156,9 +170,6 @@ func (s *AccountStore) FindOrCreateByEmails(emails []string, verifiedVia string)
 		account.BillingNotice, err = billingNotice(context.Background(), tx, account.ID)
 	}
 	if err != nil {
-		return nil, err
-	}
-	if err = tx.Commit(); err != nil {
 		return nil, err
 	}
 	return account, nil

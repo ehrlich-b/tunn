@@ -161,7 +161,16 @@ func (s *LoginNodeDBServer) GetAccountByEmail(ctx context.Context, req *internal
 
 // FindOrCreateByEmails finds or creates an account, handling merges
 func (s *LoginNodeDBServer) FindOrCreateByEmails(ctx context.Context, req *internalv1.FindOrCreateByEmailsRequest) (*internalv1.AccountResponse, error) {
-	account, err := s.storage.FindOrCreateByEmails(ctx, req.Emails, req.VerifiedVia)
+	var account *storage.Account
+	var err error
+	if req.VerifiedVia == "google" || req.GoogleSubject != "" {
+		if len(req.Emails) != 1 {
+			return nil, status.Error(codes.InvalidArgument, "one Google email required")
+		}
+		account, err = s.storage.FindOrCreateGoogleIdentity(ctx, req.GoogleSubject, req.Emails[0], req.GoogleHostedDomain, req.GoogleEmailVerified)
+	} else {
+		account, err = s.storage.FindOrCreateByEmails(ctx, req.Emails, req.VerifiedVia)
+	}
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to find or create account: %v", err)
 	}

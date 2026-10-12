@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/ehrlich-b/tunn/internal/identity"
 	"github.com/ehrlich-b/tunn/internal/storage"
 	domainpb "github.com/ehrlich-b/tunn/pkg/proto/domainv1"
@@ -39,7 +40,7 @@ func (p *ProxyServer) googleSession(r *http.Request) (jwt.MapClaims, bool) {
 		return nil, false
 	}
 	claims, ok := p.parseDomainToken(cookie.Value, "session")
-	if !ok || claims["provider"] != "google" || claims["email_verified"] != true {
+	if !ok || claims["provider"] != "google" || claims["email_verified"] != true || claims["google_authoritative"] != true || claims["issuer"] != common.GoogleIssuer {
 		return nil, false
 	}
 	email, ok := claims["email"].(string)
@@ -106,7 +107,7 @@ func (p *ProxyServer) handleDomainLogin(w http.ResponseWriter, r *http.Request) 
 		http.Redirect(w, r, "/auth/login?google_only=1&return_to="+url.QueryEscape(target), 302)
 		return
 	}
-	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"type": "domain_handoff", "aud": host, "nonce": nonce, "path": path, "email": session["email"], "sub": session["sub"], "provider": "google", "email_verified": true, "exp": time.Now().Add(time.Minute).Unix()}).SignedString(p.getJWTSigningKey())
+	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"type": "domain_handoff", "aud": host, "nonce": nonce, "path": path, "email": session["email"], "sub": session["sub"], "provider": "google", "email_verified": true, "google_authoritative": true, "issuer": common.GoogleIssuer, "exp": time.Now().Add(time.Minute).Unix()}).SignedString(p.getJWTSigningKey())
 	if err != nil {
 		http.Error(w, "Login unavailable", 503)
 		return
@@ -126,7 +127,7 @@ func (p *ProxyServer) handleDomainCallback(w http.ResponseWriter, r *http.Reques
 	claims, ok := p.parseDomainToken(r.URL.Query().Get("token"), "domain_handoff")
 	nonce, err := r.Cookie(appNonceCookie)
 	path, _ := claims["path"].(string)
-	if !ok || err != nil || claims["nonce"] != nonce.Value || nonce.Value == "" || claims["aud"] != requestHostname(r.Host) || claims["provider"] != "google" || claims["email_verified"] != true || !validAppReturn(path) {
+	if !ok || err != nil || claims["nonce"] != nonce.Value || nonce.Value == "" || claims["aud"] != requestHostname(r.Host) || claims["provider"] != "google" || claims["email_verified"] != true || claims["google_authoritative"] != true || claims["issuer"] != common.GoogleIssuer || !validAppReturn(path) {
 		http.Error(w, "Invalid login binding", 400)
 		return
 	}
@@ -150,7 +151,7 @@ func (p *ProxyServer) handleDomainCallback(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	http.SetCookie(w, &http.Cookie{Name: appNonceCookie, Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: -1})
-	if err := p.signedSession(w, jwt.MapClaims{"email": claims["email"], "sub": claims["sub"], "provider": "google", "email_verified": true, "aud": requestHostname(r.Host)}, appCookie, "", time.Hour); err != nil {
+	if err := p.signedSession(w, jwt.MapClaims{"email": claims["email"], "sub": claims["sub"], "provider": "google", "email_verified": true, "google_authoritative": true, "issuer": common.GoogleIssuer, "aud": requestHostname(r.Host)}, appCookie, "", time.Hour); err != nil {
 		http.Error(w, "Login unavailable", 503)
 		return
 	}

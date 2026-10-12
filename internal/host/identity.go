@@ -13,6 +13,9 @@ import (
 // identityEmail excludes one-time login and CSRF tokens from every account
 // authentication path. Older session and CLI tokens had no purpose claim.
 func identityEmail(claims jwt.MapClaims) (string, error) {
+	if claims["provider"] == "google" && (claims["google_authoritative"] != true || claims["issuer"] != common.GoogleIssuer) {
+		return "", fmt.Errorf("Google identity lacks authoritative mailbox proof")
+	}
 	if !claims.VerifyExpiresAt(time.Now().Unix(), true) {
 		return "", fmt.Errorf("missing or expired identity token expiry")
 	}

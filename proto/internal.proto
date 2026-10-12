@@ -145,6 +145,10 @@ message GetAccountByEmailRequest {
 message FindOrCreateByEmailsRequest {
   repeated string emails = 1;
   string verified_via = 2;
+  // A Google identity must be attached atomically at the login-node authority.
+  string google_subject = 3;
+  string google_hosted_domain = 4;
+  bool google_email_verified = 5;
 }
 
 message GetEmailBucketRequest {

@@ -29,7 +29,7 @@ func googleFixtureTransport(t *testing.T, p *ProxyServer, verified bool) *http.C
 			if !strings.Contains(email, "@") {
 				email = "alice@example.com"
 			}
-			data = fmt.Sprintf(`{"sub":"fixture-subject","email":%q,"email_verified":%v}`, email, verified)
+			data = fmt.Sprintf(`{"sub":%q,"email":%q,"email_verified":%v,"hd":%q}`, "fixture-subject:"+email, email, verified, strings.Split(email, "@")[1])
 		default:
 			return nil, fmt.Errorf("unexpected Google call")
 		}
@@ -39,7 +39,7 @@ func googleFixtureTransport(t *testing.T, p *ProxyServer, verified bool) *http.C
 func TestGoogleLoginVerifiedEmailAndBrowserBinding(t *testing.T) {
 	for _, verified := range []bool{true, false} {
 		t.Run(fmt.Sprint(verified), func(t *testing.T) {
-			p, _, _, _ := webSharingFixture(t)
+			p := newMCPOAuthFixture(t).p
 			p.config.GoogleClientID = "fixture-id"
 			p.config.GoogleClientSecret = "fixture-secret"
 			p.googleHTTPClient = googleFixtureTransport(t, p, verified)

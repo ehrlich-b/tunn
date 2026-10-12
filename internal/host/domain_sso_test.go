@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/ehrlich-b/tunn/internal/identity"
 	"github.com/ehrlich-b/tunn/internal/storage"
 	"github.com/ehrlich-b/tunn/internal/store"
@@ -86,7 +87,7 @@ func appSessionCookie(t *testing.T, p *ProxyServer, email, provider string, veri
 	if aud == "" {
 		name, domain = authCookieName, ".tunn.test"
 	}
-	if err := p.signedSession(w, jwt.MapClaims{"email": email, "sub": "google:123", "provider": provider, "email_verified": verified, "aud": aud}, name, domain, time.Hour); err != nil {
+	if err := p.signedSession(w, jwt.MapClaims{"email": email, "sub": "google:123", "provider": provider, "email_verified": verified, "google_authoritative": verified, "issuer": common.GoogleIssuer, "aud": aud}, name, domain, time.Hour); err != nil {
 		t.Fatal(err)
 	}
 	return w.Result().Cookies()[0]

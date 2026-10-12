@@ -125,6 +125,12 @@ func initSchema(db *sql.DB) error {
 	);
 	CREATE INDEX IF NOT EXISTS idx_account_merges_account_id ON account_merges(account_id);
 
+	-- Provider identities stay bound to their subject, independently of email.
+	CREATE TABLE IF NOT EXISTS account_provider_identities (
+	 issuer TEXT NOT NULL, subject TEXT NOT NULL, account_id TEXT NOT NULL,
+	 email TEXT NOT NULL, PRIMARY KEY(issuer,subject),
+	 FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE);
+
 	-- Account emails (many-to-one with accounts)
 	CREATE TABLE IF NOT EXISTS account_emails (
 		account_id TEXT NOT NULL,

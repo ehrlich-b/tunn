@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestDomainClientUsesOwnerOriginAndRefusesRedirects(t *testing.T) {
@@ -47,5 +48,36 @@ func TestDomainClientUsesOwnerOriginAndRefusesRedirects(t *testing.T) {
 	}
 	if _, err := c.DomainCall(context.Background(), "DELETE", "../account", "", nil); err == nil {
 		t.Fatal("invalid domain path accepted")
+	}
+}
+
+func TestNamespacePublisherLookupPreservesLegacyAndScopedIDs(t *testing.T) {
+	for _, legacy := range []bool{false, true} {
+		t.Run(fmt.Sprint(legacy), func(t *testing.T) {
+			tunnel := "ns-012345678901234567890123456789012345678901234567"
+			if legacy {
+				tunnel = "grafana"
+			}
+			body := fmt.Sprintf(`{"domains":[{"name":"*.apps.customer.test","state":"ready","verified_until":%d,"app_names":[{"label":"grafana","tunnel":%q,"legacy":%t}],"app_name_limit":50}]}`, time.Now().Add(time.Hour).Unix(), tunnel, legacy)
+			c := &ManagementClient{ServerURL: "https://relay.test", OwnerToken: "owner-fixture", HTTPClient: &http.Client{Transport: meteringTransportFunc(func(r *http.Request) (*http.Response, error) {
+				if r.Method != "GET" || r.URL.Path != "/api/domains" || r.Header.Get("Authorization") != "Bearer owner-fixture" {
+					t.Fatalf("unexpected lookup: %s %s", r.Method, r.URL.Path)
+				}
+				return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)), Request: r}, nil
+			})}}
+			if got, err := c.NamespaceTunnel(context.Background(), "APPS.Customer.Test.", "grafana"); err != nil || got != tunnel {
+				t.Fatalf("lookup=%s %v", got, err)
+			}
+			if _, err := c.NamespaceTunnel(context.Background(), "apps.customer.test", "missing"); err == nil || !strings.Contains(err.Error(), "tunn domain add") {
+				t.Fatalf("missing app: %v", err)
+			}
+			if _, err := c.NamespaceTunnel(context.Background(), "apps.other.test", "grafana"); err == nil {
+				t.Fatal("lookup escaped owned namespace")
+			}
+			body = strings.Replace(body, `"state":"ready"`, `"state":"pending"`, 1)
+			if _, err := c.NamespaceTunnel(context.Background(), "apps.customer.test", "grafana"); err == nil {
+				t.Fatal("pending namespace published")
+			}
+		})
 	}
 }

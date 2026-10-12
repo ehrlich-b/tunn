@@ -24,8 +24,12 @@ message Domain {
  int64 verified_until = 6; // Unix seconds; DNS proof lease
  int64 certificate_expires = 7;
  string last_error = 8; // bounded diagnostic code, never a private key
+ repeated AppName app_names = 9; // owner management metadata; Route leaves empty
+ int32 app_name_limit = 10; // per-namespace plan limit
 }
 message DomainList { repeated Domain domains = 1; }
 message CertificatePair { bytes certificate_pem = 1; bytes key_pem = 2; }
 message ChallengeRequest { string name = 1; string token = 2; }
 message ChallengeResponse { string body = 1; }
+
+message AppName { string label = 1; string tunnel = 2; bool legacy = 3; }

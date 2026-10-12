@@ -62,8 +62,8 @@ func appProxyFixtureDB(t *testing.T) (*ProxyServer, *TunnelConnection, ed25519.P
 	}
 	tunnel, _ := p.tunnelServer.GetTunnel("api")
 	delete(p.tunnelServer.tunnels, "api")
-	tunnel.TunnelID = "dashboard"
-	p.tunnelServer.tunnels["dashboard"] = tunnel
+	tunnel.TunnelID = d.AppNames[0].Tunnel
+	p.tunnelServer.tunnels[tunnel.TunnelID] = tunnel
 	tunnel.AllowedEmails = nil // Explicitly public publisher still receives the forced gate.
 	db, err := store.InitForTest()
 	if err != nil {

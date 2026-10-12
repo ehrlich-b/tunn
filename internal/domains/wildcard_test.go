@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ehrlich-b/tunn/internal/store"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/domainv1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -21,7 +22,10 @@ type wildcardDNS struct {
 
 func (d *wildcardDNS) LookupTXT(context.Context, string) ([]string, error) { return d.txt, d.err }
 func wildcardFixture(t *testing.T) (*Registry, *wildcardDNS, *pb.Domain) {
-	r, dns, _ := domainFixture(t, nil)
+	r, dns, db := domainFixture(t, nil)
+	if err := store.NewAccountStore(db).ReserveSubdomain("one", "dashboard"); err != nil {
+		t.Fatal(err)
+	}
 	wd := &wildcardDNS{fakeDNS: dns}
 	r.dns = wd
 	d := addDomain(t, r, "*.apps.ehrlich.dev", "dashboard", "one")

@@ -69,3 +69,15 @@ func TestDomainCLIReportsCompetingProof(t *testing.T) {
 		t.Fatalf("CLI discarded competing proof instructions: %v", err)
 	}
 }
+
+func TestNamespaceServeFlag(t *testing.T) {
+	o, err := parseServeFlags([]string{"--namespace", "apps.customer.test", "--name", "grafana", "3000"})
+	if err != nil || o.namespace != "apps.customer.test" || o.tunnelID != "grafana" {
+		t.Fatalf("namespace flags: %+v %v", o, err)
+	}
+	for _, args := range [][]string{{"--namespace", "apps.customer.test", "3000"}, {"--namespace", "https://apps.customer.test", "--name", "grafana", "3000"}, {"--namespace", "apps.customer.test", "--name", "www", "3000"}} {
+		if _, err := parseServeFlags(args); err == nil {
+			t.Fatalf("accepted invalid namespace publication: %v", args)
+		}
+	}
+}

@@ -9,6 +9,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"fmt"
 	"math/big"
 	"net"
 	"net/http/httptest"
@@ -209,5 +210,31 @@ func TestDomainSNICertificateHandshakeAndAuthorityFailure(t *testing.T) {
 	p.createHandler().ServeHTTP(rec, httptest.NewRequest("GET", "https://work.example.com/", nil))
 	if rec.Code != 503 {
 		t.Fatal(rec.Code)
+	}
+}
+
+func TestNamespaceAPICapacityMessageAndNames(t *testing.T) {
+	p, _, _ := domainProxyFixture(t)
+	owner := relayJWT(t, p, "owner@example.com")
+	call := func(method, body string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, "https://tunn.test/api/domains", strings.NewReader(body))
+		r.Header.Set("Authorization", "Bearer "+owner)
+		rec := httptest.NewRecorder()
+		p.handleDomainsAPI(rec, r)
+		return rec
+	}
+	for i := 0; i < 50; i++ {
+		rec := call("POST", fmt.Sprintf(`{"name":"*.apps.customer.test","tunnel":"app-%d"}`, i))
+		if rec.Code != 201 {
+			t.Fatalf("name %d: %d %s", i, rec.Code, rec.Body)
+		}
+	}
+	if rec := call("POST", `{"name":"*.apps.customer.test","tunnel":"app-51"}`); rec.Code != 429 || !strings.Contains(rec.Body.String(), "Pro: 50 names") {
+		t.Fatalf("capacity: %d %s", rec.Code, rec.Body)
+	}
+	rec := call("GET", "")
+	var list domainpb.DomainList
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil || rec.Code != 200 || len(list.Domains) != 1 || len(list.Domains[0].AppNames) != 50 || list.Domains[0].AppNameLimit != 50 {
+		t.Fatalf("name metadata: status=%d err=%v", rec.Code, err)
 	}
 }

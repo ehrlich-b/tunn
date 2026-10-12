@@ -392,6 +392,23 @@ func (s *AccountStore) ReserveSubdomain(accountID, subdomain string) error {
 	if plan != "pro" {
 		return fmt.Errorf("subdomain reservations require a Pro plan")
 	}
+	// Internal namespace publisher IDs cannot be claimed in the shared namespace.
+	// This prevents a different account from blocking a scoped publisher by
+	// reserving its management-visible ID. Existing global names are preserved.
+	var namespaceTable int
+	if err := tx.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type='table' AND name='namespace_app_names'`).Scan(&namespaceTable); err != nil {
+		return err
+	}
+	if namespaceTable != 0 {
+		var scoped int
+		if err := tx.QueryRow(`SELECT count(*) FROM namespace_app_names WHERE tunnel=? AND legacy=0`, subdomain).Scan(&scoped); err != nil {
+			return err
+		}
+		if scoped != 0 {
+			return fmt.Errorf("namespace publisher IDs cannot be reserved as shared subdomains")
+		}
+	}
+
 	// Retrying an owned reservation consumes no additional allowance, even
 	// when the account has reached its limit.
 	var existingAccountID string

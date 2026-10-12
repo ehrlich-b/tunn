@@ -1,6 +1,31 @@
+# Namespace app-name capacity
+
+Custom namespace app names live in `namespace_app_names`, keyed by parent claim,
+proof target and app label; account ownership follows the parent. Pro permits
+50 names per namespace, independently of the four shared `*.tunn.to` reservation
+slots. New names use random internal publisher IDs and publish with
+`tunn serve --namespace apps.example.com --name grafana <target>`. Add/list show
+`app_names` and `app_name_limit`; the 51st add reports the namespace and 50-name
+limit. The four-domain, ten-concurrent-tunnel, 10-owner-orders/hour and
+100-global-orders/hour gates remain unchanged.
+
+The forward-only migration preserves existing shared reservations, publisher
+IDs and encrypted certificate data. It backfills historical owner-reserved
+labels once and keeps their reservation revocation checks. Claim deletion,
+expiry or replacement removes its names and stored app keys/challenges through
+SQLite triggers, independently of foreign-key settings. A different account
+cannot add names or publish scoped IDs belonging to this namespace. Every route,
+challenge and certificate/key response checks current claim/binding authority.
+Scoped publication never auto-reserves a global name. New namespace bindings
+can reuse an already-owned global reservation; that independent reservation stays
+reserved. The previous schema cannot identify app-only global reservations, so
+none are automatically released. Rollback must disable app domains; old images
+cannot route new scoped IDs. Names can currently be removed together by deleting
+the namespace, rather than through a separate per-app deletion API.
+
 # Wildcard app authorization by tunn account
 
-A verified wildcard namespace and each app's reserved name belong to a durable
+A verified wildcard namespace and each app's namespace name belong to a durable
 tunn account UUID. Routing rechecks that the connected publisher has that UUID.
 The owner signs in through GitHub (verified primary email), an email magic link,
 or Google when configured. All three callbacks resolve the verified identity

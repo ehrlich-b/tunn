@@ -1,0 +1,4 @@
+ok  	github.com/ehrlich-b/tunn/internal/domains	10.364s
+ok  	github.com/ehrlich-b/tunn/internal/host	192.541s
+ok  	github.com/ehrlich-b/tunn/internal/store	33.874s
+ok  	github.com/ehrlich-b/tunn/internal/metering	5.261s

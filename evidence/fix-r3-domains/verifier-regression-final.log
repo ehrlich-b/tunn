@@ -1,0 +1,9 @@
+{
+  "PyJWT_version": "2.10.1",
+  "JWKS_cache_seconds": 60,
+  "removed_key_accepted_at_59_seconds": true,
+  "removed_key_rejected_at_61_181_301_seconds": true,
+  "new_key_accepted": true,
+  "negative_identity_checks": "PASS",
+  "network": "mocked local JWKS only"
+}

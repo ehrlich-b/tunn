@@ -35,3 +35,69 @@ Sharing retains global capacity 10,000, with 256 current grant rows per owner (m
 - `commands.md` records reproduction commands and fixture/environment adjustments; `summary.json` records exit statuses and counts. All final gates target the implementation head above. The original review's deliberate vulnerable-behavior characterization run has exit 1 because its four vulnerability predicates are now false; it is not a failing security acceptance gate.
 
 Billing-disabled/org-SSO-disabled rollout constraints and separate live-domain/provider acceptance gates remain in force. This work performs no deployment and grants no deployment approval.
+
+## Round-three domain fixes
+
+Read `/work/lanes/tunn-r3fix/BRIEF-DOMAINS.md` and
+`/work/lanes/tunn-apps-domain/review-r3/REVIEW.md` in full. Continued the prior
+partial attempt's untracked review tests and before evidence. Base: `bbe8014`;
+validated implementation: `3887576bd9ac24d7f13060d3ca3fad462135cf31`, on the same
+`codex/tunn-r3fix-20261012` branch. The subsequent evidence commit changes no
+application or Go test source. Sharing implementation files remain byte-for-byte
+unchanged relative to the base; their full suite and race checks pass again.
+
+| Finding | Fix and regression evidence |
+| --- | --- |
+| D1: unverified namespace squatting | DNS-unverified claims expire after 24 hours without resetting their lifetime on failure/restart. A conflicting Add supplies a fresh, bounded competing proof request. Repeating Add after publishing its unique CNAME/TXT reclaims overlapping unverified rows atomically, including an exact name occupying the primary key. A persisted `proven` flag grants exclusivity only after ownership proof and protects verified owners across lease failures. Legacy pending/failed-unverified rows receive a finite upgrade deadline; legacy ready/certified owners retain protection. `TestReviewUnverifiedWildcardCannotSquatNamespace`, `TestR3PendingClaimProofReclaim`, expiry/fresh-proof, legacy migration, request-capacity and verified-owner safety tests cover these boundaries. |
+| D2: concrete verification bypasses issuance admission | Concrete and wildcard issuance call the same transactionally recorded owner/global budget and hostname backoff before invoking the issuer. Failed attempts and scheduled renewals count; admission survives restart. Verify rechecks DNS and reuses a concrete certificate outside the 30-day renewal window. Current entitlement/reservation predicates also protect concrete challenge publication, lease fallback and certificate commitment. Accounting, reuse/renewal, restart/backoff, exhausted owner/global budgets and cross-path budget consumption regressions fail before and pass after. |
+| D3: in-flight reservation revocation | Challenge publication and certificate insertion include the current app reservation, Pro entitlement and ready parent lease in their SQL predicates. Challenge reads derive the exact single app label and require its current owner. All cached/failure/backoff key returns use a database read with the same current reservation predicate. Original successful-order and failed-renewal probes now pass; stronger release/reassignment/success/failure cases additionally require challenge denial, failed late publication and no new stored key. |
+| D4: verifier/cache rotation guidance | The exact Python snippet sets `lifespan=60, cache_keys=False`. Normal overlap is distinguished from emergency revocation, including client/upstream cache delay, assertion lifetime, app skew/leeway and immediate client/cache replacement. Local PyJWT 2.10.1 fixtures exercise the exact snippet: removed key accepted at cache age 59 seconds, rejected at 61/181/301 seconds; new key accepted; original issuer/audience/provider/email/expiry/algorithm boundaries retained. |
+
+`evidence/fix-r3-domains/` contains the original before attempt, a fresh original
+review rerun before changes, expanded before/after security regressions, exact
+verifier probes, gate logs with exit files, reproduction commands, source
+overlays and `summary.json`. Before application source is supplied by a Go
+overlay from `bbe8014`, entirely inside this clone, without another checkout or
+altering the working implementation. The original review Go files match the
+review archive's SHA-256 hashes; the exhausted-budget file is retained intact as
+`review_r3_original.go.txt` and restored only for the original-review overlay.
+
+Final acceptance gates, using `GOMAXPROCS=4`, `-p 4`, `umask 022`, with no source
+or test overlay:
+
+- `full.log` / `full.exit`: **PASS**, `go test -p 4 -count=1 -parallel=2 -timeout=600s ./...`; all 18 tested packages pass. Existing opt-in Chromium sharing/cache journeys were enabled.
+- `race.log` / `race.exit`: **PASS**, `go test -race -p 4 -count=1 -parallel=2 -timeout=600s ./internal/domains ./internal/host ./internal/store ./internal/metering`; all four packages pass, zero race warnings.
+- `vet.log` / `vet.exit`: **PASS**, `go vet -p 4 ./...`.
+- `regressions-final.log` / `regressions-final.exit`: **PASS** under race, 15 top-level domain security/safety tests, including the unchanged original D1/D3/accounting checks.
+- `verifier-regression-final.log` / `.exit`: **PASS**, local synthetic keys and mocked JWKS only.
+
+The original spent-budget probe expects Verify to return nil even when the owner
+budget is exhausted; its unchanged final rerun therefore stops at the fixed
+`ResourceExhausted` response. `TestR3ConcreteSpentBudget` explicitly requires that
+response on two calls and no issuer invocation for both owner/global limits.
+Likewise, the unchanged original verifier probe requires the removed key to be
+accepted at age 181 seconds; its final rerun fails because the key is rejected.
+These two original characterization exits are retained as 1, not labeled passing
+acceptance gates. Every other original domain probe passes after the fix. No
+original assertion was relaxed. The existing cancellation/gate-release fixture
+now advances its clock by one minute after a failed order, preserving all its
+assertions while honoring the newly shared backoff.
+
+**Write-scope caveat:** initial Go invocations inherited the shared
+`/work/cache/go/{mod,build}` caches and system temporary directory, rather than
+strictly confining all cache/temp writes to this clone. Later runs isolated
+mutable paths. Copying caches with reflinks consumed the remaining lane disk and
+caused full/race linker failures (`full-disk-initial.*`, `race-disk-initial.*`);
+only those newly created clone cache copies were removed. Final successful gates
+use a Go cache helper that reads existing shared immutable artifacts and writes
+new entries under this clone's `.scratch/go-cache`; module network access is off,
+and Go/browser temporary files are under `.scratch/tmp`. The installed Go cache
+protocol, object size/hash checks, actual test execution and all security checks
+are preserved. This limitation and the corrected environment are recorded in
+`commands.md`, `env.sh`, and `cache-fallback.py`.
+
+All application/test/documentation/evidence edits and commits are in this clone.
+No push, GitHub write, deployment, production database access, provider login,
+real-CA ACME call, email, payment, resource-exhaustion input or sub-agent work
+occurred. Local tests use synthetic DNS and local issuers. Existing deployment
+constraints and live-domain acceptance gates remain in force.

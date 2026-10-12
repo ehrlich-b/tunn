@@ -1,0 +1,16 @@
+Traceback (most recent call last):
+  File "/work/lanes/tunn-r3fix/tunn/evidence/fix-r3-domains/verifier-original.py", line 62, in <module>
+    assert verify(token()) == 'ehrlich.bryan@gmail.com'
+           ~~~~~~^^^^^^^^^
+  File "/work/lanes/tunn-r3fix/tunn/evidence/fix-r3-domains/verifier-original.py", line 37, in verify
+    return scope['verify']({'X-Tunn-Identity': raw})
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<string>", line 7, in verify
+  File "/usr/lib/python3/dist-packages/jwt/jwks_client.py", line 115, in get_signing_key_from_jwt
+    return self.get_signing_key(header.get("kid"))
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3/dist-packages/jwt/jwks_client.py", line 106, in get_signing_key
+    raise PyJWKClientError(
+        f'Unable to find a signing key that matches: "{kid}"'
+    )
+jwt.exceptions.PyJWKClientError: Unable to find a signing key that matches: "old"

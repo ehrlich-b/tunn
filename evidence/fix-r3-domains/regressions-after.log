@@ -1,0 +1,50 @@
+=== RUN   TestR3PendingClaimProofReclaim
+=== RUN   TestR3PendingClaimProofReclaim/*.ehrlich.dev/*.apps.ehrlich.dev
+=== RUN   TestR3PendingClaimProofReclaim/*.apps.ehrlich.dev/dashboard.apps.ehrlich.dev
+=== RUN   TestR3PendingClaimProofReclaim/work.example.com/work.example.com
+--- PASS: TestR3PendingClaimProofReclaim (0.70s)
+    --- PASS: TestR3PendingClaimProofReclaim/*.ehrlich.dev/*.apps.ehrlich.dev (0.24s)
+    --- PASS: TestR3PendingClaimProofReclaim/*.apps.ehrlich.dev/dashboard.apps.ehrlich.dev (0.23s)
+    --- PASS: TestR3PendingClaimProofReclaim/work.example.com/work.example.com (0.23s)
+=== RUN   TestR3PendingClaimExpiryAndFreshProof
+--- PASS: TestR3PendingClaimExpiryAndFreshProof (0.23s)
+=== RUN   TestR3VerifiedClaimSurvivesLeaseLoss
+--- PASS: TestR3VerifiedClaimSurvivesLeaseLoss (0.24s)
+=== RUN   TestR3ConcreteCertificateReuseAndRenewalAccounting
+--- PASS: TestR3ConcreteCertificateReuseAndRenewalAccounting (0.23s)
+=== RUN   TestR3ConcreteFailureBackoffSurvivesRestart
+--- PASS: TestR3ConcreteFailureBackoffSurvivesRestart (0.23s)
+=== RUN   TestR3ConcreteSpentBudget
+=== RUN   TestR3ConcreteSpentBudget/one
+=== RUN   TestR3ConcreteSpentBudget/two
+--- PASS: TestR3ConcreteSpentBudget (0.47s)
+    --- PASS: TestR3ConcreteSpentBudget/one (0.20s)
+    --- PASS: TestR3ConcreteSpentBudget/two (0.26s)
+=== RUN   TestR3ConcreteFailureConsumesWildcardBudget
+--- PASS: TestR3ConcreteFailureConsumesWildcardBudget (0.23s)
+=== RUN   TestR3WildcardReservationRevokesOrder
+=== RUN   TestR3WildcardReservationRevokesOrder/reassign=false/failure=false
+=== RUN   TestR3WildcardReservationRevokesOrder/reassign=false/failure=true
+=== RUN   TestR3WildcardReservationRevokesOrder/reassign=true/failure=false
+=== RUN   TestR3WildcardReservationRevokesOrder/reassign=true/failure=true
+--- PASS: TestR3WildcardReservationRevokesOrder (0.94s)
+    --- PASS: TestR3WildcardReservationRevokesOrder/reassign=false/failure=false (0.22s)
+    --- PASS: TestR3WildcardReservationRevokesOrder/reassign=false/failure=true (0.24s)
+    --- PASS: TestR3WildcardReservationRevokesOrder/reassign=true/failure=false (0.23s)
+    --- PASS: TestR3WildcardReservationRevokesOrder/reassign=true/failure=true (0.25s)
+=== RUN   TestR3PendingProofRequestCapacity
+--- PASS: TestR3PendingProofRequestCapacity (0.23s)
+=== RUN   TestR3LegacyClaimExpiryMigration
+--- PASS: TestR3LegacyClaimExpiryMigration (0.26s)
+=== RUN   TestReviewUnverifiedWildcardCannotSquatNamespace
+--- PASS: TestReviewUnverifiedWildcardCannotSquatNamespace (0.22s)
+=== RUN   TestReviewReservationLossCancelsInflightCertificate
+--- PASS: TestReviewReservationLossCancelsInflightCertificate (0.22s)
+=== RUN   TestReviewWildcardTXTChangeDuringIssuance
+--- PASS: TestReviewWildcardTXTChangeDuringIssuance (0.22s)
+=== RUN   TestReviewConcreteVerifyMustRecordIssuanceAttempt
+--- PASS: TestReviewConcreteVerifyMustRecordIssuanceAttempt (0.20s)
+=== RUN   TestR3ReservationLossDuringFailedRenewalReturnsOldKey
+--- PASS: TestR3ReservationLossDuringFailedRenewalReturnsOldKey (0.23s)
+PASS
+ok  	github.com/ehrlich-b/tunn/internal/domains	5.864s

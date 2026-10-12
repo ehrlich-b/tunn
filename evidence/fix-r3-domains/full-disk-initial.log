@@ -1,0 +1,41 @@
+# github.com/ehrlich-b/tunn/internal/client.test
+/usr/local/go/pkg/tool/linux_amd64/link: mapping output file failed: no space left on device
+# github.com/ehrlich-b/tunn/internal/hostmode.test
+/usr/local/go/pkg/tool/linux_amd64/link: mapping output file failed: no space left on device
+# github.com/ehrlich-b/tunn.test
+/usr/local/go/pkg/tool/linux_amd64/link: mapping output file failed: no space left on device
+FAIL	github.com/ehrlich-b/tunn [build failed]
+?   	github.com/ehrlich-b/tunn/examples/sdk-handler	[no test files]
+?   	github.com/ehrlich-b/tunn/examples/sdk-origin	[no test files]
+FAIL	github.com/ehrlich-b/tunn/internal/client [build failed]
+ok  	github.com/ehrlich-b/tunn/internal/cliopts	0.004s
+ok  	github.com/ehrlich-b/tunn/internal/common	0.006s
+ok  	github.com/ehrlich-b/tunn/internal/config	0.008s
+?   	github.com/ehrlich-b/tunn/internal/deps	[no test files]
+# github.com/ehrlich-b/tunn/internal/sshfront.test
+/usr/local/go/pkg/tool/linux_amd64/link: mapping output file failed: no space left on device
+# github.com/ehrlich-b/tunn/internal/storage.test
+/usr/local/go/pkg/tool/linux_amd64/link: mapping output file failed: no space left on device
+ok  	github.com/ehrlich-b/tunn/internal/domains	0.495s
+# github.com/ehrlich-b/tunn/sdk.test
+/usr/local/go/pkg/tool/linux_amd64/link: mapping output file failed: no space left on device
+# github.com/ehrlich-b/tunn/internal/host.test
+/usr/local/go/pkg/tool/linux_amd64/link: mapping output file failed: no space left on device
+FAIL	github.com/ehrlich-b/tunn/internal/host [build failed]
+FAIL	github.com/ehrlich-b/tunn/internal/hostmode [build failed]
+ok  	github.com/ehrlich-b/tunn/internal/identity	0.010s
+ok  	github.com/ehrlich-b/tunn/internal/mcpbridge	0.363s
+ok  	github.com/ehrlich-b/tunn/internal/metering	0.635s
+ok  	github.com/ehrlich-b/tunn/internal/mockoidc	0.005s
+ok  	github.com/ehrlich-b/tunn/internal/relaytransport	0.007s
+FAIL	github.com/ehrlich-b/tunn/internal/sshfront [build failed]
+FAIL	github.com/ehrlich-b/tunn/internal/storage [build failed]
+ok  	github.com/ehrlich-b/tunn/internal/store	8.469s
+?   	github.com/ehrlich-b/tunn/internal/testnet	[no test files]
+?   	github.com/ehrlich-b/tunn/internal/testutil/httpconformance	[no test files]
+?   	github.com/ehrlich-b/tunn/pkg/proto/domainv1	[no test files]
+?   	github.com/ehrlich-b/tunn/pkg/proto/internalv1	[no test files]
+?   	github.com/ehrlich-b/tunn/pkg/proto/meteringv1	[no test files]
+ok  	github.com/ehrlich-b/tunn/pkg/proto/tunnelv1	0.007s
+FAIL	github.com/ehrlich-b/tunn/sdk [build failed]
+FAIL

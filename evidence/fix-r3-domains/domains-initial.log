@@ -1,0 +1,7 @@
+--- FAIL: TestEdgeDomainVerificationGateHonorsCancellation (0.01s)
+    edge_test.go:237: ended order retained verification gate rpc error: code = ResourceExhausted desc = certificate issuance rate limit; retry later
+--- FAIL: TestR3ConcreteRepeatedVerifyIgnoresExhaustedBudget (0.01s)
+    review_r3_test.go:32: rpc error: code = ResourceExhausted desc = certificate issuance rate limit; retry later
+FAIL
+FAIL	github.com/ehrlich-b/tunn/internal/domains	0.363s
+FAIL

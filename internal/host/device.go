@@ -311,6 +311,18 @@ func (p *ProxyServer) handleDeviceAuthorize(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	account, err := p.storage.GetAccountByEmail(r.Context(), email)
+	if err == nil && account == nil {
+		account, err = p.storage.FindOrCreateByEmails(r.Context(), []string{email}, "device-consent")
+	}
+	if err != nil || account == nil || account.OperationalState != "active" {
+		http.Error(w, "Active account required", 403)
+		return
+	}
+	if deviceCode.AccountID != "" && deviceCode.AccountID != account.ID {
+		http.Error(w, "Account does not match this login request", 403)
+		return
+	}
 	if authorized, err := p.storage.AuthorizeDeviceCode(r.Context(), deviceCode.Code, email); err != nil {
 		common.LogError("failed to authorize device code", "error", err)
 		http.Error(w, "Failed to authorize device", http.StatusInternalServerError)

@@ -95,7 +95,7 @@ wait_for_file() {
 wait_for_proxy() {
     local attempt
     for attempt in $(seq 1 100); do
-        if curl -sk --max-time 1 "https://localhost:$HTTP_PORT/health" | grep -q ok; then
+        if curl -sk --max-time 1 -H "Host: $DOMAIN" "https://127.0.0.1:$HTTP_PORT/health" | grep -q ok; then
             return 0
         fi
         if ! kill -0 "$PROXY_PID" 2>/dev/null; then
@@ -157,7 +157,7 @@ cd "$PROJECT_DIR"
 log "starting local TLS relay"
 start_proxy
 curl -sk --fail --max-time 5 -D "$WORK_DIR/health.headers" \
-    "https://localhost:$HTTP_PORT/health" >/dev/null
+    -H "Host: $DOMAIN" "https://127.0.0.1:$HTTP_PORT/health" >/dev/null
 if ! grep -qi 'alt-svc: h3=":18444"' "$WORK_DIR/health.headers"; then
     printf 'HTTPS relay did not advertise its HTTP/3 listener\n' >&2
     exit 1
@@ -165,7 +165,7 @@ fi
 
 log "publishing stdio MCP server with an echo-only tool policy"
 TUNN_ENV=dev \
-TUNN_SERVER_ADDR="localhost:$HTTP_PORT" \
+TUNN_SERVER_ADDR="127.0.0.1:$HTTP_PORT" \
 TUNN_PUBLIC_MODE=true \
 TUNN_CONFIG_DIR="$CONFIG_DIRECTORY" \
 ./bin/tunn mcp --name "$MCP_TUNNEL_ID" --allow e2e@example.invalid --tools echo -- \
@@ -312,7 +312,7 @@ TCP_TARGET_PID=$!
 wait_for_log "$WORK_DIR/tcp-target.log" "ready" "TCP target" "$TCP_TARGET_PID"
 
 TUNN_ENV=dev \
-TUNN_SERVER_ADDR="localhost:$HTTP_PORT" \
+TUNN_SERVER_ADDR="127.0.0.1:$HTTP_PORT" \
 TUNN_PUBLIC_MODE=true \
 TUNN_CONFIG_DIR="$CONFIG_DIRECTORY" \
 ./bin/tunn tcp --name "$TCP_TUNNEL_ID" --allow e2e@example.invalid "127.0.0.1:$TCP_TARGET_PORT" \
@@ -324,7 +324,7 @@ python3 -c 'import os,stat,sys; mode=stat.S_IMODE(os.stat(sys.argv[1]).st_mode);
 
 TUNN_ENV=dev \
 TUNN_DOMAIN="$DOMAIN" \
-TUNN_SERVER_ADDR="localhost:$HTTP_PORT" \
+TUNN_SERVER_ADDR="127.0.0.1:$HTTP_PORT" \
 TUNN_PUBLIC_MODE=true \
 TUNN_CONFIG_DIR="$CONFIG_DIRECTORY" \
 ./bin/tunn connect --listen "127.0.0.1:$TCP_LISTEN_PORT" --token-file "$TCP_TOKEN_FILE" \

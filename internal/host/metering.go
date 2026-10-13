@@ -34,6 +34,7 @@ type ingressMeter struct {
 	event                                     *pb.Event
 	admitted, closed                          bool
 	requestBytes, responseBytes, writtenBytes int64
+	readRequestBytes                          int64
 	reason                                    string
 	proxy                                     *ProxyServer
 	accountID                                 string
@@ -125,12 +126,13 @@ func (s *ingressMeter) charge(ctx context.Context, request bool, n int) (int, er
 	}
 	req, resp := s.requestBytes, s.responseBytes
 	if request {
-		req += int64(n)
+		req = max(req, s.readRequestBytes) + int64(n)
+		s.readRequestBytes = req
 	} else {
 		resp += int64(n)
 	}
-	// Even caller cancellation must not erase already-read ingress bytes.
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	// Stop transport work on cancellation; retain read bytes for reconciliation.
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	d, err := s.backend.Charge(ctx, &pb.ChargeRequest{RequestId: s.event.RequestId, RequestBytes: req, ResponseBytes: resp})
 	if err != nil {
@@ -179,7 +181,7 @@ func (s *ingressMeter) checkResponse(ctx context.Context, size int64) error {
 // Bound idle-stream revocation and ledger-outage exposure without allowing a
 // cached quota decision. Every data chunk still needs an atomic reservation.
 func (s *ingressMeter) watch(ctx context.Context, cancel context.CancelCauseFunc) {
-	s.watchEvery(ctx, cancel, 5*time.Second)
+	s.watchEvery(ctx, cancel, time.Second)
 }
 func (s *ingressMeter) watchEvery(ctx context.Context, cancel context.CancelCauseFunc, interval time.Duration) {
 	ticker := time.NewTicker(interval)
@@ -189,7 +191,7 @@ func (s *ingressMeter) watchEvery(ctx context.Context, cancel context.CancelCaus
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			probe, stop := context.WithTimeout(ctx, 5*time.Second)
+			probe, stop := context.WithTimeout(ctx, 2*time.Second)
 			err := s.checkResponse(probe, 0)
 			stop()
 			if err != nil {
@@ -214,8 +216,20 @@ func (s *ingressMeter) complete(ctx context.Context, w *meterResponseWriter) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.closed = true
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	deadline := 2 * time.Second
+	if ctx.Err() != nil {
+		deadline = 100 * time.Millisecond
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), deadline)
 	defer cancel()
+	if s.readRequestBytes > s.requestBytes {
+		if d, err := s.backend.Charge(ctx, &pb.ChargeRequest{RequestId: s.event.RequestId, RequestBytes: s.readRequestBytes, ResponseBytes: s.responseBytes}); err == nil {
+			s.requestBytes = d.RequestBytes
+			s.responseBytes = d.ResponseBytes
+		} else if s.proxy != nil {
+			s.proxy.operations.drops.Add(1)
+		}
+	}
 	if !s.admitted {
 		// Authentication/owner quota failures are first-class decisions too.
 		// An unsuccessful meter RPC already fails closed and cannot fabricate an audit.
@@ -240,7 +254,7 @@ func (s *ingressMeter) complete(ctx context.Context, w *meterResponseWriter) {
 		return
 	}
 	if s.accountID != "" {
-		s.proxy.RecordUsage(ctx, s.accountID, s.requestBytes+s.writtenBytes)
+		s.proxy.RecordUsage(ctx, s.accountID, max(s.requestBytes, s.readRequestBytes)+s.writtenBytes)
 	}
 	_, err := s.backend.Finish(ctx, &pb.Event{RequestId: s.event.RequestId, Status: int32(w.status), Reason: s.reason, Forwarded: s.event.Forwarded, ResponseBytes: s.writtenBytes})
 	if err != nil {

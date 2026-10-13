@@ -18,6 +18,7 @@ import (
 
 	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/ehrlich-b/tunn/internal/metering"
+	"github.com/ehrlich-b/tunn/internal/webhook"
 	domainpb "github.com/ehrlich-b/tunn/pkg/proto/domainv1"
 	internalv1 "github.com/ehrlich-b/tunn/pkg/proto/internalv1"
 	meterpb "github.com/ehrlich-b/tunn/pkg/proto/meteringv1"
@@ -484,6 +485,28 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 	}
 	meterWriter.bodyMeter = p.meter != nil
 	defer func() { _ = r.Body.Close() }()
+	if tunnel.WebhookPolicy != nil {
+		// Authorization and admission precede the bounded read. The metered
+		// wrapper charges its bytes once; Verify restores an unmetered copy
+		// for origin forwarding rather than charging that copy a second time.
+		controller := http.NewResponseController(w)
+		_ = controller.SetReadDeadline(time.Now().Add(webhook.ReadTimeout))
+		err := tunnel.WebhookPolicy.Verify(r, time.Now)
+		_ = controller.SetReadDeadline(time.Time{})
+		if err != nil {
+			meterWriter.bodyMeter = false
+			var limit *ingressLimitError
+			var unavailable *meterUnavailableError
+			if errors.As(err, &limit) || errors.As(err, &unavailable) {
+				session.recordError(err, r.Context())
+				writeIngressError(w, err)
+				return nil
+			}
+			session.reason = "webhook_verification_failed"
+			http.Error(w, "Webhook verification failed: "+err.Error(), http.StatusUnauthorized)
+			return nil
+		}
+	}
 	var proxyErr error
 	if tunnel.EndpointProtocol == "tcp" {
 		validPath := r.URL.Path == "" || r.URL.Path == common.TCPConnectPath

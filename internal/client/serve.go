@@ -23,6 +23,7 @@ import (
 
 	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/ehrlich-b/tunn/internal/relaytransport"
+	"github.com/ehrlich-b/tunn/internal/webhook"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
 )
 
@@ -64,8 +65,10 @@ func (s *streamSender) Send(msg *pb.TunnelMessage) error {
 
 // ServeClient is the new gRPC-based tunnel client for "tunn serve"
 type ServeClient struct {
-	Public             bool // Explicit anonymous web exposure; false is private.
-	RequireSharing     bool // Reject relays without versioned web sharing before ready.
+	WebhookPolicy      *pb.WebhookPolicy // contains a key; never log this value
+	WebhookSecretPath  string            // reload the private file on every registration
+	Public             bool              // Explicit anonymous web exposure; false is private.
+	RequireSharing     bool              // Reject relays without versioned web sharing before ready.
 	TunnelID           string
 	TargetURL          string
 	DisplayTarget      string // Optional redacted target shown in the CLI
@@ -308,11 +311,16 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 			exposureMode = "public"
 		}
 	}
+	webhookConfig, err := s.registrationWebhookPolicy()
+	if err != nil {
+		return &permanentTunnelError{err: err, kind: FailureRegistration}
+	}
 	// Send registration message
 	regMsg := &pb.TunnelMessage{
 		Message: &pb.TunnelMessage_RegisterClient{
 			RegisterClient: &pb.RegisterClient{
 				ExposureVersion:   exposureVersion,
+				WebhookPolicy:     webhookConfig,
 				ExposureMode:      exposureMode,
 				TunnelId:          s.TunnelID,
 				TargetUrl:         s.registrationTarget(),
@@ -352,6 +360,9 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 
 	if !regResp.Success {
 		return &permanentTunnelError{err: fmt.Errorf("registration failed: %s", regResp.ErrorMessage), kind: FailureRegistration}
+	}
+	if webhookConfig != nil && !containsString(regResp.Capabilities, webhook.Capability) {
+		return &permanentTunnelError{err: fmt.Errorf("relay lacks webhook verification; update the relay"), kind: FailureProtocol}
 	}
 	if s.RequireSharing && exposureVersion == 1 && !containsString(regResp.Capabilities, "web-sharing-v1") {
 		return &permanentTunnelError{err: fmt.Errorf("relay lacks private web sharing; update the relay"), kind: FailureProtocol}

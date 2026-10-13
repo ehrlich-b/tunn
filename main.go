@@ -25,6 +25,7 @@ import (
 	"github.com/ehrlich-b/tunn/internal/host"
 	"github.com/ehrlich-b/tunn/internal/hostmode"
 	"github.com/ehrlich-b/tunn/internal/mcpbridge"
+	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/joho/godotenv"
 )
@@ -868,19 +869,21 @@ func appendUniqueEmail(emails []string, email string) []string {
 }
 
 type serveCommandOptions struct {
-	expire              time.Duration
-	qr, public          bool
-	target              string
-	tunnelID            string
-	allowedEmails       []string
-	tunnelKey           string
-	clientSecret        string
-	skipLocalTLSVerify  bool
-	inspect             bool
-	inspectBody         bool
-	bearer              bool
-	requireUpstreamAuth bool
-	webSocket           common.WebSocketOptions
+	webhookProvider, webhookSecretFile string
+	webhookTolerance                   time.Duration
+	expire                             time.Duration
+	qr, public                         bool
+	target                             string
+	tunnelID                           string
+	allowedEmails                      []string
+	tunnelKey                          string
+	clientSecret                       string
+	skipLocalTLSVerify                 bool
+	inspect                            bool
+	inspectBody                        bool
+	bearer                             bool
+	requireUpstreamAuth                bool
+	webSocket                          common.WebSocketOptions
 }
 
 func parseServeFlags(args []string) (*serveCommandOptions, error) {
@@ -891,7 +894,7 @@ func parseServeFlags(args []string) (*serveCommandOptions, error) {
 	if o.Secret == "" {
 		o.Secret = os.Getenv("TUNN_SECRET")
 	}
-	return &serveCommandOptions{target: o.Target, tunnelID: o.Name, allowedEmails: o.AllowedEmails, tunnelKey: o.TunnelKey, clientSecret: o.Secret, skipLocalTLSVerify: o.SkipLocalTLSVerify, inspect: o.Inspect, inspectBody: o.InspectBody, bearer: o.Bearer, requireUpstreamAuth: o.RequireUpstreamAuth, webSocket: o.WebSocket, expire: o.Expire, qr: o.QR, public: o.Public}, nil
+	return &serveCommandOptions{webhookProvider: o.WebhookProvider, webhookSecretFile: o.WebhookSecretFile, webhookTolerance: o.WebhookTolerance, target: o.Target, tunnelID: o.Name, allowedEmails: o.AllowedEmails, tunnelKey: o.TunnelKey, clientSecret: o.Secret, skipLocalTLSVerify: o.SkipLocalTLSVerify, inspect: o.Inspect, inspectBody: o.InspectBody, bearer: o.Bearer, requireUpstreamAuth: o.RequireUpstreamAuth, webSocket: o.WebSocket, expire: o.Expire, qr: o.QR, public: o.Public}, nil
 }
 
 func runLogin() {
@@ -979,6 +982,14 @@ func runServe(args []string) {
 		printServeUsage()
 		os.Exit(1)
 	}
+	var webhookSecret []byte
+	if opts.webhookProvider != "" {
+		webhookSecret, err = client.LoadWebhookSecret(opts.webhookSecretFile)
+		if err != nil {
+			common.LogError("invalid webhook secret file", "error", err)
+			os.Exit(1)
+		}
+	}
 	target, tunnelID, allowedEmails, tunnelKey, clientSecret := opts.target, opts.tunnelID, opts.allowedEmails, opts.tunnelKey, opts.clientSecret
 
 	cfg, err := config.LoadConfig()
@@ -1039,6 +1050,15 @@ func runServe(args []string) {
 		WebSocket:           &opts.webSocket,
 	}
 
+	if opts.webhookProvider != "" {
+		path, saveErr := client.SaveWebhookSecret(tunnelID, webhookSecret)
+		if saveErr != nil {
+			common.LogError("cannot store webhook endpoint secret")
+			os.Exit(1)
+		}
+		serveClient.WebhookPolicy = &pb.WebhookPolicy{Provider: opts.webhookProvider, ToleranceSeconds: uint32(opts.webhookTolerance / time.Second)}
+		serveClient.WebhookSecretPath = path
+	}
 	if opts.bearer {
 		creator, identityErr := common.ExtractEmailFromJWT(token)
 		if identityErr != nil && len(allowedEmails) == 0 {
@@ -1110,6 +1130,9 @@ Options:
   --allow EMAILS                 Comma-separated email allow-list
   --bearer                       Enable endpoint tokens for HTTP and WebSockets
   --require-upstream-auth        Require application Authorization after tunn auth
+  --verify-webhook PROVIDER      Stripe, GitHub, Slack, Shopify or hmac-sha256 (lowercase)
+  --webhook-secret-file PATH     Private signing-secret file (mode 0600)
+  --webhook-tolerance DURATION   Signed timestamp tolerance (default 5m; 1s to 1h)
   --ws-idle-timeout DURATION     WebSocket inactivity timeout (default 5m; 0 disables)
   --ws-keepalive DURATION        Ping interval (default 30s; 0 disables)
   --ws-max-message-size BYTES    Message limit across fragments (default 8388608)

@@ -1,0 +1,67 @@
+<style>.page-container{max-width:800px}h2,p,pre,table{margin-bottom:20px}pre{padding:16px;background:#f6f8fa;overflow:auto;max-width:100%}code{overflow-wrap:anywhere}pre code{overflow-wrap:normal}.hook-note{border-left:3px solid #4b5563;padding-left:16px}li{margin-bottom:8px}</style>
+<p><a href="/docs">Docs</a> / Webhooks</p>
+<h1 class="page-title">Verify webhooks at the edge</h1>
+<p>Check the sender's signature before a request reaches your local app. Invalid requests return <strong>401</strong> with a reason. Keep your application's authorization, signature verification and event deduplication enabled.</p>
+<h2>1. Store the signing secret</h2>
+<p>Use the sender's webhook signing secret. Enter it into a private file; finish with Enter, then Ctrl-D. Keep the file outside your repository.</p>
+<pre>umask 077
+mkdir -p "$HOME/.tunn/endpoints"
+chmod 700 "$HOME/.tunn/endpoints"
+cat &gt; "$HOME/.tunn/endpoints/orders.key"
+chmod 600 "$HOME/.tunn/endpoints/orders.key"</pre>
+<h2>2. Publish your local handler</h2>
+<p>Start your app on port 8080. Choose one provider command below, then configure its webhook destination with the printed URL and your app's webhook path.</p>
+<pre># Stripe: the endpoint's whsec_ secret
+tunn 8080 --name=orders --public --verify-webhook=stripe \
+  --webhook-secret-file="$HOME/.tunn/endpoints/orders.key"
+
+# GitHub: the webhook's configured secret
+tunn 8080 --name=orders --public --verify-webhook=github \
+  --webhook-secret-file="$HOME/.tunn/endpoints/orders.key"
+
+# Slack: the app's signing secret
+tunn 8080 --name=orders --public --verify-webhook=slack \
+  --webhook-secret-file="$HOME/.tunn/endpoints/orders.key"
+
+# Shopify: the app's client secret
+tunn 8080 --name=orders --public --verify-webhook=shopify \
+  --webhook-secret-file="$HOME/.tunn/endpoints/orders.key"
+
+# Generic HMAC-SHA256
+tunn 8080 --name=orders --public --verify-webhook=hmac-sha256 \
+  --webhook-secret-file="$HOME/.tunn/endpoints/orders.key" \
+  --webhook-tolerance=5m</pre>
+<p><code>--public</code> lets the sender reach your endpoint; signature verification still applies. Omit it to require tunn's private access too. Every request path needs a signature. Use a separate endpoint for browser pages.</p>
+<p>Private access, account status and quota admission are checked before the body is read. Those checks keep their existing responses, including 403 for denied access and 429 for exhausted allowances. Body reads count toward usage once, including invalid signatures; rejected requests never reach your app.</p>
+<h2>3. Test generic HMAC</h2>
+<p>The generic format uses <code>X-Webhook-Timestamp</code> in Unix seconds and <code>X-Webhook-Signature: sha256=&lt;hex&gt;</code>. Sign the timestamp, a period and the exact body with HMAC-SHA256.</p>
+<pre>export WEBHOOK_URL='https://&lt;printed-name&gt;.tunn.to/webhook'
+python3 - &lt;&lt;'PY'
+import hashlib, hmac, os, pathlib, time, urllib.request
+secret = (pathlib.Path.home() / '.tunn/endpoints/orders.key').read_bytes()
+secret = secret.removesuffix(b'\n').removesuffix(b'\r')
+body = b'{"event":"example"}\n'
+stamp = str(int(time.time()))
+signature = hmac.new(secret, stamp.encode() + b'.' + body, hashlib.sha256).hexdigest()
+request = urllib.request.Request(os.environ['WEBHOOK_URL'], data=body, headers={
+    'Content-Type': 'application/json',
+    'X-Webhook-Timestamp': stamp,
+    'X-Webhook-Signature': 'sha256=' + signature,
+})
+with urllib.request.urlopen(request) as response:
+    print(response.status)
+PY
+
+# An unsigned request returns 401 before your app receives it.
+curl -i -X POST "$WEBHOOK_URL" --data-binary '{"event":"unsigned"}'</pre>
+<p>A signed request returns your app's response. A changed body, wrong secret, missing or malformed signature, duplicate required header or expired timestamp returns 401.</p>
+<div class="hook-note"><h2>Timestamp checks and retries</h2>
+<p>Stripe, Slack and generic HMAC accept timestamps within 5 minutes of the relay's clock, past or future. Set <code>--webhook-tolerance</code> to whole seconds from <code>1s</code> to <code>1h</code>. GitHub and Shopify's signatures cover only the body; they cannot enforce timestamp tolerance. Custom tolerance is rejected for these two providers.</p>
+<p>Deduplicate events in your app for every provider. Valid requests can repeat within the timestamp window, and GitHub/Shopify signatures can be replayed. Return your app's acknowledgement and handle retries idempotently.</p></div>
+<p>Timestamp freshness is checked again after reading and verifying the body. Slow uploads that finish outside the tolerance are rejected before forwarding.</p>
+<h2>Secrets and limits</h2>
+<p>tunn copies the key to <code>~/.tunn/endpoints/&lt;name&gt;.webhook-secret</code> with file mode 0600 and directory mode 0700. A single terminal line ending is removed. The relay receives the key over authenticated TLS and keeps it in the active endpoint's memory without writing it to its database. Keys never appear in tunn logs. Trust your relay and keep TLS verification enabled.</p>
+<p>Stop and restart the command to change the policy or signing secret. Reconnects reload the stored key. Disconnecting removes the active policy; specify the flags on each new publication. The CLI fails before ready if the relay lacks verification support. HTTP CLI publications support this policy; SSH, TCP and MCP do not.</p>
+<p>Raw bodies are preserved exactly. Verification accepts bodies up to 1 MiB, up to 100 simultaneous verifications per endpoint and a 10-second body-read deadline. Exceeding these bounds or requesting CONNECT/an upgrade returns 401. Existing tunn access and quota checks still apply.</p>
+<p>Provider references: <a href="https://docs.stripe.com/events/manage-webhook-endpoints#signature-errors">Stripe</a> · <a href="https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries">GitHub</a> · <a href="https://docs.slack.dev/authentication/verifying-requests-from-slack/">Slack</a> · <a href="https://shopify.dev/docs/apps/build/webhooks/verify-deliveries">Shopify</a></p>
+<p><a href="https://github.com/ehrlich-b/tunn/blob/main/docs/webhook-verification.md">Complete command and signature reference</a></p>

@@ -377,3 +377,10 @@ tunn domain list
 
 See [custom domains and Fly setup](docs/CUSTOM-DOMAINS.md) for ownership,
 renewal, credentials and the required operator configuration.
+
+### Webhook signature verification
+
+Use `tunn 8080 --public --verify-webhook=stripe --webhook-secret-file=PATH`
+to verify raw HTTP deliveries before they reach your app. Stripe, GitHub, Slack,
+Shopify and generic HMAC-SHA256 are supported. See the [webhook guide](docs/webhook-verification.md)
+for private secret storage, timestamp checks and copy-paste examples.

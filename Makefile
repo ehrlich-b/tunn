@@ -619,3 +619,12 @@ test-candidate-baseline:
 .PHONY: test-candidate-upload-contract
 test-candidate-upload-contract:
 	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=45s -run '^(TestHTTPFidelity(UploadTerminalSchedules|UploadFailureAbortsResponse|WireUploadEOFAbortsResponse|UnknownUploadLimitBeforeEmptyResponse|UploadLimitAfterPrefixAbortsResponse|ChunkedUploadProgressAfterPrefix)|TestProxyToLocalReturnsResponseErrors|TestDogfoodUpload)' ./internal/host
+
+.PHONY: proto-tools test-webhook
+# Pinned generators for reproducible protocol changes.
+proto-tools:
+	GOBIN=$(CURDIR)/../tools go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.10
+	GOBIN=$(CURDIR)/../tools go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.5.1
+
+test-webhook:
+	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=180s -run '^TestWebhook' ./internal/webhook ./internal/client ./internal/host ./internal/cliopts .

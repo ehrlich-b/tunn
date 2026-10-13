@@ -24,3 +24,6 @@ var docsHTML string
 
 //go:embed templates/revenue-mcp-to-claude.html
 var mcpTutorialHTML string
+
+//go:embed templates/webhook-verification.html
+var webhookDocsHTML string

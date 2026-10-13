@@ -617,7 +617,9 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		done := make(chan struct{})
 		stopAppIO := context.AfterFunc(r.Context(), func() { defer close(done); _ = controller.SetReadDeadline(time.Now()) })
 		defer func() {
-			if !stopAppIO() { <-done }
+			if !stopAppIO() {
+				<-done
+			}
 		}()
 		p.signalAppAdmission(w, r)
 	}

@@ -269,7 +269,7 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 	if account != nil {
 		owner = account.ID
 	}
-	if probe == nil && !p.checkOwnerIPPolicy(w, r, owner, tunnelID) {
+	if (probe == nil || r.Context().Value(forwardPermissionAdmissionKey{}) == true) && !p.checkOwnerIPPolicy(w, r, owner, tunnelID) {
 		session.reason = "ip_policy_denied"
 		if meterWriter.status == 503 {
 			session.reason = "ip_policy_authority_unavailable"

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ehrlich-b/tunn/internal/config"
+	internalpb "github.com/ehrlich-b/tunn/pkg/proto/internalv1"
 	mp "github.com/ehrlich-b/tunn/pkg/proto/meteringv1"
 )
 
@@ -32,6 +33,9 @@ func TestParityIPWebhookAdmission(t *testing.T) {
 					config:       &config.Config{Insecure: true, NodeSecret: s.proxy.config.NodeSecret},
 					tunnelServer: NewTunnelServer(s.proxy.config, nil, nil, nil),
 					tunnelCache:  map[string]string{"hook": s.relay.Listener.Addr().String()}}
+				authority := NewInternalServer(s.proxy.tunnelServer, s.relay.Listener.Addr().String(), false)
+				authority.proxy = s.proxy
+				ingress.nodeClients = map[string]internalpb.InternalServiceClient{"publisher": forwardPermissionPeer{server: authority}}
 				body := []byte(" {\n\"raw\":\"café\"}\r\n\x00\xff")
 				for _, remote := range []bool{false, true} {
 					for _, kind := range []string{"denied", "denied-signed", "invalid-signature", "valid", "unauthenticated-private"} {

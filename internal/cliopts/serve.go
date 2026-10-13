@@ -13,16 +13,16 @@ import (
 )
 
 type Serve struct {
-	Target, Name, TunnelKey, Secret                                                   string
-	AllowedEmails                                                                     []string
-	SkipLocalTLSVerify, Inspect, InspectBody, Bearer, RequireUpstreamAuth, Public, QR bool
-	Expire                                                                            time.Duration
-	WebSocket                                                                         common.WebSocketOptions
-	Stdio                                                                             bool
-	Tools                                                                             []string
-	Adapter                                                                           string
-	WebhookProvider, WebhookSecretFile                                                string
-	WebhookTolerance                                                                  time.Duration
+	Target, Name, TunnelKey, Secret                                                         string
+	AllowedEmails                                                                           []string
+	SkipLocalTLSVerify, Inspect, InspectBody, Bearer, RequireUpstreamAuth, Public, QR, JSON bool
+	Expire                                                                                  time.Duration
+	WebSocket                                                                               common.WebSocketOptions
+	Stdio                                                                                   bool
+	Tools                                                                                   []string
+	Adapter                                                                                 string
+	WebhookProvider, WebhookSecretFile                                                      string
+	WebhookTolerance                                                                        time.Duration
 }
 
 // PublicationFlags defines identity, naming and sharing options for every publisher.
@@ -74,6 +74,7 @@ func ServeFlags(fs *flag.FlagSet, o *Serve) {
 	PublicationFlags(fs, o)
 	fs.StringVar(&o.Target, "target", "", "HTTP upstream URL (SSH dials it through -R)")
 	fs.BoolVar(&o.SkipLocalTLSVerify, "skip-local-tls-verify", false, "skip local HTTPS certificate verification")
+	fs.BoolVar(&o.JSON, "json", false, "request events as JSON lines")
 	fs.BoolVar(&o.Inspect, "inspect", false, "inspect request metadata")
 	fs.BoolVar(&o.InspectBody, "inspect-body", false, "explicitly retain request bodies up to 64 KiB; requires --inspect")
 	fs.BoolVar(&o.Bearer, "bearer", false, "enable private endpoint-token access")
@@ -168,6 +169,9 @@ func parseServe(args []string, requireTarget bool, kind string) (*Serve, error) 
 	}
 	if o.Public && (len(o.AllowedEmails) > 0 || o.Bearer) {
 		return nil, fmt.Errorf("--public cannot be combined with --allow, --allow-domain or --bearer")
+	}
+	if o.JSON && (o.QR || !requireTarget) {
+		return nil, fmt.Errorf("--json requires the HTTP CLI without --qr")
 	}
 	if o.InspectBody && !o.Inspect {
 		return nil, fmt.Errorf("--inspect-body requires --inspect")

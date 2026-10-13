@@ -16,6 +16,7 @@ import (
 
 	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/ehrlich-b/tunn/internal/relaytransport"
+	"github.com/ehrlich-b/tunn/internal/terminal"
 )
 
 // LoginClient handles the device code login flow
@@ -75,8 +76,26 @@ func (l *LoginClient) Run(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("failed to request device code: %w", err)
 		}
-		_, _ = fmt.Fprintf(output, "\nYour code: %s\nExpires at: %s\n", deviceResp.UserCode, deviceResp.expiresAt.Local().Format("15:04:05 MST"))
-		_, _ = fmt.Fprintf(output, "\nOpening browser to complete login...\n  %s\n\nVerify the code matches, then click Authorize.\nWaiting for authorization...\n", deviceResp.VerificationURIComplete)
+		link := deviceResp.VerificationURIComplete
+		if link == "" {
+			link = deviceResp.VerificationURI
+		}
+		if parsed, err := url.Parse(link); err == nil {
+			query := parsed.Query()
+			safeQuery := url.Values{}
+			for _, name := range []string{"code", "user_code"} {
+				if query.Get(name) == deviceResp.UserCode {
+					safeQuery.Set(name, deviceResp.UserCode)
+				}
+			}
+			parsed.RawQuery = safeQuery.Encode()
+			parsed.Fragment = ""
+			parsed.User = nil
+			link = parsed.String()
+		} else {
+			link = ""
+		}
+		_, _ = fmt.Fprintf(output, "\nSign in in your browser\n%s\n\nCode: %s\nExpires at: %s\nMatch this code, then authorize.\nWaiting for sign-in…\n", terminal.Safe(link), terminal.Safe(deviceResp.UserCode), deviceResp.expiresAt.Local().Format("15:04:05 MST"))
 		if l.OpenBrowser != nil {
 			l.OpenBrowser(deviceResp.VerificationURIComplete)
 		} else {
@@ -84,7 +103,7 @@ func (l *LoginClient) Run(ctx context.Context) error {
 		}
 		token, err = l.pollForToken(ctx, deviceResp)
 		if errors.Is(err, errDeviceCodeExpired) {
-			_, _ = fmt.Fprintln(output, "Login code expired or was used. Requesting a new code; use the new link below.")
+			_, _ = fmt.Fprintln(output, "Code expired. Requesting a new code.")
 			continue
 		}
 		if err != nil {
@@ -98,9 +117,17 @@ func (l *LoginClient) Run(ctx context.Context) error {
 		return fmt.Errorf("failed to save token: %w", err)
 	}
 
-	tokenPath, _ := l.getTokenPath() // saveToken already checked the path.
-	common.LogInfo("login successful", "token_file", tokenPath)
-	_, _ = fmt.Fprintln(output, "Logged in successfully!")
+	identity, _ := common.ExtractEmailFromJWT(token.AccessToken)
+	if identity != "" {
+		_, _ = fmt.Fprintln(output, "Signed in as "+terminal.Safe(identity))
+	} else {
+		_, _ = fmt.Fprintln(output, "Signed in")
+	}
+	if l.PolicyOwner {
+		_, _ = fmt.Fprintln(output, "\ntunn policy --help")
+	} else {
+		_, _ = fmt.Fprintln(output, "\ntunn http 3000")
+	}
 
 	return nil
 }

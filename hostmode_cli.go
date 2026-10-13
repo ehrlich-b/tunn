@@ -15,8 +15,6 @@ import (
 	"runtime"
 	"strconv"
 	"syscall"
-	"text/tabwriter"
-	"time"
 
 	"github.com/ehrlich-b/tunn/internal/cliopts"
 	"github.com/ehrlich-b/tunn/internal/common"
@@ -28,7 +26,7 @@ func runHostCommand(command string, args []string) {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	if err := hostCommand(ctx, command, args, os.Stdout, os.Stderr); err != nil && !errors.Is(err, context.Canceled) {
-		_, _ = fmt.Fprintln(os.Stderr, err)
+		writeHostError(os.Stderr, os.Stderr, err, args)
 		os.Exit(1)
 	}
 }
@@ -48,6 +46,10 @@ func hostCommand(ctx context.Context, command string, args []string, out, errout
 	var name, gateway, qrFile, domain *string
 	switch command {
 	case "service":
+		if len(args) > 0 && (args[0] == "--help" || args[0] == "-h") {
+			fmt.Fprintln(out, "Persistent endpoints need a host.yaml manifest.\n\ntunn service check      Check the manifest and login\ntunn service install    Install the local service\ntunn service status     Read the service manager\ntunn service restart    Restart the local service\ntunn service uninstall  Remove the local service\n\ntunn hosts               List account machines\nhttps://tunn.to/docs")
+			return nil
+		}
 		if len(args) == 0 {
 			return fmt.Errorf("usage: tunn service install|uninstall|restart|status|check|run [--config path] [--dry-run] [--os darwin|linux|windows]")
 		}
@@ -143,6 +145,9 @@ func hostCommand(ctx context.Context, command string, args []string, out, errout
 			}
 		}
 		result, err := spec.Manage(action, hostmode.ExecCommand)
+		if action == "status" {
+			return serviceStatusResult(out, result, err)
+		}
 		_, _ = fmt.Fprint(out, result)
 		return err
 	}
@@ -163,36 +168,28 @@ func hostCommand(ctx context.Context, command string, args []string, out, errout
 	}
 	token, err := hostmode.Credentials(c)
 	if err != nil {
-		return err
+		return &cliCommandError{cause: err, state: "auth_expired", title: "Sign in again", command: "tunn login"}
 	}
 	api := hostmode.API{Server: server, Token: token, Insecure: c.Insecure || *insecure}
 	if command == "hosts" {
 		machines, err := api.Hosts(ctx)
 		if err != nil {
-			return err
+			var apiError *hostmode.APIError
+			if errors.As(err, &apiError) && (apiError.Status == 401 || apiError.Status == 403) {
+				return &cliCommandError{cause: err, state: "auth_expired", title: "Sign in again", command: "tunn login"}
+			}
+			if errors.As(err, &apiError) && (apiError.Status == 404 || apiError.Status == 501) {
+				return &cliCommandError{cause: err, state: "error", title: "Machine inventory unavailable", detail: "This relay does not provide inventory.", command: "tunn service --help"}
+			}
+			if errors.As(err, &apiError) && apiError.Status == 429 {
+				return &cliCommandError{cause: err, state: "limit", title: "Limit reached", command: accountURL(server)}
+			}
+			return &cliCommandError{cause: err, state: "offline", title: "Cannot fetch hosts", detail: "Check connectivity, then retry", command: "tunn hosts --json"}
 		}
 		if *jsonOutput {
 			return json.NewEncoder(out).Encode(machines)
 		}
-		if len(machines) == 0 {
-			_, err := fmt.Fprintln(out, "No registered machines.")
-			return err
-		}
-		w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
-		_, _ = fmt.Fprintln(w, "MACHINE\tTUNNEL\tKIND\tSTATUS\tLAST SEEN\tURL")
-		for _, m := range machines {
-			for _, t := range m.Tunnels {
-				status, seen := "offline", "never"
-				if t.Online {
-					status = "online"
-				}
-				if !t.LastSeen.IsZero() {
-					seen = t.LastSeen.UTC().Format(time.RFC3339)
-				}
-				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", m.Name, t.Name, t.Kind, status, seen, t.URL)
-			}
-		}
-		return w.Flush()
+		return printHosts(out, errout, machines)
 	}
 	log, err := hostmode.OpenLog(filepath.Join(filepath.Dir(configPath), "host.log"), 1024*1024)
 	if err != nil {

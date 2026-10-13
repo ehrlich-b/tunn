@@ -158,7 +158,7 @@ func (s *ServeClient) Run(ctx context.Context) error {
 		if duration > 30*time.Second {
 			authRetried = false
 		}
-		if s.Credentials != nil && status.Code(err) == codes.Unauthenticated && !authRetried {
+		if s.Credentials != nil && AuthenticationFailure(err) && !authRetried {
 			token, refreshErr := s.Credentials.Token(ctx, true)
 			if refreshErr != nil {
 				return fmt.Errorf("publisher authentication renewal: %w", refreshErr)
@@ -167,19 +167,14 @@ func (s *ServeClient) Run(ctx context.Context) error {
 			authRetried = true
 			continue
 		}
-		var permanent *permanentTunnelError
-		if errors.As(err, &permanent) {
-			if s.Credentials != nil && permanent.kind == FailureRegistration && !authRetried {
-				token, refreshErr := s.Credentials.Token(ctx, true)
-				if refreshErr != nil {
-					return fmt.Errorf("publisher authentication renewal: %w", refreshErr)
-				}
-				s.AuthToken = token
-				authRetried = true
-				continue
-			}
+		if AuthenticationFailure(err) || status.Code(err) == codes.ResourceExhausted || status.Code(err) == codes.PermissionDenied {
 			return err
 		}
+		var permanent *permanentTunnelError
+		if errors.As(err, &permanent) {
+			return err
+		}
+
 		// Reset backoff if connection was stable for at least 30 seconds
 		if duration > 30*time.Second {
 			backoffAttempt = 0
@@ -644,7 +639,12 @@ func (s *ServeClient) handleHTTPRequestContext(ctx context.Context, sender messa
 	}
 	status, responseBytes, reason := http.StatusBadGateway, int64(0), "target_error"
 	if capture != nil {
-		defer func() { capture.finishReason(status, responseBytes, reason) }()
+		defer func() {
+			if ctx.Err() != nil {
+				reason = "canceled"
+			}
+			capture.finishReason(status, responseBytes, reason)
+		}()
 	}
 	s.log(slog.LevelDebug, "http request received",
 		"connection_id", httpReq.ConnectionId,

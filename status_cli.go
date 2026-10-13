@@ -29,6 +29,10 @@ func executeStatus(ctx context.Context, args []string, out, errOut io.Writer) er
 	if len(args) == 0 {
 		return errors.New("usage: tunn status serve|incident|resolve [options]")
 	}
+	if args[0] == "--help" || args[0] == "-h" {
+		writeCLIHelp(out, "Service probes (operators)\n\ntunn status serve       Run a probe collector\ntunn status incident    Record a local incident\ntunn status resolve     Resolve a local incident\n\nFor the local service\ntunn service status\n")
+		return nil
+	}
 	fs := flag.NewFlagSet("status "+args[0], flag.ContinueOnError)
 	fs.SetOutput(errOut)
 	dbPath := fs.String("db", "status.db", "dedicated status SQLite database (persistent local disk)")

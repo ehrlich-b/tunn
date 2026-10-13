@@ -27,7 +27,12 @@ else
     INSTALL_DIR="$HOME/.local/bin"
     mkdir -p "$INSTALL_DIR" || retry 'Cannot create the install directory.'
 fi
-printf '[i] Downloading tunn %s (%s/%s)\n' "$LATEST" "$OS" "$ARCH"
+COLS=$(tput cols 2>/dev/null || echo 80)
+if [ "${COLS:-80}" -lt 50 ] 2>/dev/null; then
+    printf '[i] Downloading tunn %s\n    for %s/%s\n' "$LATEST" "$OS" "$ARCH"
+else
+    printf '[i] Downloading tunn %s (%s/%s)\n' "$LATEST" "$OS" "$ARCH"
+fi
 DOWNLOAD=$(mktemp "$INSTALL_DIR/.tunn.XXXXXX") || retry 'Cannot write to the install directory.'
 trap 'rm -f "$DOWNLOAD"' EXIT HUP INT TERM
 curl -fsSL "$URL" -o "$DOWNLOAD" || retry 'Download failed. Check your network, then retry.'
@@ -38,4 +43,4 @@ case ":$PATH:" in
     *":$INSTALL_DIR:"*) ;;
     *) printf '\nAdd tunn to PATH\nexport PATH="%s:$PATH"\n' "$INSTALL_DIR" ;;
 esac
-printf '\nSign in\ntunn login\n\nRun your app on port 3000, then\ntunn http 3000\n'
+printf '\nSign in\ntunn login\n\nRun your app on port 3000, then\ntunn 3000\n'

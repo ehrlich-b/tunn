@@ -29,7 +29,7 @@ func productHeading() string {
 	return "tunn " + version
 }
 func firstRun(out io.Writer) {
-	fmt.Fprintf(out, "%s\n\nSign in\n  tunn login\n\nRun your app on port 3000, then choose access\n", productHeading())
+	writeCLIHelp(out, productHeading()+"\n\nSign in\n  tunn login\n\nChoose who gets in to port 3000\n")
 	commandLadder(out)
 	fmt.Fprintln(out, "\nAll commands\n  tunn --help")
 }
@@ -146,7 +146,7 @@ func showTunnelError(o *terminal.Output, err error, server string) {
 	}
 	if client.ClassifyFailure(err) == client.FailureRegistration {
 		if strings.Contains(text, "already in use") || strings.Contains(text, "reserved") {
-			o.State("error", "Tunnel name unavailable", "Choose another name", "tunn http 3000 --name my-app", 0)
+			o.State("error", "Tunnel name unavailable", "Choose another name", "tunn 3000 --name my-app", 0)
 		} else {
 			o.State("error", "Tunnel rejected", "Check your account access", "tunn login", 0)
 		}
@@ -213,22 +213,9 @@ func attachCLI(ctx context.Context, s *client.ServeClient, o *terminal.Output, v
 			c.probeLocked(ctx)
 			if first {
 				o.Hint("Ctrl+C stops this tunnel")
-				if !s.Public {
-					o.Hint("Current access: tunn access " + shellURL(s.TunnelID))
-					localURL, parseErr := url.Parse(s.TargetURL)
-					if parseErr != nil || localURL == nil || localURL.User != nil || localURL.RawQuery != "" {
-						o.Hint("Invite to this tunnel:")
-						o.Hint("tunn share " + shellURL(s.TunnelID) + " alex@example.com")
-					} else {
-						o.Hint("Invite someone when starting a tunnel:")
-						invite := "tunn " + shellURL(strings.TrimPrefix(s.TargetURL, "http://"))
-						if o.TTY && o.Width < 70 {
-							o.Hint(invite + " \\")
-							o.Hint("  --allow=alex@example.com")
-						} else {
-							o.Hint(invite + " --allow=alex@example.com")
-						}
-					}
+				if !s.Public && len(s.AllowedEmails) == 0 && s.TunnelID != "" {
+					o.Hint("Invite someone:")
+					o.Hint("tunn share " + shellURL(s.TunnelID) + " alex@example.com")
 				}
 			}
 		case client.StateReconnecting:
@@ -319,11 +306,12 @@ func (c *cliSession) unreachable(err error) {
 	if err != nil && strings.Contains(strings.ToLower(err.Error()), "connection refused") {
 		detail = "Connection refused"
 	}
-	c.out.State("unreachable", "Local app unreachable", c.target+" · "+detail, c.check, 0)
-	c.out.Diagnostic("browser [o] Not checked")
-	c.out.Diagnostic("edge [ok] Connected")
-	c.out.Diagnostic("tunn on laptop [ok] Connected")
-	c.out.Diagnostic(c.target + " [x] " + detail)
+	c.out.RouteCheck("unreachable", "Local app unreachable", []terminal.Check{
+		{Label: "browser", State: "unknown", Text: "not checked"},
+		{Label: "edge", State: "online", Text: "connected"},
+		{Label: "tunn on laptop", State: "online", Text: "connected"},
+		{Label: c.target, State: "error", Text: strings.ToLower(detail)},
+	}, c.check)
 }
 
 func commonTrace() bool { return *verbosity == "trace" }
@@ -336,8 +324,11 @@ func stoppedNormally(err error) bool {
 
 var helpColumns = regexp.MustCompile(`^\s*((?:tunn |--).+?) {2,}(.+)$`)
 
+var helpWidth = func(out io.Writer) int { return terminal.New(out, out, false).Width }
+
 func writeCLIHelp(out io.Writer, text string) {
-	if terminal.New(out, out, false).Width >= 70 {
+	width := helpWidth(out)
+	if width >= 70 {
 		for _, line := range strings.Split(strings.TrimSuffix(text, "\n"), "\n") {
 			match := helpColumns.FindStringSubmatch(line)
 			if len(match) == 3 {
@@ -355,7 +346,10 @@ func writeCLIHelp(out io.Writer, text string) {
 			fmt.Fprintln(out, "    "+match[2])
 			fmt.Fprintln(out)
 		} else {
-			fmt.Fprintln(out, line)
+			indent := len(line) - len(strings.TrimLeft(line, " "))
+			for _, wrapped := range terminal.Wrap(line, width-1, indent+2) {
+				fmt.Fprintln(out, wrapped)
+			}
 		}
 	}
 }
@@ -366,7 +360,8 @@ func printRawHelp(out io.Writer, kind string) {
 		writeCLIHelp(out, `Usage: tunn tcp HOST:PORT [options]
 
 Publish a TCP service through tunn.
-Private by default; visitors use tunn connect.
+Private by default.
+Visitors run tunn connect.
 
 Example
   tunn tcp localhost:5432 --name db \
@@ -381,7 +376,8 @@ Options
 		writeCLIHelp(out, `Usage: tunn unix PATH [options]
 
 Publish a Unix socket through tunn.
-Private by default; visitors use tunn connect.
+Private by default.
+Visitors run tunn connect.
 
 Example
   tunn unix ./app.sock --name app \

@@ -69,7 +69,7 @@ func TestDogfoodLoginRenewsExpiredCode(t *testing.T) {
 			if err != nil || string(data) != "private-fixture-token" {
 				t.Fatalf("saved token = %q, %v", data, err)
 			}
-			for _, text := range []string{"ABC-123", "DEF-456", "Expires at: " + expiry.Local().Format("15:04:05 MST"), "Requesting a new code", "Signed in", "tunn http 3000"} {
+			for _, text := range []string{"ABC-123", "DEF-456", "Expires at: " + expiry.Local().Format("15:04:05 MST"), "Requesting a new code", "Signed in", "tunn 3000"} {
 				if !strings.Contains(output.String(), text) {
 					t.Errorf("output omitted %q: %s", text, output.String())
 				}

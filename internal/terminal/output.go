@@ -97,18 +97,18 @@ func (e Event) MarshalJSON() ([]byte, error) {
 func (o *Output) event(e Event) { _ = json.NewEncoder(o.Out).Encode(e) }
 
 func (o *Output) marker(state string) string {
-	switch state {
-	case "online":
-		return o.paint("32", "[ok]")
-	case "error", "offline", "unreachable", "auth_expired":
-		return o.paint("31", "[x]")
-	case "reconnecting", "limit":
-		return o.paint("33", "[!]")
-	case "unknown", "stopped":
-		return "[o]"
-	default:
-		return o.paint("34", "[i]")
+	text := markerText(state)
+	switch text {
+	case "[ok]":
+		return o.paint("32", text)
+	case "[x]":
+		return o.paint("31", text)
+	case "[!]":
+		return o.paint("33", text)
+	case "[o]":
+		return text
 	}
+	return o.paint("34", text)
 }
 func (o *Output) Route(url, target, access string, endpointToken bool, allowed ...string) {
 	o.mu.Lock()
@@ -118,22 +118,135 @@ func (o *Output) Route(url, target, access string, endpointToken bool, allowed .
 		o.event(Event{Type: "route", URL: url, Target: target, Access: access, EndpointToken: endpointToken, AllowedEmails: allowed})
 		return
 	}
-	o.line(o.Out, "url  "+o.accent(url))
-	o.line(o.Out, "to   "+target)
-	if access == "public" {
-		o.line(o.Out, "Public · Anyone with the link")
-	} else {
+	o.reading("url", o.accent(url))
+	o.reading("to", target)
+	switch {
+	case access == "public":
+		o.reading("allowed", "anyone with the link")
+	case len(allowed) > 0:
+		o.reading("allowed", Safe(strings.Join(allowed, ", "))+" and you")
+	default:
+		o.reading("allowed", "only you")
+	}
+	if access != "public" {
 		if endpointToken {
-			o.line(o.Out, "Private · Sign in or use an endpoint token")
-		} else {
-			o.line(o.Out, "Private · Only you and invited people")
+			o.reading("token", "endpoint token holders")
 		}
-		if len(allowed) > 0 {
-			o.line(o.Out, "requested  "+Safe(strings.Join(allowed, ", "))+" and you")
-		}
+		o.reading("others", "403 at the edge")
 	}
 	o.rows = false
 }
+
+// reading prints one aligned label/value line of the route block.
+func (o *Output) reading(label, value string) {
+	for i, line := range o.wrap(value, 9) {
+		if i == 0 {
+			o.line(o.Out, column(label, 9)+line)
+		} else {
+			o.line(o.Out, strings.Repeat(" ", 9)+line)
+		}
+	}
+}
+
+// Wrap breaks text at spaces so no word is split across terminal lines.
+// Continuation lines are indented by indent cells.
+func Wrap(text string, width, indent int) []string {
+	if width < 20 || cells(text) <= width {
+		return []string{text}
+	}
+	var lines []string
+	current := ""
+	for _, word := range strings.Split(text, " ") {
+		budget := width
+		if len(lines) > 0 {
+			budget = width - indent
+		}
+		if current != "" && cells(current)+1+cells(word) > budget {
+			lines = append(lines, current)
+			current = word
+			continue
+		}
+		if current == "" {
+			current = word
+		} else {
+			current += " " + word
+		}
+	}
+	lines = append(lines, current)
+	for i := 1; i < len(lines); i++ {
+		lines[i] = strings.Repeat(" ", indent) + lines[i]
+	}
+	return lines
+}
+
+// wrap fits text after a prefix of the given cells; only terminals wrap.
+func (o *Output) wrap(text string, prefix int) []string {
+	if !o.TTY {
+		return []string{text}
+	}
+	lines := Wrap(text, o.Width-1-prefix, 2)
+	return lines
+}
+
+func (o *Output) wrapped(w io.Writer, text string) {
+	for _, line := range o.wrap(text, 0) {
+		o.line(w, line)
+	}
+}
+
+// Check is one hop of the route check printed when the local app fails.
+type Check struct{ Label, State, Text string }
+
+// RouteCheck reports a failed route as aligned hops, then the next command.
+func (o *Output) RouteCheck(state, title string, checks []Check, command string) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	key := state + title + command
+	for _, c := range checks {
+		key += c.Label + c.State + c.Text
+	}
+	if o.lastState == key {
+		return
+	}
+	o.lastState = key
+	if o.JSON {
+		detail := ""
+		if len(checks) > 0 {
+			last := checks[len(checks)-1]
+			detail = Safe(last.Label) + " · " + Safe(last.Text)
+		}
+		_ = json.NewEncoder(o.Err).Encode(Event{Type: "state", State: state, At: time.Now().Format(time.RFC3339Nano), Message: Safe(title), Detail: detail, Command: Safe(command)})
+		return
+	}
+	labelWidth := 0
+	for _, c := range checks {
+		labelWidth = max(labelWidth, cells(Safe(c.Label)))
+	}
+	o.line(o.Err, time.Now().Format("15:04:05")+"  "+o.marker(state)+" "+o.paint("31", Safe(title)))
+	for _, c := range checks {
+		mark := o.marker(c.State)
+		pad := 5 - cells(markerText(c.State))
+		o.line(o.Err, column(Safe(c.Label), labelWidth+2)+mark+strings.Repeat(" ", pad)+Safe(c.Text))
+	}
+	if command != "" {
+		o.line(o.Err, Safe(command))
+	}
+}
+
+func markerText(state string) string {
+	switch state {
+	case "online":
+		return "[ok]"
+	case "error", "offline", "unreachable", "auth_expired":
+		return "[x]"
+	case "reconnecting", "limit":
+		return "[!]"
+	case "unknown", "stopped":
+		return "[o]"
+	}
+	return "[i]"
+}
+
 func (o *Output) State(state, title, detail, command string, delay time.Duration) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -167,7 +280,7 @@ func (o *Output) State(state, title, detail, command string, delay time.Duration
 	}
 	o.line(w, time.Now().Format("15:04:05")+"  "+o.marker(state)+" "+title)
 	if detail != "" {
-		o.line(w, detail)
+		o.wrapped(w, detail)
 	}
 	if command != "" {
 		o.line(w, command)
@@ -181,7 +294,7 @@ func (o *Output) Hint(text string) {
 		if !o.TTY {
 			w = o.Err
 		}
-		o.line(w, Safe(text))
+		o.wrapped(w, Safe(text))
 	}
 }
 func runeCells(r rune) int {
@@ -220,6 +333,37 @@ func clip(value string, budget int) string {
 		used += n
 	}
 	return result.String() + "~"
+}
+
+// shortPath keeps the part of a path that tells requests apart: the query
+// collapses first, then the middle of the path.
+func shortPath(value string, budget int) string {
+	value = Safe(value)
+	if cells(value) <= budget {
+		return value
+	}
+	if i := strings.IndexByte(value, '?'); i >= 0 && cells(value[:i])+2 <= budget {
+		return value[:i] + "?…"
+	}
+	if budget < 8 {
+		return clip(value, budget)
+	}
+	// Keep the longest run of trailing segments that leaves room for a head.
+	tail := ""
+	for i := len(value) - 1; i > 0; i-- {
+		if value[i] == '/' && cells(value[i:]) <= budget-5 {
+			tail = value[i:]
+		}
+	}
+	if tail == "" {
+		runes := []rune(value)
+		for len(runes) > 0 && cells(string(runes)) > budget/2 {
+			runes = runes[1:]
+		}
+		tail = string(runes)
+	}
+	head := strings.TrimSuffix(clip(value, budget-cells(tail)), "~")
+	return head + "…" + tail
 }
 
 func column(value string, budget int) string {
@@ -272,31 +416,38 @@ func (o *Output) Request(e Event) {
 		duration = "<1ms"
 	}
 	width := max(40, o.Width)
+	// Narrow terminals drop the AT column and give its cells to PATH.
+	narrow := width < 70
 	methodWidth, pathWidth := 7, width-65
-	if width < 70 {
-		methodWidth, pathWidth = 4, width-33
+	if narrow {
+		methodWidth, pathWidth = 4, width-23
 	}
 	if !o.rows {
 		o.line(o.Out, "")
-		o.line(o.Out, fmt.Sprintf("%-8s %-*s %-*s %-7s %s", "AT", methodWidth, "METHOD"[:min(6, methodWidth)], pathWidth, "PATH", "RESULT", "ELAPSED"))
+		heading := fmt.Sprintf("%-*s %-*s %-7s %s", methodWidth, "METHOD"[:min(6, methodWidth)], pathWidth, "PATH", "RESULT", "ELAPSED")
+		if !narrow {
+			heading = fmt.Sprintf("%-8s ", "AT") + heading
+		}
+		o.line(o.Out, heading)
 		o.rows = true
 	}
-	if e.Status == 413 && width < 70 {
-		// Preserve the full limit at narrow widths rather than wrapping a request.
-		o.line(o.Out, fmt.Sprintf("%s %s %s 413; edge cap 100 MiB", clip(e.Method, 4), clip(e.Path, 7), o.marker("error")))
-	} else {
-		mark := o.marker(state)
-		if state == "online" {
-			mark = o.paint("32", "[+]")
-		}
-		if state == "unknown" {
-			result = "?"
-		}
-		row := fmt.Sprintf("%-8s %s %s %s %-3s %s", stamp, column(clip(e.Method, methodWidth), methodWidth), column(clip(e.Path, pathWidth), pathWidth), mark, result, clip(duration, 6))
-		if width >= 70 && e.Status == 413 {
-			row += "  edge cap: 100 MiB"
-		}
-		o.line(o.Out, row)
+	mark := o.marker(state)
+	if state == "online" {
+		mark = o.paint("32", "[+]")
+	}
+	if state == "unknown" {
+		result = "?"
+	}
+	row := fmt.Sprintf("%s %s %s %-3s %s", column(clip(e.Method, methodWidth), methodWidth), column(shortPath(e.Path, pathWidth), pathWidth), mark, result, clip(duration, 6))
+	if !narrow {
+		row = fmt.Sprintf("%-8s ", stamp) + row
+	}
+	if e.Status == 413 && !narrow {
+		row += "  edge cap: 100 MiB"
+	}
+	o.line(o.Out, row)
+	if e.Status == 413 && narrow {
+		o.line(o.Out, strings.Repeat(" ", methodWidth+1)+"edge cap 100 MiB")
 	}
 	if e.Message != "" && e.Status != 413 {
 		o.line(o.Err, o.marker("error")+" "+Safe(e.Message))
@@ -330,7 +481,7 @@ func (o *Output) Diagnostic(text string) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	if !o.JSON {
-		o.line(o.Err, Safe(text))
+		o.wrapped(o.Err, Safe(text))
 	}
 }
 

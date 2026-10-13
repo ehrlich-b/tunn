@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/ehrlich-b/tunn/internal/metering"
+	"github.com/ehrlich-b/tunn/internal/store"
 	"github.com/ehrlich-b/tunn/internal/trafficpolicy"
 	meterpb "github.com/ehrlich-b/tunn/pkg/proto/meteringv1"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
@@ -557,8 +558,16 @@ func TestPolicyRepeatedConnectionHeadersCannotDiscardOwnerEdit(t *testing.T) {
 
 func TestPolicyOwnerBrowserLoginObtainsUsableSeparateCredential(t *testing.T) {
 	t.Setenv("TUNN_CONFIG_DIR", t.TempDir())
-	f := newMCPOAuthFixture(t)
+	db, err := store.InitForTest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := newMCPOAuthFixtureWithDB(t, db)
 	p := f.p
+	p.devices, err = newDeviceCredentialStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
 	out, err := p.meter.(metering.SharingBackend).Sharing(context.Background(), &meterpb.SharingRequest{Operation: "register", Owner: f.tunnel.AccountID, Endpoint: "tools", Mode: "policy-only"})
 	if err != nil {
 		t.Fatal(err)

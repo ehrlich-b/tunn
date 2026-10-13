@@ -69,6 +69,7 @@ Usage:
   tunn unix [options] <path>      Publish a private Unix socket
   tunn connect [options] <name>   Open a remote TCP endpoint locally
   tunn token [--rotate] <name>   Print or rotate an endpoint access token
+  tunn ip-policy <action>        Manage endpoint or account IP restrictions
   tunn usage <name>              Export caller usage and audit decisions
   tunn share <name> <recipient>  Share web access: email or group:ORG:GROUP
   tunn unshare <name> <recipient> Revoke web access and active streams
@@ -142,6 +143,8 @@ Options:
 		runDomains(args[1:])
 	case "share", "unshare", "access":
 		runSharing(args[0], args[1:])
+	case "ip-policy":
+		runIPPolicy(args[1:])
 	case "usage", "grant":
 		runMetering(args[0], args[1:])
 	case "magic-link":

@@ -122,7 +122,7 @@ func TestIntegrationAccountUUIDUnifiesQuotaGrantsAndAliasBudgets(t *testing.T) {
 				p.storage = securityUsageFailure{Storage: p.storage}
 				assertClosed(429)
 				p.storage = storage.NewProxyStorage()
-				assertClosed(429)
+				assertClosed(503) // Unknown policy ownership fails closed before quota.
 				if w := apiCall("GET", "/api/usage", "alias@example.com", ""); w.Code != 503 {
 					t.Fatalf("owner API trusted unavailable identity service: %d", w.Code)
 				}
@@ -131,7 +131,11 @@ func TestIntegrationAccountUUIDUnifiesQuotaGrantsAndAliasBudgets(t *testing.T) {
 					tunnel.AccountID = id
 					w := httptest.NewRecorder()
 					p.createHandler().ServeHTTP(w, relayRequest(relayJWT(t, p, "owner@example.com"), "data"))
-					if w.Code != 429 || messageCount() != before {
+					want := 503
+					if id == "" {
+						want = 429 // An unowned endpoint still reaches the quota gate.
+					}
+					if w.Code != want || messageCount() != before {
 						t.Fatalf("unknown account identity %q reached publisher: %d", id, w.Code)
 					}
 				}
@@ -355,7 +359,7 @@ func TestWebSocketIntegrationMeteringAndAccountQuota(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = conn.Close()
-	if denied.StatusCode != 429 || s.fixture.hits.Load() != before {
+	if denied.StatusCode != 503 || s.fixture.hits.Load() != before {
 		t.Fatalf("quota outage authorized upgrade: %d", denied.StatusCode)
 	}
 }

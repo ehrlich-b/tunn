@@ -176,16 +176,19 @@ func (p *ProxyServer) handleDomainCallback(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "Invalid login", 400)
 		return
 	}
+	binding, err := p.domains.Route(r.Context(), &domainpb.Domain{Name: requestHostname(r.Host)})
+	if err != nil || !strings.HasPrefix(binding.Name, "*.") {
+		http.Error(w, "App domain unavailable", 403)
+		return
+	}
+	if !p.checkOwnerIPPolicy(w, r, binding.Owner, binding.Tunnel) {
+		return
+	}
 	claims, ok := p.parseDomainToken(r.URL.Query().Get("token"), "domain_handoff")
 	nonce, err := r.Cookie(appNonceCookie)
 	path, _ := claims["path"].(string)
 	if !ok || err != nil || claims["nonce"] != nonce.Value || nonce.Value == "" || claims["aud"] != requestHostname(r.Host) || !validAccountClaims(claims) || !validAppReturn(path) {
 		http.Error(w, "Invalid login binding", 400)
-		return
-	}
-	binding, err := p.domains.Route(r.Context(), &domainpb.Domain{Name: requestHostname(r.Host)})
-	if err != nil || !strings.HasPrefix(binding.Name, "*.") {
-		http.Error(w, "App domain unavailable", 403)
 		return
 	}
 	account, err := p.sessionAccount(r, claims)

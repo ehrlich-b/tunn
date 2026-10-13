@@ -235,7 +235,11 @@ func TestDomainSSOBrowserBindingReplayAndRepeatApp(t *testing.T) {
 		}
 		out := httptest.NewRecorder()
 		handler.ServeHTTP(out, r)
-		if out.Code != 400 {
+		want := 400
+		if bad == "different-host" {
+			want = 403 // Unknown app routing is rejected before login credentials.
+		}
+		if out.Code != want {
 			t.Fatalf("%s=%d", bad, out.Code)
 		}
 	}

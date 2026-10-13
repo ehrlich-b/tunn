@@ -628,3 +628,10 @@ proto-tools:
 
 test-webhook:
 	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=180s -run '^TestWebhook' ./internal/webhook ./internal/client ./internal/host ./internal/cliopts .
+
+# Owner IP policy checks use bounded fixtures and the authenticated authority.
+.PHONY: proto-ip-policy test-ip-policy
+proto-ip-policy:
+	PATH="$(CURDIR)/.scratch/tools:$$PATH" protoc --go_out=. --go-grpc_out=. --go_opt=module=github.com/ehrlich-b/tunn --go-grpc_opt=module=github.com/ehrlich-b/tunn proto/metering.proto
+test-ip-policy:
+	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=120s -run '^TestIPPolicy' ./internal/ippolicy ./internal/metering ./internal/store ./internal/host ./internal/client .

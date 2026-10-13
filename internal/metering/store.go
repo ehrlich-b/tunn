@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/ehrlich-b/tunn/internal/common"
@@ -42,6 +41,7 @@ var ErrCapacity error = &admissionError{message: "metering storage capacity reac
 
 // Backend is also implemented by the authenticated internal gRPC client.
 type Backend interface {
+	IPPolicyBackend
 	Resolve(context.Context, *pb.ResolveRequest) (*pb.Grant, error)
 	CreateGrant(context.Context, *pb.Grant) (*pb.Grant, error)
 	ListGrants(context.Context, *pb.ListGrantsRequest) (*pb.ListGrantsResponse, error)
@@ -55,7 +55,7 @@ type Backend interface {
 type Store struct {
 	pb.UnimplementedMeteringServer
 	db  *sql.DB
-	mu  sync.Mutex
+	mu  chan struct{}
 	now func() time.Time
 	// Fixed hard caps, reduced in retention tests.
 	maxEvents, maxUsage, maxGrants                             int
@@ -85,6 +85,7 @@ func WithOwnerGrantLimit(limit int) Option {
 
 func New(db *sql.DB, options ...Option) (*Store, error) {
 	s := &Store{db: db, now: time.Now, maxEvents: MaxEvents, maxUsage: MaxUsageRows, maxGrants: MaxGrants, maxOwnerGrants: MaxOwnerGrants, maxResourcePeople: MaxResourcePeople, maxOwnerResources: MaxOwnerResources, maxSharingAudit: MaxSharingAudit, maxOwnerSharingAudit: MaxOwnerSharingAudit, maxSharingMutations: MaxSharingMutationsPerMinute}
+	s.mu = make(chan struct{}, 1)
 	for _, option := range options {
 		option(s)
 	}
@@ -173,6 +174,9 @@ SELECT account_id,'legacy','legacy',month,max(0,bytes_used-coalesce((SELECT sum(
 			return nil, err
 		}
 	}
+	if err := s.initIPPolicies(); err != nil {
+		return nil, err
+	}
 	if err := s.initSharing(); err != nil {
 		return nil, err
 	}
@@ -180,8 +184,12 @@ SELECT account_id,'legacy','legacy',month,max(0,bytes_used-coalesce((SELECT sum(
 }
 
 func (s *Store) transaction(ctx context.Context, f func(*sql.Tx) error) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	select {
+	case s.mu <- struct{}{}:
+		defer func() { <-s.mu }()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err

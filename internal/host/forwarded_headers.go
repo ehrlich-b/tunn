@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"net"
 	"net/http"
+	"net/netip"
 	"strings"
 )
 
@@ -26,6 +27,11 @@ func (p *ProxyServer) forwardingPeer(r *http.Request) (peer, proto string) {
 	peer = r.RemoteAddr
 	if host, _, err := net.SplitHostPort(peer); err == nil {
 		peer = host
+	}
+	if addr, err := netip.ParseAddr(peer); err == nil {
+		// A local interface zone is not part of a client's network address and
+		// must not invalidate signed metadata at the next relay.
+		peer = addr.WithZone("").String()
 	}
 	proto = "http"
 	if r.TLS != nil {

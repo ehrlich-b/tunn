@@ -103,7 +103,7 @@ Proposed issue/PR text:
 > I'm the maintainer of tunn and have read the current eligibility policy.
 > Proposed entry above; docs: https://tunn.to/docs, pricing:
 > https://tunn.to/pricing. I will attach legitimate qualifying evidence before
-> submission. Free is 3 concurrent tunnels, 100k admissions and 1 GB per UTC
+> submission. Free is 5 concurrent tunnels, 1m admissions and 10 GB per UTC
 > month; Pro is a finite subscription allowance. No enterprise SLA is claimed.
 
 ## Official MCP Registry — no submission in this release

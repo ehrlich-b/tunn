@@ -14,7 +14,7 @@ tunn mcp http://127.0.0.1:3000/mcp</pre>
 <li>Ask Claude to use the echo tool with “hello”. Review the tool call and expect an echo response. Revoke access at <a href="/account/mcp">Connected MCP clients</a>.</li></ol>
 <p>Team/Enterprise connector setup may require an owner. Availability and labels can change; <a href="https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp">Claude's connector instructions</a>, fetched 2026-10-11, are the authority.</p>
 <h2>Keep the same URL</h2><pre>tunn mcp --name work-tools -- ./my-mcp-server</pre>
-<p>Pro attempts to reserve up to four published names, including random ones. Name endpoints deliberately before publishing. Free can reuse an available name, but someone else can take it while it is offline. <a href="/pricing">See Pro and quota limits</a>.</p>
+<p>Free attempts to reserve one published name; Pro attempts up to ten, including random ones. Name endpoints deliberately before publishing. Names beyond the reservation allowance can be taken while offline. <a href="/pricing">See Pro and quota limits</a>.</p>
 <h2>Diagnose a failed connection</h2>
 <ul><li>Claude connects from its cloud. localhost, a private VPN address or a stopped terminal cannot work as a connector URL.</li>
 <li>A private endpoint's initial 401 with WWW-Authenticate and resource metadata is expected. Complete OAuth; do not switch to --public to bypass it.</li>

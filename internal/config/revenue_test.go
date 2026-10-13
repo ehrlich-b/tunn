@@ -8,7 +8,7 @@ func TestRevenueBillingConfigDefaultsOverridesAndInvalidValues(t *testing.T) {
 		t.Run(env, func(t *testing.T) {
 			t.Setenv("TUNN_ENV", env)
 			cfg, err := LoadConfig()
-			if err != nil || cfg.BillingEnabled || cfg.ProMonthlyUSD != 6 || cfg.ProYearlyUSD != 60 {
+			if err != nil || cfg.BillingEnabled || cfg.ProMonthlyUSD != 5 || cfg.ProYearlyUSD != 48 {
 				t.Fatal(cfg, err)
 			}
 			t.Setenv("TUNN_BILLING_ENABLED", "true")

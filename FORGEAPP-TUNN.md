@@ -4,7 +4,7 @@
 
 ## One-time setup
 
-Complete DEPLOY-RUNBOOK.md and its security/live-acceptance gates. Bryan needs a Pro account with primary email `ehrlich.bryan@gmail.com`. The existing four reserved-name slots are shared across the account; `forge-ssh` may consume one. Apps must listen only on their declared localhost port.
+Complete DEPLOY-RUNBOOK.md and its security/live-acceptance gates. Use a Pro account with its verified primary owner email. The ten Pro reserved-name slots are shared across the account; an existing tunnel may consume one. Apps must listen only on their declared localhost port.
 
 The patch defaults to forge's `~/.local/state/tunn-forge-ssh/credentials` directory (0700). It never prints credentials or passes their contents in argv. **Durable `device_access` credentials cannot manage domains.** The credential tests intentionally enforce publish/connect scope. Registration can use the directory's current legacy management `token`; once it contains only durable credentials, supply a separate private current management access JWT file through `FORGEAPP_TUNN_OWNER_TOKEN_FILE`. That authority is a production prerequisite. Do not copy refresh credentials, change token purposes, or broaden device scope. The supervised publisher always uses forge's existing durable directory.
 

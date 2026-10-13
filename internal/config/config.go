@@ -133,8 +133,8 @@ func LoadConfig() (*Config, error) {
 		name, fallback string
 		value          *int
 	}{
-		{"TUNN_PRO_MONTHLY_USD", "6", &cfg.ProMonthlyUSD},
-		{"TUNN_PRO_YEARLY_USD", "60", &cfg.ProYearlyUSD},
+		{"TUNN_PRO_MONTHLY_USD", "5", &cfg.ProMonthlyUSD},
+		{"TUNN_PRO_YEARLY_USD", "48", &cfg.ProYearlyUSD},
 	} {
 		value, err := strconv.Atoi(getEnvOrDefault(price.name, price.fallback))
 		if err != nil || value < 1 || value > 10000 {

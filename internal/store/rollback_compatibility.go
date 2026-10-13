@@ -49,6 +49,14 @@ func migrateRollbackCompatibility(tx *sql.Tx, legacyInstalled bool) error {
 		return err
 	}
 	if _, err := tx.Exec(`
+ CREATE TABLE IF NOT EXISTS free_reservation_claims(subdomain TEXT PRIMARY KEY REFERENCES reserved_subdomains(subdomain) ON DELETE CASCADE);
+ CREATE TRIGGER IF NOT EXISTS ops_free_reservation_delete AFTER DELETE ON reserved_subdomains
+ BEGIN DELETE FROM free_reservation_claims WHERE subdomain=OLD.subdomain; END;
+ CREATE TRIGGER IF NOT EXISTS ops_free_reservation_rename AFTER UPDATE OF subdomain ON reserved_subdomains
+ BEGIN DELETE FROM free_reservation_claims WHERE subdomain=OLD.subdomain; END;
+ CREATE TRIGGER IF NOT EXISTS ops_free_reservation_upgrade AFTER UPDATE OF plan ON accounts
+ WHEN NEW.plan='pro'
+ BEGIN DELETE FROM free_reservation_claims WHERE subdomain IN(SELECT subdomain FROM reserved_subdomains WHERE account_id=NEW.id); END;
  CREATE TABLE IF NOT EXISTS ops_projection_guard(account_id TEXT PRIMARY KEY);
  CREATE TABLE IF NOT EXISTS ops_rollback_revocations(account_id TEXT PRIMARY KEY REFERENCES accounts(id),changed_at TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS ops_rollback_subscription_holds(provider TEXT NOT NULL,subscription_id TEXT NOT NULL,PRIMARY KEY(provider,subscription_id));

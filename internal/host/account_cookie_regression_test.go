@@ -225,7 +225,7 @@ func TestAccountMergePreservesUsageAndGrants(t *testing.T) {
 func TestMergedHostRemainsUsable(t *testing.T) {
 	s := hostFixture(t)
 	token := createTestJWT("owner@example.com", s.cfg.JWTSecret)
-	if w := hostRequest(t, s, "POST", token, fixtureManifest); w.Code != 200 {
+	if w := hostRequest(t, s, "POST", token, freeFixtureManifest); w.Code != 200 {
 		t.Fatal(w.Body.String())
 	}
 	owner, err := s.hostAccount(token, false)

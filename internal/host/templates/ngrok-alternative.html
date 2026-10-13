@@ -41,7 +41,7 @@ tunn 3000 --allow=alice@example.com</code></pre>
 <thead><tr><th>Dimension</th><th>tunn</th><th>ngrok</th></tr></thead>
 <tbody><tr><td>Free monthly usage</td><td>{{.FreeBytes}}, {{.FreeRequests}} admissions; {{.FreeTunnels}} concurrent tunnels</td><td>1 GB outbound, 20,000 HTTP requests; 3 online endpoints</td></tr>
 <tr><td>Solo paid plan</td><td>Pro ${{.MonthlyUSD}}/month or ${{.YearlyUSD}}/year; {{.ProBytes}}, {{.ProRequests}} admissions</td><td>Hobbyist $10/month or $96/year; 5 GB, 100k requests included plus usage credit</td></tr>
-<tr><td>Persistent name</td><td>Pro attempts to reserve the first {{.Reservations}} published names; Free names can be taken while offline</td><td>Assigned stable dev domain on Free; chosen ngrok-branded domains on Hobbyist</td></tr>
+<tr><td>Persistent name</td><td>Free attempts {{.FreeReservations}} reserved name; Pro attempts {{.Reservations}}. Additional names are temporary</td><td>Assigned stable dev domain on Free; chosen ngrok-branded domains on Hobbyist</td></tr>
 <tr><td>Visitor warning</td><td>No extra warning on public endpoints; private endpoints require authentication</td><td>Free HTML browser interstitial, bypassable by suitable clients; no interstitial on paid plans</td></tr>
 <tr><td>Local MCP</td><td>Private stdio bridge or HTTP target, /mcp endpoint, OAuth consent and revocation; connector preview</td><td>Public ingress and gateway capabilities; see ngrok's documentation for MCP configuration</td></tr>
 <tr><td>Quota billing</td><td>Fixed allowance, hard stop, no automatic overage</td><td>Free/Hobbyist credit-limited; Pay-as-you-go $20 base plus metered usage</td></tr></tbody></table></div>

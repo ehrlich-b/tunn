@@ -108,7 +108,7 @@ func TestAccountOperationsAllIngressAdmissions(t *testing.T) {
 	}
 }
 func TestAccountOperationsPublisherAndHostAdmissions(t *testing.T) {
-	s := hostFixture(t)
+	s := paidHostFixture(t)
 	token := createTestJWT("owner@example.com", s.cfg.JWTSecret)
 	if w := hostRequest(t, s, "POST", token, fixtureManifest); w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())

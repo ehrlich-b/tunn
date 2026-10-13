@@ -412,10 +412,25 @@ func TestSubdomainReservationFreePlan(t *testing.T) {
 		t.Fatalf("failed to create account: %v", err)
 	}
 
-	// Free accounts cannot reserve subdomains
+	// Free accounts can reserve one name, retry it and reject a second.
 	err = store.ReserveSubdomain(account.ID, "myapp")
-	if err == nil {
-		t.Error("expected error for free plan subdomain reservation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ReserveSubdomain(account.ID, " MYAPP "); err != nil {
+		t.Fatal(err)
+	}
+	if owner, err := store.GetSubdomainOwner("myapp"); err != nil || owner != account.ID {
+		t.Fatalf("owner=%s err=%v", owner, err)
+	}
+	if err := store.ReserveSubdomain(account.ID, "second"); err == nil {
+		t.Fatal("second Free reservation accepted")
+	}
+	if err := store.ReleaseSubdomain(account.ID, "myapp"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ReserveSubdomain(account.ID, "replacement"); err != nil {
+		t.Fatal(err)
 	}
 }
 

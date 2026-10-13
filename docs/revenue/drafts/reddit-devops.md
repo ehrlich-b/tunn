@@ -19,8 +19,8 @@ For a stdio MCP server: `tunn mcp -- ./my-mcp-server` prints a private /mcp
 connector URL. tunn handles OAuth consent and revocation; your tools stay local.
 Tutorial with a harmless echo example: https://tunn.to/docs/mcp-to-claude
 
-Free is 3 concurrent tunnels, 100k monthly admissions and 1 GB across your
-account. Pro is $6/month or $60/year for larger finite limits and 4 reserved
+Free is 5 concurrent tunnels, 1m monthly admissions and 10 GB across your
+account. Pro is $5/month or $48/year for larger finite limits and 10 reserved
 names. Launch billing activation is reviewed by an operator; quota exhaustion
 doesn't create overage charges. Details: https://tunn.to/pricing
 

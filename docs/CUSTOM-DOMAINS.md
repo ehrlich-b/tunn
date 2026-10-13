@@ -20,7 +20,7 @@ tunn domain delete work.example.com
 
 Add atomically checks the current paid plan and reserves the tunnel name through
 the same `reserved_subdomains` table as publisher registration. Existing names
-must belong to the account; new names consume one of its four paid reservation
+must belong to the account; new names consume one of its ten Pro reservation
 slots. Multiple domains can share one reserved tunnel name. Delete removes the
 binding, challenge and stored certificate/key; it preserves the independent
 tunnel reservation. Remove the CNAME from DNS as part of cleanup.

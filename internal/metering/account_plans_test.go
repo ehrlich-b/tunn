@@ -11,7 +11,7 @@ import (
 
 func TestAccountPlansImportRestartDowngradeAndFailClosed(t *testing.T) {
 	_, db := fixture(t)
-	if _, err := db.Exec(`CREATE TABLE accounts(id TEXT PRIMARY KEY, plan TEXT); CREATE TABLE account_usage(account_id TEXT, month TEXT, bytes_used INTEGER); INSERT INTO accounts VALUES('owner@example.com','free'); INSERT INTO account_usage VALUES('owner@example.com','2026-10',999999997)`); err != nil {
+	if _, err := db.Exec(`CREATE TABLE accounts(id TEXT PRIMARY KEY, plan TEXT); CREATE TABLE account_usage(account_id TEXT, month TEXT, bytes_used INTEGER); INSERT INTO accounts VALUES('owner@example.com','free'); INSERT INTO account_usage VALUES('owner@example.com','2026-10',9999999997)`); err != nil {
 		t.Fatal(err)
 	}
 	s, err := New(db, WithAccountPlans())
@@ -30,7 +30,7 @@ func TestAccountPlansImportRestartDowngradeAndFailClosed(t *testing.T) {
 	}
 	finish(t, s, e, 1)
 	// The completion mirror is not imported twice.
-	if _, err := db.Exec(`UPDATE account_usage SET bytes_used=1000000000`); err != nil {
+	if _, err := db.Exec(`UPDATE account_usage SET bytes_used=10000000000`); err != nil {
 		t.Fatal(err)
 	}
 	s, err = New(db, WithAccountPlans())
@@ -122,5 +122,54 @@ func TestRetentionCannotResetActiveBudgetAndRestartEndsOldRequest(t *testing.T) 
 	d, err := restarted.Charge(context.Background(), &pb.ChargeRequest{RequestId: e.RequestId, RequestBytes: 5})
 	if err != nil || d.Allowed || d.Reason != "request_finished" {
 		t.Fatalf("restart kept old idle request alive: %v %v", d, err)
+	}
+}
+
+// Seed rollups near each allowance instead of issuing millions of requests.
+func TestAccountPlanAllowanceBoundaries(t *testing.T) {
+	for _, plan := range []string{"free", "pro"} {
+		for _, budget := range []string{"requests", "bytes"} {
+			t.Run(plan+"/"+budget, func(t *testing.T) {
+				_, db := fixture(t)
+				if _, err := db.Exec(`CREATE TABLE accounts(id TEXT PRIMARY KEY, plan TEXT); CREATE TABLE account_usage(account_id TEXT, month TEXT, bytes_used INTEGER); INSERT INTO accounts VALUES('owner@example.com',?)`, plan); err != nil {
+					t.Fatal(err)
+				}
+				s, err := New(db, WithAccountPlans())
+				if err != nil {
+					t.Fatal(err)
+				}
+				s.now = func() time.Time { return testNow }
+				requests, bytes := FreeMonthlyRequests, FreeMonthlyBytes
+				if plan == "pro" {
+					requests, bytes = ProMonthlyRequests, ProMonthlyBytes
+				}
+				usedRequests, usedBytes := int64(0), int64(0)
+				if budget == "requests" {
+					usedRequests = requests - 1
+				} else {
+					usedBytes = bytes - 1
+				}
+				if _, err := db.Exec(`INSERT INTO meter_usage(owner,endpoint,caller,month,admitted,request_bytes) VALUES('owner@example.com','old','anonymous','2026-10',?,?)`, usedRequests, usedBytes); err != nil {
+					t.Fatal(err)
+				}
+				e := event(nil, 1)
+				d := admit(t, s, e)
+				if !d.Allowed {
+					t.Fatal(d)
+				}
+				reason := "owner_request_budget"
+				if budget == "bytes" {
+					d = charge(t, s, e.RequestId, 0, 2)
+					if d.Allowed || d.ResponseBytes != 1 || d.Reason != "owner_byte_budget" {
+						t.Fatal(d)
+					}
+					reason = "owner_byte_budget"
+				}
+				finish(t, s, e, d.ResponseBytes)
+				if d := admit(t, s, event(nil, 2)); d.Allowed || d.Reason != reason {
+					t.Fatal(d)
+				}
+			})
+		}
 	}
 }

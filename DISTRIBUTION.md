@@ -56,8 +56,8 @@ receipts plus actual paid subscription reads establish revenue; return-page hits
 do not. Avoid adding payload/body collection to the production relay.
 
 Hypothesis: reserved MCP/webhook names plus predictable included usage are worth
-$6/month to repeat users. At 100 first-ingress activations, 10 paid accounts
-would produce $60 MRR, not “1% of ngrok.” If payment friction is fixed and few
+$5/month to repeat users. At 100 first-ingress activations, 10 paid accounts
+would produce $50 MRR, not “1% of ngrok.” If payment friction is fixed and few
 users pay, interview those users before adding more distribution or the $12/year
 tier. Track free subsidy and ledger capacity as well as gross revenue.
 

@@ -13,7 +13,7 @@ tunn login</pre>
 tunn http 8080
 # ngrok http 8080 --subdomain=work →
 tunn http 8080 --subdomain=work</pre>
-<p>This is an HTTP command shortcut, not full ngrok compatibility. Run <code>tunn login</code> instead of configuring an ngrok authtoken. ngrok --domain, config files and traffic policies do not transfer. Free names are temporary; Pro attempts to reserve the first four published names, including random names. Choose names before publishing. <a href="/ngrok-alternative">Compare the tradeoffs</a>.</p>
+<p>This is an HTTP command shortcut, not full ngrok compatibility. Run <code>tunn login</code> instead of configuring an ngrok authtoken. ngrok --domain, config files and traffic policies do not transfer. Free attempts to reserve one published name; Pro attempts up to ten, including random names. Choose names before publishing. <a href="/ngrok-alternative">Compare the tradeoffs</a>.</p>
 <h2>Inspect webhooks and watch usage</h2><pre>tunn http 8080 --inspect
 tunn usage</pre>
 <p>The local inspector omits bodies by default. Quotas apply across all account endpoints and reset monthly in UTC. Check <a href="/account">your account</a> or <a href="/pricing">plans and exact usage units</a> before upgrading. No automatic overage charges.</p>

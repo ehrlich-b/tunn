@@ -19,7 +19,7 @@ type revenuePageData struct {
 	FreeTunnels, ProTunnels           int
 	FreeRequests, ProRequests         int64
 	FreeBytes, ProBytes               string
-	Reservations                      int
+	FreeReservations, Reservations    int
 	MonthlyAvailable, YearlyAvailable bool
 }
 
@@ -31,7 +31,7 @@ func stripeURL(raw, host string) (*url.URL, bool) {
 }
 
 func (p *ProxyServer) revenueData() revenuePageData {
-	monthly, yearly := 6, 60
+	monthly, yearly := 5, 48
 	if p.config.ProMonthlyUSD > 0 {
 		monthly = p.config.ProMonthlyUSD
 	}
@@ -50,7 +50,7 @@ func (p *ProxyServer) revenueData() revenuePageData {
 		freeBytes = min(freeBytes, p.config.OwnerMonthlyBytes)
 		proBytes = min(proBytes, p.config.OwnerMonthlyBytes)
 	}
-	return revenuePageData{MonthlyUSD: monthly, YearlyUSD: yearly, FreeTunnels: storage.FreeTunnelLimit, ProTunnels: storage.ProTunnelLimit, FreeRequests: freeRequests, ProRequests: proRequests, FreeBytes: formatBytes(freeBytes), ProBytes: formatBytes(proBytes), Reservations: store.MaxReservedSubdomains, MonthlyAvailable: p.config.BillingEnabled && p.config.StripeWebhookSecret != "" && monthOK, YearlyAvailable: p.config.BillingEnabled && p.config.StripeWebhookSecret != "" && yearOK}
+	return revenuePageData{MonthlyUSD: monthly, YearlyUSD: yearly, FreeTunnels: storage.FreeTunnelLimit, ProTunnels: storage.ProTunnelLimit, FreeRequests: freeRequests, ProRequests: proRequests, FreeBytes: formatBytes(freeBytes), ProBytes: formatBytes(proBytes), FreeReservations: store.FreeReservedSubdomains, Reservations: store.MaxReservedSubdomains, MonthlyAvailable: p.config.BillingEnabled && p.config.StripeWebhookSecret != "" && monthOK, YearlyAvailable: p.config.BillingEnabled && p.config.StripeWebhookSecret != "" && yearOK}
 }
 
 func (p *ProxyServer) renderRevenuePage(w http.ResponseWriter, content string) {

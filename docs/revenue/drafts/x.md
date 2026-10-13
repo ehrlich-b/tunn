@@ -8,7 +8,7 @@ Post 1:
 
 Post 2 (reply/thread, optional):
 
-> Webhook handler on localhost? `tunn http 8080 --inspect` publishes it and opens a local inspector. Keep signature verification in your app. Pro adds reserved names and more room: $6/month or $60/year. Beta activation is reviewed. https://tunn.to/pricing
+> Webhook handler on localhost? `tunn http 8080 --inspect` publishes it and opens a local inspector. Keep signature verification in your app. Pro adds reserved names and more room: $5/month or $48/year. Beta activation is reviewed. https://tunn.to/pricing
 
 No competitor numbers or uncited superlatives. Both drafts must be rechecked
 against X's current character counting in Bryan's composer before submission.

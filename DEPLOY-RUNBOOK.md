@@ -36,7 +36,7 @@ Require `ok`; export an encrypted off-machine backup through the normal coordina
 
 ## 2. Provision production config, files and network
 
-Use RELEASE-NOTES.md's settings table. In the reviewed live config preserve role flags, DB/mounts, control authority, platform certificates, discovery, internal TLS/node secret and existing network handlers. Keep `TUNN_BILLING_ENABLED=false`, price display 6/60; add no Stripe setup. Enable custom domains only with Google OAuth, identity ring, encryption secret/contact and working HTTP-01. Register the exact configured Google callback (template authority `https://tunn.to:443/auth/google/callback`), and exact org callbacks if enabling OIDC. Real org tenants/delegation acceptance is separate and remains required.
+Use RELEASE-NOTES.md's settings table. In the reviewed live config preserve role flags, DB/mounts, control authority, platform certificates, discovery, internal TLS/node secret and existing network handlers. Keep `TUNN_BILLING_ENABLED=false`, price display 5/48; add no Stripe setup. Enable custom domains only with Google OAuth, identity ring, encryption secret/contact and working HTTP-01. Register the exact configured Google callback (template authority `https://tunn.to:443/auth/google/callback`), and exact org callbacks if enabling OIDC. Real org tenants/delegation acceptance is separate and remains required.
 
 Every terminating edge needs raw TCP 443, UDP 443 and raw TCP 80 HTTP-01. In the reviewed config add this service if absent, without force_https or TLS/HTTP handlers:
 

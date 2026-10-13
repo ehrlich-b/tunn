@@ -14,9 +14,9 @@ local process running. [Connect to Claude.ai](docs/guides/mcp-to-claude.md),
 [pricing](https://tunn.to/pricing). Hosted pages describe this release after the
 coordinator deploys it; the local guides work from this checkout now.
 
-Free: 3 concurrent tunnels, 100,000 admissions and 1 GB metered transfer per UTC
-month across your account. Proposed Pro: $6/month or $60/year, 10 tunnels,
-1,000,000 admissions, 50 GB and 4 reserved names. No automatic overage charges.
+Free: 5 concurrent tunnels, 1,000,000 admissions and 10 GB metered transfer per UTC
+month across your account, plus 1 reserved name. Pro: $5/month or $48/year, 25 tunnels,
+10,000,000 admissions, 500 GB and 10 reserved names. No automatic overage charges.
 Checkout opens only after billing acceptance; launch activation is reviewed by
 an operator. Existing subscriptions are not repriced by this change.
 

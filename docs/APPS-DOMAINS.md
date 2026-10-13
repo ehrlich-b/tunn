@@ -68,7 +68,7 @@ the issuer and scheduled renewals. Processing responses without a Location heade
 the original order through the ACME library; no JWS/HTTP protocol is hand-coded. The login node renews existing app certificates within 30 days of
 expiry during its hourly refresh. Persisted limits count failed attempts:
 10 orders per owner/hour, 100 globally/hour, and a one-minute retry delay per
-hostname. Existing four reserved-name slots bound each publisher's hostname
+hostname. Existing ten Pro reserved-name slots bound each publisher's hostname
 fan-out. A valid old certificate remains usable after renewal failure while DNS
 proof holds. Authority outage fails closed. Run one active login-node authority;
 multiple independent databases would defeat deduplication/rate limits. Replicated

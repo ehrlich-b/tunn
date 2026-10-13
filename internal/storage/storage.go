@@ -20,8 +20,8 @@ var ErrNotAvailable = errors.New("storage not available")
 
 // Tunnel limits by plan
 const (
-	FreeTunnelLimit = 3
-	ProTunnelLimit  = 10
+	FreeTunnelLimit = 5
+	ProTunnelLimit  = 25
 )
 
 // Storage is the unified interface for all database operations.

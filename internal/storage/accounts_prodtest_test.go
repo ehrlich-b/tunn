@@ -39,7 +39,7 @@ func TestAccountQuotasConcurrentPublisherRegistrations(t *testing.T) {
 			if plan == "pro" {
 				limit = storage.ProTunnelLimit
 			}
-			const attempts = 16
+			const attempts = storage.ProTunnelLimit + 5
 			start := make(chan struct{})
 			results := make(chan *storage.TunnelRegistration, attempts)
 			var wg sync.WaitGroup
@@ -89,7 +89,7 @@ func TestAccountQuotasLiveMergeAndDowngradeKeepRegistrations(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, account := range []*store.Account{first, second} {
-		for i := 0; i < 2; i++ {
+		for i := 0; i < 3; i++ {
 			out, err := local.RegisterTunnel(ctx, fmt.Sprintf("api-%s-%d", account.PrimaryEmail[:5], i), account.ID, "fixture-node")
 			if err != nil || !out.Allowed {
 				t.Fatalf("registration=%v error=%v", out, err)
@@ -101,7 +101,7 @@ func TestAccountQuotasLiveMergeAndDowngradeKeepRegistrations(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, id := range []string{first.ID, second.ID, merged.ID} {
-		if count, err := local.GetTunnelCount(ctx, id); err != nil || count != 4 {
+		if count, err := local.GetTunnelCount(ctx, id); err != nil || count != 6 {
 			t.Fatalf("alias count=%d error=%v", count, err)
 		}
 		if out, err := local.RegisterTunnel(ctx, "free-denied", id, "fixture-node"); err != nil || out.Allowed || out.Reason != "tunnel limit reached" {
@@ -111,13 +111,13 @@ func TestAccountQuotasLiveMergeAndDowngradeKeepRegistrations(t *testing.T) {
 	if err := accounts.UpdatePlan(first.ID, "pro"); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := local.RegisterTunnel(ctx, "upgraded", second.ID, "fixture-node"); err != nil || !out.Allowed || out.CurrentCount != 5 || out.MaxAllowed != int32(storage.ProTunnelLimit) {
+	if out, err := local.RegisterTunnel(ctx, "upgraded", second.ID, "fixture-node"); err != nil || !out.Allowed || out.CurrentCount != 7 || out.MaxAllowed != int32(storage.ProTunnelLimit) {
 		t.Fatalf("upgrade=%v error=%v", out, err)
 	}
 	if err := accounts.UpdatePlan(second.ID, "free"); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := local.RegisterTunnel(ctx, "downgrade-denied", first.ID, "fixture-node"); err != nil || out.Allowed || out.CurrentCount != 5 || out.MaxAllowed != int32(storage.FreeTunnelLimit) {
+	if out, err := local.RegisterTunnel(ctx, "downgrade-denied", first.ID, "fixture-node"); err != nil || out.Allowed || out.CurrentCount != 7 || out.MaxAllowed != int32(storage.FreeTunnelLimit) {
 		t.Fatalf("downgrade=%v error=%v", out, err)
 	}
 	for _, name := range []string{"upgraded", "api-first-0", "api-secon-0"} {
@@ -125,7 +125,7 @@ func TestAccountQuotasLiveMergeAndDowngradeKeepRegistrations(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if out, err := local.RegisterTunnel(ctx, "replacement", merged.ID, "fixture-node"); err != nil || !out.Allowed || out.CurrentCount != 3 {
+	if out, err := local.RegisterTunnel(ctx, "replacement", merged.ID, "fixture-node"); err != nil || !out.Allowed || out.CurrentCount != 5 {
 		t.Fatalf("released quota=%v error=%v", out, err)
 	}
 }

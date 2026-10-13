@@ -47,8 +47,8 @@ even if the publisher fails or the caller disconnects. Application retries are
 new ingress requests and consume new units.
 
 The login node enforces plan allowances across HTTP, streaming/SSE, MCP,
-WebSocket frames and TCP CONNECT. Free accounts get 100,000 monthly admissions
-and 1 GB; Pro accounts get 1,000,000 admissions and 50 GB (decimal units).
+WebSocket frames and TCP CONNECT. Free accounts get 1,000,000 monthly admissions
+and 10 GB; Pro accounts get 10,000,000 admissions and 500 GB (decimal units).
 `TUNN_OWNER_MONTHLY_REQUESTS` and `TUNN_OWNER_MONTHLY_BYTES` optionally impose
 *tighter* caps. Zero leaves the plan allowance in place. The authority reads the
 current account plan, so a connected publisher cannot retain an old paid limit.

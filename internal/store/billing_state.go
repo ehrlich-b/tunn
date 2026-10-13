@@ -57,7 +57,9 @@ func projectBillingAccount(ctx context.Context, tx *sql.Tx, id string) error {
 		return err
 	}
 	if plan == "free" {
-		_, err = tx.ExecContext(ctx, `DELETE FROM reserved_subdomains WHERE account_id=?`, id)
+		// Legacy/paid names have no Free claim. Preserve only claims acquired
+		// under Free; upgrading removes that provenance even for old binaries.
+		_, err = tx.ExecContext(ctx, `DELETE FROM reserved_subdomains WHERE account_id=? AND subdomain NOT IN(SELECT subdomain FROM free_reservation_claims)`, id)
 	}
 	return err
 }

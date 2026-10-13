@@ -24,9 +24,9 @@ tunn http 8080 --inspect
 
 There's a small read-only echo example in the repo, plus a local request
 inspector for webhook debugging. The hosted service requires GitHub or email
-login. Free includes 3 concurrent tunnels, 100k admissions and 1 GB per UTC
-month across the account. Pro is $6/month or $60/year with 10 tunnels, 1m
-admissions, 50 GB and up to 4 reserved names. Quotas stop traffic; no automatic
+login. Free includes 5 concurrent tunnels, 1m admissions and 10 GB per UTC
+month across the account. Pro is $5/month or $48/year with 25 tunnels, 10m
+admissions, 500 GB and up to 10 reserved names. Quotas stop traffic; no automatic
 overage charges. During this beta an operator reviews activation after payment.
 
 Claude tutorial: https://tunn.to/docs/mcp-to-claude

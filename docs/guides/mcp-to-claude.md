@@ -37,9 +37,9 @@ tunn remaps its public `/mcp` path to the supplied upstream path. HTTP servers
 manage their own tool permissions. Revoke a client's access at `/account/mcp`.
 The bridge's local call timeout is 27 seconds; long jobs should return a job ID.
 
-Pro automatically attempts to reserve the first four published names, including
+Free automatically attempts to reserve one published name; Pro attempts up to ten, including
 random names. Choose names before publishing. Once slots are full, further
-names remain temporary. Free names can be reused while available but aren't
+names remain temporary. Unreserved names can be reused while available but are not
 protected while offline; contact support for reservation changes.
 
 On a failed connection, check the printed path, running process, cloud network

@@ -66,6 +66,20 @@ func (s *HostStore) Register(accountID string, manifest common.HostManifest) err
 	if exists == 0 && count >= 20 {
 		return fmt.Errorf("host limit reached (20)")
 	}
+	var priorReservations int
+	if err := tx.QueryRow("SELECT COUNT(*) FROM reserved_subdomains WHERE account_id = ?", accountID).Scan(&priorReservations); err != nil {
+		return err
+	}
+	plan, _, err := billingAccountState(context.Background(), tx, accountID)
+	if err != nil {
+		return err
+	}
+	var priorFreeClaims int
+	if plan == "free" {
+		if err := tx.QueryRow("SELECT count(*) FROM free_reservation_claims f JOIN reserved_subdomains r USING(subdomain) WHERE r.account_id=?", accountID).Scan(&priorFreeClaims); err != nil {
+			return err
+		}
+	}
 	now := time.Now().Unix()
 	if _, err := tx.Exec("INSERT OR IGNORE INTO host_machines VALUES (?, ?, ?)", accountID, manifest.Machine, 0); err != nil {
 		return err
@@ -90,6 +104,11 @@ func (s *HostStore) Register(accountID string, manifest common.HostManifest) err
 		if _, err := tx.Exec("INSERT OR IGNORE INTO reserved_subdomains VALUES (?, ?, ?)", endpoint.Name, accountID, now); err != nil {
 			return err
 		}
+		if plan == "free" {
+			if _, err := tx.Exec("INSERT OR IGNORE INTO free_reservation_claims VALUES(?)", endpoint.Name); err != nil {
+				return err
+			}
+		}
 		if _, err := tx.Exec(`INSERT INTO host_endpoints VALUES (?, ?, ?, ?, 0)
 ON CONFLICT(name) DO UPDATE SET kind=excluded.kind`, endpoint.Name, accountID, manifest.Machine, endpoint.Kind); err != nil {
 			return err
@@ -98,8 +117,18 @@ ON CONFLICT(name) DO UPDATE SET kind=excluded.kind`, endpoint.Name, accountID, m
 	if err := tx.QueryRow("SELECT COUNT(*) FROM reserved_subdomains WHERE account_id = ?", accountID).Scan(&count); err != nil {
 		return err
 	}
-	if count > 10 {
-		return fmt.Errorf("stable name limit reached (10)")
+	limit := ReservedSubdomainLimit(plan)
+	if count > limit && count > priorReservations {
+		return fmt.Errorf("stable name limit reached (%d)", limit)
+	}
+	if plan == "free" {
+		var claims int
+		if err := tx.QueryRow("SELECT count(*) FROM free_reservation_claims f JOIN reserved_subdomains r USING(subdomain) WHERE r.account_id=?", accountID).Scan(&claims); err != nil {
+			return err
+		}
+		if claims > limit && claims > priorFreeClaims {
+			return fmt.Errorf("stable name limit reached (%d)", limit)
+		}
 	}
 	return tx.Commit()
 }

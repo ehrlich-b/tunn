@@ -637,3 +637,7 @@ test-device-admission:
 .PHONY: test-device-purpose
 test-device-purpose:
 	go test -race -count=1 -timeout=90s -run '^TestDevicePurpose' ./internal/host
+
+.PHONY: test-forwarded-permission
+test-forwarded-permission:
+	go test -race -v -count=1 -timeout=90s -run '^TestForwardedPermission' ./internal/host

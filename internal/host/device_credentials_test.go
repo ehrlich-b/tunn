@@ -180,11 +180,8 @@ func TestDurableScopeExpiryAndLegacy(t *testing.T) {
 	p.handleDeviceToken(rec, httptest.NewRequest("GET", "https://tunn.test/api/device/token?code="+url.QueryEscape(code.Code), nil))
 	var legacy durableTokenFixture
 	_ = json.Unmarshal(rec.Body.Bytes(), &legacy)
-	if legacy.Expires != 86400 || legacy.Refresh != "" {
-		t.Fatal("legacy exchange changed")
-	}
-	if _, err = p.tunnelServer.validateJWTAndExtractEmail(legacy.Access); err != nil {
-		t.Fatal("legacy access rejected", err)
+	if rec.Code != 400 || legacy.Access != "" {
+		t.Fatal("publisher code accepted for account management")
 	}
 }
 func TestDurableDeviceManagement(t *testing.T) {

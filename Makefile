@@ -635,3 +635,7 @@ test-web-inspector-browser:
 .PHONY: test-device-admission
 test-device-admission:
 	go test -race -count=1 -timeout=60s -run '^TestDeviceAdmission' ./internal/host
+
+.PHONY: test-device-purpose
+test-device-purpose:
+	go test -race -count=1 -timeout=90s -run '^TestDevicePurpose' ./internal/host

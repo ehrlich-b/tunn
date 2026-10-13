@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/ehrlich-b/tunn/internal/common"
+	"github.com/ehrlich-b/tunn/internal/store"
 	"github.com/golang-jwt/jwt/v4"
 )
 
@@ -24,28 +25,40 @@ var errDeviceCredential = errors.New("device credential revoked, reused or inval
 
 type deviceCredentialStore struct{ db *sql.DB }
 type durableDevice struct {
-	ID       string `json:"id"`
-	Email    string `json:"-"`
-	Name     string `json:"name"`
-	Created  int64  `json:"created_at"`
-	LastUsed int64  `json:"last_used_at"`
-	Revoked  int64  `json:"revoked_at"`
+	Purpose   string `json:"purpose"`
+	AccountID string `json:"-"`
+	ID        string `json:"id"`
+	Email     string `json:"-"`
+	Name      string `json:"name"`
+	Created   int64  `json:"created_at"`
+	LastUsed  int64  `json:"last_used_at"`
+	Revoked   int64  `json:"revoked_at"`
 }
 
 func newDeviceCredentialStore(db *sql.DB) (*deviceCredentialStore, error) {
+	if err := store.MigrateDevicePurpose(db); err != nil {
+		return nil, err
+	}
 	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS durable_devices (
  id TEXT PRIMARY KEY, email TEXT NOT NULL, name TEXT NOT NULL,
  digest BLOB NOT NULL UNIQUE, created INTEGER NOT NULL, last_used INTEGER NOT NULL,
- revoked INTEGER NOT NULL DEFAULT 0);
+ revoked INTEGER NOT NULL DEFAULT 0, purpose TEXT NOT NULL DEFAULT 'publisher', account_id TEXT NOT NULL DEFAULT '');
  CREATE TABLE IF NOT EXISTS durable_device_used (
  digest BLOB PRIMARY KEY, device TEXT NOT NULL, request TEXT NOT NULL,
  used INTEGER NOT NULL, replacement BLOB NOT NULL);
  CREATE INDEX IF NOT EXISTS durable_devices_email ON durable_devices(email);
  CREATE UNIQUE INDEX IF NOT EXISTS durable_device_requests ON durable_device_used(device,request);`)
+	if err == nil {
+		err = migrateDurablePurpose(db)
+	}
 	return &deviceCredentialStore{db: db}, err
 }
 
 func (s *deviceCredentialStore) issue(code, name string, now time.Time) (*durableDevice, string, error) {
+	return s.issueForPurpose(code, name, "publisher", now)
+}
+
+func (s *deviceCredentialStore) issueForPurpose(code, name, purpose string, now time.Time) (*durableDevice, string, error) {
 	id, err := randomOAuthValue("dev_")
 	if err != nil {
 		return nil, "", err
@@ -59,8 +72,8 @@ func (s *deviceCredentialStore) issue(code, name string, now time.Time) (*durabl
 		return nil, "", err
 	}
 	defer tx.Rollback()
-	var email string
-	err = tx.QueryRow(`DELETE FROM device_codes WHERE code=? AND authorized=1 AND expires_at>? RETURNING email`, code, now.Unix()).Scan(&email)
+	var email, bound string
+	err = tx.QueryRow(`DELETE FROM device_codes WHERE code=? AND purpose=? AND authorized=1 AND expires_at>? RETURNING email,account_id`, code, purpose, now.Unix()).Scan(&email, &bound)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, "", errDeviceCredential
 	}
@@ -69,9 +82,16 @@ func (s *deviceCredentialStore) issue(code, name string, now time.Time) (*durabl
 	}
 	// Also covers authorized codes persisted before canonicalization was added.
 	email = common.NormalizeEmail(email)
+	var accountID string
+	if err = tx.QueryRow(`SELECT account_id FROM account_emails WHERE email=?`, email).Scan(&accountID); err != nil {
+		return nil, "", err
+	}
+	if bound != "" && bound != accountID {
+		return nil, "", errDeviceCredential
+	}
 	digest := sha256.Sum256([]byte(secret))
-	d := &durableDevice{ID: id, Email: email, Name: name, Created: now.Unix(), LastUsed: now.Unix()}
-	_, err = tx.Exec(`INSERT INTO durable_devices(id,email,name,digest,created,last_used) VALUES(?,?,?,?,?,?)`, id, email, name, digest[:], d.Created, d.LastUsed)
+	d := &durableDevice{ID: id, Email: email, Name: name, Purpose: purpose, AccountID: accountID, Created: now.Unix(), LastUsed: now.Unix()}
+	_, err = tx.Exec(`INSERT INTO durable_devices(id,email,name,digest,created,last_used,purpose,account_id) VALUES(?,?,?,?,?,?,?,?)`, id, email, name, digest[:], d.Created, d.LastUsed, purpose, accountID)
 	if err != nil {
 		return nil, "", err
 	}
@@ -89,12 +109,12 @@ func (s *deviceCredentialStore) rotate(secret, request string, key []byte, now t
 	}
 	defer tx.Rollback()
 	var d durableDevice
-	err = tx.QueryRow(`SELECT id,email,name,created,last_used,revoked FROM durable_devices WHERE digest=?`, digest[:]).Scan(&d.ID, &d.Email, &d.Name, &d.Created, &d.LastUsed, &d.Revoked)
+	err = tx.QueryRow(`SELECT id,email,name,created,last_used,revoked FROM durable_devices WHERE digest=? AND purpose='publisher'`, digest[:]).Scan(&d.ID, &d.Email, &d.Name, &d.Created, &d.LastUsed, &d.Revoked)
 	if errors.Is(err, sql.ErrNoRows) {
 		var oldRequest string
 		var used int64
 		var replacement, current []byte
-		err = tx.QueryRow(`SELECT u.device,u.request,u.used,u.replacement,d.digest,d.email,d.revoked FROM durable_device_used u JOIN durable_devices d ON d.id=u.device WHERE u.digest=?`, digest[:]).Scan(&d.ID, &oldRequest, &used, &replacement, &current, &d.Email, &d.Revoked)
+		err = tx.QueryRow(`SELECT u.device,u.request,u.used,u.replacement,d.digest,d.email,d.revoked FROM durable_device_used u JOIN durable_devices d ON d.id=u.device WHERE u.digest=? AND d.purpose='publisher'`, digest[:]).Scan(&d.ID, &oldRequest, &used, &replacement, &current, &d.Email, &d.Revoked)
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, "", errDeviceCredential
 		}
@@ -209,6 +229,10 @@ func (p *ProxyServer) handleDurableExchange(w http.ResponseWriter, r *http.Reque
 	}
 	if code != nil && !code.Authorized {
 		writeOAuthJSON(w, 200, map[string]string{"error": "authorization_pending"})
+		return
+	}
+	if code != nil && code.Purpose != "publisher" {
+		oauthProblem(w, 400, "invalid_grant", "This code is for account management")
 		return
 	}
 	d, secret, err := p.devices.issue(r.URL.Query().Get("code"), name, p.currentTime())
@@ -338,7 +362,7 @@ func (p *ProxyServer) handleDevices(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	writePageStart(w, "tunn - Devices")
-	_, _ = fmt.Fprint(w, `<h1>Devices</h1><p>Devices can publish and connect to tunnels. Revocation stops renewal immediately; existing publisher leases expire within five minutes.</p>`)
+	_, _ = fmt.Fprint(w, `<h1>Devices</h1><p>Publisher devices can publish and connect to tunnels; management devices administer the account. Revocation stops management access and renewal immediately; publisher leases expire within five minutes.</p>`)
 	for _, d := range list {
 		_, _ = fmt.Fprintf(w, `<p><strong>%s</strong> <code>%s</code> Created: %s; last refresh: %s; revoked: %t</p>`, html.EscapeString(d.Name), html.EscapeString(d.ID), time.Unix(d.Created, 0).UTC().Format(time.RFC3339), time.Unix(d.LastUsed, 0).UTC().Format(time.RFC3339), d.Revoked != 0)
 		if d.Revoked == 0 {

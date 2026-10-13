@@ -653,6 +653,9 @@ func TestIPPolicyTwoRelayCONNECTFullDuplex(t *testing.T) {
 	}
 	p.config.InternalCACert = ca
 	ingress := &ProxyServer{Domain: p.Domain, config: p.config, tunnelServer: NewTunnelServer(p.config, nil, nil, nil), tunnelCache: map[string]string{"api": strings.TrimPrefix(remote.URL, "https://")}}
+	authority := NewInternalServer(p.tunnelServer, strings.TrimPrefix(remote.URL, "https://"), false)
+	authority.proxy = p
+	ingress.nodeClients = map[string]internalpb.InternalServiceClient{"publisher": forwardPermissionPeer{server: authority}}
 	front := httptest.NewUnstartedServer(ingress.createHandler())
 	front.EnableHTTP2 = true
 	front.StartTLS()

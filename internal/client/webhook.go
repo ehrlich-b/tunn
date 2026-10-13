@@ -1,9 +1,15 @@
 package client
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"github.com/ehrlich-b/tunn/internal/common"
 	"io"
+	"net"
+	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/ehrlich-b/tunn/internal/webhook"
@@ -47,19 +53,15 @@ func loadWebhookSecretFile(path string, trimLineEnding bool) ([]byte, error) {
 
 // SaveWebhookSecret uses the same atomic private-directory/file storage as
 // endpoint access tokens. The source key never appears in CLI arguments/logs.
-func SaveWebhookSecret(endpoint string, secret []byte) (string, error) {
-	name, err := safeEndpointName(endpoint)
+func SaveWebhookSecret(server, endpoint, provider, account string, secret []byte) (string, error) {
+	path, err := webhookSecretLocation(server, endpoint, provider, account)
 	if err != nil {
 		return "", errors.New("invalid webhook endpoint name")
 	}
 	if len(secret) == 0 || len(secret) > webhook.MaxSecretSize {
 		return "", errors.New("invalid webhook secret length")
 	}
-	dir, err := endpointTokenDirectory()
-	if err != nil {
-		return "", err
-	}
-	return writePrivateTokenFile(dir, name+".webhook-secret", string(secret))
+	return writePrivateTokenFile(filepath.Dir(path), filepath.Base(path), string(secret))
 }
 
 func (s *ServeClient) registrationWebhookPolicy() (*pb.WebhookPolicy, error) {
@@ -74,6 +76,10 @@ func (s *ServeClient) registrationWebhookPolicy() (*pb.WebhookPolicy, error) {
 	}
 	policy := proto.Clone(s.WebhookPolicy).(*pb.WebhookPolicy)
 	if s.WebhookSecretPath != "" {
+		expected, err := webhookSecretLocation(s.ServerAddr, s.TunnelID, policy.Provider, WebhookAccountBinding(s.AuthToken))
+		if err != nil || filepath.Clean(s.WebhookSecretPath) != expected {
+			return nil, errors.New("webhook secret does not match this publication")
+		}
 		// Stored keys have already had their input line ending removed. Reload
 		// their exact bytes so trailing whitespace cannot change on reconnect.
 		secret, err := loadWebhookSecretFile(s.WebhookSecretPath, false)
@@ -86,4 +92,45 @@ func (s *ServeClient) registrationWebhookPolicy() (*pb.WebhookPolicy, error) {
 		return nil, err
 	}
 	return policy, nil
+}
+
+// WebhookAccountBinding remains stable across renewable account tokens.
+func WebhookAccountBinding(token string) string {
+	if email, err := common.ExtractEmailFromJWT(token); err == nil && email != "" {
+		return common.NormalizeEmail(email)
+	}
+	digest := sha256.Sum256([]byte(token))
+	return "credential:" + hex.EncodeToString(digest[:])
+}
+func webhookSecretLocation(server, endpoint, provider, account string) (string, error) {
+	if _, err := safeEndpointName(endpoint); err != nil {
+		return "", err
+	}
+	origin, err := canonicalCredentialServer(server)
+	if err != nil {
+		return "", err
+	}
+	u, err := url.Parse(origin)
+	if err != nil {
+		return "", err
+	}
+	host := strings.ToLower(strings.TrimSuffix(u.Hostname(), "."))
+	port := u.Port()
+	if port == "" || port == "443" {
+		u.Host = host
+		if strings.Contains(host, ":") {
+			u.Host = "[" + host + "]"
+		}
+	} else {
+		u.Host = net.JoinHostPort(host, port)
+	}
+	if provider == "" || account == "" {
+		return "", errors.New("webhook publication binding required")
+	}
+	digest := sha256.Sum256([]byte(u.String() + "\x00" + endpoint + "\x00" + provider + "\x00" + account))
+	dir, err := endpointTokenDirectory()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "webhooks", hex.EncodeToString(digest[:])+".secret"), nil
 }

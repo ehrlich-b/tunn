@@ -1070,7 +1070,7 @@ func runServe(args []string) {
 	}
 
 	if opts.webhookProvider != "" {
-		path, saveErr := client.SaveWebhookSecret(tunnelID, webhookSecret)
+		path, saveErr := client.SaveWebhookSecret(cfg.ServerAddr, tunnelID, opts.webhookProvider, client.WebhookAccountBinding(token), webhookSecret)
 		if saveErr != nil {
 			common.LogError("cannot store webhook endpoint secret")
 			os.Exit(1)

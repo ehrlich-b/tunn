@@ -534,6 +534,9 @@ type mcpOAuthPeerClient struct {
 	server *InternalServer
 }
 
+func (c mcpOAuthPeerClient) CheckForwardedPermission(ctx context.Context, request *internalpb.ForwardedPermissionRequest, _ ...grpc.CallOption) (*internalpb.ForwardedPermissionResponse, error) {
+	return c.server.CheckForwardedPermission(ctx, request)
+}
 func (c mcpOAuthPeerClient) FindTunnel(ctx context.Context, request *internalpb.FindTunnelRequest, _ ...grpc.CallOption) (*internalpb.FindTunnelResponse, error) {
 	return c.server.FindTunnel(ctx, request)
 }

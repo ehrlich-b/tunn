@@ -345,7 +345,9 @@ func TestWebInspectorCrossNodeOriginalIngressAndReplay(t *testing.T) {
 	edge.meter = f.p.meter
 	edge.planMeter = true
 	edge.config.Insecure = true // Disposable TLS fixture certificate only.
-	edge.nodeClients = map[string]internalpb.InternalServiceClient{"peer": mcpOAuthPeerClient{server: NewInternalServer(f.p.tunnelServer, addr, false)}}
+	authority := NewInternalServer(f.p.tunnelServer, addr, false)
+	authority.proxy = f.p
+	edge.nodeClients = map[string]internalpb.InternalServiceClient{"peer": mcpOAuthPeerClient{server: authority}}
 	edge.config.NodeSecret = "fixture-cluster"
 	f.p.config.NodeSecret = edge.config.NodeSecret
 	ingress := httptest.NewRequest("POST", "https://api.tunn.test/hooks?token=QUERY_SENTINEL", strings.NewReader("BODY_PAYLOAD_SENTINEL"))

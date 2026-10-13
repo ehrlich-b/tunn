@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/tls"
+	"errors"
 	"net"
 	"net/http"
 	"strings"
@@ -198,7 +199,16 @@ func (p *ProxyServer) watchForwardedPermission(w http.ResponseWriter, r *http.Re
 func interruptResponseOnCancellation(w http.ResponseWriter, r *http.Request) (http.ResponseWriter, func()) {
 	writer := &forwardedPermissionWriter{ResponseWriter: w}
 	done := make(chan struct{})
-	stop := context.AfterFunc(r.Context(), func() { defer close(done); writer.interrupt() })
+	stop := context.AfterFunc(r.Context(), func() {
+		defer close(done)
+		cause := context.Cause(r.Context())
+		var permission *webPermissionError
+		var unavailable *meterUnavailableError
+		var limit *ingressLimitError
+		if errors.As(cause, &permission) || errors.As(cause, &unavailable) || errors.As(cause, &limit) {
+			writer.interrupt()
+		}
+	})
 	return writer, func() {
 		if !stop() {
 			<-done

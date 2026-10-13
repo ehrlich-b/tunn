@@ -107,7 +107,11 @@ func (l *LoginClient) Run(ctx context.Context) error {
 
 // requestDeviceCode requests a device code from the server
 func (l *LoginClient) requestDeviceCode(ctx context.Context) (*DeviceCodeResponse, error) {
-	deviceURL := fmt.Sprintf("https://%s/api/device/code", l.ServerAddr)
+	purpose := "publisher"
+	if l.PolicyOwner {
+		purpose = "management"
+	}
+	deviceURL := fmt.Sprintf("https://%s/api/device/code?purpose=%s", l.ServerAddr, purpose)
 
 	client := l.httpClient()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, deviceURL, nil)

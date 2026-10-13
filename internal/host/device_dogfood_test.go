@@ -34,7 +34,7 @@ func TestDogfoodDeviceCodeExpiryAndRecovery(t *testing.T) {
 			}
 			poll := httptest.NewRecorder()
 			p.handleDeviceToken(poll, httptest.NewRequest("GET", "https://tunn.test/api/device/token?code="+url.QueryEscape(code.DeviceCode), nil))
-			if poll.Code != 200 || !strings.Contains(poll.Body.String(), "access_token") {
+			if poll.Code != 400 || strings.Contains(poll.Body.String(), "access_token") {
 				t.Fatalf("token polling = %d %s", poll.Code, poll.Body)
 			}
 			for _, usedCode := range []string{code.UserCode, "expired-fixture"} {

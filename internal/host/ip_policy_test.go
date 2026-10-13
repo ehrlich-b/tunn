@@ -22,6 +22,7 @@ import (
 	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/ehrlich-b/tunn/internal/metering"
 	"github.com/ehrlich-b/tunn/internal/storage"
+	ipb "github.com/ehrlich-b/tunn/pkg/proto/internalv1"
 	mp "github.com/ehrlich-b/tunn/pkg/proto/meteringv1"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
 	"google.golang.org/grpc"
@@ -525,6 +526,9 @@ func TestIPPolicyTwoRelayHopHeadersAndCONNECT(t *testing.T) {
 			server.StartTLS()
 			defer server.Close()
 			ingress := &ProxyServer{Domain: p.Domain, config: p.config, tunnelServer: NewTunnelServer(p.config, nil, nil, nil), tunnelCache: map[string]string{"api": strings.TrimPrefix(server.URL, "https://")}}
+			authority := NewInternalServer(p.tunnelServer, server.Listener.Addr().String(), false)
+			authority.proxy = p
+			ingress.nodeClients = map[string]ipb.InternalServiceClient{"publisher": forwardPermissionPeer{server: authority}}
 			owner := relayJWT(t, p, "owner@example.com")
 			for _, tt := range []struct {
 				peer string
@@ -642,6 +646,9 @@ func TestIPPolicyTwoRelayCONNECTFullDuplex(t *testing.T) {
 	remote.StartTLS()
 	defer remote.Close()
 	ingress := &ProxyServer{Domain: p.Domain, config: p.config, tunnelServer: NewTunnelServer(p.config, nil, nil, nil), tunnelCache: map[string]string{"api": strings.TrimPrefix(remote.URL, "https://")}}
+	authority := NewInternalServer(p.tunnelServer, remote.Listener.Addr().String(), false)
+	authority.proxy = p
+	ingress.nodeClients = map[string]ipb.InternalServiceClient{"publisher": forwardPermissionPeer{server: authority}}
 	front := httptest.NewUnstartedServer(ingress.createHandler())
 	front.EnableHTTP2 = true
 	front.StartTLS()

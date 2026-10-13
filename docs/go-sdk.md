@@ -310,15 +310,17 @@ skip or local success. Deployed-client acceptance remains a separate gate.
 This API exposes HTTP publishing only. Public raw TCP, Unix endpoints, raw TLS,
 MCP child supervision, host-mode/service installation, inspector/replay APIs,
 control-plane provisioning, account caches/login, token rotation, custom-domain
-management and JS/Python/Rust wrappers are outside this SDK. HTTP informational
+management and Python/Rust wrappers are outside this Go SDK. The separate
+[Node package](js-sdk.md) implements HTTP publisher lifecycle/auth/sharing with
+its own transport limits. HTTP informational
 responses before the final status, request trailers,
 undeclared response trailers, gRPC application forwarding and WebSocket
 compression have no fidelity promise.
 
-A later JS/Python/Rust binding needs only typed publisher options/credentials,
+A later Python/Rust binding needs only typed publisher options/credentials,
 start/cancel/close, a bounded event stream, retained ready/terminal results and
 the same transport conformance fixtures. An in-process handler needs a
 language-owned HTTP adapter with explicit ownership. Relay auth/quota state and
 tunnel protocol remain in the existing core; choose a release/FFI or local
-process boundary only after this Go contract earns full acceptance. No wrappers
-or versioned release are implemented here.
+process boundary only after this Go contract earns full acceptance. The Node package is a separate unpublished implementation; no Python/Rust
+wrappers or versioned Go release are implemented here.

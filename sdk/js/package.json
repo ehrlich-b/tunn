@@ -1,0 +1,39 @@
+{
+  "name": "@tunn/sdk",
+  "version": "0.1.0",
+  "description": "Embed tunn HTTP publishers in Node applications",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "proto/tunnel.proto",
+    "README.md",
+    "examples/mcp-server.mjs"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test test/sdk.test.mjs",
+    "prepack": "npm run build",
+    "check": "npm test && node test/package-consumer.mjs"
+  },
+  "dependencies": {
+    "@grpc/grpc-js": "^1.14.0",
+    "@grpc/proto-loader": "^0.8.0"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.0"
+  },
+  "private": true
+}

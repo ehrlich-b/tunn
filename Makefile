@@ -651,3 +651,11 @@ test-client-image:
 client-image-local:
 	@mkdir -p "$(BUILD_DIR)"
 	docker buildx build --platform linux/amd64,linux/arm64 --file Dockerfile.client --output type=oci,dest=$(BUILD_DIR)/tunn-client.oci.tar .
+
+# Node package, exported tarball consumer, and actual Go relay/auth/HTTP stack.
+.PHONY: test-js-sdk test-js-sdk-contract
+test-js-sdk:
+	cd sdk/js && npm run check
+
+test-js-sdk-contract: test-js-sdk
+	TUNN_JS_SDK_CONSUMER="$(CURDIR)/sdk/js/test/go-relay-consumer.mjs" go test $(GO_TEST_FLAGS) -race -count=1 -v -parallel=2 -timeout=120s -run '^TestJavaScriptSDKRelay$$' ./internal/host

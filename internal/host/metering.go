@@ -133,10 +133,14 @@ func (s *ingressMeter) charge(ctx context.Context, request bool, n int) (int, er
 	}
 	// Transport cancellation interrupts metering too. Already-read request
 	// bytes are retained for bounded reconciliation at completion.
+	parent := ctx
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	d, err := s.backend.Charge(ctx, &pb.ChargeRequest{RequestId: s.event.RequestId, RequestBytes: req, ResponseBytes: resp})
 	if err != nil {
+		if parent.Err() != nil {
+			return 0, context.Cause(parent)
+		}
 		s.reason = "meter_unavailable"
 		return 0, &meterUnavailableError{err}
 	}

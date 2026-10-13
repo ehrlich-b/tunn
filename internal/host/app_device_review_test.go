@@ -242,3 +242,10 @@ func TestAppDeviceOwnerWideRevokeNeverNarrowsOnAuthorityFailure(t *testing.T) {
 		t.Fatal("failed owner-wide revoke mutated delegated grant")
 	}
 }
+
+func (b appDeviceHangingAdmit) IPPolicy(ctx context.Context, in *mp.IPPolicyRequest) (*mp.IPPolicy, error) {
+	return b.Backend.(metering.IPPolicyBackend).IPPolicy(ctx, in)
+}
+func (b appDeviceHangingAdmit) EndpointPolicy(ctx context.Context, in *mp.EndpointPolicyRequest) (*mp.EndpointPolicyResponse, error) {
+	return b.Backend.(metering.PolicyBackend).EndpointPolicy(ctx, in)
+}

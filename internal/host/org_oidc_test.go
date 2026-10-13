@@ -77,6 +77,10 @@ func newOrgOIDCFixture(t *testing.T, provider string) *orgOIDCFixture {
 		t.Fatal(err)
 	}
 	tunnel.ResourceID = out.Resources[0].Id
+	p.devices, err = newDeviceCredentialStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
 	p.orgLogins, err = newOrgLoginStore(db)
 	if err != nil {
 		t.Fatal(err)
@@ -774,7 +778,7 @@ func TestOrgOIDCDeviceConfirmationAndNoGroupBearerAuthority(t *testing.T) {
 	if w := f.finish(post); w.Code != 200 {
 		t.Fatal("company login could not enroll publisher", w.Code)
 	}
-	exchange := httptest.NewRequest("GET", "https://tunn.test/api/device/token?code="+url.QueryEscape(dc.Code), nil)
+	exchange := httptest.NewRequest("GET", "https://tunn.test/api/device/token?code="+url.QueryEscape(dc.Code)+"&durable=1", nil)
 	w = f.finish(exchange)
 	var response struct {
 		AccessToken string `json:"access_token"`

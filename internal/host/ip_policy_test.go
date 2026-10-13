@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"errors"
+	"github.com/ehrlich-b/tunn/internal/storage"
 	"io"
 	"net"
 	"net/http"
@@ -563,7 +564,7 @@ func TestIPPolicyTwoRelayHopHeadersAndCONNECT(t *testing.T) {
 func TestIPPolicyCLIOwnerAuthorizationJourney(t *testing.T) {
 	p := durableFixture(t)
 	device := durableLogin(t, p)
-	code, err := p.storage.CreateDeviceCode(context.Background())
+	code, err := p.storage.(storage.ScopedDeviceStorage).CreateDeviceCodeForPurpose(context.Background(), "management", "")
 	if err != nil {
 		t.Fatal(err)
 	}

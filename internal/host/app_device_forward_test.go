@@ -311,3 +311,10 @@ func TestAppDeviceForwardedSlowApplicationKeepsStreamLifetime(t *testing.T) {
 	stream := appDeviceSSE(t, server, token)
 	stream.close()
 }
+
+func (b *appDeviceStalledCharge) IPPolicy(ctx context.Context, in *mp.IPPolicyRequest) (*mp.IPPolicy, error) {
+	return b.Backend.(metering.IPPolicyBackend).IPPolicy(ctx, in)
+}
+func (b *appDeviceStalledCharge) EndpointPolicy(ctx context.Context, in *mp.EndpointPolicyRequest) (*mp.EndpointPolicyResponse, error) {
+	return b.Backend.(metering.PolicyBackend).EndpointPolicy(ctx, in)
+}

@@ -219,3 +219,10 @@ func TestAppDeviceOwnerAndGuestManagementBoundaries(t *testing.T) {
 		t.Fatal("owner revocation did not revoke guest credential")
 	}
 }
+
+func (b appDeviceStrictQuota) IPPolicy(ctx context.Context, in *mp.IPPolicyRequest) (*mp.IPPolicy, error) {
+	return b.Backend.(metering.IPPolicyBackend).IPPolicy(ctx, in)
+}
+func (b appDeviceStrictQuota) EndpointPolicy(ctx context.Context, in *mp.EndpointPolicyRequest) (*mp.EndpointPolicyResponse, error) {
+	return b.Backend.(metering.PolicyBackend).EndpointPolicy(ctx, in)
+}

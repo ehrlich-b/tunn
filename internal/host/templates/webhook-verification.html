@@ -32,7 +32,7 @@ tunn 8080 --name=orders --public --verify-webhook=hmac-sha256 \
   --webhook-secret-file="$HOME/.tunn/endpoints/orders.key" \
   --webhook-tolerance=5m</pre>
 <p><code>--public</code> lets the sender reach your endpoint; signature verification still applies. Omit it to require tunn's private access too. Every request path needs a signature. Use a separate endpoint for browser pages.</p>
-<p>Private access, account status and quota admission are checked before the body is read. Those checks keep their existing responses, including 403 for denied access and 429 for exhausted allowances. Body reads count toward usage once, including invalid signatures; rejected requests never reach your app.</p>
+<p>Private access, account status and quota are checked before the body is read. Those checks keep their existing responses, including 403 for denied access and 429 for exhausted allowances. Body reads count toward usage once, including invalid signatures; rejected requests never reach your app.</p>
 <h2>3. Test generic HMAC</h2>
 <p>The generic format uses <code>X-Webhook-Timestamp</code> in Unix seconds and <code>X-Webhook-Signature: sha256=&lt;hex&gt;</code>. Sign the timestamp, a period and the exact body with HMAC-SHA256.</p>
 <pre>export WEBHOOK_URL='https://&lt;printed-name&gt;.tunn.to/webhook'

@@ -11,34 +11,36 @@
  <div class="glass price sig"><b>${{.MonthlyUSD}}</b><span>/ month</span><span class="yr">or ${{.YearlyUSD}} / year</span></div>
  <div class="readings"><div><span class="lbl">Tunnels</span><b>{{.ProTunnels}}</b></div><div><span class="lbl">Requests</span><b>{{.ProRequestsShort}}</b></div><div><span class="lbl">Transfer</span><b>{{.ProBytesShort}}</b></div><div><span class="lbl">Names</span><b>{{.Reservations}}</b></div></div>
  <div class="plan-foot"><p>Everything in Free</p><span class="ctas" style="margin:0">{{if .MonthlyAvailable}}<a class="btn sig" href="/upgrade?period=monthly">Go Pro monthly</a>{{end}}{{if .YearlyAvailable}}<a class="btn" href="/upgrade?period=yearly">Go Pro yearly</a>{{end}}</span></div>
+ {{if or .MonthlyAvailable .YearlyAvailable}}<p class="fine" style="margin-top:14px">Beta: Pro is turned on by hand after you pay. <a href="#paying">How that works</a></p>{{end}}
  {{if not .MonthlyAvailable}}{{if not .YearlyAvailable}}<p class="fine" role="status" style="margin-top:14px">Checkout is not available yet. Free tunnels still work.</p>{{end}}{{end}}
- <p class="fine" style="margin-top:14px">Launch beta: an operator reviews activation after payment. Check your plan on the return page; if it remains Free, contact support before paying again.</p>
 </section>
 </div>
 <div class="panel stopbar"><span class="led on"></span><p>At a limit, tunn stops. No surprise bill.</p><code class="glass" style="padding:8px 12px;color:#F3F0E8"><span class="p">$ </span>tunn usage</code></div>
 
 <section class="section prose" style="max-width:none" aria-labelledby="detail-title">
 <h2 id="detail-title">Limits in detail</h2>
-<div class="panel table-wrap"><table class="spec"><thead><tr><th scope="col">Monthly, per account</th><th scope="col">Free</th><th scope="col">Pro</th></tr></thead><tbody>
-<tr><th scope="row">Price</th><td>$0</td><td>${{.MonthlyUSD}}/month or ${{.YearlyUSD}}/year</td></tr>
-<tr><th scope="row">Tunnels</th><td>{{.FreeTunnels}} concurrent tunnels</td><td>{{.ProTunnels}} concurrent tunnels</td></tr>
-<tr><th scope="row">Requests</th><td>{{.FreeRequests}} monthly admissions</td><td>{{.ProRequests}} monthly admissions</td></tr>
-<tr><th scope="row">Transfer</th><td>{{.FreeBytes}} metered</td><td>{{.ProBytes}} metered</td></tr>
-<tr><th scope="row">Names</th><td>{{.FreeReservations}} reserved *.tunn.to name</td><td>{{.Reservations}} reserved *.tunn.to names</td></tr>
+<div class="panel table-wrap"><table class="spec stack"><thead><tr><th scope="col">Monthly, per account</th><th scope="col">Free</th><th scope="col">Pro</th></tr></thead><tbody>
+<tr><th scope="row">Price</th><td data-l="Free">$0</td><td data-l="Pro">${{.MonthlyUSD}}/month or ${{.YearlyUSD}}/year</td></tr>
+<tr><th scope="row">Tunnels</th><td data-l="Free">{{.FreeTunnels}} concurrent tunnels</td><td data-l="Pro">{{.ProTunnels}} concurrent tunnels</td></tr>
+<tr><th scope="row">Requests</th><td data-l="Free">{{.FreeRequestsShort}} requests</td><td data-l="Pro">{{.ProRequestsShort}} requests</td></tr>
+<tr><th scope="row">Transfer</th><td data-l="Free">{{.FreeBytesShort}}</td><td data-l="Pro">{{.ProBytesShort}}</td></tr>
+<tr><th scope="row">Names</th><td data-l="Free">{{.FreeReservations}} reserved *.tunn.to name</td><td data-l="Pro">{{.Reservations}} reserved *.tunn.to names</td></tr>
 </tbody></table></div>
 
 <h2>Next to ngrok</h2>
-<div class="panel table-wrap"><table class="spec"><thead><tr><th scope="col">Plan</th><th scope="col">Price</th><th scope="col">Transfer</th><th scope="col">Requests</th></tr></thead><tbody>
-<tr><th scope="row">tunn Free</th><td>$0</td><td>{{.FreeBytes}}</td><td>{{.FreeRequestsShort}}</td></tr>
-<tr><th scope="row">ngrok Free</th><td>$0</td><td>1 GB</td><td>20,000 HTTP requests</td></tr>
-<tr><th scope="row">tunn Pro</th><td>${{.MonthlyUSD}}/mo or ${{.YearlyUSD}}/yr</td><td>{{.ProBytes}}</td><td>{{.ProRequestsShort}}</td></tr>
-<tr><th scope="row">ngrok Hobbyist</th><td>$10/mo or $96/yr</td><td>5 GB included</td><td>100,000 HTTP requests included</td></tr>
+<div class="panel table-wrap"><table class="spec stack"><thead><tr><th scope="col">Plan</th><th scope="col">Price</th><th scope="col">Transfer</th><th scope="col">Requests</th></tr></thead><tbody>
+<tr><th scope="row">tunn Free</th><td data-l="Price">$0</td><td data-l="Transfer">{{.FreeBytesShort}}</td><td data-l="Requests">{{.FreeRequestsShort}} requests</td></tr>
+<tr><th scope="row">ngrok Free</th><td data-l="Price">$0</td><td data-l="Transfer">1 GB</td><td data-l="Requests">20K HTTP requests</td></tr>
+<tr><th scope="row">tunn Pro</th><td data-l="Price">${{.MonthlyUSD}}/mo or ${{.YearlyUSD}}/yr</td><td data-l="Transfer">{{.ProBytesShort}}</td><td data-l="Requests">{{.ProRequestsShort}} requests</td></tr>
+<tr><th scope="row">ngrok Hobbyist</th><td data-l="Price">$10/mo or $96/yr</td><td data-l="Transfer">5 GB included</td><td data-l="Requests">100K HTTP requests included</td></tr>
 </tbody></table></div>
-<p class="fine" style="margin-top:12px">ngrok Hobbyist can use credit for extra usage. Sources: <a href="https://ngrok.com/pricing">ngrok pricing</a> and <a href="https://ngrok.com/docs/pricing-limits/">pricing limits</a>, accessed 2026-10-12. Units differ: tunn counts admitted HTTP and MCP requests plus WebSocket and TCP opens, and bytes in both directions; ngrok counts HTTP requests and data out.</p>
+<p class="fine" style="margin-top:12px">ngrok Hobbyist can use credit for extra usage. Sources: <a href="https://ngrok.com/pricing">ngrok pricing</a> and <a href="https://ngrok.com/docs/pricing-limits/">pricing limits</a>, accessed 2026-10-12. Units differ: tunn counts HTTP and MCP requests that get through, plus WebSocket and TCP opens, and bytes in both directions; ngrok counts HTTP requests and data out.</p>
 
 <h2>What counts toward a limit</h2>
 <p>All endpoints and callers share your account's budgets, which reset on the first day of each UTC month. Each HTTP or MCP request counts once, and so does each WebSocket or TCP connection. Transfer sums request and response bodies, WebSocket frames and TCP payloads in both directions, excluding TLS, HTTP and relay framing.</p>
-<p>At a quota, tunn stops admitting requests or moving bytes and reports the reason. There are no automatic overage charges. Check usage in <a href="/account">your account</a> or with <code>tunn usage</code>. Upgrading raises the allowance; it does not reset this month's usage. A stream can be cut off after its response headers have started.</p>
+<p>At a limit, tunn stops taking requests or moving bytes and reports the reason. There are no automatic overage charges. Check usage in <a href="/account">your account</a> or with <code>tunn usage</code>. Upgrading raises the allowance; it does not reset this month's usage. A stream can be cut off after its response headers have started.</p>
+<h2 id="paying">Paying for Pro</h2>
+<p>Checkout runs on Stripe. During the beta, we turn Pro on by hand after each payment, so it isn't instant. Your <a href="/account">account page</a> shows when it's on. If you've paid and it still says Free, <a href="mailto:support@tunn.to">email support</a> rather than paying again.</p>
 <p>Uploads are limited to 100 MiB. Per-tunnel bandwidth ceilings apply as abuse guards. Your local server must keep running.</p>
 <h2>Keep a webhook or connector URL</h2>
 <p>Free tries to reserve {{.FreeReservations}} name as you publish; Pro tries up to {{.Reservations}}. Pick names with <code>--name</code> before publishing; random names also use reservation slots. Past the limit, extra names are temporary, and an unreserved name can be taken while you are offline. For reservation changes, contact support. <a href="/docs">Quickstart</a></p>

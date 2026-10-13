@@ -340,4 +340,56 @@ pre code,.glass code{background:none;padding:0;font-size:inherit;color:inherit}
 .gate-steps{max-width:480px}
 @media (max-width:760px){.gate-steps{display:none}.gate .sub{font-size:15px}.term-box pre,.guide pre{white-space:pre-wrap;overflow-wrap:anywhere}}
 .grid-bg{background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);background-size:40px 40px;background-position:-1px -1px}
-@media (max-width:760px){.chain{grid-template-columns:auto 12px minmax(0,1fr) 12px auto}.node{padding:10px 8px}.node b{font-size:11px;overflow-wrap:normal;word-break:normal;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+/* Flags never split across lines. */
+.f,p code,td code,li code{white-space:nowrap}
+@media (max-width:760px){
+ .chain{grid-template-columns:1fr;gap:0;justify-items:center}
+ .chain .node{width:100%;flex-direction:row;justify-content:space-between;align-items:center;padding:12px 14px}
+ .node b{font-size:14px;overflow-wrap:anywhere;text-align:right}
+ .wire{width:3px;height:30px}
+ .wire.cut{background:repeating-linear-gradient(180deg,#8E897E 0 6px,transparent 6px 11px)}
+ .cmd{flex-wrap:wrap}.cmd .kbd{white-space:normal;overflow:visible;min-width:0}
+ table.spec.stack thead{display:none}
+ table.spec.stack,table.spec.stack tbody,table.spec.stack tr,table.spec.stack th,table.spec.stack td{display:block;width:auto}
+ table.spec.stack tr{padding:12px 16px;border-bottom:1px solid var(--plate-lo)}
+ table.spec.stack tr:last-child{border-bottom:0}
+ table.spec.stack th,table.spec.stack td{padding:3px 0;border:0}
+ table.spec.stack th{padding-bottom:6px}
+ table.spec.stack td{display:flex;justify-content:space-between;gap:16px;text-align:right}
+ table.spec.stack td::before{content:attr(data-l);font:500 11px/1.6 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--engrave);text-align:left}
+}
+
+/* Docs: example terminal session (frame 05). */
+.docs{grid-template-columns:216px minmax(0,1040px)}
+.docs .step>div{max-width:760px}
+.session{padding:18px 22px 20px;margin:0 0 34px;display:flex;flex-direction:column;gap:12px}
+.session-bar{display:flex;align-items:center;gap:18px;padding:0 6px}
+.session-bar .mark{display:inline-flex;align-items:center;gap:9px;font:800 18px/1 var(--sans);font-stretch:120%;letter-spacing:-.02em}
+.session-bar .logo-mark{width:16px;height:16px}
+.session-bar .leds{margin-left:auto;display:flex;gap:20px}
+.scr{padding:22px 26px;font:400 15px/1.75 var(--mono);color:var(--phos)}
+.scr .p{color:#6E6B63}.scr .w{color:#F3F0E8}.scr .d{color:#7E7B72}
+.scr .blk{display:grid;grid-template-columns:100px minmax(0,1fr);margin:12px 0 14px;padding:12px 16px;border-left:3px solid var(--sig);background:rgba(255,79,18,.06)}
+.scr .blk .w{font-weight:700}
+.scr .url{font-size:21px;font-weight:700;color:#F3F0E8;text-shadow:0 0 12px rgba(255,255,255,.15);overflow-wrap:anywhere}
+.sess-scope{height:80px;margin:4px 0 10px;border-top:1px solid var(--grid);border-bottom:1px solid var(--grid)}
+.sess-scope svg{width:100%;height:100%;display:block}
+table.log{border-collapse:collapse;width:100%;font:400 14px/1.9 var(--mono)}
+table.log th{font:500 10px/2.4 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:#6E6B63;text-align:left}
+table.log td,table.log th{padding:0 14px 0 0;white-space:nowrap}
+table.log .c4{color:var(--sig);font-weight:700}
+.scr .cur{display:inline-block;width:10px;height:18px;margin-top:10px;background:var(--sig);vertical-align:-3px;box-shadow:0 0 8px var(--sig-glow)}
+.session-keys{display:flex;align-items:center;gap:10px;padding:0 4px}.session-keys .lbl{margin-left:auto}
+.key{font:600 11px/1 var(--mono);letter-spacing:.12em;padding:9px 12px;border-radius:6px;background:linear-gradient(180deg,#F7F5F1,#DEDAD2);box-shadow:inset 0 1px 0 #fff,0 0 0 1px rgba(0,0,0,.14),0 2px 0 #B9B3A7;color:var(--ink)}
+.key b{color:var(--sig)}
+@media (max-width:760px){
+ .docs{grid-template-columns:1fr}
+ .session{padding:12px;margin-bottom:24px}
+ .session-bar .tty,.session-bar .leds .lbl:last-child{display:none}.session-bar .leds{gap:12px}
+ .scr{padding:14px;font-size:13px}
+ .scr .blk{grid-template-columns:64px minmax(0,1fr);padding:10px 12px}
+ .scr .url{font-size:16px}
+ .sess-scope{height:56px}
+ table.log{font-size:12.5px}
+ table.log .t,table.log .who{display:none}
+}

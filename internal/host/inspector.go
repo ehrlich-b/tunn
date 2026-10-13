@@ -245,7 +245,7 @@ func (p *ProxyServer) handleInspectorAPI(w http.ResponseWriter, r *http.Request)
 		if p.routeInspector(w, r, parts[0]) {
 			return
 		}
-		http.Error(w, "Endpoint offline. Web history clears when the publisher disconnects.", 503)
+		http.Error(w, "Endpoint offline. Its request list cleared when the tunnel disconnected.", 503)
 		return
 	}
 	owner, err := p.currentTunnelAccount(r.Context(), tunnel)
@@ -291,7 +291,7 @@ func (p *ProxyServer) handleInspectorAPI(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if !replaySupported {
-		http.Error(w, "Upgrade this endpoint's publisher to enable origin-only replay", 409)
+		http.Error(w, "Upgrade tunn on the machine running this tunnel to replay requests", 409)
 		return
 	}
 	var input struct {
@@ -312,7 +312,7 @@ func (p *ProxyServer) handleInspectorAPI(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if input.Session != history.Session() {
-		http.Error(w, "Endpoint reconnected; refresh the list and prepare again", 409)
+		http.Error(w, "Your tunnel reconnected. Refresh the list and try again", 409)
 		return
 	}
 	if parts[3] == "prepare" {

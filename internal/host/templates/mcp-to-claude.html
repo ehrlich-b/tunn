@@ -24,7 +24,9 @@
 # From the repository checkout:
 tunn mcp --tools echo -- python3 examples/mcp/echo.py</code></pre>
 <p>Keep this terminal running. Copy its exact <strong>Connector URL</strong>, including <code>/mcp</code>. MCP is private by default. Use <code>--name work-tools</code> to request a stable name and <code>--allow colleague@example.com</code> to let that verified user approve access. Name protection and quotas depend on your plan; see <a href="/pricing">current pricing</a> and <code>tunn usage</code>.</p>
-<p>For your own stdio server, use <code>tunn mcp --tools status,search -- ./my-mcp-server</code> with exact tool names. For an existing Streamable HTTP server:</p>
+<p>For your own stdio server, list its exact tool names:</p>
+<pre><code>tunn mcp --tools status,search -- ./my-mcp-server</code></pre>
+<p>For an existing Streamable HTTP server:</p>
 <pre><code>tunn mcp http://127.0.0.1:3000/custom-mcp-path</code></pre>
 <p>tunn remaps public <code>/mcp</code> to the supplied HTTP path. <code>--tools</code> filters stdio tools only; HTTP upstreams enforce their own tool permissions.</p>
 <h2>2. Check</h2>

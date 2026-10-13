@@ -17,17 +17,39 @@
 .acct-grid{display:grid;grid-template-columns:1.25fr 1fr;gap:16px;align-items:start}
 .meters{padding:22px 24px}
 .meters .card-title,.card-title{font:500 11px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--engrave);margin-bottom:14px}
-.meter{padding:16px 18px;margin-top:12px}
-.usage-bar{height:8px;border-radius:4px;background:#2E2F2B;overflow:hidden;margin-bottom:12px}
+.meters-top{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-bottom:14px}
+.meters-top .card-title{margin:0}
+.gauges{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.gauge{padding:18px 18px 16px;display:flex;flex-direction:column;gap:10px}
+.gauge .g-hud{display:flex;justify-content:space-between;font:500 10px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--dim)}
+.gauge .g-hud .pct{color:var(--sig)}
+.gauge .read{font:700 30px/1 var(--mono);color:#F3F0E8;letter-spacing:-.02em}
+.gauge .read small{font:500 13px/1 var(--mono);color:var(--dim);letter-spacing:0;margin-left:6px}
+.usage-bar{height:8px;border-radius:4px;background:#2E2F2B;overflow:hidden}
 .usage-fill{height:100%;background:var(--sig);box-shadow:0 0 8px var(--sig-glow);min-width:2px}
 .usage-fill.warning{background:#FFB020}
-.usage-text{font:500 14px/1.6 var(--mono);color:#F3F0E8}
+.gauge.off .read{color:var(--dim)}.gauge.off .usage-fill{display:none}
+.acct .readings{display:grid;grid-template-columns:repeat(3,1fr);margin:16px 0 4px}
+.acct .readings div{display:flex;flex-direction:column;gap:8px;padding:0 14px;box-shadow:-1px 0 0 var(--plate-lo)}
+.acct .readings div:first-child{padding-left:2px;box-shadow:none}
+.acct .readings b{font:700 18px/1.1 var(--mono);color:var(--ink)}
+.by-tunnel{margin-top:16px;padding:6px 0}
+.by-tunnel .row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr) 76px 68px;gap:14px;align-items:center;padding:10px 18px;font:500 14px/1.3 var(--mono);color:#F3F0E8}
+.by-tunnel .row+.row{border-top:1px solid #262824}
+.by-tunnel .row.head{font:500 10px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--dim);padding-top:12px;padding-bottom:8px}
+.by-tunnel .name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.by-tunnel .num{text-align:right;color:var(--phos)}
+.by-tunnel .usage-bar{height:6px}
+.empty{padding:22px 18px;font:500 14px/1.6 var(--mono);color:var(--phos)}
+.empty b{display:block;color:#F3F0E8;font-weight:700;margin-bottom:6px}
+.empty code{color:var(--sig)}
 .tools{display:grid;gap:12px}
 .acct .card{padding:20px 22px;border-radius:14px;background:linear-gradient(180deg,var(--plate-hi),var(--plate))}
 .acct .card p{font:400 14px/1.55 var(--sans);color:var(--ink2);margin-bottom:10px}
 .acct .card>a:not(.btn){font:700 12px/1.4 var(--mono);letter-spacing:.06em;color:var(--sig-ink)}
 .upgrade-btn-white{display:inline-flex;margin:4px 10px 8px 0}
 .billing{grid-column:1;display:grid;gap:12px}.tools{grid-column:2;grid-row:1/span 2}
+@media(max-width:760px){.gauges{grid-template-columns:1fr}.gauge .read{font-size:26px}.by-tunnel .row{grid-template-columns:minmax(0,1fr) 72px 60px;padding:10px 14px}.by-tunnel .row .usage-bar,.by-tunnel .row.head .bar-h{display:none}.meters{padding:18px 14px}.acct .readings div{padding:0 10px}}
 @media(max-width:900px){.acct-grid{grid-template-columns:1fr}.tools,.billing{grid-column:1;grid-row:auto}.acct h1{font-size:40px}.who{width:100%}}
 </style>
 </head>
@@ -38,20 +60,30 @@
     <div class="panel who"><span class="led on"></span><span class="mail">{{.Email}}</span><span class="plan-badge {{if eq .Plan "pro"}}plan-pro{{else}}plan-free{{end}}">{{.Plan}}</span></div></div>
   <div class="acct-grid">
   <section class="panel meters" aria-labelledby="usage-title"><i class="screw tl"></i><i class="screw tr"></i><i class="screw bl"></i><i class="screw br"></i>
-    <h2 class="card-title" id="usage-title">Usage this month (UTC)</h2>
-    <div class="glass meter">
-      {{if .UsageAvailable}}<div class="usage-bar"><div class="usage-fill {{if gt .UsagePercent 90}}warning{{end}}" style="width: {{.UsagePercent}}%;"></div></div>
-      <div class="usage-text">{{.UsageFormatted}} of {{.QuotaFormatted}} used across all tunnels, including active connections.</div>
-      <div class="usage-text">{{.RequestsUsed}} of {{.RequestsLimit}} requests admitted.</div>
-      {{else}}<div class="usage-text">Usage temporarily unavailable.</div>{{end}}
+    <div class="meters-top"><h2 class="card-title" id="usage-title">This month</h2><span class="lbl">Resets {{.ResetsOn}} · UTC</span></div>
+    <div class="gauges">
+      <div class="glass gauge{{if not .UsageAvailable}} off{{end}}"><div class="g-hud"><span>Transfer</span>{{if .UsageAvailable}}<span class="pct">{{.UsagePercent}}%</span>{{end}}</div>
+        <div class="read">{{if .UsageAvailable}}{{.UsageFormatted}}{{else}}--{{end}}<small>of {{.QuotaFormatted}}</small></div>
+        <div class="usage-bar"><div class="usage-fill {{if gt .UsagePercent 90}}warning{{end}}" style="width: {{.UsagePercent}}%;"></div></div></div>
+      <div class="glass gauge{{if not .UsageAvailable}} off{{end}}"><div class="g-hud"><span>Requests</span>{{if .UsageAvailable}}<span class="pct">{{.RequestsPercent}}%</span>{{end}}</div>
+        <div class="read">{{if .UsageAvailable}}{{.RequestsUsedFormatted}}{{else}}--{{end}}<small>of {{.RequestsLimitFormatted}}</small></div>
+        <div class="usage-bar"><div class="usage-fill {{if gt .RequestsPercent 90}}warning{{end}}" style="width: {{.RequestsPercent}}%;"></div></div></div>
     </div>
-    <p class="fine" style="margin-top:12px">At a limit, tunn stops admitting traffic until the month resets. No overage charges. <code>tunn usage</code></p>
+    <div class="readings"><div><span class="lbl">Tunnels at once</span><b>{{.TunnelLimit}}</b></div><div><span class="lbl">Reserved names</span><b>{{.NameLimit}}</b></div><div><span class="lbl">Over the limit</span><b>Stops</b></div></div>
+    <div class="glass by-tunnel" aria-label="Usage by tunnel">
+      {{if not .UsageAvailable}}<div class="empty"><b>Can't load usage right now.</b>Your limits still apply. Reload in a minute, or run <code>tunn usage</code>.</div>
+      {{else if not .Tunnels}}<div class="empty"><b>No traffic yet this month.</b>Run <code>tunn 3000</code> and each tunnel shows up here with its requests and transfer.</div>
+      {{else}}<div class="row head"><span>Tunnel</span><span class="bar-h"></span><span class="num">Requests</span><span class="num">Transfer</span></div>
+      {{range .Tunnels}}<div class="row"><span class="name">{{.Name}}</span><div class="usage-bar"><div class="usage-fill" style="width: {{.Percent}}%;"></div></div><span class="num">{{.Requests}}</span><span class="num">{{.Transfer}}</span></div>
+      {{end}}{{end}}
+    </div>
+    <p class="fine" style="margin-top:12px">At a limit, tunn stops until the month resets. No overage charges.</p>
   </section>
   <div class="tools">
-  <div class="card"><div class="card-title">Request inspector</div><p>See recent requests to your endpoints with credentials redacted, and replay one on purpose.</p><a href="/account/inspect">Open request inspector →</a></div>
-  <div class="card"><div class="card-title">Web resources</div><a href="/account/sharing">Share access and see who can open your resources</a></div>
-  <div class="card"><div class="card-title">IP restrictions</div><a href="/account/ip-policy">Set account defaults and endpoint IP allow/deny lists</a></div>
-  <div class="card"><div class="card-title">App devices</div><a href="/account/app-devices">Connect devices to an app hostname and revoke their access</a></div>
+  <div class="card"><div class="card-title">Request inspector</div><p>See recent requests to your tunnels with passwords and tokens hidden. Replay one when you need to.</p><a href="/account/inspect">Open request inspector →</a></div>
+  <div class="card"><div class="card-title">Sharing</div><a href="/account/sharing">Choose who can open each tunnel</a></div>
+  <div class="card"><div class="card-title">IP restrictions</div><a href="/account/ip-policy">Choose which IP addresses can reach your tunnels</a></div>
+  <div class="card"><div class="card-title">App devices</div><a href="/account/app-devices">Let a phone or laptop into an app, or remove it</a></div>
   </div>
   <div class="billing">
   {{if .BillingNotice}}
@@ -64,8 +96,8 @@
   {{if .BillingReturn}}
   <div class="card" role="status" aria-live="polite">
     <div class="card-title">Subscription status</div>
-    <p id="billing-status">{{if eq .Plan "pro"}}Pro is active on this account.{{else}}Pro activation is pending. The payment return alone does not confirm your subscription.{{end}}</p>
-    <p>During the launch beta, activation is reviewed by an operator. If you have paid, do not pay again. <a href="mailto:support@tunn.to">Contact support</a> if your plan remains Free.</p>
+    <p id="billing-status">{{if eq .Plan "pro"}}Pro is on.{{else}}Pro activation is pending.{{end}}</p>
+    <p>During the beta, we turn Pro on by hand after each payment, so it isn't instant. This page checks every few seconds. If you've paid and it still says Free, <a href="mailto:support@tunn.to">email support</a>. Don't pay twice.</p>
     <a href="/account?billing=return">Check again</a>
   </div>
   <script>
@@ -77,11 +109,11 @@
         const response = await fetch('/api/billing/status', {cache: 'no-store'});
         if (!response.ok || response.redirected) throw new Error('unavailable');
         const status = await response.json();
-        if (status.notice) { message.textContent = status.notice === 'duplicate_payment_refund_needed' ? 'An additional payment needs review for cancellation and refund. Do not pay again; contact support.' : 'Your payment needs review. Do not pay again; contact support for activation or refund.'; return; }
-        if (status.state === 'active') { message.textContent = 'Pro is active on this account. Refresh the account page to see your new limits.'; return; }
-        if (status.state === 'suspended') { message.textContent = 'Your account is suspended. Contact support before making a payment.'; return; }
-        message.textContent = 'Pro activation is pending. If you have paid, do not pay again. Contact support if your plan remains Free.';
-      } catch (_) { message.textContent = 'Subscription status is temporarily unavailable. Use Check again or contact support; do not pay again.'; }
+        if (status.notice) { message.textContent = status.notice === 'duplicate_payment_refund_needed' ? 'A second payment came through. We will review it for a refund; there is no need to pay again.' : 'We need to look at this payment by hand. Email support and we will sort it out.'; return; }
+        if (status.state === 'active') { message.textContent = 'Pro is on. Reload to see your new limits.'; return; }
+        if (status.state === 'suspended') { message.textContent = 'This account is suspended. Email support before paying.'; return; }
+        message.textContent = 'Pro activation is pending. If you have paid, there is no need to pay again.';
+      } catch (_) { message.textContent = 'Can\'t check your plan right now. Try Check again in a minute.'; }
       if (++attempts < 12) setTimeout(check, 5000);
     }
     check();
@@ -101,11 +133,11 @@
   {{else if eq .Plan "free"}}
   <div class="card upgrade-card">
     <div class="card-title">Upgrade to Pro</div>
-    <p>{{.ProBytes}} and {{.ProRequests}} admissions/month, {{.ProTunnels}} concurrent tunnels and {{.Reservations}} reserved names. Limits reset each UTC calendar month. No overage charges.</p>
+    <p>{{.ProBytesShort}} and {{.ProRequestsShort}} requests a month, {{.ProTunnels}} tunnels at once and {{.Reservations}} reserved names. No overage charges.</p>
     {{if .MonthlyAvailable}}<a href="{{.StripeCheckoutURLMonthly}}" class="btn sig upgrade-btn-white">Pro — ${{.MonthlyUSD}}/month</a>{{end}}
     {{if .YearlyAvailable}}<a href="{{.StripeCheckoutURLYearly}}" class="btn sig upgrade-btn-white">Pro — ${{.YearlyUSD}}/year</a>{{end}}
     {{if not .MonthlyAvailable}}{{if not .YearlyAvailable}}<p>Checkout is not available yet. Free tunnels still work.</p>{{end}}{{end}}
-    <p>Launch beta: an operator reviews activation after payment.</p>
+    <p class="fine">Beta: Pro is turned on by hand after you pay, so it isn't instant.</p>
     <a href="/pricing" class="btn upgrade-btn-white">Compare plans</a>
   </div>
   {{else}}

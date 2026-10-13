@@ -67,6 +67,8 @@ type DeviceCode struct {
 	Interval   int
 	Authorized bool
 	Email      string
+	Purpose    string
+	AccountID  string
 }
 
 // Account represents a user account (email bucket)
@@ -110,4 +112,10 @@ type DurableBillingCheckout interface {
 // GoogleIdentityStorage binds only authoritative Google emails to a provider subject.
 type GoogleIdentityStorage interface {
 	FindOrCreateGoogleIdentity(context.Context, string, string, string, bool) (*Account, error)
+}
+
+// ScopedDeviceStorage preserves consent across the login-node boundary.
+type ScopedDeviceStorage interface {
+	CreateDeviceCodeForPurpose(context.Context, string, string) (*DeviceCode, error)
+	CheckManagementDevice(context.Context, string, string, string) (bool, error)
 }

@@ -251,6 +251,9 @@ func (p *ProxyServer) getAuthFromTunnelBearer(r *http.Request, tunnel *TunnelCon
 			continue
 		}
 		email, err := identityEmail(claims)
+		if claims["type"] == "management_access" && token.Method.Alg() == "HS256" && tunnel.TunnelID == "" {
+			email, err = p.managementIdentity(r, claims)
+		}
 		if claims["type"] == "device_access" && tunnel.TunnelID != "" {
 			if token.Method.Alg() != "HS256" {
 				continue
@@ -852,6 +855,9 @@ func (p *ProxyServer) CheckJWT(next http.Handler) http.Handler {
 
 		// Extract user email from claims
 		email, err := identityEmail(claims)
+		if claims["type"] == "management_access" && token.Method.Alg() == "HS256" {
+			email, err = p.managementIdentity(r, claims)
+		}
 		if err != nil {
 			common.LogError("missing email claim in JWT")
 			http.Error(w, "Invalid token: missing email", http.StatusUnauthorized)

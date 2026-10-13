@@ -2298,6 +2298,7 @@ type ForwardedPermissionRequest struct {
 	Peer          string                 `protobuf:"bytes,5,opt,name=peer,proto3" json:"peer,omitempty"`
 	Scheme        string                 `protobuf:"bytes,6,opt,name=scheme,proto3" json:"scheme,omitempty"`
 	Headers       map[string]string      `protobuf:"bytes,7,rep,name=headers,proto3" json:"headers,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Admission     bool                   `protobuf:"varint,8,opt,name=admission,proto3" json:"admission,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2381,9 +2382,21 @@ func (x *ForwardedPermissionRequest) GetHeaders() map[string]string {
 	return nil
 }
 
+func (x *ForwardedPermissionRequest) GetAdmission() bool {
+	if x != nil {
+		return x.Admission
+	}
+	return false
+}
+
 type ForwardedPermissionResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Allowed       bool                   `protobuf:"varint,1,opt,name=allowed,proto3" json:"allowed,omitempty"`
+	Status        int32                  `protobuf:"varint,2,opt,name=status,proto3" json:"status,omitempty"`
+	Location      string                 `protobuf:"bytes,3,opt,name=location,proto3" json:"location,omitempty"`
+	Challenges    []string               `protobuf:"bytes,4,rep,name=challenges,proto3" json:"challenges,omitempty"`
+	Version       uint32                 `protobuf:"varint,5,opt,name=version,proto3" json:"version,omitempty"`
+	RequestId     string                 `protobuf:"bytes,6,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2423,6 +2436,41 @@ func (x *ForwardedPermissionResponse) GetAllowed() bool {
 		return x.Allowed
 	}
 	return false
+}
+
+func (x *ForwardedPermissionResponse) GetStatus() int32 {
+	if x != nil {
+		return x.Status
+	}
+	return 0
+}
+
+func (x *ForwardedPermissionResponse) GetLocation() string {
+	if x != nil {
+		return x.Location
+	}
+	return ""
+}
+
+func (x *ForwardedPermissionResponse) GetChallenges() []string {
+	if x != nil {
+		return x.Challenges
+	}
+	return nil
+}
+
+func (x *ForwardedPermissionResponse) GetVersion() uint32 {
+	if x != nil {
+		return x.Version
+	}
+	return 0
+}
+
+func (x *ForwardedPermissionResponse) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
 }
 
 var File_proto_internal_proto protoreflect.FileDescriptor
@@ -2590,7 +2638,7 @@ const file_proto_internal_proto_rawDesc = "" +
 	"\vdestination\x18\x02 \x01(\tR\vdestination\"^\n" +
 	"\x1cBeginBillingCheckoutResponse\x12\x1c\n" +
 	"\treference\x18\x01 \x01(\tR\treference\x12 \n" +
-	"\vdestination\x18\x02 \x01(\tR\vdestination\"\xae\x02\n" +
+	"\vdestination\x18\x02 \x01(\tR\vdestination\"\xcc\x02\n" +
 	"\x1aForwardedPermissionRequest\x12\x1b\n" +
 	"\ttunnel_id\x18\x01 \x01(\tR\btunnelId\x12\x12\n" +
 	"\x04host\x18\x02 \x01(\tR\x04host\x12\x12\n" +
@@ -2598,12 +2646,21 @@ const file_proto_internal_proto_rawDesc = "" +
 	"\x06method\x18\x04 \x01(\tR\x06method\x12\x12\n" +
 	"\x04peer\x18\x05 \x01(\tR\x04peer\x12\x16\n" +
 	"\x06scheme\x18\x06 \x01(\tR\x06scheme\x12K\n" +
-	"\aheaders\x18\a \x03(\v21.internal.ForwardedPermissionRequest.HeadersEntryR\aheaders\x1a:\n" +
+	"\aheaders\x18\a \x03(\v21.internal.ForwardedPermissionRequest.HeadersEntryR\aheaders\x12\x1c\n" +
+	"\tadmission\x18\b \x01(\bR\tadmission\x1a:\n" +
 	"\fHeadersEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"7\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xc4\x01\n" +
 	"\x1bForwardedPermissionResponse\x12\x18\n" +
-	"\aallowed\x18\x01 \x01(\bR\aallowed2\x89\x02\n" +
+	"\aallowed\x18\x01 \x01(\bR\aallowed\x12\x16\n" +
+	"\x06status\x18\x02 \x01(\x05R\x06status\x12\x1a\n" +
+	"\blocation\x18\x03 \x01(\tR\blocation\x12\x1e\n" +
+	"\n" +
+	"challenges\x18\x04 \x03(\tR\n" +
+	"challenges\x12\x18\n" +
+	"\aversion\x18\x05 \x01(\rR\aversion\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x06 \x01(\tR\trequestId2\x89\x02\n" +
 	"\x0fInternalService\x12g\n" +
 	"\x18CheckForwardedPermission\x12$.internal.ForwardedPermissionRequest\x1a%.internal.ForwardedPermissionResponse\x12G\n" +
 	"\n" +

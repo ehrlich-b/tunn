@@ -126,13 +126,12 @@ func (s *ingressMeter) charge(ctx context.Context, request bool, n int) (int, er
 	}
 	req, resp := s.requestBytes, s.responseBytes
 	if request {
-		req += int64(n)
+		req = max(req, s.readRequestBytes) + int64(n)
 		s.readRequestBytes = req
 	} else {
 		resp += int64(n)
 	}
-	// Transport cancellation interrupts metering too. Already-read request
-	// bytes are retained for bounded reconciliation at completion.
+	// Stop transport work on cancellation; retain read bytes for reconciliation.
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	d, err := s.backend.Charge(ctx, &pb.ChargeRequest{RequestId: s.event.RequestId, RequestBytes: req, ResponseBytes: resp})
@@ -182,7 +181,7 @@ func (s *ingressMeter) checkResponse(ctx context.Context, size int64) error {
 // Bound idle-stream revocation and ledger-outage exposure without allowing a
 // cached quota decision. Every data chunk still needs an atomic reservation.
 func (s *ingressMeter) watch(ctx context.Context, cancel context.CancelCauseFunc) {
-	s.watchEvery(ctx, cancel, 5*time.Second)
+	s.watchEvery(ctx, cancel, time.Second)
 }
 func (s *ingressMeter) watchEvery(ctx context.Context, cancel context.CancelCauseFunc, interval time.Duration) {
 	ticker := time.NewTicker(interval)
@@ -192,7 +191,7 @@ func (s *ingressMeter) watchEvery(ctx context.Context, cancel context.CancelCaus
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			probe, stop := context.WithTimeout(ctx, 5*time.Second)
+			probe, stop := context.WithTimeout(ctx, 2*time.Second)
 			err := s.checkResponse(probe, 0)
 			stop()
 			if err != nil {
@@ -217,10 +216,13 @@ func (s *ingressMeter) complete(ctx context.Context, w *meterResponseWriter) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.closed = true
-	deadline := 5 * time.Second
+	deadline := 2 * time.Second
+	if ctx.Err() != nil {
+		deadline = 100 * time.Millisecond
+	}
 	if ctx.Value(domainAppKey{}) == true {
 		admission, _ := ctx.Value(appAdmissionKey{}).(context.Context)
-		if ctx.Err() != nil || !s.admitted && admission != nil && admission.Err() != nil {
+		if !s.admitted && admission != nil && admission.Err() != nil {
 			deadline = 100 * time.Millisecond
 		}
 	}

@@ -242,7 +242,8 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 	probe, _ := r.Context().Value(forwardPermissionProbeKey{}).(*bool)
 	var session *ingressMeter
 	if probe != nil {
-		session = &ingressMeter{proxy: p, accountID: tunnel.AccountID, event: &meterpb.Event{Owner: tunnel.AccountID, Endpoint: tunnel.TunnelID}}
+		id, _ := generateConnectionID()
+		session = &ingressMeter{proxy: p, accountID: tunnel.AccountID, event: &meterpb.Event{RequestId: id, Owner: tunnel.AccountID, Endpoint: tunnel.TunnelID, Caller: "anonymous", AuthMethod: "none", Allowed: true, Reason: "allowed", StartedAt: time.Now().UnixMilli()}}
 	} else {
 		session = newIngressMeter(p, tunnel)
 	}
@@ -255,7 +256,15 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 	if p.meter != nil {
 		w.Header().Set("Tunn-Request-ID", session.event.RequestId)
 	}
-	defer func() { session.complete(r.Context(), meterWriter) }()
+	defer func() {
+		if probe != nil && !*probe && r.Context().Value(forwardPermissionAdmissionKey{}) == true {
+			session.backend = p.meter
+			if meterWriter.status >= 400 || session.reason == "authentication_required" {
+				p.operations.denied.Add(1)
+			}
+		}
+		session.complete(r.Context(), meterWriter)
+	}()
 	admissionContext := r.Context()
 	if r.Context().Value(domainAppKey{}) == true {
 		admissionContext, _ = appAuthorityContext(r)
@@ -541,13 +550,19 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 	}
 	r = r.WithContext(context.WithValue(r.Context(), meterContextKey{}, session))
 	meterWriter.ctx = r.Context()
-	if r.Context().Value(domainAppKey{}) == true {
-		p.signalAppAdmission(w, r)
-	}
+	downstream, stopIO := interruptResponseOnCancellation(meterWriter.ResponseWriter, r)
+	meterWriter.ResponseWriter = downstream
+	defer stopIO()
 	if r.Context().Value(domainAppKey{}) == true {
 		controller := http.NewResponseController(w)
-		stopIO := context.AfterFunc(r.Context(), func() { _ = controller.SetReadDeadline(time.Now()); _ = controller.SetWriteDeadline(time.Now()) })
-		defer stopIO()
+		done := make(chan struct{})
+		stopAppIO := context.AfterFunc(r.Context(), func() { defer close(done); _ = controller.SetReadDeadline(time.Now()) })
+		defer func() {
+			if !stopAppIO() {
+				<-done
+			}
+		}()
+		p.signalAppAdmission(w, r)
 	}
 	if p.meter != nil {
 		r.Body = &meterRequestBody{ReadCloser: r.Body, meter: session, ctx: r.Context()}
@@ -870,8 +885,12 @@ func (p *ProxyServer) proxyToNode(w http.ResponseWriter, r *http.Request, nodeAd
 		w = writer
 	} else if tunnelID != "" {
 		var stop func()
-		r, w, stop = p.watchForwardedPermission(w, r, nodeAddr, tunnelID)
+		var allowed bool
+		r, w, stop, allowed = p.watchForwardedPermission(w, r, nodeAddr, tunnelID)
 		defer stop()
+		if !allowed {
+			return
+		}
 	}
 	target, err := url.Parse("https://" + nodeAddr)
 	if err != nil {

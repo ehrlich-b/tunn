@@ -26,7 +26,7 @@ func (p *ProxyServer) watchAccountRequest(r *http.Request, t *TunnelConnection, 
 			case <-ctx.Done():
 				return
 			case <-timer.C:
-				checkCtx, stop := context.WithTimeout(ctx, 5*time.Second)
+				checkCtx, stop := context.WithTimeout(ctx, 2*time.Second)
 				status, err := lookup.LookupAccountStatus(checkCtx, t.AccountID)
 				stop()
 				if err != nil || status == nil || status.State != "active" || status.Version != admitted.OperationalVersion {

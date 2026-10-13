@@ -77,6 +77,7 @@ Usage:
   tunn access <name>             Show who has access
   tunn grant create <name>       Issue a metered, expiring consumer token
   tunn grant revoke <name> <id>  Revoke one consumer grant
+  tunn policy login|get|set|clear Configure request headers and rate limits
   tunn domain add|verify|list|delete  Manage Pro custom domains
   tunn status serve|incident|resolve  Relay probe history and local incident notes
   tunn admin --help             Local authenticated account and billing controls
@@ -145,6 +146,8 @@ Options:
 		runConnect(args[1:])
 	case "token":
 		runEndpointToken(args[1:])
+	case "policy":
+		runPolicy(args[1:])
 	case "domain":
 		runDomains(args[1:])
 	case "share", "unshare", "access":

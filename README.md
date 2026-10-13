@@ -414,3 +414,18 @@ docker run --rm --init --network host -v tunn-client-home:/home/tunn "$TUNN_IMAG
 
 The image and manual publication workflow are prepared for operator release;
 registry publication and live account acceptance are separate steps.
+
+### Request traffic policy
+
+Owners can add, remove, or replace origin request headers and limit requests by
+client IP and aggregate account traffic at each endpoint:
+
+```sh
+tunn policy login
+tunn policy set api --file policy.json
+tunn policy get api
+tunn policy clear api
+```
+
+See [traffic policy](docs/traffic-policy.md) for the JSON format, owner API,
+burst semantics, protected headers, and relay upgrade requirements.

@@ -6,6 +6,8 @@ import "google/protobuf/empty.proto";
 // Only the login node serves this API, behind the existing node-secret interceptor.
 service Metering {
   rpc IPPolicy(IPPolicyRequest) returns (.metering.IPPolicy);
+
+  rpc EndpointPolicy(EndpointPolicyRequest) returns (EndpointPolicyResponse);
   rpc Sharing(SharingRequest) returns (SharingResponse);
   rpc Resolve(ResolveRequest) returns (Grant);
   rpc CreateGrant(Grant) returns (Grant);
@@ -142,4 +144,19 @@ message IPPolicy {
   repeated string deny_cidrs = 2;
   bool inherited = 3;
   bool configured = 4; // an empty configured endpoint policy permits all IPs
+}
+
+// Owner policy configuration and atomic admission share the login authority.
+message EndpointPolicyRequest {
+  string operation = 1; // get, set, clear, admit
+  string owner = 2;
+  string endpoint = 3;
+  string resource_id = 4; // mandatory immutable generation for ingress
+  bytes policy_json = 5; // strict, bounded trafficpolicy.Policy JSON
+  string client_ip = 6; // canonical peer, supplied only by authenticated relay
+  string grant_id = 7; // revalidate revocation/expiry atomically with policy admission
+}
+message EndpointPolicyResponse {
+  bytes policy_json = 1;
+  Decision decision = 2;
 }

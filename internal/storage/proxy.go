@@ -60,11 +60,15 @@ func (s *ProxyStorage) getClient() internalv1.LoginNodeDBClient {
 
 // CreateDeviceCode creates a new device code for CLI login.
 func (s *ProxyStorage) CreateDeviceCode(ctx context.Context) (*DeviceCode, error) {
+	return s.CreateDeviceCodeForPurpose(ctx, "publisher", "")
+}
+
+func (s *ProxyStorage) CreateDeviceCodeForPurpose(ctx context.Context, purpose, accountID string) (*DeviceCode, error) {
 	client := s.getClient()
 	if client == nil {
 		return nil, ErrNotAvailable
 	}
-	resp, err := client.CreateDeviceCode(ctx, &internalv1.CreateDeviceCodeRequest{})
+	resp, err := client.CreateDeviceCode(ctx, &internalv1.CreateDeviceCodeRequest{Purpose: purpose, AccountId: accountID})
 	if err != nil {
 		return nil, err
 	}
@@ -78,6 +82,7 @@ func (s *ProxyStorage) CreateDeviceCode(ctx context.Context) (*DeviceCode, error
 		Interval:   int(resp.Interval),
 		Authorized: resp.Authorized,
 		Email:      resp.Email,
+		Purpose:    resp.Purpose, AccountID: resp.AccountId,
 	}, nil
 }
 
@@ -101,6 +106,7 @@ func (s *ProxyStorage) GetDeviceCode(ctx context.Context, code string) (*DeviceC
 		Interval:   int(resp.Interval),
 		Authorized: resp.Authorized,
 		Email:      resp.Email,
+		Purpose:    resp.Purpose, AccountID: resp.AccountId,
 	}, nil
 }
 
@@ -124,6 +130,7 @@ func (s *ProxyStorage) GetDeviceCodeByUserCode(ctx context.Context, userCode str
 		Interval:   int(resp.Interval),
 		Authorized: resp.Authorized,
 		Email:      resp.Email,
+		Purpose:    resp.Purpose, AccountID: resp.AccountId,
 	}, nil
 }
 
@@ -433,4 +440,16 @@ func (s *ProxyStorage) FindOrCreateGoogleIdentity(ctx context.Context, subject, 
 		return nil, err
 	}
 	return protoAccountToStorage(resp), nil
+}
+
+func (s *ProxyStorage) CheckManagementDevice(ctx context.Context, id, email, accountID string) (bool, error) {
+	client := s.getClient()
+	if client == nil {
+		return false, ErrNotAvailable
+	}
+	out, err := client.CheckManagementDevice(ctx, &internalv1.CheckManagementDeviceRequest{DeviceId: id, Email: email, AccountId: accountID})
+	if err != nil {
+		return false, err
+	}
+	return out.Valid, nil
 }

@@ -412,6 +412,7 @@ func TestDomainAccountVerifiedMergeResolvesExistingCookie(t *testing.T) {
 // Fail only the sharing lookup; account, domain and metering authorities remain
 // live so another watcher cannot accidentally satisfy the owner regression.
 type appSharingOutage struct {
+	metering.PolicyBackend
 	metering.Backend
 	sharing     metering.SharingBackend
 	unavailable atomic.Bool
@@ -433,7 +434,7 @@ func TestDomainAccountOwnerResourceRevocation(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				outage := &appSharingOutage{Backend: ledger, sharing: ledger}
+				outage := &appSharingOutage{PolicyBackend: ledger, Backend: ledger, sharing: ledger}
 				p.meter = outage
 				appResource(t, p, tunnel, "private")
 				cookie := appSessionCookie(t, p, bryanEmail, "github", true, appHost)

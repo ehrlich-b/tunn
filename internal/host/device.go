@@ -32,7 +32,7 @@ func (p *ProxyServer) handleDeviceCode(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Rate limit by IP address
-	clientIP := extractClientIP(r)
+	clientIP, _ := p.forwardingPeer(r)
 	if !p.checkDeviceCodeRateLimit(clientIP) {
 		common.LogInfo("device code rate limit exceeded", "ip", clientIP)
 		http.Error(w, "Too many requests. Please try again later.", http.StatusTooManyRequests)
@@ -44,7 +44,25 @@ func (p *ProxyServer) handleDeviceCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	code, err := p.storage.CreateDeviceCode(r.Context())
+	purpose := r.URL.Query().Get("purpose")
+	if purpose == "" {
+		purpose = "publisher"
+	}
+	if purpose != "publisher" && purpose != "management" {
+		http.Error(w, "Invalid device purpose", 400)
+		return
+	}
+	accountID := r.URL.Query().Get("account_id")
+	if len(accountID) > 128 {
+		http.Error(w, "Invalid account", 400)
+		return
+	}
+	scoped, ok := p.storage.(storage.ScopedDeviceStorage)
+	if !ok {
+		http.Error(w, "Device authority unavailable", 503)
+		return
+	}
+	code, err := scoped.CreateDeviceCodeForPurpose(r.Context(), purpose, accountID)
 	if err != nil {
 		common.LogError("failed to create device code", "error", err)
 		if err == storage.ErrNotAvailable {
@@ -52,6 +70,11 @@ func (p *ProxyServer) handleDeviceCode(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if code == nil || code.Purpose != purpose || code.AccountID != accountID {
+		http.Error(w, "Device authority upgrade required", 503)
 		return
 	}
 
@@ -134,21 +157,32 @@ func (p *ProxyServer) handleDeviceToken(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Generate JWT for the authorized user
-	token, err := p.generateJWT(code.Email)
+	if code.Purpose != "management" {
+		oauthProblem(w, 400, "invalid_grant", "This code is for publisher access")
+		return
+	}
+	if p.forwardDeviceService(w, r) {
+		return
+	}
+	d, _, err := p.devices.issueForPurpose(deviceCode, "Account management", "management", p.currentTime())
+	if err != nil {
+		oauthProblem(w, 400, "expired_token", "Request a new login code")
+		return
+	}
+	// Generate a revocable account credential.
+	token, err := p.managementToken(d)
 	if err != nil {
 		common.LogError("failed to generate JWT", "error", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	// Device code will expire naturally - no explicit delete needed
-
 	common.LogInfo("device code authorized", "email", code.Email)
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"access_token": token,
+		"device_id":    d.ID,
 		"token_type":   "Bearer",
 		"expires_in":   86400, // 24 hours
 	}); err != nil {
@@ -209,6 +243,10 @@ func (p *ProxyServer) showDeviceAuthorizePage(w http.ResponseWriter, r *http.Req
 	if org, ok := p.getOrgSession(r); ok {
 		email = org.Email
 	}
+	scopeLabel := "Publish and connect to tunnels"
+	if code.Purpose == "management" {
+		scopeLabel = "Manage your account (account administration access)"
+	}
 	csrfToken, err := p.createCSRFToken(r, "/auth/device/authorize")
 	if err != nil {
 		http.Error(w, "Failed to create confirmation", http.StatusInternalServerError)
@@ -220,7 +258,7 @@ func (p *ProxyServer) showDeviceAuthorizePage(w http.ResponseWriter, r *http.Req
 	writePageStart(w, "tunn - Authorize Device")
 	_, _ = fmt.Fprintf(w, `
 <h1 class="page-title">Authorize Device</h1>
-<p class="page-subtitle">A device is requesting access to your account. Updated clients receive renewable publish/connect credentials; revoke them at /account/devices.</p>
+<p class="page-subtitle">Requested permission: <strong>%s</strong>. Revoke this credential at /account/devices.</p>
 <div class="device-info">
 <p><strong>Code:</strong> <code>%s</code></p>
 <p><strong>Account:</strong> %s</p>
@@ -231,7 +269,7 @@ func (p *ProxyServer) showDeviceAuthorizePage(w http.ResponseWriter, r *http.Req
 <button type="submit" class="btn btn-github">Authorize</button>
 </form>
 <p style="margin-top: 1rem;"><a href="/">Cancel</a></p>
-`, html.EscapeString(userCode), html.EscapeString(email), html.EscapeString(userCode), html.EscapeString(csrfToken))
+`, html.EscapeString(scopeLabel), html.EscapeString(userCode), html.EscapeString(email), html.EscapeString(userCode), html.EscapeString(csrfToken))
 	writePageEnd(w)
 }
 

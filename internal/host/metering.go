@@ -394,6 +394,10 @@ func (p *ProxyServer) handleMeteringAPI(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	endpoint := parts[0]
+	if len(parts) == 2 && parts[1] == "policy" {
+		p.handleEndpointPolicyAPI(w, r, endpoint)
+		return
+	}
 	if p.meter == nil {
 		http.Error(w, "Usage ledger unavailable", http.StatusServiceUnavailable)
 		return

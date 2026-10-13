@@ -79,6 +79,7 @@ type TunnelServer struct {
 
 // TunnelConnection represents an active tunnel connection
 type TunnelConnection struct {
+	PolicyResourceID   string // MCP policy generation; separate from browser sharing
 	ResourceID         string
 	ExposureMode       string
 	HostID             string
@@ -627,6 +628,19 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 			}
 			conn.ResourceID = result.Resources[0].Id
 		}
+	}
+
+	// MCP uses its existing access credentials, while policy configuration still
+	// needs an immutable owner generation. This record is not a web sharing ACL.
+	if endpointProtocol == "http" && targetURL == "mcp" && s.sharing != nil && accountID != "" {
+		result, err := s.sharing.Sharing(stream.Context(), &meterpb.SharingRequest{Operation: "register", Owner: accountID, Endpoint: tunnelID, Mode: "policy-only"})
+		if err != nil || result == nil || len(result.Resources) != 1 {
+			if registeredWithStorage {
+				_ = s.storage.UnregisterTunnel(stream.Context(), tunnelID)
+			}
+			return rejectTunnelRegistration(stream, "Endpoint policy authority unavailable.")
+		}
+		conn.PolicyResourceID = result.Resources[0].Id
 	}
 
 	// Add to local map (re-check for race condition)

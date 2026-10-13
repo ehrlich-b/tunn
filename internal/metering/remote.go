@@ -107,3 +107,14 @@ func (r *Remote) Sharing(ctx context.Context, in *pb.SharingRequest) (*pb.Sharin
 	out, err := c.Sharing(ctx, in)
 	return out, decodeAdmissionError(err)
 }
+
+func (r *Remote) EndpointPolicy(ctx context.Context, in *pb.EndpointPolicyRequest) (*pb.EndpointPolicyResponse, error) {
+	c, err := r.client()
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := rpcContext(ctx)
+	defer cancel()
+	out, err := c.EndpointPolicy(ctx, in)
+	return out, decodeAdmissionError(err)
+}

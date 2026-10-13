@@ -20,6 +20,7 @@ import (
 
 // LoginClient handles the device code login flow
 type LoginClient struct {
+	PolicyOwner bool // Explicit account-management login; separate from device credentials
 	ServerAddr  string
 	Insecure    bool
 	HTTPClient  *http.Client // Optional embedded or test transport.
@@ -106,7 +107,11 @@ func (l *LoginClient) Run(ctx context.Context) error {
 
 // requestDeviceCode requests a device code from the server
 func (l *LoginClient) requestDeviceCode(ctx context.Context) (*DeviceCodeResponse, error) {
-	deviceURL := fmt.Sprintf("https://%s/api/device/code", l.ServerAddr)
+	purpose := "publisher"
+	if l.PolicyOwner {
+		purpose = "management"
+	}
+	deviceURL := fmt.Sprintf("https://%s/api/device/code?purpose=%s", l.ServerAddr, purpose)
 
 	client := l.httpClient()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, deviceURL, nil)
@@ -192,8 +197,10 @@ func (l *LoginClient) pollForToken(ctx context.Context, deviceResp *DeviceCodeRe
 // checkToken attempts to exchange the device code for a token
 func (l *LoginClient) checkToken(ctx context.Context, deviceCode string) (*TokenResponse, error) {
 	tokenURL := fmt.Sprintf("https://%s/api/device/token?code=%s", l.ServerAddr, url.QueryEscape(deviceCode))
-	name, _ := os.Hostname()
-	tokenURL += "&durable=1&name=" + url.QueryEscape(name)
+	if !l.PolicyOwner {
+		name, _ := os.Hostname()
+		tokenURL += "&durable=1&name=" + url.QueryEscape(name)
+	}
 
 	client := l.httpClient()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, tokenURL, nil)
@@ -245,6 +252,9 @@ func (l *LoginClient) getTokenPath() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if l.PolicyOwner {
+		return filepath.Join(dir, policyOwnerFilename), nil
+	}
 	return filepath.Join(dir, "token"), nil
 }
 
@@ -267,10 +277,16 @@ func LoadToken() (string, error) {
 
 // httpClient returns an HTTP client, optionally skipping TLS verification
 func (l *LoginClient) httpClient() *http.Client {
-	if l.HTTPClient != nil {
-		return l.HTTPClient
+	hc := l.HTTPClient
+	if hc == nil {
+		hc = &http.Client{Transport: relaytransport.Transport(l.Insecure), Timeout: 30 * time.Second}
 	}
-	return &http.Client{Transport: relaytransport.Transport(l.Insecure), Timeout: 30 * time.Second}
+	if l.PolicyOwner {
+		guarded := *hc
+		guarded.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+		return &guarded
+	}
+	return hc
 }
 
 // openBrowser attempts to open the URL in the default browser

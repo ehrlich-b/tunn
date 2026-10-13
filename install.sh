@@ -27,18 +27,24 @@ else
     INSTALL_DIR="$HOME/.local/bin"
     mkdir -p "$INSTALL_DIR" || retry 'Cannot create the install directory.'
 fi
+INFO='[i]'
+OK='[ok]'
+if [ -t 1 ] && [ -z "${NO_COLOR+x}" ] && [ "${TERM:-dumb}" != dumb ]; then
+    INFO=$(printf '\033[34m[i]\033[0m')
+    OK=$(printf '\033[32m[ok]\033[0m')
+fi
 COLS=$(tput cols 2>/dev/null || echo 80)
 if [ "${COLS:-80}" -lt 50 ] 2>/dev/null; then
-    printf '[i] Downloading tunn %s\n    for %s/%s\n' "$LATEST" "$OS" "$ARCH"
+    printf '%s Downloading tunn %s\n    for %s/%s\n' "$INFO" "$LATEST" "$OS" "$ARCH"
 else
-    printf '[i] Downloading tunn %s (%s/%s)\n' "$LATEST" "$OS" "$ARCH"
+    printf '%s Downloading tunn %s (%s/%s)\n' "$INFO" "$LATEST" "$OS" "$ARCH"
 fi
 DOWNLOAD=$(mktemp "$INSTALL_DIR/.tunn.XXXXXX") || retry 'Cannot write to the install directory.'
 trap 'rm -f "$DOWNLOAD"' EXIT HUP INT TERM
 curl -fsSL "$URL" -o "$DOWNLOAD" || retry 'Download failed. Check your network, then retry.'
 chmod 755 "$DOWNLOAD" || retry 'Cannot mark the download executable.'
 mv -f "$DOWNLOAD" "$INSTALL_DIR/tunn" || retry 'Cannot install tunn. Check directory permissions.'
-printf '\n[ok] Installed tunn %s\n' "$LATEST"
+printf '\n%s Installed tunn %s\n' "$OK" "$LATEST"
 case ":$PATH:" in
     *":$INSTALL_DIR:"*) ;;
     *) printf '\nAdd tunn to PATH\nexport PATH="%s:$PATH"\n' "$INSTALL_DIR" ;;

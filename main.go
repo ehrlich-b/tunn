@@ -1022,7 +1022,7 @@ func runServe(args []string) {
 				return
 			}
 			if client.RetryableCredentialError(err) {
-				output.State("offline", "Cannot reach tunn", "Sign-in renewal failed. Check your network.", "tunn hosts --json", 0)
+				output.State("offline", "Cannot reach tunn", "Sign-in renewal failed. Check your connection, then run it again.", "", 0)
 			} else {
 				output.State("auth_expired", "Sign in to start a tunnel", "", "tunn login", 0)
 			}

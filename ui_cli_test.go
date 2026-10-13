@@ -24,7 +24,7 @@ func TestCLIFailureCommands(t *testing.T) {
 	}{
 		{status.Error(codes.Unauthenticated, "private token"), "Sign in again", "tunn login"},
 		{status.Error(codes.ResourceExhausted, "private quota detail"), "Limit reached", "https://tunn.to/account"},
-		{errors.New("private network error"), "Cannot reach tunn", "tunn hosts --json"},
+		{errors.New("private network error"), "Cannot reach tunn", "Check your connection"},
 	} {
 		var out, errout bytes.Buffer
 		o := terminal.New(&out, &errout, false)

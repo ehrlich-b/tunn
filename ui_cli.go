@@ -22,14 +22,15 @@ import (
 
 var version = "development build"
 
+// productHeading names the release; development builds print no heading.
 func productHeading() string {
 	if version == "development build" || version == "" {
-		return "tunn"
+		return ""
 	}
-	return "tunn " + version
+	return "tunn " + version + "\n\n"
 }
 func firstRun(out io.Writer) {
-	writeCLIHelp(out, productHeading()+"\n\nSign in\n  tunn login\n\nChoose who gets in to port 3000\n")
+	writeCLIHelp(out, productHeading()+"Sign in\n  tunn login\n\nChoose who gets in to port 3000\n")
 	commandLadder(out)
 	fmt.Fprintln(out, "\nAll commands\n  tunn --help")
 }
@@ -41,7 +42,7 @@ func commandLadder(out io.Writer) {
 `)
 }
 func printHelp(out io.Writer) {
-	fmt.Fprintf(out, "%s\n\n", productHeading())
+	fmt.Fprint(out, productHeading())
 	writeCLIHelp(out, "Start\n  tunn login                        Sign in\n\nChoose who gets in\n")
 	commandLadder(out)
 	writeCLIHelp(out, `
@@ -156,7 +157,7 @@ func showTunnelError(o *terminal.Output, err error, server string) {
 		o.State("error", "Relay cannot start this tunnel", "Check the installed version", "tunn --version", 0)
 		return
 	}
-	o.State("offline", "Cannot reach tunn", "Tunnel stopped. Check your network.", "tunn hosts --json", 0)
+	o.State("offline", "Cannot reach tunn", "Tunnel stopped. Check your connection, then run it again.", "", 0)
 }
 
 // cliSession owns the human health reading. A relay alone cannot mark it Online.
@@ -221,11 +222,11 @@ func attachCLI(ctx context.Context, s *client.ServeClient, o *terminal.Output, v
 		case client.StateReconnecting:
 			c.ready = false
 			if !c.retryAdvice {
-				detail := "Check your network."
+				detail := "Check your connection."
 				if !c.lastRequest.IsZero() {
 					detail = "Last request " + c.lastRequest.Local().Format("15:04:05")
 				}
-				o.State("offline", "Cannot reach tunn", detail, "tunn hosts --json", 0)
+				o.State("offline", "Cannot reach tunn", detail, "", 0)
 				c.retryAdvice = true
 			}
 			o.State("reconnecting", fmt.Sprintf("Retrying in %.1f s", e.RetryDelay.Seconds()), "", "", e.RetryDelay)

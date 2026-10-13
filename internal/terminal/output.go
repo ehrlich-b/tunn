@@ -464,8 +464,18 @@ func (o *Output) Summary() {
 	if !o.TTY {
 		w = o.Err
 	}
-	o.line(w, fmt.Sprintf("Requests  %d", o.requestCount))
-	o.line(w, fmt.Sprintf("Traffic  %d B in / %d B out", o.requestBytes, o.responseBytes))
+	o.line(w, column("requests", 9)+fmt.Sprint(o.requestCount))
+	o.line(w, column("traffic", 9)+byteSize(o.requestBytes)+" in · "+byteSize(o.responseBytes)+" out")
+}
+
+func byteSize(n int64) string {
+	switch {
+	case n < 1024:
+		return fmt.Sprintf("%d B", n)
+	case n < 1024*1024:
+		return fmt.Sprintf("%.1f KiB", float64(n)/1024)
+	}
+	return fmt.Sprintf("%.1f MiB", float64(n)/(1024*1024))
 }
 
 func (o *Output) URL(value string) {

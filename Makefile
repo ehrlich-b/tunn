@@ -628,3 +628,8 @@ proto-tools:
 
 test-webhook:
 	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=180s -run '^TestWebhook' ./internal/webhook ./internal/client ./internal/host ./internal/cliopts .
+
+
+.PHONY: test-device-admission
+test-device-admission:
+	go test -race -count=1 -timeout=60s -run '^TestDeviceAdmission' ./internal/host

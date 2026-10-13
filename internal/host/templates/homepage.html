@@ -3,529 +3,220 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>tunn - share localhost instantly</title>
+<title>tunn — localhost, shared with the people you choose</title>
+<meta name="description" content="Expose localhost over HTTPS. Share private apps by email, connect with plain SSH, and bring local MCP tools to Claude with OAuth. Start free with tunn.">
+<link rel="canonical" href="https://tunn.to/">
+<meta property="og:title" content="Your localhost. The people you choose.">
+<meta property="og:description" content="Public URLs, private apps, plain SSH and MCP OAuth. Only the machine serving your app needs a tunnel.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://tunn.to/">
+<meta property="og:site_name" content="tunn">
+<meta name="theme-color" content="#f7f5ef">
 <style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
-html, body {
-  overflow-x: hidden;
+:root { color-scheme: light; --paper:#f7f5ef; --ink:#242329; --muted:#5b5864; --line:#d9d5df; --accent:#5935b5; --wash:#eee8fa; }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--paper); color:var(--ink); font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+a { color:var(--accent); text-underline-offset:4px; }
+a:hover { text-decoration-thickness:2px; }
+a,button { -webkit-tap-highlight-color:transparent; }
+:focus-visible { outline:3px solid var(--accent); outline-offset:5px; }
+code,pre,.mono { font-family:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace; }
+button { font:inherit; cursor:pointer; }
+h1,h2,h3,p { margin:0; }
+h1,h2,h3 { line-height:1.12; }
+.wrap { width:min(1180px,calc(100% - 80px)); margin-inline:auto; }
+.skip { position:absolute; top:8px; left:8px; padding:12px; background:white; transform:translateY(-180%); z-index:10; }
+.skip:focus { transform:none; }
+.header { display:flex; justify-content:space-between; align-items:center; min-height:94px; border-bottom:1px solid var(--line); gap:24px; }
+.logo { color:var(--ink); font-size:29px; font-weight:800; letter-spacing:-1.5px; text-decoration:none; }
+.logo span { color:var(--accent); }
+nav { display:flex; align-items:center; gap:30px; }
+nav a { font-size:14px; font-weight:600; color:var(--ink); text-decoration:none; padding:10px 0; }
+nav .login { border:1px solid var(--line); border-radius:6px; padding:10px 18px; }
+.eyebrow { color:var(--accent); font:600 12px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace; letter-spacing:1.6px; text-transform:uppercase; }
+.hero { display:grid; grid-template-columns:1.2fr 1fr; gap:64px; align-items:center; padding:76px 0 65px; }
+h1 { margin:20px 0 24px; font-size:clamp(42px,4.35vw,63px); letter-spacing:-3px; line-height:1.05; }
+h1 span { color:var(--accent); }
+.lead { max-width:540px; font-size:19px; color:var(--muted); line-height:1.55; }
+.install { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:30px; padding:15px; background:white; border:1px solid var(--line); border-radius:8px; }
+.install code { font-size:12px; white-space:nowrap; }
+.copy { border:0; border-radius:4px; background:var(--wash); color:var(--accent); padding:8px 12px; font-size:12px; font-weight:700; min-height:40px; }
+.install-note { margin:10px 0 20px; font-size:12px; color:var(--muted); }
+.install-note a { white-space:nowrap; }
+.actions { display:flex; flex-wrap:wrap; align-items:center; gap:22px; }
+.button { display:inline-block; border-radius:6px; padding:12px 20px; font-size:14px; font-weight:650; text-decoration:none; background:var(--accent); color:white; }
+.text-link { font-size:14px; font-weight:600; }
+.terminal { background:#24212d; color:#f8f5ff; border:1px solid #484153; border-radius:12px; box-shadow:10px 12px 0 #e5dfed; overflow:hidden; }
+.terminal-bar { display:flex; align-items:center; gap:7px; border-bottom:1px solid #484153; padding:16px 20px; }
+.dot { width:7px; height:7px; border-radius:50%; background:#968baf; }
+.terminal-label { margin-left:auto; color:#c4bcd3; font-size:11px; }
+.terminal-body { padding:26px 26px 29px; }
+.terminal pre { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; font-size:13px; line-height:1.85; }
+.comment { color:#c4bcd3; }
+.prompt { color:#cbb0ff; }
+.output { color:#bbe3c5; }
+.terminal-flow { display:flex; align-items:center; gap:10px; margin-top:28px; padding-top:20px; border-top:1px solid #484153; font-size:12px; }
+.flow-arrow { color:#cbb0ff; }
+.access-note { margin-top:18px; color:#ded7eb; font-size:13px; }
+.strip { display:flex; justify-content:space-between; gap:20px; border-block:1px solid var(--line); padding:18px 0; color:var(--muted); font-size:13px; }
+.strip b { color:var(--ink); font-weight:600; }
+section.section { padding:70px 0; }
+.section-head { display:flex; justify-content:space-between; align-items:flex-end; gap:32px; margin-bottom:32px; }
+h2 { font-size:36px; letter-spacing:-1.3px; margin-top:12px; }
+.section-head > p { color:var(--muted); max-width:340px; font-size:15px; }
+.stories { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:24px; }
+.story { border-top:2px solid var(--line); padding-top:18px; min-width:0; }
+.number { display:block; color:var(--accent); font:13px ui-monospace,monospace; margin-bottom:18px; }
+h3 { font-size:19px; letter-spacing:-.45px; }
+.story p { color:var(--muted); font-size:14px; margin:14px 0; }
+.command { display:block; background:#edeae4; border:1px solid #dedad2; border-radius:5px; padding:12px; font-size:12px; line-height:1.7; white-space:pre-wrap; overflow-wrap:anywhere; }
+.story .detail { font-size:12px; margin-bottom:12px; }
+.story a { font-size:13px; font-weight:600; }
+.identity { display:grid; grid-template-columns:1fr 1.35fr; gap:64px; padding:36px; margin-top:40px; background:var(--wash); border-radius:10px; }
+.identity h3 { font-size:26px; line-height:1.2; }
+.identity p { color:#504269; font-size:15px; }
+.identity .future { margin-top:14px; font-size:13px; }
+.comparison { background:white; border-block:1px solid var(--line); }
+.table-region { overflow-x:auto; border:1px solid var(--line); border-radius:8px; }
+table { border-collapse:collapse; width:100%; font-size:14px; }
+caption { text-align:left; padding:16px 20px; font-weight:600; background:#faf8fe; }
+th,td { text-align:left; padding:17px 20px; border-top:1px solid var(--line); }
+thead th { font-size:12px; color:var(--muted); font-weight:600; }
+tbody th { font-weight:650; }
+.ours { background:#f5f0ff; }
+.table-note { font-size:12px; color:var(--muted); margin-top:16px; max-width:960px; }
+.comparison-foot { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:20px; margin-top:28px; }
+.comparison-foot p { color:var(--muted); font-size:14px; max-width:720px; }
+.plans { display:grid; grid-template-columns:1fr 1fr; gap:24px; }
+.plan { background:white; border:1px solid var(--line); border-radius:10px; padding:30px; }
+.plan.pro { border:2px solid var(--accent); padding:29px; }
+.plan-top { display:flex; align-items:center; justify-content:space-between; }
+.plan-tag { color:var(--accent); background:var(--wash); border-radius:4px; padding:5px 9px; font-size:11px; font-weight:650; }
+.price { font-size:48px; line-height:1.2; font-weight:700; letter-spacing:-2px; margin:18px 0 4px; }
+.price span { font-size:15px; font-weight:400; color:var(--muted); letter-spacing:0; }
+.plan-note { font-size:13px; color:var(--muted); }
+.plan ul { list-style:none; margin:24px 0; padding:0; display:grid; grid-template-columns:1fr 1fr; gap:14px; font-size:14px; }
+.plan li { border-top:1px solid var(--line); padding-top:12px; }
+.plan b { font-weight:650; }
+.plan a { font-size:14px; font-weight:650; }
+.limit-note { margin-top:20px; font-size:13px; color:var(--muted); }
+.guide-section { border-top:1px solid var(--line); }
+.guide-links { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; margin-top:28px; }
+.guide-links a { padding:18px 0; border-block:1px solid var(--line); font-size:14px; font-weight:600; }
+footer { border-top:1px solid var(--line); padding:30px 0; }
+.footer-inner { display:flex; justify-content:space-between; gap:24px; align-items:center; }
+footer p { font-size:12px; color:var(--muted); }
+.footer-links { display:flex; flex-wrap:wrap; gap:24px; font-size:12px; }
+.sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; border:0; }
+@media(max-width:1050px) {
+ .hero { gap:32px; grid-template-columns:1fr 1fr; } h1 { font-size:49px; }
+ .install { flex-wrap:wrap; } .stories { grid-template-columns:repeat(2,minmax(0,1fr)); gap:32px; }
 }
-body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-  background: #ffffff;
-  color: #1f2328;
-  line-height: 1.6;
+@media(max-width:700px) {
+ .wrap { width:calc(100% - 40px); } .header { min-height:76px; gap:16px; } nav { gap:18px; } nav a { font-size:12px; } nav .login { padding:9px 12px; }
+ .logo { font-size:27px; } .hero { grid-template-columns:1fr; gap:32px; padding:40px 0 38px; }
+ h1 { font-size:46px; letter-spacing:-2.1px; margin:16px 0 20px; } .lead { font-size:17px; }
+ .eyebrow { font-size:11px; letter-spacing:1.2px; } .install { gap:8px; padding:10px; margin-top:24px; flex-wrap:nowrap; }
+ .install code { font-size:10px; } .copy { padding:8px; font-size:11px; } .install-note { font-size:11px; }
+ .terminal { box-shadow:5px 7px 0 #e5dfed; } .terminal-body { padding:20px; } .terminal pre { font-size:12px; }
+ .strip { flex-direction:column; gap:6px; font-size:12px; } section.section { padding:44px 0; }
+ .section-head { display:block; margin-bottom:26px; } .section-head > p { margin-top:14px; } h2 { font-size:30px; letter-spacing:-1px; }
+ .stories { grid-template-columns:1fr; gap:28px; } .number { margin-bottom:12px; } .story p { margin:12px 0; }
+ .identity { grid-template-columns:1fr; gap:16px; padding:24px; margin-top:30px; } .identity h3 { font-size:23px; }
+ table { font-size:11px; } th,td { padding:12px 8px; } thead th { font-size:10px; } caption { padding:12px; font-size:12px; }
+ .plans { grid-template-columns:1fr; gap:20px; } .plan { padding:24px; } .plan.pro { padding:23px; } .plan ul { font-size:13px; }
+ .guide-links { grid-template-columns:1fr; gap:0; } .guide-links a + a { border-top:0; }
+ .footer-inner { align-items:flex-start; flex-direction:column; } .footer-links { gap:18px; }
 }
-code, pre, .mono {
-  font-family: ui-monospace, "SF Mono", Monaco, "Cascadia Code", monospace;
-}
-a { color: #0969da; text-decoration: none; }
-a:hover { text-decoration: underline; }
-
-/* Header */
-.header {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  background: rgba(255,255,255,0.95);
-  backdrop-filter: blur(8px);
-  border-bottom: 1px solid #e5e7eb;
-  z-index: 100;
-  padding: 0 24px;
-}
-.header-inner {
-  max-width: 1000px;
-  margin: 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  height: 56px;
-}
-.header-logo {
-  font-size: 22px;
-  font-weight: 700;
-  color: #0969da;
-  text-decoration: none;
-}
-.header-nav { display: flex; gap: 32px; align-items: center; }
-.header-nav a { color: #57606a; font-size: 14px; font-weight: 500; }
-.header-nav a:hover { color: #1f2328; text-decoration: none; }
-.header-btn {
-  background: #0969da;
-  color: white !important;
-  padding: 8px 16px;
-  border-radius: 6px;
-  font-weight: 500;
-}
-.header-btn:hover { background: #0860ca; }
-
-.container { max-width: 900px; margin: 0 auto; padding: 0 24px; }
-
-/* Hero */
-.hero { padding: 120px 0 64px; text-align: center; }
-.hero h1 {
-  font-size: 48px;
-  font-weight: 700;
-  color: #1f2328;
-  margin-bottom: 16px;
-  letter-spacing: -0.02em;
-}
-.hero .subtitle {
-  font-size: 20px;
-  color: #57606a;
-  margin-bottom: 40px;
-}
-
-/* Command showcase */
-.command-showcase {
-  background: #0d1117;
-  border-radius: 12px;
-  padding: 24px 28px;
-  margin-bottom: 32px;
-  text-align: left;
-  width: fit-content;
-  margin-left: auto;
-  margin-right: auto;
-}
-.command-showcase pre {
-  font-size: 14px;
-  line-height: 1.8;
-  margin: 0;
-  color: #e6edf3;
-}
-.command-showcase .prompt { color: #7d8590; }
-.command-showcase .output { color: #58a6ff; }
-
-/* Install */
-.install-row {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.install-box {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  background: #f6f8fa;
-  border: 1px solid #d1d9e0;
-  border-radius: 8px;
-  padding: 10px 14px;
-}
-.install-cmd { font-size: 13px; color: #1f2328; }
-.copy-btn {
-  background: #0969da;
-  border: none;
-  color: white;
-  padding: 6px 12px;
-  border-radius: 5px;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 500;
-}
-.copy-btn:hover { background: #0860ca; }
-.install-note { color: #57606a; font-size: 13px; margin-top: 16px; }
-
-/* Features */
-.features {
-  padding: 72px 0;
-  background: linear-gradient(135deg, #0969da 0%, #0550ae 100%);
-  color: white;
-}
-.features h2 {
-  font-size: 32px;
-  font-weight: 700;
-  text-align: center;
-  margin-bottom: 16px;
-  color: white;
-}
-.features .section-subtitle {
-  text-align: center;
-  font-size: 18px;
-  color: rgba(255,255,255,0.85);
-  margin-bottom: 48px;
-  max-width: 500px;
-  margin-left: auto;
-  margin-right: auto;
-}
-.features-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 24px;
-}
-.feature {
-  background: rgba(255,255,255,0.1);
-  border-radius: 16px;
-  padding: 0;
-  border: 1px solid rgba(255,255,255,0.15);
-  backdrop-filter: blur(4px);
-  overflow: hidden;
-}
-.feature-visual {
-  height: 140px;
-  background: rgba(0,0,0,0.15);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-  overflow: hidden;
-}
-.feature-visual svg {
-  width: 100%;
-  height: 100%;
-}
-.feature-content {
-  padding: 24px;
-}
-.feature h3 {
-  font-size: 18px;
-  font-weight: 600;
-  margin-bottom: 12px;
-  color: white;
-}
-.feature p { font-size: 15px; color: rgba(255,255,255,0.85); line-height: 1.6; }
-
-/* Pricing */
-.pricing { padding: 64px 0; }
-.pricing h2 { font-size: 32px; font-weight: 700; text-align: center; margin-bottom: 8px; }
-.pricing-subtitle { text-align: center; color: #57606a; margin-bottom: 32px; }
-
-.billing-toggle {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 32px;
-  font-size: 14px;
-  color: #57606a;
-}
-.switch {
-  position: relative;
-  width: 44px;
-  height: 24px;
-}
-.switch input { opacity: 0; width: 0; height: 0; }
-.slider {
-  position: absolute;
-  cursor: pointer;
-  top: 0; left: 0; right: 0; bottom: 0;
-  background: #d1d9e0;
-  border-radius: 24px;
-  transition: 0.2s;
-}
-.slider:before {
-  content: "";
-  position: absolute;
-  height: 20px;
-  width: 20px;
-  left: 2px;
-  bottom: 2px;
-  background: white;
-  border-radius: 50%;
-  transition: 0.2s;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
-}
-input:checked + .slider { background: #0969da; }
-input:checked + .slider:before { transform: translateX(20px); }
-.save-badge { color: #1a7f37; font-weight: 600; }
-
-.pricing-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 20px;
-}
-.plan {
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
-  border-radius: 12px;
-  padding: 28px 24px;
-}
-.plan.featured {
-  border: 2px solid #0969da;
-  box-shadow: 0 4px 16px rgba(9, 105, 218, 0.12);
-  position: relative;
-}
-.plan.featured::before {
-  content: 'Popular';
-  position: absolute;
-  top: -12px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: #0969da;
-  color: white;
-  font-size: 12px;
-  font-weight: 600;
-  padding: 4px 12px;
-  border-radius: 12px;
-}
-.plan-name { font-size: 18px; font-weight: 600; margin-bottom: 8px; }
-.plan-price { font-size: 40px; font-weight: 700; color: #1f2328; }
-.plan-price .period { font-size: 16px; font-weight: 400; color: #57606a; }
-.plan-note { font-size: 13px; color: #57606a; margin-bottom: 20px; min-height: 20px; }
-.plan-features { list-style: none; }
-.plan-features li {
-  padding: 10px 0;
-  font-size: 14px;
-  color: #1f2328;
-  border-top: 1px solid #f0f0f0;
-}
-
-/* Open source */
-.opensource {
-  padding: 48px 0;
-  background: #0d1117;
-  color: #e6edf3;
-  text-align: center;
-}
-.opensource h2 { font-size: 24px; font-weight: 600; margin-bottom: 12px; }
-.opensource p { color: #8b949e; margin-bottom: 20px; }
-.opensource a { color: #58a6ff; }
-.opensource .code-block {
-  background: #161b22;
-  border-radius: 8px;
-  padding: 16px 20px;
-  max-width: 500px;
-  margin: 0 auto 20px;
-  text-align: left;
-}
-.opensource .code-block pre { font-size: 13px; color: #e6edf3; }
-.opensource .code-block .comment { color: #7d8590; }
-
-/* Footer */
-.footer {
-  background: #f6f8fa;
-  border-top: 1px solid #e5e7eb;
-  padding: 48px 24px;
-}
-.footer-inner {
-  max-width: 900px;
-  margin: 0 auto;
-  display: grid;
-  grid-template-columns: 2fr 1fr 1fr 1fr;
-  gap: 48px;
-}
-.footer-brand .footer-logo {
-  font-size: 24px;
-  font-weight: 700;
-  color: #0969da;
-  margin-bottom: 12px;
-}
-.footer-brand p { font-size: 14px; color: #57606a; line-height: 1.6; }
-.footer-col h4 { font-size: 13px; font-weight: 600; color: #1f2328; margin-bottom: 16px; text-transform: uppercase; letter-spacing: 0.05em; }
-.footer-col a { display: block; font-size: 14px; color: #57606a; padding: 6px 0; }
-.footer-col a:hover { color: #0969da; text-decoration: none; }
-.footer-bottom {
-  max-width: 900px;
-  margin: 32px auto 0;
-  padding-top: 24px;
-  border-top: 1px solid #e5e7eb;
-  font-size: 13px;
-  color: #8b949e;
-  text-align: center;
-}
-
-@media (max-width: 768px) {
-  .header-nav { gap: 12px; }
-  .header-nav a { font-size: 13px; }
-  .hero { padding: 100px 0 48px; }
-  .hero h1 { font-size: 36px; line-height: 1.2; }
-  .hero .subtitle { font-size: 18px; }
-  .command-showcase { padding: 20px; }
-  .command-showcase pre { font-size: 12px; }
-  .install-box { flex-direction: column; gap: 8px; width: 100%; }
-  .install-cmd { font-size: 12px; word-break: break-all; }
-  .features-grid { grid-template-columns: 1fr; }
-  .feature-visual { height: 120px; }
-  .pricing-grid { grid-template-columns: 1fr; max-width: 360px; margin: 0 auto; }
-  .plan-price { font-size: 32px; }
-  .footer-inner { display: block; text-align: center; }
-  .footer-brand { margin-bottom: 24px; }
-  .footer-brand p { max-width: 280px; margin: 0 auto; }
-  .footer-col { display: inline; }
-  .footer-col h4 { display: none; }
-  .footer-col a { display: inline; padding: 4px 8px; }
-  .opensource .code-block { padding: 14px; }
-  .opensource .code-block pre { font-size: 11px; word-break: break-all; }
-}
+@media(prefers-reduced-motion:reduce) { *,*::before,*::after { scroll-behavior:auto!important; } }
 </style>
 </head>
 <body>
-
-<header class="header">
-  <div class="header-inner">
-    <a href="/" class="header-logo">tunn</a>
-    <nav class="header-nav">
-      <a href="#features">Features</a>
-      <a href="/pricing">Pricing</a>
-      <a href="https://github.com/ehrlich-b/tunn">Code</a>
-      <a href="/auth/login" class="header-btn">Login</a>
-    </nav>
-  </div>
+<a class="skip" href="#main">Skip to content</a>
+<header class="header wrap">
+ <a class="logo" href="/" aria-label="tunn home">tunn<span>_</span></a>
+ <nav aria-label="Main navigation"><a href="/docs">Docs</a><a href="/pricing">Pricing</a><a class="login" href="/auth/login">Sign in</a></nav>
 </header>
+<main id="main">
+ <div class="wrap">
+  <section class="hero" aria-labelledby="headline">
+   <div>
+    <p class="eyebrow">Local services. Human access.</p>
+    <h1 id="headline">Your localhost.<br>The people<br><span>you choose.</span></h1>
+    <p class="lead">Give your app an HTTPS URL. Share private access by email. Reach it from a browser, plain SSH, or an AI client with MCP OAuth.</p>
+    <div class="install"><code id="install-command">curl -fsSL https://tunn.to/install.sh | sh</code><button class="copy" type="button" id="copy-install" hidden aria-label="Copy install command">Copy</button></div>
+    <p class="install-note">macOS &amp; Linux · Then <code>tunn login</code> · <a href="https://github.com/ehrlich-b/tunn/blob/codex/apps-sso-20261012/docs/install-recovery.md">Install guide</a></p>
+    <p id="copy-status" class="sr-only" role="status" aria-live="polite"></p>
+    <div class="actions"><a class="button" href="/docs">Expose localhost →</a><a class="text-link" href="#how">See how it works ↓</a></div>
+   </div>
+   <div class="terminal" aria-label="Example: sharing a private local app">
+    <div class="terminal-bar" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="terminal-label mono">one machine. one invitation.</span></div>
+    <div class="terminal-body">
+<pre><span class="comment"># Your app is already on port 8080.</span>
+<span class="prompt">$</span> tunn 8080 --allow=alice@example.com
 
-<div class="container">
-  <section class="hero">
-    <h1>Local MCP. Public HTTPS. Your control.</h1>
-    <p class="subtitle">Connect local MCP tools to Claude.ai, test webhooks, and share local apps.</p>
-
-    <div class="command-showcase">
-<pre><span class="prompt">$</span> tunn login
-<span class="prompt">$</span> tunn http 8080
-<span class="output">https://abc123.tunn.to -> localhost:8080</span>
-<span class="output">Public endpoint. For private MCP: tunn mcp -- ./my-mcp-server</span></pre>
+<span class="output">https://demo.tunn.to → localhost:8080</span>
+<span class="comment">Example URL · keep tunn running</span></pre>
+     <div class="terminal-flow"><span>localhost:8080</span><span class="flow-arrow" aria-hidden="true">→</span><span>tunn</span><span class="flow-arrow" aria-hidden="true">→</span><span>Alice’s browser</span></div>
+     <p class="access-note">Alice signs in. Your app stays on your machine.<br>Everyone else stays at the door.</p>
     </div>
-
-    <div class="install-row">
-      <div class="install-box">
-        <code class="install-cmd">curl -fsSL https://tunn.to/install.sh | sh</code>
-        <button class="copy-btn" onclick="navigator.clipboard.writeText('curl -fsSL https://tunn.to/install.sh | sh')">Copy</button>
-      </div>
-    </div>
-    <p class="install-note">macOS and Linux. No sudo required. Then run <code>tunn login</code>.</p>
-    <p><a href="/docs/mcp-to-claude">Connect your MCP server to Claude.ai →</a> · <a href="/docs">Quickstart</a> · <a href="/ngrok-alternative">Compare with ngrok</a></p>
+   </div>
   </section>
-</div>
-
-<section class="features" id="features">
-  <div class="container">
-    <h2>Built for developers</h2>
-    <p class="section-subtitle">Share your local dev environment securely with anyone, anywhere.</p>
-    <div class="features-grid">
-      <div class="feature">
-        <div class="feature-visual">
-          <svg viewBox="0 0 200 140" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="100" cy="45" r="22" fill="rgba(255,255,255,0.5)"/>
-            <circle cx="100" cy="45" r="14" fill="rgba(255,255,255,0.7)"/>
-            <path d="M100 72 C72 72 54 90 54 115 L146 115 C146 90 128 72 100 72Z" fill="rgba(255,255,255,0.5)"/>
-            <circle cx="42" cy="58" r="15" fill="rgba(255,255,255,0.35)"/>
-            <circle cx="42" cy="58" r="9" fill="rgba(255,255,255,0.5)"/>
-            <path d="M42 76 C24 76 12 90 12 108 L72 108 C72 90 60 76 42 76Z" fill="rgba(255,255,255,0.35)"/>
-            <circle cx="158" cy="58" r="15" fill="rgba(255,255,255,0.35)"/>
-            <circle cx="158" cy="58" r="9" fill="rgba(255,255,255,0.5)"/>
-            <path d="M158 76 C140 76 128 90 128 108 L188 108 C188 90 176 76 158 76Z" fill="rgba(255,255,255,0.35)"/>
-          </svg>
-        </div>
-        <div class="feature-content">
-          <h3>Share with teammates</h3>
-          <p>Specify who can access by email. Works like sharing a Google Doc. They log in with GitHub and they're in. No tokens, no passwords.</p>
-        </div>
-      </div>
-      <div class="feature">
-        <div class="feature-visual">
-          <svg viewBox="0 0 200 140" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <rect x="35" y="18" width="130" height="82" rx="6" fill="rgba(255,255,255,0.6)"/>
-            <rect x="42" y="25" width="116" height="62" rx="2" fill="rgba(255,255,255,0.3)"/>
-            <rect x="85" y="100" width="30" height="6" fill="rgba(255,255,255,0.5)"/>
-            <rect x="70" y="106" width="60" height="4" rx="2" fill="rgba(255,255,255,0.4)"/>
-            <circle cx="70" cy="50" r="10" fill="rgba(255,255,255,0.5)"/>
-            <rect x="88" y="44" width="45" height="5" rx="2" fill="rgba(255,255,255,0.5)"/>
-            <rect x="88" y="53" width="32" height="4" rx="2" fill="rgba(255,255,255,0.4)"/>
-            <rect x="52" y="70" width="96" height="6" rx="2" fill="rgba(255,255,255,0.4)"/>
-            <rect x="52" y="80" width="70" height="4" rx="2" fill="rgba(255,255,255,0.3)"/>
-          </svg>
-        </div>
-        <div class="feature-content">
-          <h3>Demo to clients</h3>
-          <p>Show work in progress without deploying to staging. Share a link, get feedback instantly. Perfect for design reviews and bug reproductions.</p>
-        </div>
-      </div>
-      <div class="feature">
-        <div class="feature-visual">
-          <svg viewBox="0 0 200 140" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M60 40 Q40 40 40 55 Q30 55 30 65 Q20 65 25 77 Q20 90 35 90 L85 90 Q100 90 95 77 Q100 65 90 65 Q90 55 80 55 Q80 40 60 40Z" fill="rgba(255,255,255,0.5)"/>
-            <rect x="120" y="48" width="60" height="45" rx="4" fill="rgba(255,255,255,0.5)"/>
-            <rect x="126" y="54" width="48" height="30" rx="2" fill="rgba(255,255,255,0.3)"/>
-            <rect x="140" y="93" width="20" height="4" fill="rgba(255,255,255,0.4)"/>
-            <rect x="132" y="97" width="36" height="3" rx="1" fill="rgba(255,255,255,0.35)"/>
-            <path d="M75 65 L108 58" stroke="rgba(255,255,255,0.4)" stroke-width="2" stroke-dasharray="4 2"/>
-            <polygon points="118,58 108,54 108,62" fill="rgba(255,255,255,0.4)"/>
-            <path d="M75 70 L108 70" stroke="rgba(255,255,255,0.6)" stroke-width="2" stroke-dasharray="4 2"/>
-            <polygon points="118,70 108,66 108,74" fill="rgba(255,255,255,0.6)"/>
-            <path d="M75 75 L108 82" stroke="rgba(255,255,255,0.4)" stroke-width="2" stroke-dasharray="4 2"/>
-            <polygon points="118,82 108,78 108,86" fill="rgba(255,255,255,0.4)"/>
-          </svg>
-        </div>
-        <div class="feature-content">
-          <h3>Test webhooks locally</h3>
-          <p>Receive webhooks from Stripe, GitHub, or Twilio directly on localhost. No more deploying just to test integrations.</p>
-        </div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<div class="container">
-  <section class="pricing" id="pricing">
-    <h2>Pricing</h2>
-    <p class="pricing-subtitle">Start free. Reserve your names and get more room with Pro.</p>
-
-    <div class="pricing-grid">
-      <div class="plan">
-        <div class="plan-name">Free</div><div class="plan-price">$0</div>
-        <ul class="plan-features"><li>{{.FreeBytes}} / UTC month</li><li>{{.FreeRequests}} admissions / month</li><li>{{.FreeTunnels}} concurrent tunnels</li><li>Private MCP OAuth and email sharing</li></ul>
-        <a href="/docs" class="header-btn">Start free</a>
-      </div>
-      <div class="plan featured">
-        <div class="plan-name">Pro</div><div class="plan-price">${{.MonthlyUSD}}<span class="period">/month</span></div>
-        <div class="plan-note">Or ${{.YearlyUSD}} / year</div>
-        <ul class="plan-features"><li>{{.ProBytes}} / UTC month</li><li>{{.ProRequests}} admissions / month</li><li>{{.ProTunnels}} concurrent tunnels</li><li>{{.Reservations}} reserved *.tunn.to names</li></ul>
-        <a href="/pricing" class="header-btn">See Pro plans</a>
-      </div>
-      <div class="plan">
-        <div class="plan-name">Predictable limits</div>
-        <ul class="plan-features"><li>Account-wide quotas</li><li>Hard stop at the limit</li><li>No automatic overage charges</li><li>No extra warning on public endpoints</li></ul>
-        <a href="/pricing">How usage works</a>
-      </div>
-    </div>
+  <div class="strip"><p><b>HTTPS for localhost</b> · WebSockets &amp; streaming</p><p><b>Identity based sharing</b> · No visitor install</p><p><b>Account limits</b> · No automatic overage</p></div>
+  <section class="section" id="how" aria-labelledby="how-title">
+   <div class="section-head"><div><p class="eyebrow">The 20-second version</p><h2 id="how-title">Four ways in. One tunnel.</h2></div><p>Expose a service. Choose who gets in.<br>Keep your code where it already runs.</p></div>
+   <div class="stories">
+    <article class="story"><span class="number" aria-hidden="true">01 / HTTP</span><h3>Expose localhost</h3><p>Get an HTTPS URL for your local app or webhook handler.</p><code class="command">tunn http 8080 --public</code><p class="detail">Use --public for webhooks; web tunnels default to owner-only. Verify sender signatures in your app.</p><a href="/docs">HTTP quickstart →</a></article>
+    <article class="story"><span class="number" aria-hidden="true">02 / PEOPLE</span><h3>Share with a person</h3><p>Invite Alice by email. She opens the URL and signs in.</p><code class="command">tunn 8080 --allow=alice@example.com</code><p class="detail">Private access in a plain browser. No tunn client for Alice.</p><a href="/share-dev-server-oauth">Sharing guide →</a></article>
+    <article class="story"><span class="number" aria-hidden="true">03 / SSH</span><h3>SSH with no client</h3><p>Use your existing OpenSSH client to reach a shared machine.</p><code class="command">ssh -J tunn@tunn.to:443 dev@my-ssh</code><p class="detail">After email/key enrollment. The publisher runs tunn; the origin still checks your SSH login. Requires the SSH front door.</p><a href="https://github.com/ehrlich-b/tunn/blob/codex/apps-sso-20261012/docs/ssh-api.md">SSH setup &amp; pilot limits →</a></article>
+    <article class="story"><span class="number" aria-hidden="true">04 / MCP</span><h3>Local tools to Claude</h3><p>Paste your printed <code>/mcp</code> URL into Claude’s connector settings.</p><code class="command">tunn mcp -- ./my-mcp-server</code><p class="detail">Private by default. Sign in and approve OAuth access to this endpoint.</p><a href="/docs/mcp-to-claude">MCP connector guide →</a></article>
+   </div>
+   <aside class="identity" aria-labelledby="identity-title"><h3 id="identity-title">Only the machine serving<br>your app needs a tunnel.</h3><div><p>People use a browser or OpenSSH. MCP clients use OAuth. Access follows identity and the resource you shared. You keep your app’s own authentication.</p><p class="future">Next: Wingthing’s app reaching your machines through tunn. App device pairing is still in design.</p></div></aside>
   </section>
-</div>
-
-<section class="opensource">
-  <div class="container">
-    <h2>Free Software</h2>
-    <p>Run your own tunn server. Source and setup instructions on GitHub.</p>
-    <div class="code-block">
-<pre><span class="comment"># Self-host on your infrastructure</span>
-tunn -mode=host -domain=tunnel.yourcompany.com</pre>
-    </div>
-    <a href="https://github.com/ehrlich-b/tunn">View on GitHub &rarr;</a>
+ </div>
+ <section class="section comparison" aria-labelledby="comparison-title">
+  <div class="wrap">
+   <div class="section-head"><div><p class="eyebrow">Room for the development loop</p><h2 id="comparison-title">More included. A smaller bill.</h2></div><p>Compare account allowances.<br>Pick the features your service needs.</p></div>
+   <div class="table-region" tabindex="0" role="region" aria-label="Plan allowance comparison"><table><caption>Included monthly allowances · USD</caption><thead><tr><th scope="col">Plan</th><th scope="col">Price</th><th scope="col">Transfer</th><th scope="col">Requests*</th><th scope="col">Online</th></tr></thead><tbody>
+    <tr class="ours"><th scope="row">tunn Free</th><td>$0</td><td>{{.FreeBytes}}</td><td>{{.FreeRequests}}</td><td>{{.FreeTunnels}} tunnels</td></tr>
+    <tr><th scope="row">ngrok Free</th><td>$0</td><td>1 GB</td><td>20,000</td><td>3 endpoints</td></tr>
+    <tr class="ours"><th scope="row">tunn Pro</th><td>${{.MonthlyUSD}}/mo<br>${{.YearlyUSD}}/yr</td><td>{{.ProBytes}}</td><td>{{.ProRequests}}</td><td>{{.ProTunnels}} tunnels</td></tr>
+    <tr><th scope="row">ngrok Hobbyist</th><td>$10/mo<br>$96/yr</td><td>5 GB</td><td>100,000</td><td>3 endpoints</td></tr>
+   </tbody></table></div>
+   <p class="table-note">*Units differ: tunn counts admissions and metered bytes in both directions; ngrok counts HTTP/S requests and data transfer out. ngrok Hobbyist can use monthly credit for more usage. These are allowances, not a speed or cost benchmark. Sources: <a href="https://ngrok.com/pricing">ngrok pricing</a> and <a href="https://ngrok.com/docs/pricing-limits/">limits</a>, accessed October 12, 2026 (EDT).</p>
+   <div class="comparison-foot"><p>ngrok Free already has a stable assigned domain and no tunnel session timeout. ngrok also offers traffic policy, edge webhook verification and endpoint pooling that tunn doesn’t match.</p><a class="text-link" href="/ngrok-alternative">Read the comparison →</a></div>
   </div>
-</section>
-
-<footer class="footer">
-  <div class="footer-inner">
-    <div class="footer-brand">
-      <div class="footer-logo">tunn</div>
-      <p>Share localhost like a Google Doc. Built by <a href="mailto:bryan@ehrlich.dev">Bryan Ehrlich</a>.</p>
-    </div>
-    <div class="footer-col">
-      <h4>Product</h4>
-      <a href="#features">Features</a>
-      <a href="/pricing">Pricing</a>
-      <a href="https://github.com/ehrlich-b/tunn">Documentation</a>
-    </div>
-    <div class="footer-col">
-      <h4>Resources</h4>
-      <a href="/ngrok-alternative">ngrok Alternative</a>
-      <a href="/mcp-to-claude">MCP to Claude</a>
-      <a href="/share-dev-server-oauth">OAuth Sharing</a>
-      <a href="https://github.com/ehrlich-b/tunn">GitHub</a>
-      <a href="https://github.com/ehrlich-b/tunn/issues">Report Issue</a>
-    </div>
-    <div class="footer-col">
-      <h4>Legal</h4>
-      <a href="/privacy">Privacy</a>
-      <a href="/terms">Terms</a>
-      <a href="mailto:abuse@tunn.to">Abuse</a>
-    </div>
-  </div>
-  <div class="footer-bottom">
-    &copy; 2026 tunn. Source on GitHub.
-  </div>
-</footer>
-
-
-
+ </section>
+ <div class="wrap">
+  <section class="section" aria-labelledby="plans-title">
+   <div class="section-head"><div><p class="eyebrow">Start free. Keep building.</p><h2 id="plans-title">Two plans. Clear limits.</h2></div><p>Public HTTP, email sharing and private MCP OAuth on both plans.</p></div>
+   <div class="plans">
+    <article class="plan"><div class="plan-top"><h3>Free</h3><span class="plan-tag">For your next idea</span></div><p class="price">$0<span> / month</span></p><p class="plan-note">Try it with a local app or MCP server.</p><ul><li><b>{{.FreeBytes}}</b> transfer / month</li><li><b>{{.FreeRequests}}</b> admissions / month</li><li><b>{{.FreeTunnels}}</b> concurrent tunnels</li><li><b>{{.FreeReservations}}</b> reserved tunn.to name</li></ul><a href="/docs">Start with the quickstart →</a></article>
+    <article class="plan pro"><div class="plan-top"><h3>Pro</h3><span class="plan-tag">For the daily loop</span></div><p class="price">${{.MonthlyUSD}}<span> / month</span></p><p class="plan-note">Or ${{.YearlyUSD}} billed yearly.</p><ul><li><b>{{.ProBytes}}</b> transfer / month</li><li><b>{{.ProRequests}}</b> admissions / month</li><li><b>{{.ProTunnels}}</b> concurrent tunnels</li><li><b>{{.Reservations}}</b> reserved tunn.to names</li></ul><a href="/pricing">See plans &amp; availability →</a></article>
+   </div>
+   <p class="limit-note">Account allowances reset each UTC calendar month. Traffic stops at the limit. No automatic overage charges. <a href="/pricing">See counting units and checkout availability.</a></p>
+  </section>
+  <section class="section guide-section" aria-labelledby="guides-title"><p class="eyebrow">A working path from here</p><h2 id="guides-title">Bring your app. Follow a guide.</h2><div class="guide-links"><a href="/docs/mcp-to-claude">MCP → Claude connector setup ↗</a><a href="/mcp-to-claude">MCP walkthrough &amp; troubleshooting ↗</a><a href="/share-dev-server-oauth">Private app sharing ↗</a><a href="https://github.com/ehrlich-b/tunn/blob/codex/apps-sso-20261012/docs/inspection.md">Inspect &amp; replay webhooks ↗</a><a href="https://github.com/ehrlich-b/tunn/blob/codex/apps-sso-20261012/docs/ssh-api.md">OpenSSH setup &amp; constraints ↗</a><a href="https://github.com/ehrlich-b/tunn">Source &amp; self-hosting ↗</a></div></section>
+ </div>
+</main>
+<footer><div class="wrap footer-inner"><div><a class="logo" href="/" aria-label="tunn home">tunn<span>_</span></a><p>Local services. Human access.</p></div><div class="footer-links"><a href="/docs">Docs</a><a href="/pricing">Pricing</a><a href="https://github.com/ehrlich-b/tunn">GitHub</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></div></div></footer>
+<script>
+const copyButton = document.getElementById('copy-install');
+if (navigator.clipboard && navigator.clipboard.writeText) {
+ copyButton.hidden = false;
+ copyButton.addEventListener('click', async () => {
+  const status = document.getElementById('copy-status');
+  try {
+   await navigator.clipboard.writeText(document.getElementById('install-command').textContent);
+   copyButton.textContent = 'Copied';
+   status.textContent = 'Install command copied.';
+  } catch {
+   copyButton.textContent = 'Retry';
+   status.classList.remove('sr-only');
+   status.textContent = 'Copy unavailable. Select the install command and copy it manually.';
+  }
+ });
+}
+</script>
 </body>
 </html>

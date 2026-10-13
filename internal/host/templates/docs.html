@@ -6,15 +6,15 @@
 tunn login</pre>
 <p>macOS/Linux on Intel or ARM. The downloader follows the latest GitHub release; for checked source builds and recovery, use the <a href="https://github.com/ehrlich-b/tunn/blob/main/docs/install-recovery.md">install and recovery guide</a>. If tunn is not found, add <code>$HOME/.local/bin</code> to PATH.</p>
 <h2>2. Expose a port</h2><pre>tunn http 8080</pre>
-<p>The printed HTTPS URL is public. Add <code>--allow=alice@example.com</code> for interactive email sharing. For webhooks, use a public endpoint and keep your application's signature verification enabled.</p>
+<p>Web tunnels are owner-only by default. Add <code>--allow=alice@example.com</code> to invite someone by email. For anonymous access or webhooks, run <code>tunn http 8080 --public</code> and keep your application's signature verification enabled.</p>
 <h2>3. Connect a local MCP tool to Claude.ai</h2><pre>tunn mcp -- ./my-mcp-server</pre>
 <p>MCP endpoints are private by default. Copy the printed /mcp connector URL, sign in and approve access. <a href="/docs/mcp-to-claude">Follow the complete tutorial</a>.</p>
 <h2>Coming from ngrok?</h2><pre># ngrok http 8080 →
-tunn http 8080
+tunn http 8080 --public
 # ngrok http 8080 --subdomain=work →
-tunn http 8080 --subdomain=work</pre>
+tunn http 8080 --subdomain=work --public</pre>
 <p>This is an HTTP command shortcut, not full ngrok compatibility. Run <code>tunn login</code> instead of configuring an ngrok authtoken. ngrok --domain, config files and traffic policies do not transfer. Free attempts to reserve one published name; Pro attempts up to ten, including random names. Choose names before publishing. <a href="/ngrok-alternative">Compare the tradeoffs</a>.</p>
-<h2>Inspect webhooks and watch usage</h2><pre>tunn http 8080 --inspect
+<h2>Inspect webhooks and watch usage</h2><pre>tunn http 8080 --public --inspect
 tunn usage</pre>
 <p>The local inspector omits bodies by default. Quotas apply across all account endpoints and reset monthly in UTC. Check <a href="/account">your account</a> or <a href="/pricing">plans and exact usage units</a> before upgrading. No automatic overage charges.</p>
 <p><a href="https://github.com/ehrlich-b/tunn#readme">Full CLI and self-hosting docs</a> · <a href="mailto:support@tunn.to">Support</a></p>

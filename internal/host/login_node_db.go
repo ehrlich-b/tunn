@@ -83,12 +83,17 @@ func (s *LoginNodeDBServer) GetMonthlyUsage(ctx context.Context, req *internalv1
 
 // CreateDeviceCode creates a new device code for CLI login
 func (s *LoginNodeDBServer) CreateDeviceCode(ctx context.Context, req *internalv1.CreateDeviceCodeRequest) (*internalv1.DeviceCodeResponse, error) {
-	code, err := s.storage.CreateDeviceCode(ctx)
+	purpose := req.Purpose
+	if purpose == "" {
+		purpose = "publisher"
+	}
+	code, err := s.storage.CreateDeviceCodeForPurpose(ctx, purpose, req.AccountId)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to create device code: %v", err)
 	}
 	return &internalv1.DeviceCodeResponse{
-		Code:       code.Code,
+		Code:    code.Code,
+		Purpose: code.Purpose, AccountId: code.AccountID,
 		UserCode:   code.UserCode,
 		ExpiresAt:  code.ExpiresAt.Unix(),
 		Interval:   int32(code.Interval),
@@ -116,7 +121,8 @@ func (s *LoginNodeDBServer) GetDeviceCode(ctx context.Context, req *internalv1.G
 	}
 
 	return &internalv1.DeviceCodeResponse{
-		Code:       code.Code,
+		Code:    code.Code,
+		Purpose: code.Purpose, AccountId: code.AccountID,
 		UserCode:   code.UserCode,
 		ExpiresAt:  code.ExpiresAt.Unix(),
 		Interval:   int32(code.Interval),
@@ -287,4 +293,12 @@ func (s *LoginNodeDBServer) BeginBillingCheckout(ctx context.Context, r *interna
 		}
 	}
 	return &internalv1.BeginBillingCheckoutResponse{Reference: reference, Destination: destination}, nil
+}
+
+func (s *LoginNodeDBServer) CheckManagementDevice(ctx context.Context, req *internalv1.CheckManagementDeviceRequest) (*internalv1.CheckManagementDeviceResponse, error) {
+	valid, err := s.storage.CheckManagementDevice(ctx, req.DeviceId, req.Email, req.AccountId)
+	if err != nil {
+		return nil, status.Error(codes.Unavailable, "device authority unavailable")
+	}
+	return &internalv1.CheckManagementDeviceResponse{Valid: valid}, nil
 }

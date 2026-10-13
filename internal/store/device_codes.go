@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/base64"
+	"fmt"
 	"time"
 
 	"github.com/ehrlich-b/tunn/internal/common"
@@ -22,6 +23,8 @@ type DeviceCode struct {
 	Interval   int
 	Authorized bool
 	Email      string
+	Purpose    string
+	AccountID  string
 }
 
 // DeviceCodeStore manages device codes in SQLite
@@ -38,7 +41,12 @@ func NewDeviceCodeStore(db *sql.DB) *DeviceCodeStore {
 }
 
 // Create generates a new device code
-func (s *DeviceCodeStore) Create() (*DeviceCode, error) {
+func (s *DeviceCodeStore) Create() (*DeviceCode, error) { return s.CreateForPurpose("publisher", "") }
+
+func (s *DeviceCodeStore) CreateForPurpose(purpose, accountID string) (*DeviceCode, error) {
+	if purpose != "publisher" && purpose != "management" {
+		return nil, fmt.Errorf("invalid device purpose")
+	}
 	deviceCode, err := generateSecureCode(32)
 	if err != nil {
 		return nil, err
@@ -52,15 +60,16 @@ func (s *DeviceCodeStore) Create() (*DeviceCode, error) {
 	expiresAt := time.Now().Add(deviceCodeExpiry)
 
 	_, err = s.db.Exec(
-		"INSERT INTO device_codes (code, user_code, expires_at, authorized) VALUES (?, ?, ?, 0)",
-		deviceCode, userCode, expiresAt.Unix(),
+		"INSERT INTO device_codes (code, user_code, expires_at, authorized, purpose, account_id) VALUES (?, ?, ?, 0, ?, ?)",
+		deviceCode, userCode, expiresAt.Unix(), purpose, accountID,
 	)
 	if err != nil {
 		return nil, err
 	}
 
 	return &DeviceCode{
-		Code:      deviceCode,
+		Code:    deviceCode,
+		Purpose: purpose, AccountID: accountID,
 		UserCode:  userCode,
 		ExpiresAt: expiresAt,
 		Interval:  deviceCodeInterval,
@@ -75,9 +84,9 @@ func (s *DeviceCodeStore) Get(deviceCode string) *DeviceCode {
 	var email sql.NullString
 
 	err := s.db.QueryRow(
-		"SELECT code, user_code, expires_at, authorized, email FROM device_codes WHERE code = ?",
+		"SELECT code, user_code, expires_at, authorized, email, purpose, account_id FROM device_codes WHERE code = ?",
 		deviceCode,
-	).Scan(&code.Code, &code.UserCode, &expiresAtUnix, &authorized, &email)
+	).Scan(&code.Code, &code.UserCode, &expiresAtUnix, &authorized, &email, &code.Purpose, &code.AccountID)
 	if err != nil {
 		return nil
 	}
@@ -105,9 +114,9 @@ func (s *DeviceCodeStore) GetByUserCode(userCode string) *DeviceCode {
 	var email sql.NullString
 
 	err := s.db.QueryRow(
-		"SELECT code, user_code, expires_at, authorized, email FROM device_codes WHERE user_code = ?",
+		"SELECT code, user_code, expires_at, authorized, email, purpose, account_id FROM device_codes WHERE user_code = ?",
 		userCode,
-	).Scan(&code.Code, &code.UserCode, &expiresAtUnix, &authorized, &email)
+	).Scan(&code.Code, &code.UserCode, &expiresAtUnix, &authorized, &email, &code.Purpose, &code.AccountID)
 	if err != nil {
 		return nil
 	}
@@ -131,8 +140,8 @@ func (s *DeviceCodeStore) GetByUserCode(userCode string) *DeviceCode {
 func (s *DeviceCodeStore) Authorize(deviceCode, email string) bool {
 	email = common.NormalizeEmail(email)
 	result, err := s.db.Exec(
-		"UPDATE device_codes SET authorized = 1, email = ? WHERE code = ? AND expires_at > ? AND authorized = 0",
-		email, deviceCode, time.Now().Unix(),
+		"UPDATE device_codes SET authorized = 1, email = ?, account_id=COALESCE((SELECT account_id FROM account_emails WHERE email=?),account_id) WHERE code = ? AND expires_at > ? AND authorized = 0 AND (account_id='' OR account_id=(SELECT account_id FROM account_emails WHERE email=?))",
+		email, email, deviceCode, time.Now().Unix(), email,
 	)
 	if err != nil {
 		return false

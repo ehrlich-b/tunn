@@ -170,6 +170,9 @@ func initSchema(db *sql.DB) error {
 	if err != nil {
 		return err
 	}
+	if err := MigrateDevicePurpose(db); err != nil {
+		return err
+	}
 	return MigrateOperations(db)
 }
 

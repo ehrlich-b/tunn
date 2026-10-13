@@ -10,6 +10,7 @@ import (
 // InternalServer implements the gRPC InternalService
 type InternalServer struct {
 	internalv1.UnimplementedInternalServiceServer
+	proxy        *ProxyServer
 	tunnelServer *TunnelServer
 	publicAddr   string
 	isLoginNode  bool

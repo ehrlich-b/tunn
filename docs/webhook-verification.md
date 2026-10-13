@@ -142,3 +142,11 @@ Provider references: [Stripe](https://docs.stripe.com/events/manage-webhook-endp
 [GitHub](https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries),
 [Slack](https://docs.slack.dev/authentication/verifying-requests-from-slack/),
 [Shopify](https://shopify.dev/docs/apps/build/webhooks/verify-deliveries).
+
+Stored signing keys are scoped to the canonical HTTPS relay origin, endpoint,
+provider and publisher account identity. Registration and reconnect verify the
+selected file belongs to that publication. Default HTTPS ports identify the same
+origin. Repeating a publication with the same binding rotates that key; a
+publication on another relay, provider or account uses a separate file. Existing
+unscoped stored files are not loaded automatically; supply the source secret file
+again after upgrading.

@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -22,7 +23,7 @@ import (
 
 func TestWebhookPrivateSecretStorageAndReload(t *testing.T) {
 	t.Setenv("TUNN_CONFIG_DIR", t.TempDir())
-	path, err := SaveWebhookSecret("hook", []byte("fixture-key"))
+	path, err := SaveWebhookSecret("relay.test", "hook", "stripe", WebhookAccountBinding(""), []byte("fixture-key"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,12 +35,12 @@ func TestWebhookPrivateSecretStorageAndReload(t *testing.T) {
 	if err != nil || dir.Mode().Perm() != 0700 {
 		t.Fatal("key directory permissions")
 	}
-	c := &ServeClient{TargetURL: "http://localhost:80", WebhookPolicy: &pb.WebhookPolicy{Provider: "stripe", ToleranceSeconds: 300}, WebhookSecretPath: path}
+	c := &ServeClient{ServerAddr: "relay.test", TunnelID: "hook", TargetURL: "http://localhost:80", WebhookPolicy: &pb.WebhookPolicy{Provider: "stripe", ToleranceSeconds: 300}, WebhookSecretPath: path}
 	p, err := c.registrationWebhookPolicy()
 	if err != nil || string(p.Secret) != "fixture-key" {
 		t.Fatal("registration did not load key")
 	}
-	path, err = SaveWebhookSecret("hook", []byte("fixture-rotated"))
+	path, err = SaveWebhookSecret("relay.test", "hook", "stripe", WebhookAccountBinding(""), []byte("fixture-rotated"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,11 +87,11 @@ func TestWebhookPrivateSecretStorageAndReload(t *testing.T) {
 			t.Fatal("key content changed")
 		}
 	}
-	if _, err := SaveWebhookSecret("../escape", []byte("key")); err == nil {
+	if _, err := SaveWebhookSecret("relay.test", "../escape", "stripe", WebhookAccountBinding(""), []byte("key")); err == nil {
 		t.Fatal("unsafe endpoint name accepted")
 	}
 	for _, key := range []string{"key\n", "key\r", "key\r\n", " key "} {
-		stored, err := SaveWebhookSecret("hook", []byte(key))
+		stored, err := SaveWebhookSecret("relay.test", "hook", "stripe", WebhookAccountBinding(""), []byte(key))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -176,5 +177,119 @@ func TestWebhookClientValidation(t *testing.T) {
 		if _, err := c.registrationWebhookPolicy(); err == nil {
 			t.Fatal("invalid client policy accepted")
 		}
+	}
+}
+
+func TestWebhookRelaySecretIsolationOnReconnect(t *testing.T) {
+	t.Setenv("TUNN_CONFIG_DIR", t.TempDir())
+	pathB, err := SaveWebhookSecret("relay-b.test:443", "orders", "stripe", WebhookAccountBinding(""), []byte("synthetic-key-b"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := &ServeClient{ServerAddr: "relay-b.test:443", TunnelID: "orders", TargetURL: "http://localhost:80", WebhookPolicy: &pb.WebhookPolicy{Provider: "stripe", ToleranceSeconds: 300}, WebhookSecretPath: pathB}
+	first, err := b.registrationWebhookPolicy()
+	if err != nil || string(first.Secret) != "synthetic-key-b" {
+		t.Fatal("initial B registration")
+	}
+	_, err = SaveWebhookSecret("relay-a.test", "orders", "stripe", WebhookAccountBinding(""), []byte("synthetic-key-a"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reconnected, err := b.registrationWebhookPolicy()
+	if err != nil || string(reconnected.Secret) != "synthetic-key-b" {
+		t.Fatal("relay B reconnect changed its signing key")
+	}
+}
+
+type webhookReconnectRelay struct {
+	pb.UnimplementedTunnelServiceServer
+	registrations chan *pb.RegisterClient
+	calls         atomic.Int32
+}
+
+func (f *webhookReconnectRelay) EstablishTunnel(s grpc.BidiStreamingServer[pb.TunnelMessage, pb.TunnelMessage]) error {
+	msg, err := s.Recv()
+	if err != nil {
+		return err
+	}
+	f.registrations <- msg.GetRegisterClient()
+	if err = s.Send(&pb.TunnelMessage{Message: &pb.TunnelMessage_RegisterResponse{RegisterResponse: &pb.RegisterResponse{Success: true, Capabilities: []string{webhook.Capability}}}}); err != nil {
+		return err
+	}
+	if f.calls.Add(1) == 1 {
+		return io.EOF
+	}
+	<-s.Context().Done()
+	return s.Context().Err()
+}
+func TestWebhookTwoOriginForcedReconnect(t *testing.T) {
+	t.Setenv("TUNN_CONFIG_DIR", t.TempDir())
+	fixture := &webhookReconnectRelay{registrations: make(chan *pb.RegisterClient, 2)}
+	gs := grpc.NewServer()
+	pb.RegisterTunnelServiceServer(gs, fixture)
+	defer gs.Stop()
+	relay := httptest.NewUnstartedServer(http.HandlerFunc(gs.ServeHTTP))
+	relay.EnableHTTP2 = true
+	relay.StartTLS()
+	defer relay.Close()
+	other := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer other.Close()
+	server := relay.Listener.Addr().String()
+	account := WebhookAccountBinding("fixture-publisher")
+	path, err := SaveWebhookSecret(server, "orders", "stripe", account, []byte("synthetic-b"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool := x509.NewCertPool()
+	pool.AddCert(relay.Certificate())
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var registered atomic.Int32
+	c := &ServeClient{ServerAddr: server, AuthToken: "fixture-publisher", TunnelID: "orders", TargetURL: "http://127.0.0.1:1", Quiet: true, InitialDelay: 10 * time.Millisecond, RelayTLSConfig: &tls.Config{RootCAs: pool}, WebhookSecretPath: path, WebhookPolicy: &pb.WebhookPolicy{Provider: "stripe", ToleranceSeconds: 300}}
+	c.OnRegistered = func(string) {
+		if registered.Add(1) == 1 {
+			if _, err := SaveWebhookSecret(other.Listener.Addr().String(), "orders", "stripe", account, []byte("synthetic-a")); err != nil {
+				t.Error(err)
+				cancel()
+			}
+		} else {
+			cancel()
+		}
+	}
+	_ = c.Run(ctx)
+	if registered.Load() != 2 {
+		t.Fatal("forced reconnect did not complete")
+	}
+	for i := 0; i < 2; i++ {
+		select {
+		case r := <-fixture.registrations:
+			if r.WebhookPolicy == nil || string(r.WebhookPolicy.Secret) != "synthetic-b" {
+				t.Fatal("relay registration changed signing key")
+			}
+		default:
+			t.Fatal("missing registration")
+		}
+	}
+	c.ServerAddr = other.Listener.Addr().String()
+	if _, err = c.registrationWebhookPolicy(); err == nil {
+		t.Fatal("publication binding change accepted")
+	}
+	c.ServerAddr = server
+	c.AuthToken = "another-publisher"
+	if _, err = c.registrationWebhookPolicy(); err == nil {
+		t.Fatal("account binding change accepted")
+	}
+	c.AuthToken = "fixture-publisher"
+	c.WebhookPolicy.Provider = "github"
+	if _, err = c.registrationWebhookPolicy(); err == nil {
+		t.Fatal("provider binding change accepted")
+	}
+	original, err := webhookSecretLocation("RELAY.TEST:443", "orders", "stripe", account)
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonical, err := webhookSecretLocation("https://relay.test/", "orders", "stripe", account)
+	if err != nil || original != canonical {
+		t.Fatal("canonical relay origin differs")
 	}
 }

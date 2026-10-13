@@ -335,15 +335,17 @@ func stripIdentityHeaders(r *http.Request) *http.Request {
 		}
 	}
 
-	// Remove client nominations of the headers the relay will inject. Keep upgrade
-	// nominations so authenticated WebSockets retain their normal behavior.
+	// Remove nominations of relay identity and authentication fields. A hop
+	// must not erase an explicit credential and restore cookie fallback. Keep
+	// Upgrade so authenticated WebSockets retain their normal behavior.
 	for key, values := range r.Header {
 		if strings.EqualFold(key, "Connection") {
 			var kept []string
 			for _, value := range values {
 				for _, part := range strings.Split(value, ",") {
 					part = strings.TrimSpace(part)
-					if !strings.EqualFold(part, identity.Header) && !strings.EqualFold(part, identity.EmailHeader) {
+					if !strings.EqualFold(part, identity.Header) && !strings.EqualFold(part, identity.EmailHeader) &&
+						!strings.EqualFold(part, "Authorization") && !strings.EqualFold(part, "Tunn-Authorization") && !strings.EqualFold(part, "Cookie") {
 						kept = append(kept, part)
 					}
 				}

@@ -1,7 +1,6 @@
 package host
 
 import (
-	"crypto/tls"
 	"io"
 	"net"
 	"net/http"
@@ -42,7 +41,12 @@ func (p *ProxyServer) proxyConnectToNode(w http.ResponseWriter, r *http.Request,
 	req.Header.Set(relayForwardedFor, peer)
 	req.Header.Set(relayForwardedProto, proto)
 	req.Header.Set(relayForwardedSignature, p.forwardingSignature(r.Host, peer, proto))
-	transport := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: p.config.Insecure}, ForceAttemptHTTP2: true, DialContext: (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}).DialContext, TLSHandshakeTimeout: 5 * time.Second, ResponseHeaderTimeout: 10 * time.Second}
+	tlsConfig, err := p.relayTLSConfig()
+	if err != nil {
+		http.Error(w, "Relay trust unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	transport := &http.Transport{TLSClientConfig: tlsConfig, ForceAttemptHTTP2: true, DialContext: (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}).DialContext, TLSHandshakeTimeout: 5 * time.Second, ResponseHeaderTimeout: 10 * time.Second}
 	defer transport.CloseIdleConnections()
 	response, err := transport.RoundTrip(req)
 	if err != nil {

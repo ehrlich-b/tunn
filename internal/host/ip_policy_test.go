@@ -5,7 +5,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"github.com/ehrlich-b/tunn/internal/storage"
 	"io"
@@ -621,7 +623,7 @@ func TestIPPolicyCLIOwnerAuthorizationJourney(t *testing.T) {
 
 func TestIPPolicyTwoRelayCONNECTFullDuplex(t *testing.T) {
 	p, tunnel, _, stream := meteringRelay(t, true, "")
-	p.config.NodeSecret, p.config.Insecure = "fixture-duplex-relay-secret", true
+	p.config.NodeSecret, p.config.Insecure = "fixture-duplex-relay-secret", false
 	tunnel.EndpointProtocol = "tcp"
 	tunnel.Capabilities[common.CapabilityConnectionStreamV1] = true
 	setHostPolicy(t, p, "api", []string{"127.0.0.0/8"}, nil)
@@ -641,6 +643,11 @@ func TestIPPolicyTwoRelayCONNECTFullDuplex(t *testing.T) {
 	remote.EnableHTTP2 = true
 	remote.StartTLS()
 	defer remote.Close()
+	ca := filepath.Join(t.TempDir(), "relay-ca.pem")
+	if err := os.WriteFile(ca, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: remote.Certificate().Raw}), 0600); err != nil {
+		t.Fatal(err)
+	}
+	p.config.InternalCACert = ca
 	ingress := &ProxyServer{Domain: p.Domain, config: p.config, tunnelServer: NewTunnelServer(p.config, nil, nil, nil), tunnelCache: map[string]string{"api": strings.TrimPrefix(remote.URL, "https://")}}
 	front := httptest.NewUnstartedServer(ingress.createHandler())
 	front.EnableHTTP2 = true
@@ -655,7 +662,9 @@ func TestIPPolicyTwoRelayCONNECTFullDuplex(t *testing.T) {
 	r.Host = "api.tunn.test"
 	r.Header.Set("Authorization", "Bearer "+relayJWT(t, p, "owner@example.com"))
 	r.Header.Set(common.TCPConnectHeader, common.TCPConnectValue)
-	transport := &http.Transport{ForceAttemptHTTP2: true, TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
+	roots := x509.NewCertPool()
+	roots.AddCert(front.Certificate())
+	transport := &http.Transport{ForceAttemptHTTP2: true, TLSClientConfig: &tls.Config{RootCAs: roots}}
 	defer transport.CloseIdleConnections()
 	response, err := (&http.Client{Transport: transport}).Do(r)
 	if err != nil {

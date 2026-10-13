@@ -55,7 +55,7 @@ type Request struct {
 }
 
 func Credential(value string) bool {
-	for _, prefix := range []string{"tunn_mcp_", "tunn_ep_", "tunn_gr_", "tunn_sk_"} {
+	for _, prefix := range []string{"tunn_mcp_", "tunn_ep_", "tunn_gr_", "tunn_sk_", "tunn_app_", "tunn_inv_"} {
 		if strings.Contains(value, prefix) {
 			return true
 		}

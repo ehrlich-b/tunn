@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
-	"crypto/tls"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -1046,16 +1045,11 @@ func (p *ProxyServer) proxyToNode(w http.ResponseWriter, r *http.Request, nodeAd
 		return nil
 	}
 
-	// We need to create a custom transport to skip TLS verification if needed,
-	// since we are using self-signed certs in development.
-	tlsConfig := &tls.Config{InsecureSkipVerify: p.config.Insecure}
-	if p.config.InternalCACert != "" {
-		pool, err := loadInternalCA(p.config.InternalCACert)
-		if err != nil {
-			http.Error(w, "Relay trust unavailable", 503)
-			return
-		}
-		tlsConfig.RootCAs = pool
+	// HTTP and CONNECT use the same configured relay trust roots.
+	tlsConfig, err := p.relayTLSConfig()
+	if err != nil {
+		http.Error(w, "Relay trust unavailable", 503)
+		return
 	}
 	transport := &http.Transport{TLSClientConfig: tlsConfig}
 	if admission != nil {

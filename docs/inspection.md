@@ -203,3 +203,8 @@ and 390×844 under `.scratch/web-inspector/`. Set `TUNN_INSPECT_EVIDENCE` to an
 alternate local output directory. No dependency downloads or hosted account
 changes occur. This is local acceptance evidence; hosted deployment, real user
 login and production cluster behavior still require operator acceptance.
+
+App device credentials and pairing invitation secrets are suppressed by the
+shared inspection filter, including opt-in local body capture. They cannot be
+supplied as reconstructed replay inputs. Relay hops preserve explicit credential
+precedence even when a request nominates authentication fields in `Connection`.

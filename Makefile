@@ -621,9 +621,12 @@ test-candidate-upload-contract:
 	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=45s -run '^(TestHTTPFidelity(UploadTerminalSchedules|UploadFailureAbortsResponse|WireUploadEOFAbortsResponse|UnknownUploadLimitBeforeEmptyResponse|UploadLimitAfterPrefixAbortsResponse|ChunkedUploadProgressAfterPrefix)|TestProxyToLocalReturnsResponseErrors|TestDogfoodUpload)' ./internal/host
 
 # External probe history and operator-only incident notes.
-.PHONY: test-status client-image-local
+.PHONY: test-status test-client-image client-image-local
 test-status:
 	go test $(GO_TEST_FLAGS) -race -p 2 -parallel=2 -count=1 -timeout=90s -run '^TestStatus' ./internal/status ./internal/host ./internal/config .
+test-client-image:
+	@test -n "$$TUNN_TEST_CLIENT_IMAGE" || { echo "REQUIRED: set TUNN_TEST_CLIENT_IMAGE to the locally built candidate image"; exit 1; }
+	go test $(GO_TEST_FLAGS) -tags client_image -race -count=1 -timeout=60s -run '^TestStatusDockerClient' -v ./internal/host
 client-image-local:
 	@mkdir -p "$(BUILD_DIR)"
 	docker buildx build --platform linux/amd64,linux/arm64 --file Dockerfile.client --output type=oci,dest=$(BUILD_DIR)/tunn-client.oci.tar .

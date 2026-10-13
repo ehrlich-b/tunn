@@ -20,8 +20,10 @@ The collector performs GET `/healthz` and `/readyz` immediately, then every minu
 Each request has a five-second timeout, normal certificate verification and no
 redirect following. Only HTTP 200 is success. Network/TLS errors, timeouts and
 non-200 responses count as failures. `/healthz` tests relay liveness; `/readyz`
-also checks listener and storage readiness. An HTTPS origin is recommended;
-HTTP is supported for local fixtures or trusted operator networks. URLs cannot
+also checks listener and storage readiness. The probe origin must use HTTPS.
+For disposable local fixtures only, `--allow-http-loopback` permits HTTP to a
+literal loopback IP such as `http://127.0.0.1:8092` or `http://[::1]:8092`.
+It never permits plaintext probes to external or named hosts. URLs cannot
 include credentials, paths, query parameters or fragments. The database is
 bound to the probe origin: changing it requires a new database.
 
@@ -73,7 +75,7 @@ Titles are limited to 120 bytes and notes to 2,000 bytes, rendered as escaped
 plain text. Resolution replaces the current note and records a UTC timestamp;
 this is a current incident summary, not an append-only postmortem system. Open
 incidents remain visible even when older than the window. Resolved notes older
-than 90 days are pruned with observations. The page shows up to 100 notes, open
+than 90 days are pruned with observations. The page shows up to 75 notes, open
 first, then newest. No notes does not mean no outages.
 
 ## Acceptance before deployment

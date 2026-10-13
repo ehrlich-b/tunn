@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -20,6 +21,24 @@ func Origin(raw string) (*url.URL, error) {
 	u.Scheme = strings.ToLower(u.Scheme)
 	return u, nil
 }
+
+// ProbeOrigin requires authenticated transport for external observations. The
+// explicit fixture exception only accepts literal loopback IPs, without DNS.
+func ProbeOrigin(raw string, allowHTTPLoopback bool) (*url.URL, error) {
+	u, err := Origin(raw)
+	if err != nil {
+		return nil, err
+	}
+	if u.Scheme == "https" {
+		return u, nil
+	}
+	ip := net.ParseIP(u.Hostname())
+	if allowHTTPLoopback && ip != nil && ip.IsLoopback() {
+		return u, nil
+	}
+	return nil, errors.New("probe origin requires HTTPS; --allow-http-loopback permits only literal loopback IPs for local fixtures")
+}
+
 func ProbeClient(timeout time.Duration) *http.Client {
 	return &http.Client{Timeout: timeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 }

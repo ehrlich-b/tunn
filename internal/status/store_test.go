@@ -2,6 +2,7 @@ package status
 
 import (
 	"context"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -166,5 +167,26 @@ func TestStatusRetentionIncidentsAndRestart(t *testing.T) {
 	}
 	if _, err = Open(""); err == nil {
 		t.Fatal("empty DB accepted")
+	}
+}
+
+func TestStatusIncidentResponseBound(t *testing.T) {
+	s := statusStore(t)
+	now := time.Now().UTC()
+	// Maximal escaping, within the documented per-note limit and list bound.
+	// This checks the protocol's one-MiB limit with less than 200 KiB of input.
+	for i := 0; i < 80; i++ {
+		if _, err := s.AddIncident(context.Background(), now.Add(-time.Duration(i)*time.Minute), strings.Repeat("&", 120), strings.Repeat("&", 2000)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	v := statusSnapshot(t, s, now)
+	if len(v.Incidents) != 75 {
+		t.Fatal("public incident bound", len(v.Incidents))
+	}
+	w := httptest.NewRecorder()
+	Render(w, httptest.NewRequest("GET", "/status", nil), v, 200)
+	if w.Body.Len() > 1<<20 || w.Code != 200 {
+		t.Fatal("incident page exceeds relay response cap", w.Body.Len())
 	}
 }

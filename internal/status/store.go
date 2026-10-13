@@ -221,7 +221,8 @@ func (s *Store) Snapshot(ctx context.Context, now time.Time) (Snapshot, error) {
 		v.Observed += d.Observed
 		v.Healthy += d.Healthy
 	}
-	rows, err = s.db.QueryContext(ctx, `SELECT id,started,resolved,title,note FROM status_incidents WHERE started<=? AND (resolved IS NULL OR resolved>=?) ORDER BY (resolved IS NULL) DESC,started DESC LIMIT 100`, now.Unix(), now.Add(-Retention).Unix())
+	// Limit notes so maximum-size HTML-escaped text fits the relay response cap.
+	rows, err = s.db.QueryContext(ctx, `SELECT id,started,resolved,title,note FROM status_incidents WHERE started<=? AND (resolved IS NULL OR resolved>=?) ORDER BY (resolved IS NULL) DESC,started DESC LIMIT 75`, now.Unix(), now.Add(-Retention).Unix())
 	if err != nil {
 		return v, err
 	}

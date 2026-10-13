@@ -14,6 +14,8 @@ nice -n 10 docker buildx build --file Dockerfile.client --platform linux/amd64 -
 # Both architectures as a local OCI archive, without registry publication:
 mkdir -p bin
 nice -n 10 make client-image-local
+# Real local relay + host application; disposable fixture identities only:
+TUNN_TEST_CLIENT_IMAGE=tunn-client:local nice -n 10 make test-client-image
 ```
 
 A builder with the `docker-container` driver is needed if the local engine cannot
@@ -78,7 +80,10 @@ requests registry write permission only in the publish job. Configure the
 operator can dispatch the reviewed revision. The workflow includes provenance
 and an SBOM. Make the package public and verify anonymous pulling and the two
 architecture manifests before distributing the command. No workflow run,
-registry login, upload or publication is implied by adding this file.
+registry login, upload or publication is implied by adding this file. GitHub
+requires the workflow file on the repository's default branch before manual
+dispatch is available; integrate the reviewed file there first, then select the
+reviewed commit/ref when dispatching.
 
 Multi-platform packaging follows [Docker's Go cross-compilation guide](https://docs.docker.com/build/building/multi-platform/)
 and [GitHub Actions guide](https://docs.docker.com/build/ci/github-actions/multi-platform/).

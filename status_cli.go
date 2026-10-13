@@ -35,14 +35,15 @@ func executeStatus(ctx context.Context, args []string, out, errOut io.Writer) er
 	switch args[0] {
 	case "serve":
 		listen := fs.String("listen", "127.0.0.1:8091", "HTTP listen address; put behind a TLS reverse proxy")
-		rawOrigin := fs.String("probe", "https://tunn.to", "relay http(s) origin (TLS verified, no redirects)")
+		rawOrigin := fs.String("probe", "https://tunn.to", "relay HTTPS origin (TLS verified, no redirects)")
+		allowHTTPLoopback := fs.Bool("allow-http-loopback", false, "allow HTTP to literal loopback IPs for local fixtures only")
 		if err := fs.Parse(args[1:]); err != nil {
 			return err
 		}
 		if fs.NArg() != 0 {
 			return errors.New("unexpected arguments")
 		}
-		origin, err := statuspage.Origin(*rawOrigin)
+		origin, err := statuspage.ProbeOrigin(*rawOrigin, *allowHTTPLoopback)
 		if err != nil {
 			return err
 		}

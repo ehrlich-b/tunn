@@ -23,6 +23,25 @@ func TestStatusOriginValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestStatusProbeOriginRequiresHTTPS(t *testing.T) {
+	for _, allow := range []bool{false, true} {
+		if _, err := ProbeOrigin("https://relay.example", allow); err != nil {
+			t.Fatal(err)
+		}
+		for _, raw := range []string{"http://relay.example", "http://192.0.2.1", "http://localhost", "http://127.0.0.1.example", "http://127.0.0.1@relay.example", "http://[::ffff:192.0.2.1]"} {
+			if _, err := ProbeOrigin(raw, allow); err == nil {
+				t.Fatal("plaintext external probe accepted", raw, allow)
+			}
+		}
+		for _, raw := range []string{"http://127.0.0.1:8091", "http://[::1]:8091", "http://[::ffff:127.0.0.1]:8091"} {
+			_, err := ProbeOrigin(raw, allow)
+			if (err == nil) != allow {
+				t.Fatal("fixture exception", raw, allow, err)
+			}
+		}
+	}
+}
 func TestStatusCollectorSuccessFailureRedirectAndTLS(t *testing.T) {
 	var health, ready atomic.Int32
 	health.Store(200)

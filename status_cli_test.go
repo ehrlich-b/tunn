@@ -40,7 +40,7 @@ func TestStatusCLIIncidentJourneyAndErrors(t *testing.T) {
 	if err != nil || len(v.Incidents) != 1 || v.Incidents[0].ResolvedAt == nil || v.Incidents[0].Note != "Recovered" {
 		t.Fatal(v, err)
 	}
-	for _, args := range [][]string{nil, {"unknown"}, {"serve", "--probe", "https://relay.example/path"}, {"serve", "extra"}, {"incident", "--db", path}, {"incident", "--db", path, "extra"}, {"resolve", "--db", path}, {"resolve", "--db", path, "-1"}, {"resolve", "--db", path, "--note", "x", "999"}, {"serve", "--unknown"}} {
+	for _, args := range [][]string{nil, {"unknown"}, {"serve", "--probe", "https://relay.example/path"}, {"serve", "--probe", "http://relay.example"}, {"serve", "--probe", "http://127.0.0.1:8091"}, {"serve", "--probe", "http://relay.example", "--allow-http-loopback"}, {"serve", "extra"}, {"incident", "--db", path}, {"incident", "--db", path, "extra"}, {"resolve", "--db", path}, {"resolve", "--db", path, "-1"}, {"resolve", "--db", path, "--note", "x", "999"}, {"serve", "--unknown"}} {
 		if err := run(args...); err == nil {
 			t.Fatal("invalid CLI accepted", args)
 		}
@@ -64,7 +64,7 @@ func TestStatusCLIServeShutdownAndPersistentHistory(t *testing.T) {
 	defer cancel()
 	done := make(chan error, 1)
 	go func() {
-		done <- executeStatus(ctx, []string{"serve", "--db", path, "--listen", addr, "--probe", probe.URL}, &bytes.Buffer{}, &bytes.Buffer{})
+		done <- executeStatus(ctx, []string{"serve", "--db", path, "--listen", addr, "--probe", probe.URL, "--allow-http-loopback"}, &bytes.Buffer{}, &bytes.Buffer{})
 	}()
 	client := statuspage.ProbeClient(time.Second)
 	deadline := time.Now().Add(5 * time.Second)

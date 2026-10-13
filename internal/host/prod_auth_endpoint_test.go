@@ -22,6 +22,7 @@ func TestProdAuthPublisherOriginsOwnEveryRoute(t *testing.T) {
 			f := newProdAuthFixture(t)
 			for _, route := range prodAuthRoutes {
 				t.Run(route.method+" "+route.path, func(t *testing.T) {
+					before := f.forwarded
 					w := f.routeRequest(t, route, principal, "tools.tunn.test")
 					want := 200
 					switch principal {
@@ -35,7 +36,13 @@ func TestProdAuthPublisherOriginsOwnEveryRoute(t *testing.T) {
 					if w.Code != want {
 						t.Fatalf("publisher status = %d, want %d: %s", w.Code, want, w.Body)
 					}
-					if want == 200 && w.Body.String() != `{"jsonrpc":"2.0","id":1,"result":{}}` {
+					if (f.forwarded > before) != (want == 200) {
+						t.Fatalf("publisher delivery did not match admission: %d -> %d, status %d", before, f.forwarded, w.Code)
+					}
+					if want == 200 && route.method == http.MethodHead && w.Body.Len() != 0 {
+						t.Fatal("publisher HEAD returned a body")
+					}
+					if want == 200 && route.method != http.MethodHead && w.Body.String() != `{"jsonrpc":"2.0","id":1,"result":{}}` {
 						t.Fatalf("publisher path received a platform response: %s", w.Body)
 					}
 					if strings.Contains(w.Body.String(), "csrf_token") || len(w.Result().Cookies()) > 0 {

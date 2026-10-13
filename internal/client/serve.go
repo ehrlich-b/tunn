@@ -398,6 +398,7 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 		if s.PublicPath == "/mcp" {
 			fmt.Printf("Connector URL: %s\n", publicURL)
 			fmt.Println("Paste this URL into Claude.ai or ChatGPT's MCP connector settings.")
+			fmt.Printf("Check connection: tunn connector-check --oauth %s\n", publicURL)
 			fmt.Println("Claude.ai setup: https://tunn.to/docs/mcp-to-claude (use automatic OAuth registration if prompted).")
 		}
 

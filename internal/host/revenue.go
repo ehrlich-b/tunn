@@ -91,8 +91,10 @@ func (p *ProxyServer) handleDocs(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if r.URL.Path == "/docs/mcp-to-claude" {
-		writePageStart(w, "tunn - Connect local MCP to Claude.ai")
-		_, _ = fmt.Fprint(w, mcpTutorialHTML)
+		if r.Method != http.MethodHead {
+			_, _ = fmt.Fprint(w, mcpToClaudeHTML)
+		}
+		return
 	} else {
 		writePageStart(w, "tunn - Quickstart")
 		_, _ = fmt.Fprint(w, docsHTML)

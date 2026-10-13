@@ -619,3 +619,8 @@ test-candidate-baseline:
 .PHONY: test-candidate-upload-contract
 test-candidate-upload-contract:
 	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=45s -run '^(TestHTTPFidelity(UploadTerminalSchedules|UploadFailureAbortsResponse|WireUploadEOFAbortsResponse|UnknownUploadLimitBeforeEmptyResponse|UploadLimitAfterPrefixAbortsResponse|ChunkedUploadProgressAfterPrefix)|TestProxyToLocalReturnsResponseErrors|TestDogfoodUpload)' ./internal/host
+
+# Same diagnostic client against TLS relay, OAuth ledger and real stdio child.
+.PHONY: test-connector-journey
+test-connector-journey:
+	go test $(GO_TEST_FLAGS) -race -count=1 -v -parallel=2 -timeout=120s -run '^(TestConnector|TestMCPCommand|TestParseMCP|TestMCPOAuth|TestProdAuthMCP|TestProdAuthLoopback)' . ./internal/mcpcheck ./internal/host

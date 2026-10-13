@@ -57,7 +57,7 @@ func TestMCPOAuthStdioHelper(t *testing.T) {
 		case "initialize":
 			result = map[string]any{"protocolVersion": "2025-11-25", "capabilities": map[string]any{"tools": map[string]any{}}, "serverInfo": map[string]string{"name": "stdio-echo", "version": "1"}}
 		case "tools/list":
-			result = map[string]any{"tools": []any{map[string]any{"name": "echo", "inputSchema": map[string]any{"type": "object"}}}}
+			result = map[string]any{"tools": []any{map[string]any{"name": "echo", "inputSchema": map[string]any{"type": "object"}}, map[string]any{"name": "hidden_echo", "inputSchema": map[string]any{"type": "object"}}}}
 		case "tools/call":
 			if request.Params.Name != "echo" {
 				os.Exit(3)

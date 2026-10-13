@@ -21,6 +21,3 @@ var pricingHTML string
 
 //go:embed templates/docs.html
 var docsHTML string
-
-//go:embed templates/revenue-mcp-to-claude.html
-var mcpTutorialHTML string

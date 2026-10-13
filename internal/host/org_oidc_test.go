@@ -67,6 +67,10 @@ func newOrgOIDCFixture(t *testing.T, provider string) *orgOIDCFixture {
 	db.SetMaxOpenConns(1)
 	t.Cleanup(func() { db.Close() })
 	p.storage = storage.NewLocalStorage(db)
+	p.devices, err = newDeviceCredentialStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
 	owner, err := p.storage.FindOrCreateByEmails(context.Background(), []string{"owner@example.com"}, "fixture")
 	if err != nil {
 		t.Fatal(err)
@@ -774,7 +778,7 @@ func TestOrgOIDCDeviceConfirmationAndNoGroupBearerAuthority(t *testing.T) {
 	if w := f.finish(post); w.Code != 200 {
 		t.Fatal("company login could not enroll publisher", w.Code)
 	}
-	exchange := httptest.NewRequest("GET", "https://tunn.test/api/device/token?code="+url.QueryEscape(dc.Code), nil)
+	exchange := httptest.NewRequest("GET", "https://tunn.test/api/device/token?durable=1&code="+url.QueryEscape(dc.Code), nil)
 	w = f.finish(exchange)
 	var response struct {
 		AccessToken string `json:"access_token"`

@@ -619,3 +619,21 @@ test-candidate-baseline:
 .PHONY: test-candidate-upload-contract
 test-candidate-upload-contract:
 	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=45s -run '^(TestHTTPFidelity(UploadTerminalSchedules|UploadFailureAbortsResponse|WireUploadEOFAbortsResponse|UnknownUploadLimitBeforeEmptyResponse|UploadLimitAfterPrefixAbortsResponse|ChunkedUploadProgressAfterPrefix)|TestProxyToLocalReturnsResponseErrors|TestDogfoodUpload)' ./internal/host
+
+# Python binding: the helper imports the same Go SDK as application consumers.
+PYTHON ?= python3
+PYTHON_HELPER_OUTPUT ?= $(BINARY_DIR)/tunn-python-bridge
+.PHONY: build-python-helper test-python-unit test-python-contract python-wheel format-python-helper
+build-python-helper:
+	mkdir -p "$(dir $(PYTHON_HELPER_OUTPUT))"
+	go build -o "$(PYTHON_HELPER_OUTPUT)" ./sdk/python/bridge
+format-python-helper:
+	gofmt -w sdk/python/bridge/*.go internal/host/python_sdk_test.go
+test-python-unit: build-python-helper
+	PYTHONPATH=sdk/python/src TUNN_PYTHON_HELPER="$(abspath $(PYTHON_HELPER_OUTPUT))" $(PYTHON) -m unittest discover -s sdk/python/tests -v
+test-python-contract: build-python-helper
+	PYTHONPATH="$(abspath sdk/python/src)" TUNN_PYTHON="$(PYTHON)" TUNN_PYTHON_HELPER="$(abspath $(PYTHON_HELPER_OUTPUT))" go test $(GO_TEST_FLAGS) -tags=pythonsdk -race -count=1 -v -parallel=2 -timeout=120s -run '^TestPythonSDK' ./internal/host
+python-wheel: build-python-helper
+	mkdir -p sdk/python/src/tunn/_bin
+	cp "$(PYTHON_HELPER_OUTPUT)" sdk/python/src/tunn/_bin/tunn-python-bridge
+	cd sdk/python && $(PYTHON) -m build --wheel

@@ -131,6 +131,13 @@ See the [Go SDK API and lifecycle](docs/go-sdk.md) and the runnable
 [handler](examples/sdk-handler/main.go) and [origin](examples/sdk-origin/main.go)
 examples. Full loopback acceptance is required before SDK release.
 
+### Embed in Python
+
+The source-only [Python SDK](sdk/python/README.md) publishes an HTTP origin or
+ASGI/WSGI handler with synchronous and asyncio lifecycles. A revision-matched
+local helper reuses the Go publisher, authentication and sharing checks. The
+guide includes a Python MCP server quickstart and source-install instructions.
+
 ### Local request inspector
 
 Add `--inspect` when debugging an HTTP endpoint or webhook handler:

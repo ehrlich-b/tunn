@@ -71,6 +71,8 @@ message RegisterClient {
   // Version 1 makes new web publications private unless explicitly public.
   uint32 exposure_version = 12;
   string exposure_mode = 13; // "private" or "public"; legacy version 0 is unchanged.
+  // Publisher-owned policy. Secret is retained only in active relay memory.
+  WebhookPolicy webhook_policy = 14;
 }
 
 // RegisterResponse is sent by the server to acknowledge tunnel registration.
@@ -233,4 +235,11 @@ message ConnectionClose {
 // running. As at registration, only the SHA-256 digest crosses the tunnel.
 message UpdateAccessToken {
   bytes access_token_sha256 = 1;
+}
+
+// WebhookPolicy verifies raw HTTP request bytes before forwarding to the origin.
+message WebhookPolicy {
+  string provider = 1; // stripe, github, slack, shopify, hmac-sha256
+  bytes secret = 2; // HMAC key; never log or persist on the relay
+  uint32 tolerance_seconds = 3; // 1–3600; use 300 for body-only providers
 }

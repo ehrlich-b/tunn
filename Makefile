@@ -635,3 +635,8 @@ proto-ip-policy:
 	PATH="$(CURDIR)/.scratch/tools:$$PATH" protoc --go_out=. --go-grpc_out=. --go_opt=module=github.com/ehrlich-b/tunn --go-grpc_opt=module=github.com/ehrlich-b/tunn proto/metering.proto
 test-ip-policy:
 	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=120s -run '^TestIPPolicy' ./internal/ippolicy ./internal/metering ./internal/store ./internal/host ./internal/client .
+
+# Same diagnostic client against TLS relay, OAuth ledger and real stdio child.
+.PHONY: test-connector-journey
+test-connector-journey:
+	go test $(GO_TEST_FLAGS) -race -count=1 -v -parallel=2 -timeout=120s -run '^(TestConnector|TestMCPCommand|TestParseMCP|TestMCPOAuth|TestProdAuthMCP|TestProdAuthLoopback)' . ./internal/mcpcheck ./internal/host

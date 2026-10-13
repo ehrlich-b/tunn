@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -57,7 +58,7 @@ func TestMCPOAuthStdioHelper(t *testing.T) {
 		case "initialize":
 			result = map[string]any{"protocolVersion": "2025-11-25", "capabilities": map[string]any{"tools": map[string]any{}}, "serverInfo": map[string]string{"name": "stdio-echo", "version": "1"}}
 		case "tools/list":
-			result = map[string]any{"tools": []any{map[string]any{"name": "echo", "inputSchema": map[string]any{"type": "object"}}}}
+			result = map[string]any{"tools": []any{map[string]any{"name": "echo", "inputSchema": map[string]any{"type": "object"}}, map[string]any{"name": "hidden_echo", "inputSchema": map[string]any{"type": "object"}}}}
 		case "tools/call":
 			if request.Params.Name != "echo" {
 				os.Exit(3)
@@ -87,6 +88,11 @@ func newMCPOAuthFixture(t *testing.T) *mcpOAuthFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
+	return newMCPOAuthFixtureWithDB(t, db)
+}
+
+func newMCPOAuthFixtureWithDB(t *testing.T, db *sql.DB) *mcpOAuthFixture {
+	t.Helper()
 	t.Cleanup(func() { _ = db.Close() })
 	ledger, err := metering.New(db)
 	if err != nil {

@@ -3,50 +3,66 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Expose a local MCP server to Claude | tunn</title>
-<meta name="description" content="Publish a local MCP server with tunn, then configure a Claude remote connector with browser consent. Includes CLI commands and prerequisites.">
+<title>Connect MCP to Claude.ai and ChatGPT | tunn</title>
+<meta name="description" content="Publish, diagnose and connect a private MCP endpoint with OAuth consent, exact tool checks and revocation.">
 <link rel="canonical" href="https://tunn.to/mcp-to-claude">
 <meta property="og:type" content="article">
 <meta property="og:site_name" content="tunn">
-<meta property="og:title" content="Expose a local MCP server to Claude">
-<meta property="og:description" content="Publish a local MCP server with tunn, then configure a Claude remote connector with browser consent. Includes CLI commands and prerequisites.">
+<meta property="og:title" content="Connect MCP to Claude.ai and ChatGPT">
+<meta property="og:description" content="Publish, diagnose and connect a private MCP endpoint with OAuth consent, exact tool checks and revocation.">
 <meta property="og:url" content="https://tunn.to/mcp-to-claude">
 <link rel="stylesheet" href="/guides.css">
 </head>
 <body>
 <header class="header"><div class="header-inner"><a class="header-logo" href="/">tunn</a><nav aria-label="Guides"><a href="/ngrok-alternative">ngrok alternative</a><a href="/mcp-to-claude">MCP to Claude</a><a href="/share-dev-server-oauth">OAuth sharing</a></nav></div></header>
-<main><h1>Expose a local MCP server to Claude</h1>
-<p class="lead">Publish your local MCP endpoint, then use its connector URL in Claude.</p>
-<p>Before you start, have tunn installed and a Streamable HTTP MCP server running at <code>http://127.0.0.1:3000/mcp</code>. Use a Claude account with custom connector access; organization accounts may need an owner to add the connector.</p>
-<p class="note">This is a short setup walkthrough, not a measured two-minute guarantee. tunn's OAuth connector flow is covered by local protocol tests. Live Claude interoperability has not been verified for this guide.</p>
-<h2>1. Install and sign in</h2>
-<pre><code>curl -fsSL https://tunn.to/install.sh | sh
-tunn mcp --help
-tunn login</code></pre>
-<p>The help should show a <code>&lt;http-url&gt;</code> input. Complete the browser login prompted by <code>tunn login</code>.</p>
-<h2>2. Publish your local MCP server</h2>
-<pre><code>tunn mcp http://127.0.0.1:3000/mcp</code></pre>
-<p>Use your server's actual port and path if they differ. The CLI prints a <strong>Connector URL</strong> ending in <code>/mcp</code>. Copy that exact URL, including the path. The endpoint is private by default; keep this process and your local server running.</p>
-<p>If your existing server uses stdio instead, launch its executable through tunn:</p>
-<pre><code>tunn mcp -- ./my-mcp-server</code></pre>
-<p>Replace <code>./my-mcp-server</code> with your server's executable and arguments. For a stdio server, <code>--tools</code> restricts which named tools tunn lists and permits callers to invoke:</p>
-<pre><code>tunn mcp --tools read_file,list_directory -- ./my-mcp-server</code></pre>
-<p>Use tool names your server actually provides. This flag applies to stdio servers; it does not filter an HTTP upstream.</p>
-<h2>3. Add the remote connector in Claude</h2>
-<ol>
-<li>Open Claude's <strong>Customize → Connectors</strong> and add a custom connector. For an organization, an owner adds it through organization settings.</li>
-<li>Give it a name and paste the Connector URL printed by tunn.</li>
-<li>Review the detected authentication settings. Use OAuth sign-in and <strong>Register automatically</strong> for the OAuth client; tunn supports dynamic registration of public clients.</li>
-<li>Sign in to tunn in the browser and approve the connector's access to this tunnel.</li>
-<li>Finish adding the connector, then enable it for a conversation from the chat's connectors menu. Ask Claude to use one of your server's tools and check the result.</li>
-</ol>
-<p>These UI steps follow <a href="https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp">Claude's custom connector guide</a>, accessed October 11, 2026. Follow that guide if the UI changes. Claude makes remote connector requests from its cloud infrastructure.</p>
-<h2>Control access and disconnect</h2>
-<p>To let another verified tunn user approve a connector, restart the publisher with their email:</p>
-<pre><code>tunn mcp --allow colleague@example.com http://127.0.0.1:3000/mcp</code></pre>
-<p>At <a href="/account/mcp">Connected MCP clients</a>, the owner can disconnect a client for a tunnel. That revokes its current OAuth tokens and pending authorizations. OAuth tokens expire after one hour; this implementation does not issue refresh tokens, so a client may need to sign in again.</p>
-<h2>If connection fails</h2>
-<p>Check that the local server is running, the publisher is connected, the URL includes <code>/mcp</code>, and you sign in with the owner or an allowed email. HTTP upstreams must already implement MCP. The stdio bridge shares one child process across clients and does not implement stream resumption. See the <a href="https://github.com/ehrlich-b/tunn/blob/110485c8a479572ef6cbaeda8b20d80ccc326ef2/docs/mcp-connectors.md">connector protocol guide</a> for the supported contract.</p></main>
+<main><h1>Connect MCP to Claude.ai and ChatGPT</h1>
+<p class="lead">Publish a private endpoint, check its OAuth flow, then connect your tools.</p>
+<p>You need tunn, a local MCP server and an account that can add custom connectors. Start with the repository's harmless <a href="https://github.com/ehrlich-b/tunn/blob/main/examples/mcp/echo.py">echo example</a>; it returns your message without file or network access.</p>
+<p class="note">Local fixtures exercise discovery, consent, PKCE, tool filtering and revocation. Real Claude.ai and ChatGPT account acceptance remains <strong>REQUIRED-UNRUN</strong>. Account access and labels can change; use the official instructions linked below.</p>
+<h2>1. Publish</h2>
+<pre><code>tunn login
+# From the repository checkout:
+tunn mcp --tools echo -- python3 examples/mcp/echo.py</code></pre>
+<p>Keep this terminal running. Copy its exact <strong>Connector URL</strong>, including <code>/mcp</code>. MCP is private by default. Use <code>--name work-tools</code> to request a stable name and <code>--allow colleague@example.com</code> to let that verified user approve access. Name protection and quotas depend on your plan; see <a href="/pricing">current pricing</a> and <code>tunn usage</code>.</p>
+<p>For your own stdio server, use <code>tunn mcp --tools status,search -- ./my-mcp-server</code> with exact tool names. For an existing Streamable HTTP server:</p>
+<pre><code>tunn mcp http://127.0.0.1:3000/custom-mcp-path</code></pre>
+<p>tunn remaps public <code>/mcp</code> to the supplied HTTP path. <code>--tools</code> filters stdio tools only; HTTP upstreams enforce their own tool permissions.</p>
+<h2>2. Check</h2>
+<p>Replace <code>https://your-name.tunn.to/mcp</code> with the printed URL. The default check verifies HTTPS, the private challenge, the exact resource, OAuth metadata and public-client S256 PKCE without registering a client.</p>
+<pre><code>tunn connector-check https://your-name.tunn.to/mcp</code></pre>
+<p>For the echo example, verify consent, initialization, the exact tool list, an allowed call and a denied call:</p>
+<pre><code>tunn connector-check --oauth --expect-tools echo \
+  --call-tool echo --arguments '{"message":"hello"}' \
+  --deny-tool hidden_echo https://your-name.tunn.to/mcp</code></pre>
+<p>Open the printed browser link on this machine. Sign in as the owner or an allowed user and approve <strong>tunn connector-check</strong> for the named tunnel. Expect PASS for discovery, OAuth, tools and both probes. Tokens stay in memory. <code>--json</code> produces a final structured report; the consent link goes to stderr. The default overall deadline is three minutes; <code>--timeout</code> permits up to ten minutes.</p>
+<p>No tool is called unless explicitly chosen. Both probes must be harmless even if your policy is broken. The denied probe requires tunn's <code>-32001</code> stdio policy error; an arbitrary upstream error does not prove filtering.</p>
+<h2>3. Connect</h2>
+<h3>Claude.ai</h3>
+<p>Open <strong>Customize → Connectors</strong> and add a custom connector with the printed URL. Organization setup may need an owner. Choose OAuth and <strong>Register automatically</strong> if prompted; tunn supports dynamic registration (DCR), not published-client identity. Sign in to tunn, review the client and tunnel, and approve access. Enable the connector for a conversation and ask it to call <code>echo</code> with <code>message=hello</code>; inspect the tool result.</p>
+<p><a href="https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp">Official Claude connector instructions</a>, accessed October 12, 2026.</p>
+<h3>ChatGPT</h3>
+<p>Go to <strong>Plugins → Add custom MCP server</strong>. Enter the printed HTTPS <code>/mcp</code> URL and choose OAuth with dynamic registration when available. Review the risk warning, create the plugin, install it and select it with <code>@</code> in a new chat. Complete tunn consent and request the same echo call. This endpoint requires authentication for initialization and listing too; choose OAuth for the entire connection.</p>
+<p><a href="https://developers.openai.com/plugins/build/app-quickstart">Official OpenAI connection instructions</a> and <a href="https://developers.openai.com/plugins/build/auth">OAuth and DCR requirements</a>, accessed October 12, 2026. If the account cannot select DCR, record that failure; tunn does not implement CIMD or static OAuth client provisioning.</p>
+<h2>4. Revoke</h2>
+<p>Open <a href="/account/mcp">Connected MCP clients</a> on your relay as the owner. Disconnect <strong>tunn connector-check</strong> after diagnosing. Disconnect Claude or ChatGPT to revoke that client's current tokens and pending consent/codes for this tunnel. Try another hosted call: it must fail or require fresh approval. Remove the connector in the hosted client when finished.</p>
+<p>Tokens expire after one hour and there are no refresh tokens; sign in again when required. Rotating a manual endpoint token does not revoke OAuth grants.</p>
+<h2>Diagnose failures</h2>
+<div class="table-scroll" tabindex="0" role="region" aria-label="Connector diagnostics"><table><caption>The check prints a stage, stable error code and corrective action. Remote response bodies and tokens are omitted.</caption><thead><tr><th>Signal</th><th>Next action</th></tr></thead><tbody>
+<tr><td><code>url</code>, <code>local_url</code></td><td>Copy the public printed HTTPS /mcp URL. Hosted clients cannot reach localhost or private addresses.</td></tr>
+<tr><td><code>dns</code>, <code>tls</code>, <code>network</code></td><td>Check DNS, trusted relay certificates, your clock and proxy/firewall connectivity.</td></tr>
+<tr><td><code>public</code>, <code>metadata_challenge</code>, <code>redirect</code></td><td>Publish privately at the exact /mcp URL. Its initial 401 Bearer resource_metadata challenge is expected.</td></tr>
+<tr><td><code>resource</code>, <code>issuer</code>, <code>origin</code>, <code>endpoint</code>, <code>pkce</code></td><td>Self-hosters: correct the relay public origins and OAuth metadata. The exact resource must match throughout; public clients need S256.</td></tr>
+<tr><td>401/403, <code>state</code>, <code>denied</code></td><td>Restart consent with automatic registration; sign in as owner or an allowed verified email and approve the named tunnel.</td></tr>
+<tr><td>429</td><td>Respect Retry-After. Check <code>tunn usage</code> for owner request/byte budgets; registration throttling requires waiting.</td></tr>
+<tr><td>404/405/502</td><td>Keep the publisher and child running. Check the executable, stderr, port and MCP path. Upstreams must support POST; standalone GET/SSE is optional.</td></tr>
+<tr><td>503</td><td>Retry with the publisher connected. Self-hosters: verify authenticated login-node, durable SQLite, JWT signing and shared grant authority configuration.</td></tr>
+<tr><td>504, <code>timeout</code></td><td>Finish consent before the check deadline. Keep stdio calls below 25 seconds; forwarding expires at 27 seconds. Long work should return a job ID.</td></tr>
+<tr><td><code>tools_mismatch</code>, <code>tool_exposed</code>, <code>denial_unproven</code></td><td>Correct exact stdio --tools names; HTTP upstreams enforce their own policy. Unknown-tool errors do not prove denial.</td></tr>
+<tr><td><code>protocol</code>, <code>json</code>, <code>rpc</code>, <code>tool_schema</code>, <code>tool_error</code>, <code>pagination</code></td><td>Check upstream MCP version, framing, metadata, arguments and stderr. Reinitialize after a lost session.</td></tr>
+</tbody></table></div>
+<h2>Protocol limits</h2>
+<p>The stdio bridge serializes calls through one child shared across clients. It supports current MCP versions, JSON and finite SSE POST responses. Standalone GET/SSE, stream resumption, sampling/elicitation and separate child processes per client are unavailable. Browser consent forms expire after ten minutes. Diagnostic responses are capped at 1 MiB and tool listing at 16 pages; large lists should be reduced.</p>
+<p>Self-hosted OAuth requires an authenticated owner account, JWT signing, durable login-node SQLite and a shared grant ledger. Keep normal TLS and authorization checks enabled. For the endpoint contract, see <a href="https://github.com/ehrlich-b/tunn/blob/main/docs/mcp-connectors.md">protocol reference</a>.</p></main>
 <footer><a href="https://github.com/ehrlich-b/tunn">Source and documentation</a> · <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></footer>
 </body>
 </html>

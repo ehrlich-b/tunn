@@ -1,8 +1,10 @@
 package main
 
 import (
+	"encoding/json"
 	"html"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -24,8 +26,20 @@ func TestDistributionCLICommands(t *testing.T) {
 			t.Fatal(err)
 		}
 		for _, block := range blocks.FindAllStringSubmatch(string(data), -1) {
-			for _, line := range strings.Split(html.UnescapeString(block[1]), "\n") {
-				args := strings.Fields(line)
+			// Parse shell quoting and continuations without executing examples.
+			source := strings.ReplaceAll(html.UnescapeString(block[1]), "\\\n", "")
+			for _, line := range strings.Split(source, "\n") {
+				if !strings.HasPrefix(strings.TrimSpace(line), "tunn ") {
+					continue
+				}
+				parsed, err := exec.Command("python3", "-c", "import json,shlex,sys; print(json.dumps(shlex.split(sys.argv[1])))", line).Output()
+				if err != nil {
+					t.Fatalf("%s: invalid shell quoting: %v", file, err)
+				}
+				var args []string
+				if err := json.Unmarshal(parsed, &args); err != nil {
+					t.Fatal(err)
+				}
 				if len(args) < 2 || args[0] != "tunn" {
 					continue
 				}
@@ -33,6 +47,10 @@ func TestDistributionCLICommands(t *testing.T) {
 				case "login":
 					if len(args) != 2 {
 						t.Errorf("unexpected login arguments: %s", line)
+					}
+				case "connector-check":
+					if _, err := parseConnectorCheckFlags(args[2:]); err != nil {
+						t.Errorf("%s: %s: %v", file, line, err)
 					}
 				case "mcp":
 					if len(args) == 3 && args[2] == "--help" {

@@ -65,6 +65,7 @@ Usage:
   tunn serve [options] <target>  Explicit serve mode (same as default)
   tunn http [options] <target>   Shortcut for ngrok-style HTTP usage
   tunn mcp [options] <command…>   Connect a local MCP server to an AI agent
+  tunn connector-check [options] <url>  Diagnose a private MCP connector
   tunn tcp [options] <host:port>  Publish a private raw TCP endpoint
   tunn unix [options] <path>      Publish a private Unix socket
   tunn connect [options] <name>   Open a remote TCP endpoint locally
@@ -131,6 +132,8 @@ Options:
 		runServe(args[1:])
 	case "mcp":
 		runMCP(args[1:])
+	case "connector-check":
+		runConnectorCheck(args[1:])
 	case "tcp":
 		runTCP(args[1:])
 	case "unix":
@@ -243,7 +246,7 @@ Usage:
   tunn mcp [options] <http-url>
 
 Examples:
-  tunn mcp -- npx -y @modelcontextprotocol/server-filesystem .
+  tunn mcp --tools echo -- python3 examples/mcp/echo.py
   tunn mcp --name work -- docker mcp gateway run --profile work
   tunn mcp --name local http://127.0.0.1:3000/mcp
   tunn mcp --public -- ./my-mcp-server
@@ -254,11 +257,18 @@ Options:
   --public                  Explicitly allow unauthenticated access
   --tools <names>           Exact comma-separated tool allow-list (stdio only)
   --tunnel-key <key>        Tunnel creation authorization key
-  --secret <secret>         Self-hosted client authentication secret`)
+  --secret <secret>         Self-hosted client authentication secret
+
+After publishing, run tunn connector-check --oauth --expect-tools echo <Connector-URL>.
+Guide: https://tunn.to/mcp-to-claude`)
 }
 
 func runMCP(args []string) {
 	opts, err := parseMCPFlags(normalizeMCPArgs(args))
+	if errors.Is(err, flag.ErrHelp) {
+		printMCPUsage()
+		return
+	}
 	if err != nil {
 		common.LogError("invalid MCP command", "error", err)
 		printMCPUsage()

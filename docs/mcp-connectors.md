@@ -1,25 +1,27 @@
 # Connect a local MCP server
 
-Give an AI agent scoped, revocable, audited access to your private MCP server.
-The agent needs a remote MCP connector; it does not need tunn installed.
+Follow the canonical [Claude.ai and ChatGPT journey](https://tunn.to/mcp-to-claude)
+for publishing, diagnostic checks and hosted setup. Start with the harmless echo
+example; real hosted-client acceptance remains REQUIRED-UNRUN.
 
 ```sh
 tunn login
-tunn mcp --name my-tools npx -y @modelcontextprotocol/server-filesystem .
+tunn mcp --tools echo -- python3 examples/mcp/echo.py
+tunn connector-check --oauth --expect-tools echo --call-tool echo \
+  --arguments '{"message":"hello"}' --deny-tool hidden_echo <printed-Connector-URL>
 ```
 
-Copy the printed **Connector URL** into your client's remote MCP connector
-settings. In the browser, sign in with tunn's existing email link or configured
-identity provider, then approve “Allow <client> to use <tunnel> tools?” Keep the
-publisher running. Connector availability and UI depend on the client's plan
-and supported features; this implementation has not been tested against live
-Claude.ai or ChatGPT.
+Keep the publisher running. The default `connector-check <URL>` checks discovery
+without OAuth registration. `--oauth` registers a diagnostic public client and
+prints a consent URL for a loopback callback; run it on the desktop where you
+open the link. Tokens are held in memory. `--expect-tools` asserts the exact
+exposed set; calls and denial probes are explicit and must be harmless.
+`--json` emits the final report; consent instructions go to stderr.
 
-Use `--tools read_file,list_directory` before the command to restrict the stdio
-server's tools. `--allow colleague@example.com` lets that verified user consent
-to a connector too. An explicit `--` before the child command is also supported.
-An existing HTTP MCP server can be published with
-`tunn mcp --name my-tools http://127.0.0.1:3000/mcp`.
+`--tools` applies to stdio only. HTTP upstreams enforce their own permissions.
+The stdio call timeout is 25 seconds, with a 27-second forwarding timeout.
+For longer work, return a job ID. Prices and quotas come from [pricing](https://tunn.to/pricing)
+and `tunn usage`; name protection depends on the plan and available reservations.
 
 Visit `https://<relay-domain>/account/mcp` to see connected clients and disconnect
 one on a particular tunnel. Disconnect invalidates its current tokens, pending

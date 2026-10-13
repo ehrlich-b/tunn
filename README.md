@@ -9,7 +9,7 @@ tunn mcp -- ./my-mcp-server         # Private MCP endpoint with OAuth consent
 ```
 
 Copy the printed `/mcp` URL to your cloud client's connector settings. Keep your
-local process running. [Connect to Claude.ai](docs/guides/mcp-to-claude.md),
+local process running. [Connect to Claude.ai and ChatGPT](https://tunn.to/mcp-to-claude),
 [compare with ngrok](https://tunn.to/ngrok-alternative), or see
 [pricing](https://tunn.to/pricing). Hosted pages describe this release after the
 coordinator deploys it; the local guides work from this checkout now.
@@ -19,6 +19,8 @@ month across your account, plus 1 reserved name. Pro: $5/month or $48/year, 25 t
 10,000,000 admissions, 500 GB and 10 reserved names. No automatic overage charges.
 Checkout opens only after billing acceptance; launch activation is reviewed by
 an operator. Existing subscriptions are not repriced by this change.
+
+Current prices and deployment caps appear on [pricing](https://tunn.to/pricing); use `tunn usage` for your account totals.
 
 Share a local app privately with `tunn 8080 --allow=alice@example.com`. Visitors
 sign in with GitHub or an email link. For webhook callbacks, keep the endpoint
@@ -168,8 +170,7 @@ Create prints the consumer token once; only its digest reaches the relay.
 Consumers send `Tunn-Authorization: Bearer <token>`. Request/byte exhaustion
 returns `429`; expiry and revocation return `403`. The durable ledger records
 caller usage and rejected ingress decisions across buffered and streamed HTTP.
-Optional shared monthly owner caps impose tighter account limits. The proposed
-$12/year entry tier is deferred; see [pricing economics](PRICING.md).
+Optional shared monthly owner caps impose tighter account limits. See [current pricing](https://tunn.to/pricing) for available plans.
 See [the usage contract](docs/METERING.md) for units, retention, streaming limit
 trailers, local/self-hosted CLI options, and the boundary between metering and
 billable usage.
@@ -200,7 +201,9 @@ tunn mcp --name work-tools http://127.0.0.1:3000/internal/mcp
 The endpoint is `https://work-tools.tunn.to/mcp`. MCP endpoints are private
 unless you explicitly pass `--public`. Paste the printed connector URL into
 your AI client's remote MCP settings, sign in to tunn, and approve access to
-this tunnel. The client discovers OAuth, registers dynamically and exchanges
+this tunnel. Before adding it, run `tunn connector-check <printed-Connector-URL>`
+for discovery or add `--oauth --expect-tools <exact-tool-names>` to test consent,
+initialization and the tool list. Calls remain opt-in. The client discovers OAuth, registers dynamically and exchanges
 a PKCE authorization code for a one-hour token. Owners can list and disconnect
 clients at `/account/mcp`. See [the connector guide](docs/mcp-connectors.md).
 

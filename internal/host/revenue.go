@@ -90,15 +90,17 @@ func (p *ProxyServer) handleDocs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if r.URL.Path == "/docs/webhook-verification" {
+	if r.URL.Path == "/docs/mcp-to-claude" {
+		if r.Method != http.MethodHead {
+			_, _ = fmt.Fprint(w, mcpToClaudeHTML)
+		}
+		return
+	} else if r.URL.Path == "/docs/webhook-verification" {
 		writePageStart(w, "tunn - Verify webhooks at the edge")
 		_, _ = fmt.Fprint(w, webhookDocsHTML)
 	} else if r.URL.Path == "/docs/ip-restrictions" {
 		writePageStart(w, "tunn - IP restrictions")
 		_, _ = fmt.Fprint(w, ipRestrictionsHTML)
-	} else if r.URL.Path == "/docs/mcp-to-claude" {
-		writePageStart(w, "tunn - Connect local MCP to Claude.ai")
-		_, _ = fmt.Fprint(w, mcpTutorialHTML)
 	} else {
 		writePageStart(w, "tunn - Quickstart")
 		_, _ = fmt.Fprint(w, docsHTML)

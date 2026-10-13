@@ -123,6 +123,7 @@ func startHookStack(t *testing.T, provider string, buffered, private bool, hoste
 		}
 		proxy = securityProxy(local)
 		cfg, server = proxy.config, proxy.tunnelServer
+		cfg.NodeSecret = "cluster-webhook-fixture" // Required authenticated cross-relay provenance.
 		proxy.meter, proxy.planMeter = stack.ledger, true
 		server.sharing = stack.ledger
 	}

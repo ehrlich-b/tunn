@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/ehrlich-b/tunn/internal/config"
-	"github.com/ehrlich-b/tunn/internal/metering"
 	mp "github.com/ehrlich-b/tunn/pkg/proto/meteringv1"
 )
 
@@ -35,8 +34,8 @@ func TestParityIPWebhookAdmission(t *testing.T) {
 					tunnelCache:  map[string]string{"hook": s.relay.Listener.Addr().String()}}
 				body := []byte(" {\n\"raw\":\"café\"}\r\n\x00\xff")
 				for _, remote := range []bool{false, true} {
-					for _, kind := range []string{"denied", "denied-signed", "invalid-signature", "valid", "unsigned-private"} {
-						if kind == "unsigned-private" && !private {
+					for _, kind := range []string{"denied", "denied-signed", "invalid-signature", "valid", "unauthenticated-private"} {
+						if kind == "unauthenticated-private" && !private {
 							continue
 						}
 						t.Run(fmt.Sprintf("remote=%t/%s", remote, kind), func(t *testing.T) {
@@ -45,7 +44,7 @@ func TestParityIPWebhookAdmission(t *testing.T) {
 							r.Header = webhookHeaders("github", body, time.Now().Unix())
 							r.Header.Set("Cookie", "app=keep")
 							r.Header.Set("Authorization", "Bearer application-fixture")
-							if private && kind != "unsigned-private" {
+							if private && kind != "unauthenticated-private" {
 								r.Header.Set("Tunn-Authorization", "Bearer tunn_ep_hook-fixture")
 							}
 							want := http.StatusAccepted
@@ -62,7 +61,7 @@ func TestParityIPWebhookAdmission(t *testing.T) {
 							case "invalid-signature":
 								r.Header.Del("X-Hub-Signature-256")
 								want = http.StatusUnauthorized
-							case "unsigned-private":
+							case "unauthenticated-private":
 								want = http.StatusUnauthorized
 							}
 							before := s.hits.Load()
@@ -84,14 +83,12 @@ func TestParityIPWebhookAdmission(t *testing.T) {
 							} else if s.hits.Load() != before {
 								t.Fatal("denied request reached origin")
 							}
-							if !remote && (want == http.StatusForbidden || kind == "unsigned-private") && reads.Load() != 0 {
+							if !remote && (want == http.StatusForbidden || kind == "unauthenticated-private") && reads.Load() != 0 {
 								t.Fatal("policy/auth denial consumed the webhook body")
 							}
 						})
 					}
 				}
-				// Keep the real authority seam present: no permissive replacement.
-				var _ metering.IPPolicyBackend = s.ledger
 			})
 		}
 	}

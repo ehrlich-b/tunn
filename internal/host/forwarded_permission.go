@@ -169,6 +169,11 @@ func (p *ProxyServer) watchForwardedPermission(w http.ResponseWriter, r *http.Re
 				w.Header().Set("Tunn-Request-ID", initial.RequestId)
 			}
 		}
+		if code == http.StatusServiceUnavailable {
+			p.cacheMu.Lock()
+			delete(p.tunnelCache, tunnelID)
+			p.cacheMu.Unlock()
+		}
 		http.Error(w, "Endpoint permission unavailable", code)
 		return r, w, func() {}, false
 	}

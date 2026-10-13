@@ -721,3 +721,6 @@ python-wheel: build-python-helper
 .PHONY: test-all-features
 test-all-features:
 	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=120s -run '^TestAll' ./internal/host
+.PHONY: test-forwarded-permission
+test-forwarded-permission:
+	go test -race -v -count=1 -timeout=90s -run '^TestForwardedPermission' ./internal/host

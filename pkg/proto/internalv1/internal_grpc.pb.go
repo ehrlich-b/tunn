@@ -19,14 +19,16 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	InternalService_FindTunnel_FullMethodName  = "/internal.InternalService/FindTunnel"
-	InternalService_GetNodeInfo_FullMethodName = "/internal.InternalService/GetNodeInfo"
+	InternalService_CheckForwardedPermission_FullMethodName = "/internal.InternalService/CheckForwardedPermission"
+	InternalService_FindTunnel_FullMethodName               = "/internal.InternalService/FindTunnel"
+	InternalService_GetNodeInfo_FullMethodName              = "/internal.InternalService/GetNodeInfo"
 )
 
 // InternalServiceClient is the client API for InternalService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type InternalServiceClient interface {
+	CheckForwardedPermission(ctx context.Context, in *ForwardedPermissionRequest, opts ...grpc.CallOption) (*ForwardedPermissionResponse, error)
 	FindTunnel(ctx context.Context, in *FindTunnelRequest, opts ...grpc.CallOption) (*FindTunnelResponse, error)
 	GetNodeInfo(ctx context.Context, in *NodeInfoRequest, opts ...grpc.CallOption) (*NodeInfoResponse, error)
 }
@@ -37,6 +39,16 @@ type internalServiceClient struct {
 
 func NewInternalServiceClient(cc grpc.ClientConnInterface) InternalServiceClient {
 	return &internalServiceClient{cc}
+}
+
+func (c *internalServiceClient) CheckForwardedPermission(ctx context.Context, in *ForwardedPermissionRequest, opts ...grpc.CallOption) (*ForwardedPermissionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ForwardedPermissionResponse)
+	err := c.cc.Invoke(ctx, InternalService_CheckForwardedPermission_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *internalServiceClient) FindTunnel(ctx context.Context, in *FindTunnelRequest, opts ...grpc.CallOption) (*FindTunnelResponse, error) {
@@ -63,6 +75,7 @@ func (c *internalServiceClient) GetNodeInfo(ctx context.Context, in *NodeInfoReq
 // All implementations must embed UnimplementedInternalServiceServer
 // for forward compatibility.
 type InternalServiceServer interface {
+	CheckForwardedPermission(context.Context, *ForwardedPermissionRequest) (*ForwardedPermissionResponse, error)
 	FindTunnel(context.Context, *FindTunnelRequest) (*FindTunnelResponse, error)
 	GetNodeInfo(context.Context, *NodeInfoRequest) (*NodeInfoResponse, error)
 	mustEmbedUnimplementedInternalServiceServer()
@@ -75,6 +88,9 @@ type InternalServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedInternalServiceServer struct{}
 
+func (UnimplementedInternalServiceServer) CheckForwardedPermission(context.Context, *ForwardedPermissionRequest) (*ForwardedPermissionResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CheckForwardedPermission not implemented")
+}
 func (UnimplementedInternalServiceServer) FindTunnel(context.Context, *FindTunnelRequest) (*FindTunnelResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method FindTunnel not implemented")
 }
@@ -100,6 +116,24 @@ func RegisterInternalServiceServer(s grpc.ServiceRegistrar, srv InternalServiceS
 		t.testEmbeddedByValue()
 	}
 	s.RegisterService(&InternalService_ServiceDesc, srv)
+}
+
+func _InternalService_CheckForwardedPermission_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ForwardedPermissionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InternalServiceServer).CheckForwardedPermission(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InternalService_CheckForwardedPermission_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InternalServiceServer).CheckForwardedPermission(ctx, req.(*ForwardedPermissionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _InternalService_FindTunnel_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -145,6 +179,10 @@ var InternalService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "internal.InternalService",
 	HandlerType: (*InternalServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "CheckForwardedPermission",
+			Handler:    _InternalService_CheckForwardedPermission_Handler,
+		},
 		{
 			MethodName: "FindTunnel",
 			Handler:    _InternalService_FindTunnel_Handler,

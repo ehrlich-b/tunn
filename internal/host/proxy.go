@@ -343,6 +343,8 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 		}
 	}
 
+	internalServer.proxy = proxy
+
 	// Discover and connect to other nodes in the mesh
 	nodeAddresses := discoverNodes(cfg)
 	for _, addr := range nodeAddresses {

@@ -79,6 +79,9 @@ func (p *ProxyServer) proxyStreamingHTTPOverGRPC(w http.ResponseWriter, r *http.
 			ContentLength: r.ContentLength,
 		},
 	}
+	if _, replay := r.Context().Value(inspectorReplayKey{}).(*inspectorReplay); replay {
+		open.Protocol = common.HTTPOriginReplayProtocol
+	}
 	if err := tunnel.SendMessage(&pb.TunnelMessage{
 		Message: &pb.TunnelMessage_ConnectionOpen{ConnectionOpen: open},
 	}); err != nil {

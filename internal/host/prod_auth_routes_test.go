@@ -78,6 +78,14 @@ var prodAuthRoutes = []prodAuthRoute{
 	{"GET", "/auth/verify", "/auth/verify", "", [11]int{400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400}},
 	{"GET", "/auth/logout", "/auth/logout", "", [11]int{302, 302, 302, 302, 200, 200, 302, 302, 302, 302, 302}},
 	{"POST", "/auth/logout", "/auth/logout", "csrf", [11]int{403, 403, 403, 403, 302, 302, 403, 403, 403, 403, 403}},
+	// The owner cookie is UUID-bound; the other cookie is legacy. Inspector
+	// writes below omit the session-bound CSRF proof and must be rejected.
+	{"GET", "/account/inspect", "/account/inspect", "", [11]int{401, 401, 401, 401, 200, 401, 401, 401, 401, 401, 401}},
+	{"GET", "/api/inspector/endpoints", "/api/inspector/", "", [11]int{401, 401, 401, 401, 200, 401, 401, 401, 401, 401, 401}},
+	{"GET", "/api/inspector/tools/requests", "/api/inspector/", "", [11]int{401, 401, 401, 401, 200, 401, 401, 401, 401, 401, 401}},
+	{"GET", "/api/inspector/tools/requests/1", "/api/inspector/", "", [11]int{401, 401, 401, 401, 404, 401, 401, 401, 401, 401, 401}},
+	{"POST", "/api/inspector/tools/requests/1/prepare", "/api/inspector/", "{}", [11]int{401, 401, 401, 401, 403, 401, 401, 401, 401, 401, 401}},
+	{"POST", "/api/inspector/tools/requests/1/replay", "/api/inspector/", "{}", [11]int{401, 401, 401, 401, 403, 401, 401, 401, 401, 401, 401}},
 	{"GET", "/account", "/account", "", [11]int{302, 302, 302, 302, 200, 200, 302, 302, 302, 302, 302}},
 	{"GET", "/account/devices", "/account/devices", "", [11]int{302, 302, 302, 302, 200, 200, 302, 302, 302, 302, 302}},
 	{"POST", "/account/devices", "/account/devices", "csrf", [11]int{302, 302, 302, 302, 404, 404, 302, 302, 302, 302, 302}},

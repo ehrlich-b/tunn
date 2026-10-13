@@ -10,51 +10,26 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/url"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	_ "embed"
+
+	"github.com/ehrlich-b/tunn/internal/inspection"
 )
 
 const (
-	inspectBodyLimit     = 64 * 1024
-	inspectEventLimit    = 50
-	inspectMetadataLimit = 16 * 1024
+	inspectBodyLimit     = inspection.BodyLimit
+	inspectEventLimit    = inspection.EventLimit
+	inspectMetadataLimit = inspection.MetadataLimit
 	inspectResponseLimit = 1024 * 1024
-	redacted             = "[redacted]"
+	redacted             = inspection.Redacted
 )
 
-// InspectionEvent contains bounded, process-local debugging data. Body is only
-// retained when explicitly enabled; arbitrary application payloads may be secret.
-type InspectionEvent struct {
-	ID                uint64            `json:"id"`
-	At                time.Time         `json:"at"`
-	ConnectionID      string            `json:"connection_id"`
-	Protocol          string            `json:"protocol"`
-	Method            string            `json:"method"`
-	Path              string            `json:"path"`
-	Headers           map[string]string `json:"headers"`
-	Body              []byte            `json:"body,omitempty"`
-	BodyCaptured      bool              `json:"body_captured"`
-	BodyComplete      bool              `json:"body_complete"`
-	QueryRedacted     bool              `json:"query_redacted"`
-	RedactedHeaders   []string          `json:"redacted_headers,omitempty"`
-	MetadataTruncated bool              `json:"metadata_truncated"`
-	RequestBytes      int64             `json:"request_bytes"`
-	ResponseBytes     int64             `json:"response_bytes"`
-	Status            int               `json:"status"`
-	DurationMS        int64             `json:"duration_ms"`
-	TerminalReason    string            `json:"terminal_reason"`
-	Error             string            `json:"error,omitempty"`
-	Truncated         bool              `json:"truncated"`
-	Replayable        bool              `json:"replayable"`
-	Reconstructable   bool              `json:"reconstructable"`
-	ReplayOf          uint64            `json:"replay_of,omitempty"`
-}
+// InspectionEvent is shared with the dashboard's metadata-only snapshots.
+type InspectionEvent = inspection.Event
 
 // InspectionMetrics has fixed keys, with no account, path, or credential labels.
 // These observe publisher admissions; ingress denials stay in the relay ledger.
@@ -136,50 +111,9 @@ func (i *Inspector) StartInspector(ctx context.Context) (string, error) {
 // headers, signatures, credentials, cookies and forwarding identities redact.
 // Platform credentials stay out of inspection even when an application echoes
 // one in otherwise visible metadata or an explicitly captured body.
-func inspectionCredential(value string) bool {
-	for _, prefix := range []string{"tunn_mcp_", "tunn_ep_", "tunn_gr_", "tunn_sk_"} {
-		if strings.Contains(value, prefix) {
-			return true
-		}
-	}
-	return false
-}
-
-func safeInspectionHeader(key string) bool {
-	switch http.CanonicalHeaderKey(key) {
-	case "Accept", "Accept-Encoding", "Content-Type", "Content-Length", "Host":
-		return true
-	}
-	return false
-}
-
-func inspectionPath(path string) (string, bool, bool) {
-	u, err := url.ParseRequestURI(path)
-	if err != nil || inspectionCredential(path) || !strings.HasPrefix(path, "/") || strings.HasPrefix(path, "//") || u.IsAbs() || u.Fragment != "" || len(path) > 2048 {
-		return "[unavailable path]", true, true
-	}
-	if u.RawQuery == "" {
-		return path, false, false
-	}
-	query, err := url.ParseQuery(u.RawQuery)
-	if err != nil {
-		return u.EscapedPath() + "?[unavailable query]", true, true
-	}
-	for key, values := range query {
-		if len(key) > 128 {
-			return u.EscapedPath() + "?[unavailable query]", true, true
-		}
-		for j := range values {
-			values[j] = redacted
-		}
-		query[key] = values
-	}
-	clean := u.EscapedPath() + "?" + query.Encode()
-	if len(clean) > inspectMetadataLimit {
-		return u.EscapedPath() + "?[unavailable query]", true, true
-	}
-	return clean, true, false
-}
+func inspectionCredential(value string) bool          { return inspection.Credential(value) }
+func safeInspectionHeader(key string) bool            { return inspection.SafeHeader(key) }
+func inspectionPath(path string) (string, bool, bool) { return inspection.Path(path) }
 
 func (i *Inspector) begin(method, path string, headers map[string]string) *inspectionCapture {
 	return i.beginConnection("", "http", method, path, headers)
@@ -203,62 +137,13 @@ func (i *Inspector) beginConnection(id, protocol, method, path string, headers m
 			}
 		}
 	}
-	path, queryRedacted, truncated := inspectionPath(path)
-	if len(id) > 128 || inspectionCredential(id) {
-		id = "[unavailable]"
-	}
-	if len(method) > 32 || inspectionCredential(method) {
-		method = "[unavailable]"
-		truncated = true
-	}
-	keys := make([]string, 0, min(len(headers), 64))
-	if len(headers) > 64 {
-		truncated = true
-	}
-	for key := range headers {
-		if len(keys) == 64 {
-			break
-		}
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	clean := make(map[string]string)
-	var removed []string
-	budget := len(path)
-	for _, key := range keys {
-		canonical := strings.Clone(http.CanonicalHeaderKey(key))
-		value := headers[key]
-		if len(key) > 128 || inspectionCredential(key) {
-			truncated = true
-			continue
-		}
-		if !safeInspectionHeader(key) || inspectionCredential(value) {
-			value = redacted
-			removed = append(removed, canonical)
-		}
-		budget += len(canonical) + len(value)
-		if len(key) > 128 || len(value) > 1024 || len(clean) >= 64 || budget > inspectMetadataLimit {
-			truncated = true
-			continue
-		}
-		if _, duplicate := clean[canonical]; duplicate {
-			truncated = true
-		}
-		clean[canonical] = strings.Clone(value)
-	}
-	if len(removed) > 64 {
-		removed = removed[:64]
-		truncated = true
-	}
+	event := inspection.Metadata(id, method, path, headers)
+	event.At, event.Protocol = time.Now(), strings.Clone(protocol)
+	event.BodyCaptured = i.captureBody && protocol == "http"
 	i.mu.Lock()
 	i.metrics.ActiveStreams++
 	i.mu.Unlock()
-	return &inspectionCapture{inspector: i, expectedBytes: -1, event: InspectionEvent{
-		At: time.Now(), ConnectionID: strings.Clone(id), Protocol: strings.Clone(protocol),
-		Method: strings.Clone(method), Path: strings.Clone(path), Headers: clean,
-		QueryRedacted: queryRedacted, RedactedHeaders: removed, MetadataTruncated: truncated,
-		BodyCaptured: i.captureBody && protocol == "http",
-	}}
+	return &inspectionCapture{inspector: i, expectedBytes: -1, event: event}
 }
 
 type inspectionCapture struct {
@@ -489,70 +374,7 @@ type inspectionReplayInput struct {
 }
 
 func reconstruction(original InspectionEvent, input inspectionReplayInput) (string, map[string]string, []byte, error) {
-	path, headers, body := original.Path, original.Headers, original.Body
-	if original.QueryRedacted {
-		if input.Path == nil {
-			return "", nil, nil, errors.New("reconstruct the request query explicitly")
-		}
-		clean, masked, bad := inspectionPath(*input.Path)
-		if bad || !masked || clean != original.Path || strings.Contains(*input.Path, redacted) || strings.Contains(*input.Path, url.QueryEscape(redacted)) {
-			return "", nil, nil, errors.New("reconstruction must preserve the original path and query fields")
-		}
-		query, _ := url.ParseQuery(strings.SplitN(*input.Path, "?", 2)[1])
-		for _, values := range query {
-			for _, value := range values {
-				if strings.Contains(value, redacted) || inspectionCredential(value) {
-					return "", nil, nil, errors.New("reconstruct every redacted query value")
-				}
-			}
-		}
-		path = *input.Path
-	} else if input.Path != nil && *input.Path != original.Path {
-		return "", nil, nil, errors.New("request path cannot change")
-	}
-	if len(original.RedactedHeaders) > 0 && input.Headers == nil {
-		return "", nil, nil, errors.New("reconstruct redacted headers explicitly")
-	}
-	if input.Headers != nil {
-		headers = make(map[string]string, len(input.Headers))
-		for key, value := range input.Headers {
-			canonical := http.CanonicalHeaderKey(key)
-			if _, exists := headers[canonical]; exists {
-				return "", nil, nil, errors.New("duplicate reconstructed header")
-			}
-			if _, exists := original.Headers[canonical]; !exists || strings.Contains(value, redacted) || strings.ContainsAny(value, "\r\n") || inspectionCredential(value) || len(value) > 1024 {
-				return "", nil, nil, errors.New("invalid reconstructed header")
-			}
-			headers[canonical] = value
-		}
-		if len(headers) != len(original.Headers) {
-			return "", nil, nil, errors.New("reconstruct every original header")
-		}
-		for key, value := range original.Headers {
-			if safeInspectionHeader(key) && headers[key] != value {
-				return "", nil, nil, errors.New("captured representation headers cannot change")
-			}
-		}
-	}
-	if !original.BodyCaptured && original.RequestBytes > 0 && input.Body == nil {
-		return "", nil, nil, errors.New("reconstruct the unavailable request body explicitly")
-	}
-	if input.Body != nil {
-		body = *input.Body
-	}
-	if input.Body != nil && !original.BodyCaptured && int64(len(body)) != original.RequestBytes {
-		return "", nil, nil, errors.New("reconstructed body must match the observed byte count")
-	}
-	if inspectionCredential(string(body)) {
-		return "", nil, nil, errors.New("platform credentials cannot be replayed to the application")
-	}
-	if len(body) > inspectBodyLimit {
-		return "", nil, nil, errors.New("reconstructed body exceeds 64 KiB")
-	}
-	if original.BodyCaptured && input.Body != nil && string(body) != string(original.Body) {
-		return "", nil, nil, errors.New("captured body cannot change")
-	}
-	return path, headers, body, nil
+	return inspection.Reconstruct(original, inspection.Request{Path: input.Path, Headers: input.Headers, Body: input.Body})
 }
 func (i *Inspector) replay(ctx context.Context, id uint64, input inspectionReplayInput) (InspectionEvent, error) {
 	if ctx.Err() != nil {

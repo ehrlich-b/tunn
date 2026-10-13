@@ -334,6 +334,7 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 					common.CapabilityConnectionStreamV1,
 					common.CapabilityWebSocketV1,
 					common.CapabilityHTTPResponseTrailersV1,
+					common.CapabilityHTTPOriginReplayV1,
 					deviceReauthCapability,
 				},
 				EndpointProtocol: s.EndpointProtocol,

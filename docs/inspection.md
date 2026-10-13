@@ -4,7 +4,9 @@ Start an HTTP publisher with `tunn 8080 --inspect`. Open the printed literal
 loopback URL in a local browser. Its fragment is a process-specific API secret;
 keep that URL private. The viewer checks the exact Host and API secret, rejects
 foreign Origins, disables caching and renders captured fields with `textContent`.
-There is no cloud inspector or disk history. Stopping tunn clears the session.
+There is no disk history. Stopping tunn clears the local session. The
+[owner-only web dashboard](#web-dashboard) observes HTTP traffic at the relay
+with the same metadata redaction policy and never retains bodies.
 
 The default retains metadata, not bodies. Credential/cookie/signature/custom
 header values are replaced by `[redacted]`. Only Accept, Accept-Encoding,
@@ -125,3 +127,79 @@ with a secret does not isolate the inspector from another process running as
 the same local user.
 
 Platform credentials (`tunn_mcp_`, `tunn_ep_`, `tunn_gr_`, and `tunn_sk_`) are also masked in visible metadata. Bodies containing those credentials are omitted even with body capture enabled, and replay reconstruction rejects them before contacting the application.
+
+## Web dashboard
+
+Sign in to your verified account, open **Account → Request inspector**, and
+choose an HTTP endpoint. Metadata history works with existing publishers and needs no inspector flag.
+Replay requires a publisher advertising `http-origin-replay-v1` and streamed HTTP
+support. Upgrade and reconnect older publishers to enable replay; the dashboard
+keeps their history readable and explains why their replay button is disabled. The dashboard shows the last 50 completed
+HTTP deliveries for each live publisher connection. SSE deliveries appear after
+they terminate and cannot replay. Open streams, WebSockets and TCP are excluded.
+
+Only the endpoint's account owner can inspect or replay. Sharing an endpoint,
+knowing its URL, or holding an endpoint/grant/device credential does not confer
+inspection access. Browser sessions are bound to a verified account UUID;
+legacy email-only sessions must sign in again. Every operation resolves current
+account ownership and active status. Cloud history remains in relay memory,
+clears on publisher disconnect/reconnect or relay restart, and is never written
+to the usage ledger or a database. On a cluster, the dashboard routes to the
+publisher's relay and that relay rechecks the owner.
+
+The web inspector never captures request or response bodies, even when a local
+publisher enables `--inspect-body`. It shares the local allow-list for retained
+header values, query-value redaction and bounded metadata/reconstruction policy.
+The displayed headers are incoming application headers after normal credential
+sanitation; relay-generated forwarding and identity fields are omitted. Byte
+counts describe consumed HTTP request bytes and delivered response bytes at the
+relay. They are observations, not a replacement billing ledger. Authentication
+or admission denials are available in usage audits, rather than request history.
+
+Select a complete request and press **Prepare replay**. Restore every redacted
+query value and the full original header object. For a nonempty body, supply the
+complete original payload as UTF-8 text or base64, with its observed byte count.
+The dashboard has no hidden payload or credential copy. Method, path/query
+fields, standard representation headers and endpoint remain fixed. Requests
+with incomplete metadata/uploads, forwarding failures or bodies above 64 KiB
+cannot replay. A complete HTTP error response, such as 500, can replay after the
+handler is fixed.
+
+Check the confirmation checkbox, then press **Replay once to origin**. A replay
+intent expires after 60 seconds, is bound to this browser session and publisher
+connection, and dispatches at most once. Every dispatch follows the ordinary
+relay routing, account/resource permission checks, ingress request/byte quotas,
+bandwidth limits and platform credential stripping. Domain apps obtain a fresh
+identity assertion through the same domain ownership/permission checks. The
+publisher uses its configured origin; there is no target URL editor. The negotiated `http-replay` mode never
+follows an origin redirect; ordinary publisher requests retain their existing
+redirect behavior. A replay result appears as another request with the original ID.
+Origin response content is discarded. Replay has a 30-second deadline and a
+1 MiB delivered response limit, including if the handler changes to an SSE stream.
+
+Cancel closes the reconstruction form or aborts a pending replay. It cannot undo
+an origin side effect. A timeout/network error is ambiguous: inspect history and
+the handler before preparing another action. There is no automatic replay retry.
+Refreshing the history is manual. If the session-bound CSRF proof expires after
+10 minutes, reload the page before preparing another action. Reconstruction
+fields are cleared when the dialog closes and never saved to browser storage.
+
+Validate the policy/API/ingress contracts with `make -j1 test-web-inspector`.
+For a browser journey against a real disposable TLS relay, gRPC publisher and
+HTTP origin, use an already installed Playwright module:
+
+```sh
+TUNN_INSPECT_PLAYWRIGHT_MODULE=/path/to/node_modules/playwright \
+  make -j1 test-web-inspector-browser
+```
+
+The runner substitutes the external Google consent/token provider. It acquires
+normal verified fixture-account browser cookies, exercises owner isolation,
+empty views, redaction, explicit confirmation, double-click protection,
+real origin replay and responsive layout. The browser offline-view check injects
+one API 503 response; actual cross-node/offline routing is tested by the API
+contracts. The runner writes screenshots at 1440×900
+and 390×844 under `.scratch/web-inspector/`. Set `TUNN_INSPECT_EVIDENCE` to an
+alternate local output directory. No dependency downloads or hosted account
+changes occur. This is local acceptance evidence; hosted deployment, real user
+login and production cluster behavior still require operator acceptance.

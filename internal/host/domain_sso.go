@@ -301,7 +301,7 @@ func (p *ProxyServer) watchAppPermission(r *http.Request, tunnel *TunnelConnecti
 					valid := p.recheckAppDevice(check, r, tunnel, auth)
 					stop()
 					if !valid {
-						cancel()
+						cancel(&webPermissionError{"app_permission_revoked_or_unavailable"})
 						_ = r.Body.Close()
 						return
 					}

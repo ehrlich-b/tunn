@@ -245,9 +245,9 @@ func (s *LocalStorage) RegisterTunnel(ctx context.Context, tunnelID, accountID, 
 		}, nil
 	}
 
-	// Preserve Pro auto-claiming on replicas as well as the login node.
+	// Auto-claim within each plan allowance on replicas and the login node.
 	// A full reservation allowance still permits an unreserved active name.
-	if owner == "" && acc.Plan == "pro" {
+	if owner == "" {
 		_ = s.accounts.ReserveSubdomain(accountID, tunnelID)
 		owner, err = s.accounts.GetSubdomainOwner(tunnelID)
 		if err != nil {

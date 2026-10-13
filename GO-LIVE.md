@@ -7,7 +7,7 @@ approval under BRIEF.md. It is not authorization to run them now.
 
 ## Approval packet and launch condition
 
-Approve the reviewed code; Free and Pro **$6/month / $60/year**; Stripe objects
+Approve the reviewed code; Free and Pro **$5/month / $48/year**; Stripe objects
 below; iad launch economics; a staffed beta activation/cancellation queue;
 CLI publication; and the specific DRAFT submissions/posts in DISTRIBUTION.md.
 Separately resolve the missing full license text and native Homebrew validation.
@@ -136,9 +136,9 @@ host with its own signing secret. The live values are:
 
 | Object | Exact settings |
 | --- | --- |
-| Product | `tunn Pro`; description: 10 concurrent tunnels, 4 reserved tunn.to names, 50 GB combined metered bytes and 1m monthly admissions; hard stop, no automatic overage |
-| Monthly Price | USD, recurring licensed, unit_amount `600`, interval `month`, interval_count `1`, lookup_key `tunn_pro_monthly_v1` |
-| Annual Price | USD, recurring licensed, unit_amount `6000`, interval `year`, interval_count `1`, lookup_key `tunn_pro_yearly_v1` |
+| Product | `tunn Pro`; description: 25 concurrent tunnels, 10 reserved tunn.to names, 500 GB combined metered bytes and 10m monthly admissions; hard stop, no automatic overage |
+| Monthly Price | USD, recurring licensed, unit_amount `500`, interval `month`, interval_count `1`, lookup_key `tunn_pro_monthly_v1` |
+| Annual Price | USD, recurring licensed, unit_amount `4800`, interval `year`, interval_count `1`, lookup_key `tunn_pro_yearly_v1` |
 | Payment Link, each Price | One line item, quantity `1`, adjustable quantity disabled, no trial/upsell; subscription checkout; after_completion redirect URL `https://tunn.to/account?billing=return` |
 | Webhook endpoint | `https://tunn.to/webhooks/stripe`; events `checkout.session.completed`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted` |
 | Customer portal | Payment-method management and cancellation at period end; no arbitrary product/price switching; return URL `https://tunn.to/account` |
@@ -158,8 +158,8 @@ TUNN_STRIPE_WEBHOOK_SECRET=<environment-specific whsec_ secret>
 TUNN_STRIPE_CHECKOUT_URL_MONTHLY=<returned https://buy.stripe.com/... URL>
 TUNN_STRIPE_CHECKOUT_URL_YEARLY=<returned https://buy.stripe.com/... URL>
 TUNN_STRIPE_PORTAL_URL=<verified https://billing.stripe.com/... login URL, or empty>
-TUNN_PRO_MONTHLY_USD=6
-TUNN_PRO_YEARLY_USD=60
+TUNN_PRO_MONTHLY_USD=5
+TUNN_PRO_YEARLY_USD=48
 TUNN_BILLING_ENABLED=false
 ```
 

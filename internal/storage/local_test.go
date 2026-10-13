@@ -41,7 +41,7 @@ func TestRegisterTunnelFreeLimit(t *testing.T) {
 	ctx := context.Background()
 
 	// 1. Register up to the free limit.
-	expected := []int32{1, 2, 3}
+	expected := []int32{1, 2, 3, 4, 5}
 	for i, want := range expected {
 		tunnelID := "free-tunnel-" + string(rune('a'+i))
 		reg, err := ls.RegisterTunnel(ctx, tunnelID, accountID, "localhost")
@@ -59,16 +59,16 @@ func TestRegisterTunnelFreeLimit(t *testing.T) {
 		}
 	}
 
-	// 2. The 4th registration for the same account is rejected.
-	reg := registerTunnel(t, ls, "free-tunnel-d", accountID)
+	// 2. The 6th registration for the same account is rejected.
+	reg := registerTunnel(t, ls, "free-tunnel-f", accountID)
 	if reg.Allowed {
-		t.Error("expected 4th registration to be rejected")
+		t.Error("expected 6th registration to be rejected")
 	}
 	if reg.Reason != "tunnel limit reached" {
 		t.Errorf("Reason = %q, want %q", reg.Reason, "tunnel limit reached")
 	}
-	if reg.CurrentCount != 3 {
-		t.Errorf("CurrentCount = %d, want 3", reg.CurrentCount)
+	if reg.CurrentCount != FreeTunnelLimit {
+		t.Errorf("CurrentCount = %d, want %d", reg.CurrentCount, FreeTunnelLimit)
 	}
 	if reg.MaxAllowed != FreeTunnelLimit {
 		t.Errorf("MaxAllowed = %d, want %d", reg.MaxAllowed, FreeTunnelLimit)
@@ -95,8 +95,8 @@ func TestRegisterTunnelDuplicateID(t *testing.T) {
 	if dup.Allowed {
 		t.Error("expected duplicate tunnel ID to be rejected")
 	}
-	if dup.Reason != "tunnel ID already in use" {
-		t.Errorf("Reason = %q, want %q", dup.Reason, "tunnel ID already in use")
+	if dup.Reason != "subdomain is reserved by another user" {
+		t.Errorf("Reason = %q, want %q", dup.Reason, "subdomain is reserved by another user")
 	}
 	// The duplicate path should not populate these fields.
 	if dup.CurrentCount != 0 {

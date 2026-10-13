@@ -353,7 +353,17 @@ func getAccountEmailsContext(ctx context.Context, q interface {
 }
 
 // MaxReservedSubdomains is the maximum number of reserved subdomains per Pro account
-const MaxReservedSubdomains = 4
+const MaxReservedSubdomains = 10
+
+// FreeReservedSubdomains is the Free account reservation allowance.
+const FreeReservedSubdomains = 1
+
+func ReservedSubdomainLimit(plan string) int {
+	if plan == "pro" {
+		return MaxReservedSubdomains
+	}
+	return FreeReservedSubdomains
+}
 
 // ReservedSubdomain represents a subdomain reserved by an account
 type ReservedSubdomain struct {
@@ -362,10 +372,9 @@ type ReservedSubdomain struct {
 	CreatedAt time.Time
 }
 
-// ReserveSubdomain reserves a subdomain for an account (Pro feature)
+// ReserveSubdomain reserves a subdomain within the account plan allowance.
 // Returns an error if:
-// - Account is not Pro
-// - Account already has 4 reserved subdomains
+// - Account has reached its plan reservation allowance
 // - Subdomain is already reserved by another account
 func (s *AccountStore) ReserveSubdomain(accountID, subdomain string) error {
 	subdomain = strings.ToLower(strings.TrimSpace(subdomain))
@@ -383,21 +392,37 @@ func (s *AccountStore) ReserveSubdomain(accountID, subdomain string) error {
 	}
 	accountID = status.AccountID
 
-	// Check if account is Pro
+	// Read the effective account plan
 	var plan string
 	plan, _, err = billingAccountState(context.Background(), tx, accountID)
 	if err != nil {
 		return err
 	}
-	if plan != "pro" {
-		return fmt.Errorf("subdomain reservations require a Pro plan")
-	}
+	limit := ReservedSubdomainLimit(plan)
 	// Retrying an owned reservation consumes no additional allowance, even
 	// when the account has reached its limit.
 	var existingAccountID string
 	err = tx.QueryRow("SELECT account_id FROM reserved_subdomains WHERE subdomain = ?", subdomain).Scan(&existingAccountID)
 	if err == nil {
 		if existingAccountID == accountID {
+			if plan == "free" {
+				var claimed bool
+				if err := tx.QueryRow("SELECT EXISTS(SELECT 1 FROM free_reservation_claims WHERE subdomain=?)", subdomain).Scan(&claimed); err != nil {
+					return err
+				}
+				if !claimed {
+					var count int
+					if err := tx.QueryRow("SELECT COUNT(*) FROM reserved_subdomains WHERE account_id=?", accountID).Scan(&count); err != nil {
+						return err
+					}
+					if count > limit {
+						return fmt.Errorf("maximum of %d reserved subdomains reached", limit)
+					}
+					if _, err := tx.Exec("INSERT INTO free_reservation_claims VALUES(?)", subdomain); err != nil {
+						return err
+					}
+				}
+			}
 			return tx.Commit()
 		}
 		return fmt.Errorf("subdomain '%s' is already reserved by another user", subdomain)
@@ -412,8 +437,8 @@ func (s *AccountStore) ReserveSubdomain(accountID, subdomain string) error {
 	if err != nil {
 		return err
 	}
-	if count >= MaxReservedSubdomains {
-		return fmt.Errorf("maximum of %d reserved subdomains reached", MaxReservedSubdomains)
+	if count >= limit {
+		return fmt.Errorf("maximum of %d reserved subdomains reached", limit)
 	}
 
 	// Try to insert (will fail if already exists)
@@ -425,6 +450,11 @@ func (s *AccountStore) ReserveSubdomain(accountID, subdomain string) error {
 		return err
 	}
 
+	if plan == "free" {
+		if _, err := tx.Exec("INSERT INTO free_reservation_claims VALUES(?)", subdomain); err != nil {
+			return err
+		}
+	}
 	return tx.Commit()
 }
 
@@ -444,8 +474,23 @@ func (s *AccountStore) GetSubdomainOwner(subdomain string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if plan != "pro" {
+	// A forged/stale Pro cache must not retain paid reservations without a
+	// verified entitlement. Genuine Free reservations use the Free cache.
+	var cachedPlan string
+	if err := s.db.QueryRow("SELECT plan FROM accounts WHERE id=?", accountID).Scan(&cachedPlan); err != nil {
+		return "", err
+	}
+	if plan == "free" && cachedPlan != "free" {
 		return "", nil
+	}
+	if plan == "free" {
+		var claimed bool
+		if err := s.db.QueryRow("SELECT EXISTS(SELECT 1 FROM free_reservation_claims WHERE subdomain=?)", subdomain).Scan(&claimed); err != nil {
+			return "", err
+		}
+		if !claimed {
+			return "", nil
+		}
 	}
 	return accountID, nil
 }

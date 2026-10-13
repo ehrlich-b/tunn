@@ -32,10 +32,10 @@ const (
 	MaxOwnerSharingAudit               = common.MaxOwnerSharingAudit
 	MaxSharingMutationsPerMinute       = 60
 	RetentionMonths                    = 13
-	FreeMonthlyRequests          int64 = 100000
-	ProMonthlyRequests           int64 = 1000000
-	FreeMonthlyBytes             int64 = 1000000000
-	ProMonthlyBytes              int64 = 50000000000
+	FreeMonthlyRequests          int64 = 1000000
+	ProMonthlyRequests           int64 = 10000000
+	FreeMonthlyBytes             int64 = 10000000000
+	ProMonthlyBytes              int64 = 500000000000
 )
 
 var ErrCapacity error = &admissionError{message: "metering storage capacity reached", reason: "CAPACITY"}

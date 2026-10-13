@@ -83,7 +83,7 @@ platform that supports them.
 Unknown fields, multiple YAML documents, ambiguous MCP sources, duplicate or
 invalid names, empty HTTP allow-lists, and non-loopback health binds fail
 validation. One manifest can contain 1–10 tunnels. The relay's existing active
-tunnel quotas still apply (3 free / 10 Pro); a reservation does not increase
+tunnel quotas still apply (5 free / 25 Pro); a reservation does not increase
 that quota.
 
 ## Run and manage the user service

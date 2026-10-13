@@ -22,7 +22,7 @@ func revenueFixture(t *testing.T) (*ProxyServer, *storage.LocalStorage, *storage
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := &ProxyServer{Domain: "tunn.to", storage: local, config: &config.Config{Environment: config.EnvProd, Domain: "tunn.to", JWTSecret: "fixture-revenue-signing-key", BillingEnabled: true, StripeWebhookSecret: "whsec_fixture", StripeCheckoutURLMonthly: "https://buy.stripe.com/fixture?locale=en", ProMonthlyUSD: 6, ProYearlyUSD: 60}}
+	p := &ProxyServer{Domain: "tunn.to", storage: local, config: &config.Config{Environment: config.EnvProd, Domain: "tunn.to", JWTSecret: "fixture-revenue-signing-key", BillingEnabled: true, StripeWebhookSecret: "whsec_fixture", StripeCheckoutURLMonthly: "https://buy.stripe.com/fixture?locale=en", ProMonthlyUSD: 5, ProYearlyUSD: 48}}
 	return p, local, a
 }
 
@@ -46,7 +46,7 @@ func TestRevenueRoutesLimitsAndConfiguredCheckout(t *testing.T) {
 		}
 	}
 	w := revenueRequest(t, p, "/pricing", false)
-	for _, want := range []string{"$6/month", "$60", "100000", "1000000", "1.0 GB", "50.0 GB", "3 concurrent", "10 concurrent", "/upgrade?period=monthly"} {
+	for _, want := range []string{"$5/month", "$48", "1000000", "10000000", "10.0 GB", "500.0 GB", "5 concurrent", "25 concurrent", "1 reserved", "10 reserved", "ngrok Free", "2026-10-12", "/upgrade?period=monthly"} {
 		if !strings.Contains(w.Body.String(), want) {
 			t.Error("missing pricing fact", want)
 		}

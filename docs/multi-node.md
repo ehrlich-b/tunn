@@ -311,7 +311,7 @@ Tunnel limits are enforced across the cluster:
 
 - When a client registers a tunnel, the node checks with the login node
 - Login node tracks all active tunnels per account
-- If account is at limit (3 free, 10 pro), registration is denied
+- If account is at limit (5 free, 25 pro), registration is denied
 - When tunnel disconnects, count is decremented
 
 This prevents users from exceeding limits by connecting to different nodes.

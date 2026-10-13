@@ -135,6 +135,14 @@ func TestReviewCancellationRetainsPaidReservation(t *testing.T) {
 	if err := local.UnregisterTunnel(context.Background(), "keep-name"); err != nil {
 		t.Fatal(err)
 	}
+	// The new Free owner auto-reserved the reclaimed name; disconnection
+	// alone cannot let the previous paid owner take it back.
+	if blocked, err := local.RegisterTunnel(context.Background(), "keep-name", a.ID, "fixture"); err != nil || blocked.Allowed {
+		t.Fatal(blocked, err)
+	}
+	if err := store.NewAccountStore(db).ReleaseSubdomain(other.ID, "keep-name"); err != nil {
+		t.Fatal(err)
+	}
 	allowed, err := local.RegisterTunnel(context.Background(), "keep-name", a.ID, "fixture")
 	if err != nil || !allowed.Allowed {
 		t.Fatal(allowed, err)
@@ -243,15 +251,15 @@ func TestReviewCheckoutDisabledDoesNotBreakFreeTunnel(t *testing.T) {
 	if w.Code != 503 {
 		t.Fatal(w.Code)
 	}
-	for i := 0; i < 4; i++ {
+	for i := 0; i <= storage.FreeTunnelLimit; i++ {
 		reg, err := local.RegisterTunnel(context.Background(), fmt.Sprintf("free-%d", i), a.ID, "fixture")
-		if err != nil || reg.Allowed != (i < 3) {
+		if err != nil || reg.Allowed != (i < storage.FreeTunnelLimit) {
 			t.Fatal(reg, err)
 		}
 	}
 	w = httptest.NewRecorder()
 	p.handlePricing(w, httptest.NewRequest("GET", "https://tunn.to/pricing", nil))
-	if !strings.Contains(w.Body.String(), "3 concurrent tunnels") {
+	if !strings.Contains(w.Body.String(), "5 concurrent tunnels") {
 		t.Fatal(w.Body.String())
 	}
 }

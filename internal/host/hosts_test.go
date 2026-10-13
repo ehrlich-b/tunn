@@ -33,6 +33,20 @@ func hostFixture(t *testing.T) *TunnelServer {
 	return s
 }
 
+// Multi-endpoint host fixtures need the Pro reservation allowance.
+func paidHostFixture(t *testing.T) *TunnelServer {
+	t.Helper()
+	s := hostFixture(t)
+	owner, err := s.accounts.FindOrCreateByEmails([]string{"owner@example.com"}, "github")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.accounts.UpdatePlan(owner.ID, "pro"); err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
 func hostRequest(t *testing.T, s *TunnelServer, method, token, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	r := httptest.NewRequest(method, "https://host.test/api/hosts", strings.NewReader(body))
@@ -44,10 +58,12 @@ func hostRequest(t *testing.T, s *TunnelServer, method, token, body string) *htt
 	return w
 }
 
+const freeFixtureManifest = `{"machine":"gpu-box","tunnels":[{"name":"gpu-http","kind":"http"}]}`
+
 const fixtureManifest = `{"machine":"gpu-box","tunnels":[{"name":"gpu-http","kind":"http"},{"name":"gpu-mcp","kind":"mcp"}]}`
 
 func TestHostAPIInventoryAndAuth(t *testing.T) {
-	s := hostFixture(t)
+	s := paidHostFixture(t)
 	token := createTestJWT("owner@example.com", s.cfg.JWTSecret)
 	for _, invalid := range []string{"", "garbage", createTestJWT("owner@example.com", "forged")} {
 		if got := hostRequest(t, s, http.MethodGet, invalid, "").Code; got != 401 {
@@ -120,7 +136,7 @@ func TestHostAPIValidation(t *testing.T) {
 func TestHostAPIAccountMergeLivePresence(t *testing.T) {
 	s := hostFixture(t)
 	token := createTestJWT("owner@example.com", s.cfg.JWTSecret)
-	if w := hostRequest(t, s, http.MethodPost, token, fixtureManifest); w.Code != 200 {
+	if w := hostRequest(t, s, http.MethodPost, token, freeFixtureManifest); w.Code != 200 {
 		t.Fatal(w.Body.String())
 	}
 	owner, err := s.hostAccount(token, false)
@@ -177,7 +193,7 @@ func TestHostAPITunnelPath(t *testing.T) {
 func (s *hostFixtureStream) Context() context.Context { return s.ctx }
 
 func TestHostStreamReservation(t *testing.T) {
-	s := hostFixture(t)
+	s := paidHostFixture(t)
 	token := createTestJWT("owner@example.com", s.cfg.JWTSecret)
 	if got := hostRequest(t, s, http.MethodPost, token, fixtureManifest); got.Code != 200 {
 		t.Fatal(got.Body.String())

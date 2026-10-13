@@ -100,9 +100,9 @@ explicitly supervised evaluation while they remain unresolved.
 
 ## Bounds, availability, and logs
 
-The [limits](../../internal/host/limits.go) specify 1 GB/month and 200 Mbps on
-Free, 50 GB/month and 500 Mbps on Pro, with ten seconds of bandwidth burst.
-[Concurrent tunnels](../../internal/storage/storage.go) are 3/10; each endpoint
+The [limits](../../internal/host/limits.go) specify 10 GB/month and 200 Mbps on
+Free, 500 GB/month and 500 Mbps on Pro, with ten seconds of bandwidth burst.
+[Concurrent tunnels](../../internal/storage/storage.go) are 5/25; each endpoint
 permits at most [100 streaming connections](../../internal/common/protocol.go).
 The HTTP bridge limits MCP messages to 4 MiB and requests to a 25-second work
 window, serializes child work, and rejects browser `Origin` headers. The canary

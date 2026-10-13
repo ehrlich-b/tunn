@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ehrlich-b/tunn/internal/metering"
+	"github.com/ehrlich-b/tunn/internal/store"
 	mp "github.com/ehrlich-b/tunn/pkg/proto/meteringv1"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
 )
@@ -27,6 +28,13 @@ func TestR4ActualPublisherNameReclaimRetiresObsoletePersonRows(t *testing.T) {
 	second, err := p.storage.FindOrCreateByEmails(ctx, []string{"second@example.com"}, "test")
 	if err != nil {
 		t.Fatal(err)
+	}
+	// Fill each Free account's stable-name allowance so review-reclaim remains
+	// temporary. Reclaiming a reserved name is now correctly denied.
+	for id, name := range map[string]string{f.tunnel.AccountID: "owner-stable", second.ID: "second-stable"} {
+		if err := store.NewAccountStore(p.mcpOAuth.db).ReserveSubdomain(id, name); err != nil {
+			t.Fatal(err)
+		}
 	}
 	owners := []string{f.tunnel.AccountID, second.ID, f.tunnel.AccountID, second.ID, f.tunnel.AccountID}
 	emails := []string{"owner@example.com", "second@example.com", "owner@example.com", "second@example.com", "owner@example.com"}

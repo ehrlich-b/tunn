@@ -84,6 +84,23 @@ func TestR3RedeployAfterOldMergeAndRevocation(t *testing.T) {
 			}
 			defer db.Close()
 			requirePlan(t, db, to, "free")
+			accounts := NewAccountStore(db)
+			if names, err := accounts.GetReservedSubdomains(to); err != nil || len(names) != 0 {
+				t.Fatalf("revoked paid names survived: %v %v", names, err)
+			}
+			if err := accounts.ReserveSubdomain(to, "new-free-name"); err != nil {
+				t.Fatal(err)
+			}
+			if err := MigrateOperations(db); err != nil {
+				t.Fatal(err)
+			}
+			if err := MigrateOperations(db); err != nil {
+				t.Fatal(err)
+			}
+			if owner, err := accounts.GetSubdomainOwner("new-free-name"); err != nil || owner != to {
+				t.Fatalf("new Free claim lost on restart: %s %v", owner, err)
+			}
+
 			var orphans int
 			if err = db.QueryRow(`SELECT count(*) FROM ops_legacy_entitlements l LEFT JOIN accounts a ON a.id=l.account_id WHERE a.id IS NULL`).Scan(&orphans); err != nil || orphans != 0 {
 				t.Fatal("orphan grants", orphans, err)

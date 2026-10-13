@@ -5,8 +5,8 @@ package host
 // =============================================================================
 //
 // When changing limits, also update copy in these locations:
-//   - internal/host/templates/homepage.html (line ~476: "1 GB / month")
-//   - internal/host/templates/terms.html (line ~124: "Free accounts get 1 GB/month")
+//   - internal/host/templates/homepage.html (hosted plan copy)
+//   - internal/host/templates/terms.html (hosted plan copy)
 //   - CLAUDE.md (rate limiting table)
 //   - docs/how-it-works.md (rate limiting section)
 //
@@ -14,8 +14,8 @@ package host
 
 // Monthly bandwidth quotas (bytes, SI decimal: 1 GB = 1,000,000,000 bytes)
 const (
-	FreeQuotaBytes int64 = 1 * 1000 * 1000 * 1000  // 1 GB
-	ProQuotaBytes  int64 = 50 * 1000 * 1000 * 1000 // 50 GB
+	FreeQuotaBytes int64 = 10 * 1000 * 1000 * 1000  // 10 GB
+	ProQuotaBytes  int64 = 500 * 1000 * 1000 * 1000 // 500 GB
 )
 
 // Per-tunnel bandwidth rate limits (Mbps)

@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -61,7 +62,9 @@ func newAppDeviceFixture(t *testing.T) *appDeviceFixture {
 	if _, err = registry.Verify(context.Background(), d); err != nil {
 		t.Fatal(err)
 	}
-	db, err := store.InitForTest()
+	// Cancellation may retire a SQLite connection. A file-backed fixture
+	// preserves account authority across reconnects, as the relay does.
+	db, err := store.OpenLocal(filepath.Join(t.TempDir(), "app-authority.sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}

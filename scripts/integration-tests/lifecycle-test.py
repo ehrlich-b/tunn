@@ -185,7 +185,7 @@ class Lifecycle:
         status, _, body = self.request(self.base + "/api/device/code", "POST")
         require(status == 200, "device code creation failed")
         device = json.loads(body)
-        poll_url = self.base + "/api/device/token?" + urlencode({"code": device["device_code"]})
+        poll_url = self.base + "/api/device/token?" + urlencode({"code": device["device_code"], "durable": "1"})
         require(json.loads(self.request(poll_url)[2])["error"] == "authorization_pending",
                 "device token was issued before authorization")
         login_page = self.browse(device["verification_uri_complete"])
@@ -208,7 +208,7 @@ class Lifecycle:
         login_token = json.loads(self.request(poll_url)[2])["access_token"]
         print("PASS device login and explicit authorization", flush=True)
 
-        # Feed the JWT returned by the real login API directly to the CLI;
+        # Feed the publisher credential returned by the real login API to the CLI;
         # never read or replace the developer's ~/.tunn/token.
         publisher = self.start("publisher", [
             "mcp", "--name", ENDPOINT, "--secret", login_token,

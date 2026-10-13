@@ -639,3 +639,7 @@ test-device-purpose:
 .PHONY: test-forwarded-permission
 test-forwarded-permission:
 	go test -race -v -count=1 -timeout=90s -run '^TestForwardedPermission' ./internal/host
+
+.PHONY: test-stream-lifetime
+test-stream-lifetime:
+	go test -race -v -count=1 -parallel=2 -timeout=120s -run '^Test(ForwardedAdmission|PublisherStream)' ./internal/host

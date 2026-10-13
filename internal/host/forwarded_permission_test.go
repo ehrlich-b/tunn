@@ -69,6 +69,7 @@ func TestForwardedPermissionStalledWriterCutoff(t *testing.T) {
 	defer upstream.Close()
 	a := securityProxy(b.storage)
 	a.config.Insecure = true
+	a.config.NodeSecret = "fixture-cluster"
 	addr := strings.TrimPrefix(upstream.URL, "https://")
 	authority := NewInternalServer(b.tunnelServer, addr, false)
 	authority.proxy = b
@@ -154,6 +155,7 @@ func TestForwardedPermissionTwoRelayStalledReader(t *testing.T) {
 			defer upstream.Close()
 			a := securityProxy(b.storage)
 			a.config.Insecure = true
+			a.config.NodeSecret = "fixture-cluster"
 			addr := strings.TrimPrefix(upstream.URL, "https://")
 			authority := NewInternalServer(b.tunnelServer, addr, false)
 			authority.proxy = b
@@ -176,7 +178,7 @@ func TestForwardedPermissionTwoRelayStalledReader(t *testing.T) {
 			_ = clientConn.SetReadDeadline(time.Now().Add(3 * time.Second))
 			response, err := http.ReadResponse(bufio.NewReader(permissionByteReader{clientConn}), nil)
 			if err != nil || response.StatusCode != 200 {
-				t.Fatal("stream headers", err)
+				t.Fatal("stream headers", response.StatusCode, err)
 			}
 			// Stop reading with one finite SSE record pending on a zero-buffer socket.
 			start := time.Now()
@@ -216,6 +218,7 @@ func TestForwardedPermissionHTTP2SiblingSurvives(t *testing.T) {
 	defer upstream.Close()
 	a := securityProxy(b.storage)
 	a.config.Insecure = true
+	a.config.NodeSecret = "fixture-cluster"
 	addr := strings.TrimPrefix(upstream.URL, "https://")
 	authority := NewInternalServer(b.tunnelServer, addr, false)
 	authority.proxy = b
@@ -246,6 +249,9 @@ func TestForwardedPermissionHTTP2SiblingSurvives(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatal("stream admission", response.StatusCode)
+	}
 	if response.ProtoMajor != 2 {
 		t.Fatal("HTTP/2 required")
 	}

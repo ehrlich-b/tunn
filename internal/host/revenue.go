@@ -82,37 +82,27 @@ func (p *ProxyServer) handleComparison(w http.ResponseWriter, r *http.Request) {
 
 func (p *ProxyServer) handleDocs(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		http.Error(w, "Method not allowed", 405)
+		w.Header().Set("Allow", "GET, HEAD")
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if r.URL.Path == "/docs/status" {
-		serveFeatureDocs(w, r, "tunn - Status measurements", statusDocsHTML)
-		return
-	}
-	if r.URL.Path == "/docs/docker" {
-		serveFeatureDocs(w, r, "tunn - Docker client", dockerDocsHTML)
-		return
-	}
-	if r.URL.Path != "/docs" && r.URL.Path != "/docs/" && r.URL.Path != "/docs/mcp-to-claude" && r.URL.Path != "/docs/webhook-verification" && r.URL.Path != "/docs/ip-restrictions" {
+	page, ok := referencePages[r.URL.Path]
+	if !ok {
 		http.NotFound(w, r)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if r.URL.Path == "/docs/mcp-to-claude" {
-		if r.Method != http.MethodHead {
-			_, _ = fmt.Fprint(w, mcpToClaudeHTML)
-		}
+	if r.Method == http.MethodHead {
 		return
-	} else if r.URL.Path == "/docs/webhook-verification" {
-		writePageStart(w, "tunn - Verify webhooks at the edge")
-		_, _ = fmt.Fprint(w, webhookDocsHTML)
-	} else if r.URL.Path == "/docs/ip-restrictions" {
-		writePageStart(w, "tunn - IP restrictions")
-		_, _ = fmt.Fprint(w, ipRestrictionsHTML)
-	} else {
-		writePageStart(w, "tunn - Quickstart")
-		_, _ = fmt.Fprint(w, docsHTML)
 	}
+	writePageStart(w, "tunn - "+page.title)
+	writeDocsStart(w, r.URL.Path)
+	if page.revenue {
+		p.renderRevenuePage(w, page.body)
+	} else {
+		_, _ = fmt.Fprint(w, page.body)
+	}
+	_, _ = fmt.Fprint(w, "</main></div>")
 	writePageEnd(w)
 }
 

@@ -1,21 +1,23 @@
-<style>.page-container{max-width:800px} h2,p,pre{margin-bottom:20px}pre{padding:16px;background:#f6f8fa;overflow:auto}</style>
-<h1 class="page-title">Get your local server online</h1>
-<p>Use tunn for local MCP tools, webhook tests and app previews. Your local process must stay running.</p>
+<p class="docs-label">Quickstart</p>
+<h1>Get online in 2 minutes</h1>
+<p class="docs-lead">A private HTTPS URL for the app running on your machine.</p>
+<p>You need macOS or Linux, a browser and a local app. Keep the app and tunn running while you use the URL.</p>
 <h2>1. Install and sign in</h2>
-<pre>curl -fsSL https://tunn.to/install.sh | sh
-tunn login</pre>
-<p>macOS/Linux on Intel or ARM. The downloader follows the latest GitHub release; for checked source builds and recovery, use the <a href="https://github.com/ehrlich-b/tunn/blob/main/docs/install-recovery.md">install and recovery guide</a>. If tunn is not found, add <code>$HOME/.local/bin</code> to PATH.</p>
-<p>See <a href="/docs/docker">Docker client setup</a> and <a href="/docs/status">status measurements</a>.</p>
-<h2>2. Expose a port</h2><pre>tunn http 8080</pre>
-<p>Web tunnels are owner-only by default. Add <code>--allow=alice@example.com</code> to invite someone by email. For anonymous access or webhooks, run <code>tunn http 8080 --public</code> and <a href="/docs/webhook-verification">configure edge signature verification</a>. Keep your application's signature verification enabled.</p>
-<h2>3. Connect a local MCP tool to Claude.ai</h2><pre>tunn mcp -- ./my-mcp-server</pre>
-<p>MCP endpoints are private by default. Copy the printed /mcp connector URL, sign in and approve access. <a href="/docs/mcp-to-claude">Follow the complete tutorial</a>.</p>
-<h2>Coming from ngrok?</h2><pre># ngrok http 8080 →
-tunn http 8080 --public
-# ngrok http 8080 --subdomain=work →
-tunn http 8080 --subdomain=work --public</pre>
-<p>This is an HTTP command shortcut, not full ngrok compatibility. Run <code>tunn login</code> instead of configuring an ngrok authtoken. ngrok --domain, config files and traffic policies do not transfer. Free attempts to reserve one published name; Pro attempts up to ten, including random names. Choose names before publishing. <a href="/ngrok-alternative">Compare the tradeoffs</a>.</p>
-<h2>Inspect webhooks and watch usage</h2><pre>tunn http 8080 --public --inspect
-tunn usage</pre>
-<p>The local inspector omits bodies by default. Quotas apply across all account endpoints and reset monthly in UTC. Check <a href="/account">your account</a> or <a href="/pricing">plans and exact usage units</a> before upgrading. No automatic overage charges.</p>
-<p><a href="https://github.com/ehrlich-b/tunn#readme">Full CLI and self-hosting docs</a> · <a href="mailto:support@tunn.to">Support</a></p>
+<pre><code>curl -fsSL https://tunn.to/install.sh | sh
+tunn login</code></pre>
+<p>Approve the browser sign-in. Intel and ARM builds are supported. If your shell says <code>tunn: command not found</code>, add the install directory and try again:</p>
+<pre><code>export PATH="$HOME/.local/bin:$PATH"
+tunn login</code></pre>
+<p>For pinned source builds or an interrupted install, see <a href="https://github.com/ehrlich-b/tunn/blob/main/docs/install-recovery.md">install and recovery</a>. Containers have a <a href="/docs/docker">Docker client guide</a>.</p>
+<h2>2. Start a local app</h2>
+<p>Use your existing app on port 8080. Or serve an empty demo directory in a separate terminal:</p>
+<pre><code>mkdir -p /tmp/tunn-demo
+python3 -m http.server 8080 --bind 127.0.0.1 --directory /tmp/tunn-demo</code></pre>
+<p>Open <code>http://127.0.0.1:8080</code> first. If that fails, fix the local app before publishing.</p>
+<h2>3. Publish and open the URL</h2>
+<pre><code>tunn http 8080</code></pre>
+<p>Open the HTTPS URL printed by tunn and sign in with the same account. You should see the same page as localhost. The endpoint is owner-only by default. Ctrl-C stops it; an offline URL cannot reach your app.</p>
+<div class="docs-note"><strong>Choose who can connect.</strong> <code>--allow=alice@example.com</code> invites a verified email. <code>--public</code> permits anonymous requests; keep application authentication enabled. Webhook senders need public access and <a href="/docs/webhook-verification">signature verification</a>.</div>
+<h2>What are you building?</h2>
+<div class="docs-cards"><a href="/docs/sharing">Share with a person →<span>Invite, test access and revoke it.</span></a><a href="/docs/mcp-to-claude">MCP to Claude.ai or ChatGPT →<span>Publish tools, diagnose OAuth and connect.</span></a><a href="/docs/webhook-verification">Receive verified webhooks →<span>Check signatures before your app receives a request.</span></a><a href="/docs/ssh">Publish with OpenSSH →<span>Use an existing SSH client without installing tunn.</span></a></div>
+<p class="docs-next"><a href="/docs/cli">CLI reference</a> · <a href="/docs/limits">Pricing and limits</a> · <a href="/docs/troubleshooting">Troubleshoot an error</a></p>

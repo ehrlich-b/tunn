@@ -338,6 +338,12 @@ func TestWebhookDocsRoute(t *testing.T) {
 		if rec.Code != 200 {
 			t.Fatal("webhook docs route missing")
 		}
+		if method == "HEAD" {
+			if rec.Body.Len() != 0 {
+				t.Fatal("webhook docs HEAD returned body")
+			}
+			continue
+		}
 		for _, term := range []string{"--verify-webhook=stripe", "--verify-webhook=github", "--verify-webhook=slack", "--verify-webhook=shopify", "--verify-webhook=hmac-sha256", "X-Webhook-Timestamp", "401", "1 MiB", "Deduplicate", "mode 0600"} {
 			if !strings.Contains(rec.Body.String(), term) {
 				t.Errorf("docs missing %s", term)

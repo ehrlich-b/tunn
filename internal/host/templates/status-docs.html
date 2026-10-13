@@ -1,4 +1,4 @@
-<style>.page-container{max-width:800px}h2,p,pre{margin-bottom:20px}pre{padding:16px;background:#f6f8fa;overflow:auto}</style>
+<style>h2,p,pre{margin-bottom:20px}pre{padding:16px;background:#f6f8fa;overflow:auto}</style>
 <h1 class="page-title">Understanding relay status</h1>
 <p><a href="/status">Service status</a> shows relay health and readiness observations. No availability SLA is promised. These probes do not test every tunnel, region or sign-in provider.</p>
 <h2>What is measured</h2><p>An independent collector requests <code>/healthz</code> and <code>/readyz</code> over verified HTTPS every minute. Liveness means the relay answered; readiness also checks its listeners and storage. Only HTTP 200 passes. Network errors and timeouts fail. An explicit HTTP exception is limited to literal loopback IPs for disposable local fixtures.</p>

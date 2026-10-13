@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Validate the commands readers copy from the actual pages without logging in,
@@ -18,6 +19,9 @@ func TestDistributionCLICommands(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Generated help blocks use class="cli-help": they contain syntax, not runnable examples.
+	// Their exact content is checked against the binary by make test-docs.
+	files = append(files, "internal/host/templates/docs.html")
 	blocks := regexp.MustCompile(`(?s)<pre><code>(.*?)</code></pre>`)
 	var checked int
 	for _, file := range files {
@@ -47,6 +51,22 @@ func TestDistributionCLICommands(t *testing.T) {
 				case "login":
 					if len(args) != 2 {
 						t.Errorf("unexpected login arguments: %s", line)
+					}
+				case "http", "serve":
+					if _, err := parseServeFlags(args[2:]); err != nil {
+						t.Errorf("%s: %s: %v", file, line, err)
+					}
+				case "share", "unshare", "access":
+					if _, err := parseSharing(args[1], args[2:]); err != nil {
+						t.Errorf("%s: %s: %v", file, line, err)
+					}
+				case "usage", "grant":
+					if _, err := parseMeteringOptions(args[1], args[2:], time.Now()); err != nil {
+						t.Errorf("%s: %s: %v", file, line, err)
+					}
+				case "tcp":
+					if _, err := parseTCPFlags(args[2:]); err != nil {
+						t.Errorf("%s: %s: %v", file, line, err)
 					}
 				case "connector-check":
 					if _, err := parseConnectorCheckFlags(args[2:]); err != nil {

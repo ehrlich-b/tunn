@@ -1,4 +1,4 @@
-<style>.page-container{max-width:800px}h2,p,pre{margin-bottom:20px}pre{padding:16px;background:#f6f8fa;overflow:auto}</style>
+<style>h2,p,pre{margin-bottom:20px}pre{padding:16px;background:#f6f8fa;overflow:auto}</style>
 <h1 class="page-title">Run the tunn client in Docker</h1>
 <p>The client image candidate supports Linux Intel/AMD and ARM. Publication and anonymous pulling must be verified before using a registry tag. For a locally built image, set <code>TUNN_IMAGE=tunn-client:local</code>.</p>
 <h2>Sign in once</h2><pre>docker run --rm -it -v tunn-client-home:/home/tunn "$TUNN_IMAGE" login</pre><p>Follow the printed browser link. Keep the named volume private; it stores the container's login credentials.</p>

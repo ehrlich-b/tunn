@@ -664,3 +664,13 @@ test-js-sdk-contract: test-js-sdk
 .PHONY: test-parity-policy
 test-parity-policy:
 	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=120s -run '^TestParity' ./internal/host
+
+# Hosted reference and reproducible help. All help captures use isolated config.
+.PHONY: docs-cli test-docs
+docs-cli: build
+	python3 scripts/generate-cli-docs.py --binary "$(abspath $(BUILD_OUTPUT))"
+
+test-docs: build
+	python3 scripts/generate-cli-docs.py --binary "$(abspath $(BUILD_OUTPUT))" --check
+	go test $(GO_TEST_FLAGS) -race -count=1 -timeout=90s -run '^Test(Docs|ConnectorGuideRoutes|WebhookDocs)' ./internal/host
+	go test $(GO_TEST_FLAGS) -race -count=1 -timeout=90s -run '^TestDistributionCLICommands$$' .

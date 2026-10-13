@@ -214,11 +214,12 @@ local processes, uses literal loopback IPs, and creates disposable SQLite state
 under `.scratch`. Socket-restricted sandboxes cannot run the E2E/full suite;
 that is not a reason to skip or weaken those tests.
 
-Bryan's entry paid-tier target is **about $12/year** (about $1/month), with a
-monthly request and bandwidth cap. The intended purchase should be a no-brainer,
-strictly cheaper than a VPS and easier than a VPN. The plan allowances above are code defaults, not a new Starter entitlement or
-a billing reconciliation implementation. Shared owner caps impose a tighter ceiling;
-per-grant budgets divide that ceiling among consumers.
+The current Pro plan is $5/month or $48/year. Free includes 5 concurrent tunnels,
+1,000,000 monthly admissions, 10 GB and one reserved name; Pro includes 25 tunnels,
+10,000,000 admissions, 500 GB and ten names. See the hosted
+[limits reference](https://tunn.to/docs/limits) and [pricing](https://tunn.to/pricing)
+for configured prices and effective caps. Shared owner caps can impose a tighter
+ceiling; per-grant budgets divide that ceiling among consumers.
 
 Export `tunn usage` per user/month and compare `owner_usage.request_bytes` and
 `owner_usage.response_bytes` with actual Fly.io egress invoices. Request bodies
@@ -227,7 +228,7 @@ caller. A first body-only estimate is
 `(request_bytes * publisher_egress_rate + response_bytes * caller_egress_rate) / 1e9`,
 where rates are dollars per decimal GB from the applicable Fly invoice/region.
 Add framing, cluster hops, fixed hosting/storage, payment fees, and support
-before choosing a cap that fits about $1 of monthly gross revenue. These meters
+before choosing an operational cap that fits the configured plan revenue. These meters
 exclude network overhead and are not a substitute for provider billing data.
 No current Fly rate or sustainable allowance is asserted by this prototype.
 
@@ -236,5 +237,5 @@ system. Before charging, reconcile real node routing,
 authority failures, crashes, retries, and consumer receipts; define treatment
 of failed admissions and conservative crash reservations, and provision paid
 account plans. Team controls can be a separate higher
-tier; the entry-tier target is the pricing input for this metering experiment.
+tier; this usage contract does not promise additional paid features.
 See [the commercial thesis](COMMERCIAL-THESIS.md).

@@ -4,7 +4,7 @@ Give local MCP tools and webhook handlers a public HTTPS URL.
 
 ```bash
 tunn login
-tunn http 8080                      # Public webhook/dev endpoint
+tunn http 8080                      # Owner-only app endpoint
 tunn mcp -- ./my-mcp-server         # Private MCP endpoint with OAuth consent
 ```
 
@@ -20,11 +20,19 @@ month across your account, plus 1 reserved name. Pro: $5/month or $48/year, 25 t
 Checkout opens only after billing acceptance; launch activation is reviewed by
 an operator. Existing subscriptions are not repriced by this change.
 
+Find a task in the [2-minute quickstart](https://tunn.to/docs),
+[sharing guide](https://tunn.to/docs/sharing), [OpenSSH guide](https://tunn.to/docs/ssh),
+[generated CLI reference](https://tunn.to/docs/cli), or
+[troubleshooting by error message](https://tunn.to/docs/troubleshooting).
+The [limits reference](https://tunn.to/docs/limits) reads the same plan data as pricing.
+Regenerate CLI help with `make docs-cli`; `make test-docs` checks help and pricing drift.
+
 Current prices and deployment caps appear on [pricing](https://tunn.to/pricing); use `tunn usage` for your account totals.
 
 Share a local app privately with `tunn 8080 --allow=alice@example.com`. Visitors
 sign in with GitHub or an email link. For webhook callbacks, keep the endpoint
-public and validate the sender's signatures in your application.
+public, configure [edge signature verification](https://tunn.to/docs/webhook-verification),
+and validate the sender's signatures in your application.
 The [SSH API](docs/ssh-api.md) also supports OpenSSH publication and forwarding.
 
 Relays can also offer [company sign-in and group sharing](docs/org-sso.md)

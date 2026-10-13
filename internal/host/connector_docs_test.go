@@ -31,8 +31,11 @@ func TestConnectorGuideRoutes(t *testing.T) {
 				}
 				continue
 			}
-			if w.Body.String() != mcpToClaudeHTML {
+			if path == "/mcp-to-claude" && w.Body.String() != mcpToClaudeHTML {
 				t.Errorf("%s differs from canonical guide", path)
+			}
+			if path == "/docs/mcp-to-claude" && !strings.Contains(w.Body.String(), mcpGuideBody()) {
+				t.Errorf("%s does not reuse canonical guide content", path)
 			}
 		}
 	}

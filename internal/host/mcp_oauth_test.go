@@ -109,6 +109,10 @@ func newMCPOAuthFixtureWithDB(t *testing.T, db *sql.DB) *mcpOAuthFixture {
 	}
 	p := securityProxy(local)
 	p.meter, p.mcpOAuth, p.isLoginNode = ledger, registry, true
+	p.devices, err = newDeviceCredentialStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
 	p.emailSender = &EmailSender{Host: "unused-in-process-email-fixture"}
 	stream := &meteringFixtureStream{}
 	tunnel := &TunnelConnection{TunnelID: "tools", TargetURL: "mcp", AccountID: owner.ID, CreatorEmail: "owner@example.com", AllowedEmails: []string{"owner@example.com"}, Stream: stream, pendingRequests: make(map[string]chan *pb.HttpResponse)}
@@ -531,7 +535,10 @@ func TestMCPOAuthRegistrationAndMetadataSecurity(t *testing.T) {
 	}
 }
 
-type mcpOAuthPeerClient struct{ server *InternalServer }
+type mcpOAuthPeerClient struct {
+	internalpb.InternalServiceClient
+	server *InternalServer
+}
 
 func (c mcpOAuthPeerClient) FindTunnel(ctx context.Context, request *internalpb.FindTunnelRequest, _ ...grpc.CallOption) (*internalpb.FindTunnelResponse, error) {
 	return c.server.FindTunnel(ctx, request)

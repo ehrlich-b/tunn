@@ -506,6 +506,14 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 			http.Error(w, "Webhook verification failed: "+err.Error(), http.StatusUnauthorized)
 			return nil
 		}
+		// A permission/account watcher or the caller may have cancelled while
+		// the body was buffered. Never open an origin request after cancellation.
+		if cause := context.Cause(r.Context()); cause != nil {
+			meterWriter.bodyMeter = false
+			session.recordError(cause, r.Context())
+			writeIngressError(w, cause)
+			return nil
+		}
 	}
 	var proxyErr error
 	if tunnel.EndpointProtocol == "tcp" {

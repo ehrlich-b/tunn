@@ -503,3 +503,47 @@ func TestWebhookHostedPublisherCannotReplaceOwnerPolicy(t *testing.T) {
 		t.Fatal("conflicting publisher changed the key", err)
 	}
 }
+
+type hookCancellingBody struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (b *hookCancellingBody) Read(buf []byte) (int, error) {
+	n, err := b.ReadCloser.Read(buf)
+	b.cancel()
+	return n, err
+}
+func TestWebhookCancelledBodyCannotOpenOriginRequest(t *testing.T) {
+	for _, streaming := range []bool{false, true} {
+		t.Run(fmt.Sprint(streaming), func(t *testing.T) {
+			p, tunnel, ledger, stream := meteringRelay(t, streaming, "unused")
+			var err error
+			tunnel.WebhookPolicy, err = webhook.Compile(&pb.WebhookPolicy{Provider: "github", Secret: []byte(hookFixtureKey), ToleranceSeconds: 300})
+			if err != nil {
+				t.Fatal(err)
+			}
+			body := []byte("signed-body")
+			r := relayRequest(relayJWT(t, p, "owner@example.com"), string(body))
+			for key, values := range webhookHeaders("github", body, time.Now().Unix()) {
+				r.Header[key] = values
+			}
+			ctx, cancel := context.WithCancel(r.Context())
+			defer cancel()
+			r = r.WithContext(ctx)
+			r.Body = &hookCancellingBody{ReadCloser: r.Body, cancel: cancel}
+			w := httptest.NewRecorder()
+			p.handleWebProxy(w, r)
+			stream.mu.Lock()
+			messages := len(stream.sentMsgs)
+			stream.mu.Unlock()
+			if w.Code != 502 || messages != 0 {
+				t.Fatalf("cancelled upload opened origin: status=%d messages=%d", w.Code, messages)
+			}
+			out := relayExport(t, ledger)
+			if len(out.Usage) != 1 || out.Usage[0].RequestBytes != int64(len(body)) || out.Events[0].Forwarded {
+				t.Fatal("cancelled consumed bytes/forwarding not recorded")
+			}
+		})
+	}
+}

@@ -619,3 +619,11 @@ test-candidate-baseline:
 .PHONY: test-candidate-upload-contract
 test-candidate-upload-contract:
 	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=45s -run '^(TestHTTPFidelity(UploadTerminalSchedules|UploadFailureAbortsResponse|WireUploadEOFAbortsResponse|UnknownUploadLimitBeforeEmptyResponse|UploadLimitAfterPrefixAbortsResponse|ChunkedUploadProgressAfterPrefix)|TestProxyToLocalReturnsResponseErrors|TestDogfoodUpload)' ./internal/host
+
+# Node package, exported tarball consumer, and actual Go relay/auth/HTTP stack.
+.PHONY: test-js-sdk test-js-sdk-contract
+test-js-sdk:
+	cd sdk/js && npm run check
+
+test-js-sdk-contract: test-js-sdk
+	TUNN_JS_SDK_CONSUMER="$(CURDIR)/sdk/js/test/go-relay-consumer.mjs" go test $(GO_TEST_FLAGS) -race -count=1 -v -parallel=2 -timeout=120s -run '^TestJavaScriptSDKRelay$$' ./internal/host

@@ -131,6 +131,14 @@ See the [Go SDK API and lifecycle](docs/go-sdk.md) and the runnable
 [handler](examples/sdk-handler/main.go) and [origin](examples/sdk-origin/main.go)
 examples. Full loopback acceptance is required before SDK release.
 
+### Embed in Node
+
+Use the local [`@tunn/sdk` package](sdk/js/README.md) to publish a Node request
+listener or an HTTP(S) origin with TypeScript types, AbortSignal cancellation,
+bounded reconnects and explicit sharing. The [Node SDK guide](docs/js-sdk.md)
+and package README include lifecycle details and an MCP HTTP quickstart.
+The package is not published to npm; install its local tarball.
+
 ### Local request inspector
 
 Add `--inspect` when debugging an HTTP endpoint or webhook handler:
@@ -346,6 +354,7 @@ make test-ai-hosts # Offline deployment-kit unit and shell syntax checks
 make test-websocket # Local TLS relay, auth, headers, rotation, 100 sockets
 make test-websocket-memory # Same WebSocket stack over net.Pipe; no socket binds
 make test-sdk-contract # Go SDK lifecycle, external consumer and required loopback parity
+make test-js-sdk-contract # Node SDK tarball/types and actual local Go relay acceptance
 make integration-test-ai # TLS relay; private MCP/TCP, rotation, concurrency, reconnect
 make check    # Full pre-commit check (format, tidy, test with race detection)
 ```

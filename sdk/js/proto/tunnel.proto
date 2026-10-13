@@ -1,0 +1,236 @@
+syntax = "proto3";
+
+package tunn.v1;
+
+option go_package = "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1";
+
+// TunnelService manages the control plane for reverse tunnels between
+// the tunn proxy server and tunn serve clients.
+service TunnelService {
+  // EstablishTunnel creates a bidirectional stream for tunnel control.
+  // The client initiates the stream and sends a RegisterClient message.
+  // The server sends ProxyRequest messages when new connections need to be forwarded.
+  // Both sides can send HealthCheck messages to keep the connection alive.
+  rpc EstablishTunnel(stream TunnelMessage) returns (stream TunnelMessage);
+}
+
+// TunnelMessage is the envelope for all control plane and data plane messages.
+// This allows multiple message types to be sent over a single bidirectional stream.
+message TunnelMessage {
+  oneof message {
+    RegisterClient register_client = 1;
+    RegisterResponse register_response = 2;
+    ProxyRequest proxy_request = 3;
+    ProxyResponse proxy_response = 4;
+    HealthCheck health_check = 5;
+    HealthCheckResponse health_check_response = 6;
+    HttpRequest http_request = 7;
+    HttpResponse http_response = 8;
+    StreamClosed stream_closed = 9;
+    ConnectionOpen connection_open = 10;
+    ConnectionAccept connection_accept = 11;
+    ConnectionData connection_data = 12;
+    ConnectionHalfClose connection_half_close = 13;
+    ConnectionClose connection_close = 14;
+    UpdateAccessToken update_access_token = 15;
+  }
+}
+
+// RegisterClient is sent by the client (tunn serve) when it first connects
+// to register a new tunnel with the proxy server.
+message RegisterClient {
+  // tunnel_id is a unique identifier for this tunnel (can be generated client-side)
+  string tunnel_id = 1;
+  // target_url is retained for wire compatibility. Current clients send only
+  // a redacted adapter kind (for example "http", "mcp", "tcp", or "unix"),
+  // never a local address.
+  string target_url = 2;
+  // auth_token is the JWT from `tunn login` (contains creator's email)
+  string auth_token = 3;
+  // creator_email is extracted from the JWT (email of tunnel creator)
+  string creator_email = 4;
+  // allowed_emails is the list of emails that can access this tunnel (Google Doc model)
+  // The creator_email is automatically included
+  repeated string allowed_emails = 5;
+  // tunnel_key is the secret that allows creating tunnels
+  // V1: WELL_KNOWN_KEY (free for everyone)
+  // V2: Remove this, check subscription via tunn-auth instead
+  string tunnel_key = 6;
+  // Field numbers 7 and 8 were used by an unreleased UDP experiment.
+  reserved 7, 8;
+  // access_token_sha256 is the SHA-256 digest of an endpoint-scoped bearer
+  // token. The plaintext token never leaves the publishing machine except
+  // when the owner explicitly configures it in a remote client.
+  bytes access_token_sha256 = 9;
+  // capabilities contains backwards-compatible data-plane features supported
+  // by this client. Relays use the legacy buffered HTTP messages when absent.
+  repeated string capabilities = 10;
+  // endpoint_protocol is "http" by default. "tcp" endpoints accept only the
+  // authenticated tunn CONNECT transport.
+  string endpoint_protocol = 11;
+  // Version 1 makes new web publications private unless explicitly public.
+  uint32 exposure_version = 12;
+  string exposure_mode = 13; // "private" or "public"; legacy version 0 is unchanged.
+}
+
+// RegisterResponse is sent by the server to acknowledge tunnel registration.
+message RegisterResponse {
+  // success indicates whether registration succeeded
+  bool success = 1;
+  // error_message contains details if success is false
+  string error_message = 2;
+  // public_url is the publicly accessible URL for this tunnel (e.g., "https://abc123.tunn.to")
+  string public_url = 3;
+  // capabilities contains data-plane features supported by this relay.
+  repeated string capabilities = 4;
+}
+
+// ProxyRequest is sent by the server to instruct the client to open a new
+// data connection for forwarding an incoming request.
+message ProxyRequest {
+  // connection_id uniquely identifies this proxy connection
+  string connection_id = 1;
+  // source_address is the remote client's address (for logging/debugging)
+  string source_address = 2;
+}
+
+// ProxyResponse is sent by the client to acknowledge a ProxyRequest.
+message ProxyResponse {
+  // connection_id matches the ProxyRequest
+  string connection_id = 1;
+  // success indicates whether the client successfully opened the data connection
+  bool success = 2;
+  // error_message contains details if success is false
+  string error_message = 3;
+}
+
+// HealthCheck is a ping message sent by either side to keep the connection alive.
+message HealthCheck {
+  // timestamp is the sender's current time in Unix milliseconds
+  int64 timestamp = 1;
+}
+
+// HealthCheckResponse is a pong message sent in response to a HealthCheck.
+message HealthCheckResponse {
+  // timestamp is the original HealthCheck timestamp (for RTT calculation)
+  int64 timestamp = 1;
+  // response_timestamp is the responder's current time in Unix milliseconds
+  int64 response_timestamp = 2;
+}
+
+// HttpRequest is sent by the server to the client with the full HTTP request
+// that needs to be proxied to the local target.
+message HttpRequest {
+  // connection_id uniquely identifies this HTTP request/response pair
+  string connection_id = 1;
+  // method is the HTTP method (GET, POST, etc.)
+  string method = 2;
+  // path is the HTTP path (e.g., "/api/users")
+  string path = 3;
+  // headers is a map of HTTP header names to values
+  map<string, string> headers = 4;
+  // body is the HTTP request body (may be empty)
+  bytes body = 5;
+}
+
+// HttpResponse is sent by the client to the server with the HTTP response
+// from the local target.
+message HttpResponse {
+  // connection_id matches the HttpRequest
+  string connection_id = 1;
+  // status_code is the HTTP status code (e.g., 200, 404)
+  int32 status_code = 2;
+  // headers is a map of HTTP header names to values
+  map<string, string> headers = 3;
+  // body is the HTTP response body
+  bytes body = 4;
+  // If nonempty, header_fields replaces the entire legacy headers map.
+  // Senders also populate headers for old receivers, which lose multiplicity.
+  repeated HttpHeader header_fields = 5;
+  // Response trailers are delivered atomically with this complete body.
+  // Requires negotiated http-response-trailers-v1 support.
+  repeated HttpHeader trailers = 6;
+  repeated string trailer_names = 7;
+}
+
+// HttpHeader is one HTTP field line; values are never comma-split.
+message HttpHeader {
+  string name = 1;
+  string value = 2;
+}
+
+// StreamClosed is sent by either side to indicate a connection has closed.
+message StreamClosed {
+  // connection_id identifies which connection closed
+  string connection_id = 1;
+  // reason describes why the connection closed (for logging)
+  string reason = 2;
+}
+
+// ConnectionOpen starts one logical connection on the multiplexed tunnel.
+// protocol identifies the adapter: "http", "tcp", or (with websocket-v1)
+// "websocket" for an HTTP/1.1 upgrade followed by bidirectional wire frames.
+message ConnectionOpen {
+  string connection_id = 1;
+  string protocol = 2;
+  string source_address = 3;
+  HttpRequestHead http_request = 4;
+}
+
+// HttpRequestHead carries HTTP metadata without buffering the body.
+message HttpRequestHead {
+  string method = 1;
+  string path = 2;
+  map<string, string> headers = 3;
+  int64 content_length = 4;
+}
+
+// ConnectionAccept acknowledges an open connection. Adapter response metadata
+// is sent here before any ConnectionData messages.
+message ConnectionAccept {
+  string connection_id = 1;
+  bool success = 2;
+  string error_message = 3;
+  HttpResponseHead http_response = 4;
+}
+
+// HttpResponseHead carries HTTP status and headers without buffering the body.
+message HttpResponseHead {
+  int32 status_code = 1;
+  map<string, string> headers = 2;
+  // Same whole-list precedence and legacy fallback as HttpResponse.
+  repeated HttpHeader header_fields = 3;
+  // Declared response trailer names; values arrive only in the terminal
+  // ConnectionHalfClose after a successful EOF, never in an error close.
+  repeated string trailer_names = 4;
+}
+
+// ConnectionData carries an ordered chunk. Direction is implicit from which
+// side of the bidirectional gRPC stream sent the message.
+message ConnectionData {
+  string connection_id = 1;
+  bytes data = 2;
+}
+
+// ConnectionHalfClose declares that the sender has no more bytes while still
+// allowing bytes in the opposite direction.
+message ConnectionHalfClose {
+  string connection_id = 1;
+  // HTTP response trailers only, after all data. Requires negotiated
+  // http-response-trailers-v1; at most 64 fields and 16 KiB of metadata.
+  // TCP, WebSocket and HTTP request half-closes leave this field empty.
+  repeated HttpHeader trailers = 2;
+}
+
+// ConnectionClose terminates both directions. error_message is empty for a
+// normal close and populated when the connection failed.
+message ConnectionClose {
+  string connection_id = 1;
+  string error_message = 2;
+}
+
+// UpdateAccessToken rotates the endpoint-scoped capability while a tunnel is
+// running. As at registration, only the SHA-256 digest crosses the tunnel.
+message UpdateAccessToken {
+  bytes access_token_sha256 = 1;
+}

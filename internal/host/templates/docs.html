@@ -1,21 +1,40 @@
-<style>.page-container{max-width:800px} h2,p,pre{margin-bottom:20px}pre{padding:16px;background:#f6f8fa;overflow:auto}</style>
-<h1 class="page-title">Get your local server online</h1>
-<p>Use tunn for local MCP tools, webhook tests and app previews. Your local process must stay running.</p>
-<h2>1. Install and sign in</h2>
-<pre>curl -fsSL https://tunn.to/install.sh | sh
+<div class="docs">
+<nav class="panel docs-nav" aria-label="Docs"><a href="/docs" aria-current="page">Quickstart</a><a href="/docs/webhook-verification">Webhook verification</a><a href="/docs/mcp-to-claude">MCP to Claude</a><a href="/docs/ip-restrictions">IP restrictions</a><a href="/docs/docker">Docker client</a><a href="/docs/status">Status measurements</a><a href="/ngrok-alternative">From ngrok</a></nav>
+<div>
+<span class="lbl">Quickstart · macOS · Linux</span>
+<h1 style="margin:14px 0 18px">Give port 3000 <span class="sig-t">a&nbsp;URL.</span></h1>
+<p class="sub" style="margin-bottom:28px">Install, sign in once, then run one command next to your app. tunn and your app must keep running.</p>
+
+<section class="step" aria-labelledby="s1"><span class="n">01</span><div><h2 id="s1">Install and sign in</h2>
+<pre class="glass term">curl -fsSL https://tunn.to/install.sh | sh
 tunn login</pre>
-<p>macOS/Linux on Intel or ARM. The downloader follows the latest GitHub release; for checked source builds and recovery, use the <a href="https://github.com/ehrlich-b/tunn/blob/main/docs/install-recovery.md">install and recovery guide</a>. If tunn is not found, add <code>$HOME/.local/bin</code> to PATH.</p>
-<p>See <a href="/docs/docker">Docker client setup</a> and <a href="/docs/status">status measurements</a>.</p>
-<h2>2. Expose a port</h2><pre>tunn http 8080</pre>
-<p>Web tunnels are owner-only by default. Add <code>--allow=alice@example.com</code> to invite someone by email. For anonymous access or webhooks, run <code>tunn http 8080 --public</code> and <a href="/docs/webhook-verification">configure edge signature verification</a>. Keep your application's signature verification enabled.</p>
-<h2>3. Connect a local MCP tool to Claude.ai</h2><pre>tunn mcp -- ./my-mcp-server</pre>
-<p>MCP endpoints are private by default. Copy the printed /mcp connector URL, sign in and approve access. <a href="/docs/mcp-to-claude">Follow the complete tutorial</a>.</p>
-<h2>Coming from ngrok?</h2><pre># ngrok http 8080 →
-tunn http 8080 --public
-# ngrok http 8080 --subdomain=work →
-tunn http 8080 --subdomain=work --public</pre>
-<p>This is an HTTP command shortcut, not full ngrok compatibility. Run <code>tunn login</code> instead of configuring an ngrok authtoken. ngrok --domain, config files and traffic policies do not transfer. Free attempts to reserve one published name; Pro attempts up to ten, including random names. Choose names before publishing. <a href="/ngrok-alternative">Compare the tradeoffs</a>.</p>
-<h2>Inspect webhooks and watch usage</h2><pre>tunn http 8080 --public --inspect
+<p style="margin-top:12px">Intel or ARM. The installer follows the latest GitHub release. If <code>tunn</code> is not found, add <code>$HOME/.local/bin</code> to PATH. For source builds and recovery, see the <a href="https://github.com/ehrlich-b/tunn/blob/main/docs/install-recovery.md">install guide</a>.</p></div></section>
+
+<section class="step" aria-labelledby="s2"><span class="n">02</span><div><h2 id="s2">Share port 3000</h2>
+<pre class="glass term"><span class="c"># only you</span>
+tunn 3000
+<span class="c"># one person, or everyone at a domain</span>
+tunn 3000 --allow=alex@example.com
+tunn 3000 --allow=@example.com
+<span class="c"># anyone with the link</span>
+tunn 3000 --public</pre>
+<p style="margin-top:12px">The CLI prints the HTTPS URL. Invited people sign in with GitHub or an email link; everyone else gets a 403 at the edge. For public webhooks, <a href="/docs/webhook-verification">verify signatures at the edge</a> and keep your app's own check on.</p></div></section>
+
+<section class="step" aria-labelledby="s3"><span class="n">03</span><div><h2 id="s3">Watch requests and usage</h2>
+<pre class="glass term">tunn 3000 --public --inspect
 tunn usage</pre>
-<p>The local inspector omits bodies by default. Quotas apply across all account endpoints and reset monthly in UTC. Check <a href="/account">your account</a> or <a href="/pricing">plans and exact usage units</a> before upgrading. No automatic overage charges.</p>
-<p><a href="https://github.com/ehrlich-b/tunn#readme">Full CLI and self-hosting docs</a> · <a href="mailto:support@tunn.to">Support</a></p>
+<p style="margin-top:12px">The local inspector stores headers, not bodies, unless you add <code>--inspect-body</code>. Your account also has a <a href="/account/inspect">request inspector</a>. Quotas cover all your endpoints and reset monthly in UTC. At a limit, tunn stops; there are no overage charges. <a href="/pricing">Plans and units</a></p></div></section>
+
+<section class="step" aria-labelledby="s4"><span class="n">04</span><div><h2 id="s4">Connect a local MCP server</h2>
+<pre class="glass term">tunn mcp -- ./my-mcp-server</pre>
+<p style="margin-top:12px">MCP endpoints are private by default. Copy the printed /mcp URL into your client, sign in and approve access. <a href="/docs/mcp-to-claude">Full walkthrough</a></p></div></section>
+
+<section class="step" aria-labelledby="s5"><span class="n">05</span><div><h2 id="s5">Coming from ngrok</h2>
+<pre class="glass term"><span class="c"># ngrok http 3000</span>
+tunn 3000 --public
+<span class="c"># ngrok http 3000 --subdomain=work</span>
+tunn 3000 --name=work --public</pre>
+<p style="margin-top:12px">Run <code>tunn login</code> instead of setting an authtoken. ngrok domains, config files and traffic policies do not carry over. Free reserves one published name, Pro up to ten, random names included. <a href="/ngrok-alternative">tunn vs ngrok</a></p></div></section>
+<p class="fine" style="margin-top:24px"><a href="https://github.com/ehrlich-b/tunn#readme">CLI reference and self-hosting</a> · <a href="mailto:support@tunn.to">Support</a></p>
+</div>
+</div>

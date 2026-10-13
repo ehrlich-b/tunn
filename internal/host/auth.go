@@ -356,16 +356,28 @@ func (p *ProxyServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/html")
-	writePageStart(w, "tunn - Login")
+	writePageStartAt(w, "tunn - Login", "signin")
 
 	if tunnelID != "" {
-		_, _ = fmt.Fprint(w, `<h1 class="page-title">Sign in to access tunnel</h1>
-<p class="page-subtitle">This tunnel requires authentication.</p>
-<div id="message"></div>`)
+		host := tunnelID
+		if u, err := url.Parse(returnTo); err == nil && u.Host != "" {
+			host = u.Host
+		}
+		host = template.HTMLEscapeString(host)
+		_, _ = fmt.Fprintf(w, `<div class="gate"><section><span class="lbl">Private link · %[1]s</span>
+<h1 class="h1" style="margin:18px 0 22px">Sign in to <span class="sig-t">open it.</span></h1>
+<p class="sub">The owner of %[1]s chose who can open it. Sign in so tunn can check your email against their list.</p>
+<ol class="gate-steps"><li><span class="lbl sig">01</span>You sign in</li><li><span class="lbl sig">02</span>tunn checks the owner's list</li><li><span class="lbl sig">03</span>On the list, the app loads. Otherwise, 403.</li></ol></section>
+<section class="panel gate-card"><i class="screw tl"></i><i class="screw tr"></i><i class="screw bl"></i><i class="screw br"></i><span class="seal" aria-hidden="true"><span class="led on"></span></span>
+<h2 class="gate-title">Private link</h2><p class="host">Sign in to open<br>%[1]s</p>
+<div id="message" role="status"></div>`, host)
 	} else {
-		_, _ = fmt.Fprint(w, `<h1 class="page-title">Sign in to tunn</h1>
-<p class="page-subtitle">Access your tunnels and account settings.</p>
-<div id="message"></div>`)
+		_, _ = fmt.Fprint(w, `<div class="gate"><section><span class="lbl">Account</span>
+<h1 class="h1" style="margin:18px 0 22px">Sign in to <span class="sig-t">tunn.</span></h1>
+<p class="sub">Manage your tunnels, requests and usage.</p></section>
+<section class="panel gate-card"><i class="screw tl"></i><i class="screw tr"></i><i class="screw bl"></i><i class="screw br"></i><span class="seal" aria-hidden="true"><span class="led on"></span></span>
+<h2 class="gate-title">Sign in</h2>
+<div id="message" role="status"></div>`)
 	}
 
 	p.writeOrgLoginButtons(w, oauthParams)
@@ -391,8 +403,9 @@ func (p *ProxyServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 		}
 		_, _ = fmt.Fprintf(w, `
 <form id="email-form">
-<input type="email" name="email" placeholder="you@example.com" required>
-<button type="submit" class="btn btn-secondary">Continue with Email</button>
+<div class="field"><label for="login-email">Email</label>
+<input id="login-email" type="email" name="email" autocomplete="email" placeholder="you@example.com" required></div>
+<button type="submit" class="btn btn-secondary">Email me a link</button>
 </form>
 <script>
 document.getElementById('email-form').addEventListener('submit', async (e) => {
@@ -401,7 +414,7 @@ document.getElementById('email-form').addEventListener('submit', async (e) => {
 	const msgEl = document.getElementById('message');
 	const btn = e.target.querySelector('button');
 	btn.disabled = true;
-	btn.textContent = 'Sending...';
+	btn.textContent = 'Sending…';
 	try {
 		const resp = await fetch('%s', {
 			method: 'POST',
@@ -410,18 +423,18 @@ document.getElementById('email-form').addEventListener('submit', async (e) => {
 		});
 		if (resp.ok) {
 			msgEl.className = 'message success';
-			msgEl.textContent = 'Check your email for a login link!';
+			msgEl.textContent = 'Link sent. Check your email.';
 			e.target.style.display = 'none';
 		} else {
 			const data = await resp.text();
 			msgEl.className = 'message error';
 			msgEl.textContent = data || 'Failed to send email';
 			btn.disabled = false;
-			btn.textContent = 'Continue with Email';
+			btn.textContent = 'Email me a link';
 		}
 	} catch (err) {
 		msgEl.className = 'message error';
-		msgEl.textContent = 'Network error';
+		msgEl.textContent = 'Network error. Try again.';
 		btn.disabled = false;
 		btn.textContent = 'Continue with Email';
 	}
@@ -433,6 +446,7 @@ document.getElementById('email-form').addEventListener('submit', async (e) => {
 		_, _ = fmt.Fprint(w, `<p>No login methods configured. Contact your administrator.</p>`)
 	}
 
+	_, _ = fmt.Fprint(w, `</section></div>`)
 	writePageEnd(w)
 }
 

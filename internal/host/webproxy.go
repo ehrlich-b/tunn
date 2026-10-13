@@ -207,7 +207,8 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 	probe, _ := r.Context().Value(forwardPermissionProbeKey{}).(*bool)
 	var session *ingressMeter
 	if probe != nil {
-		session = &ingressMeter{proxy: p, accountID: tunnel.AccountID, event: &meterpb.Event{Owner: tunnel.AccountID, Endpoint: tunnel.TunnelID}}
+		id, _ := generateConnectionID()
+		session = &ingressMeter{proxy: p, accountID: tunnel.AccountID, event: &meterpb.Event{RequestId: id, Owner: tunnel.AccountID, Endpoint: tunnel.TunnelID, Caller: "anonymous", AuthMethod: "none", Allowed: true, Reason: "allowed", StartedAt: time.Now().UnixMilli()}}
 	} else {
 		session = newIngressMeter(p, tunnel)
 	}
@@ -220,7 +221,15 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 	if p.meter != nil {
 		w.Header().Set("Tunn-Request-ID", session.event.RequestId)
 	}
-	defer session.complete(r.Context(), meterWriter)
+	defer func() {
+		if probe != nil && !*probe && r.Context().Value(forwardPermissionAdmissionKey{}) == true {
+			session.backend = p.meter
+			if meterWriter.status >= 400 || session.reason == "authentication_required" {
+				p.operations.denied.Add(1)
+			}
+		}
+		session.complete(r.Context(), meterWriter)
+	}()
 	grantAuthenticated := false
 	var webResource *meterpb.WebResource
 	var webEmails []string
@@ -494,6 +503,10 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		go session.watch(ctx, cancel)
 	}
 	r = r.WithContext(context.WithValue(r.Context(), meterContextKey{}, session))
+	meterWriter.ctx = r.Context()
+	downstream, stopIO := interruptResponseOnCancellation(meterWriter.ResponseWriter, r)
+	meterWriter.ResponseWriter = downstream
+	defer stopIO()
 	if p.meter != nil {
 		r.Body = &meterRequestBody{ReadCloser: r.Body, meter: session, ctx: r.Context()}
 	}
@@ -810,8 +823,12 @@ func generateConnectionID() (string, error) {
 func (p *ProxyServer) proxyToNode(w http.ResponseWriter, r *http.Request, nodeAddr string, tunnelID string) {
 	if tunnelID != "" {
 		var stop func()
-		r, w, stop = p.watchForwardedPermission(w, r, nodeAddr, tunnelID)
+		var allowed bool
+		r, w, stop, allowed = p.watchForwardedPermission(w, r, nodeAddr, tunnelID)
 		defer stop()
+		if !allowed {
+			return
+		}
 	}
 	target, err := url.Parse("https://" + nodeAddr)
 	if err != nil {

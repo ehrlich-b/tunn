@@ -2289,6 +2289,142 @@ func (x *BeginBillingCheckoutResponse) GetDestination() string {
 	return ""
 }
 
+type ForwardedPermissionRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TunnelId      string                 `protobuf:"bytes,1,opt,name=tunnel_id,json=tunnelId,proto3" json:"tunnel_id,omitempty"`
+	Host          string                 `protobuf:"bytes,2,opt,name=host,proto3" json:"host,omitempty"`
+	Path          string                 `protobuf:"bytes,3,opt,name=path,proto3" json:"path,omitempty"`
+	Method        string                 `protobuf:"bytes,4,opt,name=method,proto3" json:"method,omitempty"`
+	Peer          string                 `protobuf:"bytes,5,opt,name=peer,proto3" json:"peer,omitempty"`
+	Scheme        string                 `protobuf:"bytes,6,opt,name=scheme,proto3" json:"scheme,omitempty"`
+	Headers       map[string]string      `protobuf:"bytes,7,rep,name=headers,proto3" json:"headers,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ForwardedPermissionRequest) Reset() {
+	*x = ForwardedPermissionRequest{}
+	mi := &file_proto_internal_proto_msgTypes[42]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ForwardedPermissionRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ForwardedPermissionRequest) ProtoMessage() {}
+
+func (x *ForwardedPermissionRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[42]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ForwardedPermissionRequest.ProtoReflect.Descriptor instead.
+func (*ForwardedPermissionRequest) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{42}
+}
+
+func (x *ForwardedPermissionRequest) GetTunnelId() string {
+	if x != nil {
+		return x.TunnelId
+	}
+	return ""
+}
+
+func (x *ForwardedPermissionRequest) GetHost() string {
+	if x != nil {
+		return x.Host
+	}
+	return ""
+}
+
+func (x *ForwardedPermissionRequest) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *ForwardedPermissionRequest) GetMethod() string {
+	if x != nil {
+		return x.Method
+	}
+	return ""
+}
+
+func (x *ForwardedPermissionRequest) GetPeer() string {
+	if x != nil {
+		return x.Peer
+	}
+	return ""
+}
+
+func (x *ForwardedPermissionRequest) GetScheme() string {
+	if x != nil {
+		return x.Scheme
+	}
+	return ""
+}
+
+func (x *ForwardedPermissionRequest) GetHeaders() map[string]string {
+	if x != nil {
+		return x.Headers
+	}
+	return nil
+}
+
+type ForwardedPermissionResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Allowed       bool                   `protobuf:"varint,1,opt,name=allowed,proto3" json:"allowed,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ForwardedPermissionResponse) Reset() {
+	*x = ForwardedPermissionResponse{}
+	mi := &file_proto_internal_proto_msgTypes[43]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ForwardedPermissionResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ForwardedPermissionResponse) ProtoMessage() {}
+
+func (x *ForwardedPermissionResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[43]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ForwardedPermissionResponse.ProtoReflect.Descriptor instead.
+func (*ForwardedPermissionResponse) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{43}
+}
+
+func (x *ForwardedPermissionResponse) GetAllowed() bool {
+	if x != nil {
+		return x.Allowed
+	}
+	return false
+}
+
 var File_proto_internal_proto protoreflect.FileDescriptor
 
 const file_proto_internal_proto_rawDesc = "" +
@@ -2454,8 +2590,22 @@ const file_proto_internal_proto_rawDesc = "" +
 	"\vdestination\x18\x02 \x01(\tR\vdestination\"^\n" +
 	"\x1cBeginBillingCheckoutResponse\x12\x1c\n" +
 	"\treference\x18\x01 \x01(\tR\treference\x12 \n" +
-	"\vdestination\x18\x02 \x01(\tR\vdestination2\xa0\x01\n" +
-	"\x0fInternalService\x12G\n" +
+	"\vdestination\x18\x02 \x01(\tR\vdestination\"\xae\x02\n" +
+	"\x1aForwardedPermissionRequest\x12\x1b\n" +
+	"\ttunnel_id\x18\x01 \x01(\tR\btunnelId\x12\x12\n" +
+	"\x04host\x18\x02 \x01(\tR\x04host\x12\x12\n" +
+	"\x04path\x18\x03 \x01(\tR\x04path\x12\x16\n" +
+	"\x06method\x18\x04 \x01(\tR\x06method\x12\x12\n" +
+	"\x04peer\x18\x05 \x01(\tR\x04peer\x12\x16\n" +
+	"\x06scheme\x18\x06 \x01(\tR\x06scheme\x12K\n" +
+	"\aheaders\x18\a \x03(\v21.internal.ForwardedPermissionRequest.HeadersEntryR\aheaders\x1a:\n" +
+	"\fHeadersEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"7\n" +
+	"\x1bForwardedPermissionResponse\x12\x18\n" +
+	"\aallowed\x18\x01 \x01(\bR\aallowed2\x89\x02\n" +
+	"\x0fInternalService\x12g\n" +
+	"\x18CheckForwardedPermission\x12$.internal.ForwardedPermissionRequest\x1a%.internal.ForwardedPermissionResponse\x12G\n" +
 	"\n" +
 	"FindTunnel\x12\x1b.internal.FindTunnelRequest\x1a\x1c.internal.FindTunnelResponse\x12D\n" +
 	"\vGetNodeInfo\x12\x19.internal.NodeInfoRequest\x1a\x1a.internal.NodeInfoResponse2\xfa\r\n" +
@@ -2495,7 +2645,7 @@ func file_proto_internal_proto_rawDescGZIP() []byte {
 	return file_proto_internal_proto_rawDescData
 }
 
-var file_proto_internal_proto_msgTypes = make([]protoimpl.MessageInfo, 42)
+var file_proto_internal_proto_msgTypes = make([]protoimpl.MessageInfo, 45)
 var file_proto_internal_proto_goTypes = []any{
 	(*NodeInfoRequest)(nil),                 // 0: internal.NodeInfoRequest
 	(*NodeInfoResponse)(nil),                // 1: internal.NodeInfoResponse
@@ -2539,58 +2689,64 @@ var file_proto_internal_proto_goTypes = []any{
 	(*IntakeReportResponse)(nil),            // 39: internal.IntakeReportResponse
 	(*BeginBillingCheckoutRequest)(nil),     // 40: internal.BeginBillingCheckoutRequest
 	(*BeginBillingCheckoutResponse)(nil),    // 41: internal.BeginBillingCheckoutResponse
+	(*ForwardedPermissionRequest)(nil),      // 42: internal.ForwardedPermissionRequest
+	(*ForwardedPermissionResponse)(nil),     // 43: internal.ForwardedPermissionResponse
+	nil,                                     // 44: internal.ForwardedPermissionRequest.HeadersEntry
 }
 var file_proto_internal_proto_depIdxs = []int32{
 	18, // 0: internal.AccountResponse.emails:type_name -> internal.AccountEmail
-	2,  // 1: internal.InternalService.FindTunnel:input_type -> internal.FindTunnelRequest
-	0,  // 2: internal.InternalService.GetNodeInfo:input_type -> internal.NodeInfoRequest
-	6,  // 3: internal.LoginNodeDB.RecordUsage:input_type -> internal.RecordUsageRequest
-	8,  // 4: internal.LoginNodeDB.GetMonthlyUsage:input_type -> internal.GetMonthlyUsageRequest
-	11, // 5: internal.LoginNodeDB.CheckManagementDevice:input_type -> internal.CheckManagementDeviceRequest
-	10, // 6: internal.LoginNodeDB.CreateDeviceCode:input_type -> internal.CreateDeviceCodeRequest
-	14, // 7: internal.LoginNodeDB.GetDeviceCode:input_type -> internal.GetDeviceCodeRequest
-	15, // 8: internal.LoginNodeDB.AuthorizeDeviceCode:input_type -> internal.AuthorizeDeviceCodeRequest
-	19, // 9: internal.LoginNodeDB.GetAccount:input_type -> internal.GetAccountRequest
-	20, // 10: internal.LoginNodeDB.GetAccountByEmail:input_type -> internal.GetAccountByEmailRequest
-	21, // 11: internal.LoginNodeDB.FindOrCreateByEmails:input_type -> internal.FindOrCreateByEmailsRequest
-	22, // 12: internal.LoginNodeDB.GetEmailBucket:input_type -> internal.GetEmailBucketRequest
-	24, // 13: internal.LoginNodeDB.UpdatePlan:input_type -> internal.UpdatePlanRequest
-	26, // 14: internal.LoginNodeDB.RegisterTunnel:input_type -> internal.RegisterTunnelRequest
-	28, // 15: internal.LoginNodeDB.UnregisterTunnel:input_type -> internal.UnregisterTunnelRequest
-	30, // 16: internal.LoginNodeDB.GetTunnelCount:input_type -> internal.GetTunnelCountRequest
-	32, // 17: internal.LoginNodeDB.MarkMagicTokenUsed:input_type -> internal.MarkMagicTokenUsedRequest
-	34, // 18: internal.LoginNodeDB.CheckMagicLinkRateLimit:input_type -> internal.CheckMagicLinkRateLimitRequest
-	36, // 19: internal.LoginNodeDB.ProcessBillingEvent:input_type -> internal.ProcessBillingEventRequest
-	38, // 20: internal.LoginNodeDB.IntakeReport:input_type -> internal.IntakeReportRequest
-	40, // 21: internal.LoginNodeDB.BeginBillingCheckout:input_type -> internal.BeginBillingCheckoutRequest
-	4,  // 22: internal.LoginNodeDB.AppDeviceCheck:input_type -> internal.AppDeviceCheckRequest
-	3,  // 23: internal.InternalService.FindTunnel:output_type -> internal.FindTunnelResponse
-	1,  // 24: internal.InternalService.GetNodeInfo:output_type -> internal.NodeInfoResponse
-	7,  // 25: internal.LoginNodeDB.RecordUsage:output_type -> internal.RecordUsageResponse
-	9,  // 26: internal.LoginNodeDB.GetMonthlyUsage:output_type -> internal.GetMonthlyUsageResponse
-	12, // 27: internal.LoginNodeDB.CheckManagementDevice:output_type -> internal.CheckManagementDeviceResponse
-	13, // 28: internal.LoginNodeDB.CreateDeviceCode:output_type -> internal.DeviceCodeResponse
-	13, // 29: internal.LoginNodeDB.GetDeviceCode:output_type -> internal.DeviceCodeResponse
-	16, // 30: internal.LoginNodeDB.AuthorizeDeviceCode:output_type -> internal.AuthorizeDeviceCodeResponse
-	17, // 31: internal.LoginNodeDB.GetAccount:output_type -> internal.AccountResponse
-	17, // 32: internal.LoginNodeDB.GetAccountByEmail:output_type -> internal.AccountResponse
-	17, // 33: internal.LoginNodeDB.FindOrCreateByEmails:output_type -> internal.AccountResponse
-	23, // 34: internal.LoginNodeDB.GetEmailBucket:output_type -> internal.GetEmailBucketResponse
-	25, // 35: internal.LoginNodeDB.UpdatePlan:output_type -> internal.UpdatePlanResponse
-	27, // 36: internal.LoginNodeDB.RegisterTunnel:output_type -> internal.RegisterTunnelResponse
-	29, // 37: internal.LoginNodeDB.UnregisterTunnel:output_type -> internal.UnregisterTunnelResponse
-	31, // 38: internal.LoginNodeDB.GetTunnelCount:output_type -> internal.GetTunnelCountResponse
-	33, // 39: internal.LoginNodeDB.MarkMagicTokenUsed:output_type -> internal.MarkMagicTokenUsedResponse
-	35, // 40: internal.LoginNodeDB.CheckMagicLinkRateLimit:output_type -> internal.CheckMagicLinkRateLimitResponse
-	37, // 41: internal.LoginNodeDB.ProcessBillingEvent:output_type -> internal.ProcessBillingEventResponse
-	39, // 42: internal.LoginNodeDB.IntakeReport:output_type -> internal.IntakeReportResponse
-	41, // 43: internal.LoginNodeDB.BeginBillingCheckout:output_type -> internal.BeginBillingCheckoutResponse
-	5,  // 44: internal.LoginNodeDB.AppDeviceCheck:output_type -> internal.AppDeviceCheckResponse
-	23, // [23:45] is the sub-list for method output_type
-	1,  // [1:23] is the sub-list for method input_type
-	1,  // [1:1] is the sub-list for extension type_name
-	1,  // [1:1] is the sub-list for extension extendee
-	0,  // [0:1] is the sub-list for field type_name
+	44, // 1: internal.ForwardedPermissionRequest.headers:type_name -> internal.ForwardedPermissionRequest.HeadersEntry
+	42, // 2: internal.InternalService.CheckForwardedPermission:input_type -> internal.ForwardedPermissionRequest
+	2,  // 3: internal.InternalService.FindTunnel:input_type -> internal.FindTunnelRequest
+	0,  // 4: internal.InternalService.GetNodeInfo:input_type -> internal.NodeInfoRequest
+	6,  // 5: internal.LoginNodeDB.RecordUsage:input_type -> internal.RecordUsageRequest
+	8,  // 6: internal.LoginNodeDB.GetMonthlyUsage:input_type -> internal.GetMonthlyUsageRequest
+	11, // 7: internal.LoginNodeDB.CheckManagementDevice:input_type -> internal.CheckManagementDeviceRequest
+	10, // 8: internal.LoginNodeDB.CreateDeviceCode:input_type -> internal.CreateDeviceCodeRequest
+	14, // 9: internal.LoginNodeDB.GetDeviceCode:input_type -> internal.GetDeviceCodeRequest
+	15, // 10: internal.LoginNodeDB.AuthorizeDeviceCode:input_type -> internal.AuthorizeDeviceCodeRequest
+	19, // 11: internal.LoginNodeDB.GetAccount:input_type -> internal.GetAccountRequest
+	20, // 12: internal.LoginNodeDB.GetAccountByEmail:input_type -> internal.GetAccountByEmailRequest
+	21, // 13: internal.LoginNodeDB.FindOrCreateByEmails:input_type -> internal.FindOrCreateByEmailsRequest
+	22, // 14: internal.LoginNodeDB.GetEmailBucket:input_type -> internal.GetEmailBucketRequest
+	24, // 15: internal.LoginNodeDB.UpdatePlan:input_type -> internal.UpdatePlanRequest
+	26, // 16: internal.LoginNodeDB.RegisterTunnel:input_type -> internal.RegisterTunnelRequest
+	28, // 17: internal.LoginNodeDB.UnregisterTunnel:input_type -> internal.UnregisterTunnelRequest
+	30, // 18: internal.LoginNodeDB.GetTunnelCount:input_type -> internal.GetTunnelCountRequest
+	32, // 19: internal.LoginNodeDB.MarkMagicTokenUsed:input_type -> internal.MarkMagicTokenUsedRequest
+	34, // 20: internal.LoginNodeDB.CheckMagicLinkRateLimit:input_type -> internal.CheckMagicLinkRateLimitRequest
+	36, // 21: internal.LoginNodeDB.ProcessBillingEvent:input_type -> internal.ProcessBillingEventRequest
+	38, // 22: internal.LoginNodeDB.IntakeReport:input_type -> internal.IntakeReportRequest
+	40, // 23: internal.LoginNodeDB.BeginBillingCheckout:input_type -> internal.BeginBillingCheckoutRequest
+	4,  // 24: internal.LoginNodeDB.AppDeviceCheck:input_type -> internal.AppDeviceCheckRequest
+	43, // 25: internal.InternalService.CheckForwardedPermission:output_type -> internal.ForwardedPermissionResponse
+	3,  // 26: internal.InternalService.FindTunnel:output_type -> internal.FindTunnelResponse
+	1,  // 27: internal.InternalService.GetNodeInfo:output_type -> internal.NodeInfoResponse
+	7,  // 28: internal.LoginNodeDB.RecordUsage:output_type -> internal.RecordUsageResponse
+	9,  // 29: internal.LoginNodeDB.GetMonthlyUsage:output_type -> internal.GetMonthlyUsageResponse
+	12, // 30: internal.LoginNodeDB.CheckManagementDevice:output_type -> internal.CheckManagementDeviceResponse
+	13, // 31: internal.LoginNodeDB.CreateDeviceCode:output_type -> internal.DeviceCodeResponse
+	13, // 32: internal.LoginNodeDB.GetDeviceCode:output_type -> internal.DeviceCodeResponse
+	16, // 33: internal.LoginNodeDB.AuthorizeDeviceCode:output_type -> internal.AuthorizeDeviceCodeResponse
+	17, // 34: internal.LoginNodeDB.GetAccount:output_type -> internal.AccountResponse
+	17, // 35: internal.LoginNodeDB.GetAccountByEmail:output_type -> internal.AccountResponse
+	17, // 36: internal.LoginNodeDB.FindOrCreateByEmails:output_type -> internal.AccountResponse
+	23, // 37: internal.LoginNodeDB.GetEmailBucket:output_type -> internal.GetEmailBucketResponse
+	25, // 38: internal.LoginNodeDB.UpdatePlan:output_type -> internal.UpdatePlanResponse
+	27, // 39: internal.LoginNodeDB.RegisterTunnel:output_type -> internal.RegisterTunnelResponse
+	29, // 40: internal.LoginNodeDB.UnregisterTunnel:output_type -> internal.UnregisterTunnelResponse
+	31, // 41: internal.LoginNodeDB.GetTunnelCount:output_type -> internal.GetTunnelCountResponse
+	33, // 42: internal.LoginNodeDB.MarkMagicTokenUsed:output_type -> internal.MarkMagicTokenUsedResponse
+	35, // 43: internal.LoginNodeDB.CheckMagicLinkRateLimit:output_type -> internal.CheckMagicLinkRateLimitResponse
+	37, // 44: internal.LoginNodeDB.ProcessBillingEvent:output_type -> internal.ProcessBillingEventResponse
+	39, // 45: internal.LoginNodeDB.IntakeReport:output_type -> internal.IntakeReportResponse
+	41, // 46: internal.LoginNodeDB.BeginBillingCheckout:output_type -> internal.BeginBillingCheckoutResponse
+	5,  // 47: internal.LoginNodeDB.AppDeviceCheck:output_type -> internal.AppDeviceCheckResponse
+	25, // [25:48] is the sub-list for method output_type
+	2,  // [2:25] is the sub-list for method input_type
+	2,  // [2:2] is the sub-list for extension type_name
+	2,  // [2:2] is the sub-list for extension extendee
+	0,  // [0:2] is the sub-list for field type_name
 }
 
 func init() { file_proto_internal_proto_init() }
@@ -2604,7 +2760,7 @@ func file_proto_internal_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_internal_proto_rawDesc), len(file_proto_internal_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   42,
+			NumMessages:   45,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

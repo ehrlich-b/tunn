@@ -228,7 +228,10 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		appID, _ := appSession["account_id"].(string)
 		appProvider, _ := appSession["provider"].(string)
 		appOwner = account != nil && appID == account.ID
-		assertion, err := p.appAssertion(requestHostname(r.Host), appID, appEmail, appProvider)
+		assertion, err := "", error(nil)
+		if r.Context().Value(forwardPermissionProbeKey{}) == nil {
+			assertion, err = p.appAssertion(requestHostname(r.Host), appID, appEmail, appProvider)
+		}
 		if err != nil {
 			http.Error(w, "Identity signer unavailable", 503)
 			return nil
@@ -236,7 +239,13 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		r.Header.Set("X-Tunn-Identity", assertion)
 		r.Header.Set("X-Tunn-User-Email", appEmail)
 	}
-	session := newIngressMeter(p, tunnel)
+	probe, _ := r.Context().Value(forwardPermissionProbeKey{}).(*bool)
+	var session *ingressMeter
+	if probe != nil {
+		session = &ingressMeter{proxy: p, accountID: tunnel.AccountID, event: &meterpb.Event{Owner: tunnel.AccountID, Endpoint: tunnel.TunnelID}}
+	} else {
+		session = newIngressMeter(p, tunnel)
+	}
 	if account != nil {
 		session.accountID, session.event.Owner = account.ID, account.ID
 		tunnel.updateBandwidthPlan(account.Plan)
@@ -477,11 +486,11 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 			r = clonedRequest
 		}
 	}
-	if r.Context().Value(domainAppKey{}) == true {
+	if probe == nil && r.Context().Value(domainAppKey{}) == true {
 		var stop func()
 		r, stop = p.watchAppPermission(r, tunnel)
 		defer stop()
-	} else if webResource != nil {
+	} else if probe == nil && webResource != nil {
 		var stop func()
 		r, stop = p.watchWebPermission(r, tunnel, webEmails, webResource.Mode != "private" && !grantAuthenticated)
 		defer stop()
@@ -506,6 +515,11 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 			http.Error(w, "Quota exceeded - tunnel owner's monthly limit reached", http.StatusTooManyRequests)
 			return nil
 		}
+	}
+
+	if probe != nil {
+		*probe = true
+		return nil
 	}
 
 	if tunnel.EndpointProtocol != "tcp" && r.ContentLength > MaxBodySize {
@@ -854,6 +868,10 @@ func (p *ProxyServer) proxyToNode(w http.ResponseWriter, r *http.Request, nodeAd
 		stopIO := context.AfterFunc(r.Context(), writer.abort)
 		defer stopIO()
 		w = writer
+	} else if tunnelID != "" {
+		var stop func()
+		r, w, stop = p.watchForwardedPermission(w, r, nodeAddr, tunnelID)
+		defer stop()
 	}
 	target, err := url.Parse("https://" + nodeAddr)
 	if err != nil {

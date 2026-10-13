@@ -5,6 +5,7 @@ package internal;
 option go_package = "github.com/ehrlich-b/tunn/pkg/proto/internalv1";
 
 service InternalService {
+  rpc CheckForwardedPermission(ForwardedPermissionRequest) returns (ForwardedPermissionResponse);
   rpc FindTunnel(FindTunnelRequest) returns (FindTunnelResponse);
   rpc GetNodeInfo(NodeInfoRequest) returns (NodeInfoResponse);
 }
@@ -243,3 +244,9 @@ message IntakeReportResponse { bytes report_json = 1; }
 
 message BeginBillingCheckoutRequest { string account_id = 1; string destination = 2; }
 message BeginBillingCheckoutResponse { string reference = 1; string destination = 2; }
+
+message ForwardedPermissionRequest {
+ string tunnel_id = 1; string host = 2; string path = 3; string method = 4;
+ string peer = 5; string scheme = 6; map<string,string> headers = 7;
+}
+message ForwardedPermissionResponse { bool allowed = 1; }

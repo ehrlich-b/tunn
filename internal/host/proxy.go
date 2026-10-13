@@ -888,6 +888,8 @@ func (p *ProxyServer) createHandler() http.Handler {
 
 	// Account page (requires auth)
 	mux.HandleFunc("/account", p.handleAccount)
+	mux.HandleFunc("/account/inspect", p.handleInspectorPage)
+	mux.HandleFunc("/api/inspector/", p.handleInspectorAPI)
 	mux.HandleFunc("/pricing", p.handlePricing)
 	mux.HandleFunc("/ngrok-alternative", p.handleComparison)
 	mux.HandleFunc("/upgrade", p.handleUpgrade)

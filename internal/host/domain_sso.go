@@ -36,6 +36,14 @@ func (p *ProxyServer) signedSession(w http.ResponseWriter, claims jwt.MapClaims,
 // its verified identity to a durable tunn account. Legacy email-only cookies must
 // sign in again: their provider and account binding cannot be reconstructed.
 func (p *ProxyServer) accountSession(r *http.Request) (jwt.MapClaims, bool) {
+	// An inspector replay is an authenticated owner action originating at the
+	// platform. Its private server context supplies that original request to
+	// the ordinary domain-app checks and permission watcher. No header can
+	// create this context; proxyToLocal first checks the pinned connection and
+	// live UUID, and appAccountAccess still checks current domain ownership.
+	if replay, ok := r.Context().Value(inspectorReplayKey{}).(*inspectorReplay); ok {
+		r = replay.browserRequest
+	}
 	name := authCookieName
 	if p.customerHost(r.Host) {
 		name = appCookie

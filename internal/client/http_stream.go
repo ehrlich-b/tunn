@@ -55,8 +55,8 @@ func (m *inboundConnectionManager) open(ctx context.Context, client *ServeClient
 		endpointProtocol = "http"
 	}
 	if valid {
-		valid = open.Protocol == endpointProtocol || (endpointProtocol == "http" && open.Protocol == "websocket")
-		if open.Protocol == "http" || open.Protocol == "websocket" {
+		valid = open.Protocol == endpointProtocol || (endpointProtocol == "http" && (open.Protocol == "websocket" || open.Protocol == common.HTTPOriginReplayProtocol))
+		if open.Protocol == "http" || open.Protocol == "websocket" || open.Protocol == common.HTTPOriginReplayProtocol {
 			valid = valid && open.HttpRequest != nil
 		}
 	}
@@ -124,7 +124,7 @@ func (m *inboundConnectionManager) open(ctx context.Context, client *ServeClient
 			m.remove(open.ConnectionId, connection)
 		}()
 		switch open.Protocol {
-		case "http":
+		case "http", common.HTTPOriginReplayProtocol:
 			client.handleStreamingHTTPRequest(connectionCtx, sender, open, bodyReader)
 		case "tcp":
 			client.handleStreamingTCP(connectionCtx, sender, open.ConnectionId, bodyReader)
@@ -372,6 +372,9 @@ func (s *ServeClient) handleStreamingHTTPRequest(ctx context.Context, sender mes
 		roundTripper = s.HTTPTransport
 	}
 	httpClient := &http.Client{Transport: roundTripper}
+	if open.Protocol == common.HTTPOriginReplayProtocol {
+		httpClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	}
 	response, err := httpClient.Do(request)
 	if err != nil {
 		common.LogDebug("streaming target failed", "error", err)

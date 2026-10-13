@@ -9,6 +9,11 @@ const (
 	CapabilityWebSocketV1            = "websocket-v1"
 	CapabilityHTTPResponseTrailersV1 = "http-response-trailers-v1"
 
+	// HTTP replay is separately negotiated: it uses the existing streamed
+	// envelope but the publisher must never follow an origin redirect.
+	CapabilityHTTPOriginReplayV1 = "http-origin-replay-v1"
+	HTTPOriginReplayProtocol     = "http-replay"
+
 	TCPConnectPath   = "/_tunn/connect"
 	TCPConnectHeader = "Tunn-Protocol"
 	TCPConnectValue  = "tcp/1"

@@ -619,3 +619,14 @@ test-candidate-baseline:
 .PHONY: test-candidate-upload-contract
 test-candidate-upload-contract:
 	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=45s -run '^(TestHTTPFidelity(UploadTerminalSchedules|UploadFailureAbortsResponse|WireUploadEOFAbortsResponse|UnknownUploadLimitBeforeEmptyResponse|UploadLimitAfterPrefixAbortsResponse|ChunkedUploadProgressAfterPrefix)|TestProxyToLocalReturnsResponseErrors|TestDogfoodUpload)' ./internal/host
+
+# Owner-only, metadata-only web inspector and replay through normal ingress.
+.PHONY: test-web-inspector test-web-inspector-browser
+test-web-inspector:
+	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=120s -run '^Test(WebInspector|InspectionHistory)' ./internal/inspection ./internal/client ./internal/host
+	$(MAKE) -j1 test-inspect-offline
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/integration-tests/inspect-syntax.py internal/host/templates/inspector.html
+
+test-web-inspector-browser:
+	@test -n "$$TUNN_INSPECT_PLAYWRIGHT_MODULE" || { echo 'REQUIRED-UNRUN: set TUNN_INSPECT_PLAYWRIGHT_MODULE to installed Playwright'; exit 1; }
+	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=90s -run '^TestWebInspectorBrowserJourney$$' ./internal/host

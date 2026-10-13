@@ -13,6 +13,7 @@ import (
 
 	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/ehrlich-b/tunn/internal/config"
+	"github.com/ehrlich-b/tunn/internal/inspection"
 	"github.com/ehrlich-b/tunn/internal/metering"
 	"github.com/ehrlich-b/tunn/internal/storage"
 	"github.com/ehrlich-b/tunn/internal/store"
@@ -103,6 +104,10 @@ type TunnelConnection struct {
 	// Stream send mutex - gRPC streams are NOT thread-safe for concurrent Send()
 	streamMu sync.Mutex
 	authMu   sync.RWMutex
+
+	// Process-local metadata belongs to this connection, not its DNS name.
+	inspectorMu sync.Mutex
+	inspector   *inspection.History
 
 	// HTTP request tracking
 	pendingMu       sync.RWMutex

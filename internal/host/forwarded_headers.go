@@ -45,6 +45,9 @@ func (p *ProxyServer) forwardingPeer(r *http.Request) (peer, proto string) {
 		hmac.Equal([]byte(expected), []byte(r.Header.Get(relayForwardedSignature))) {
 		peer, proto = forwardedPeer, forwardedProto
 	}
+	if ip := net.ParseIP(peer); ip != nil {
+		peer = ip.String()
+	}
 	return peer, proto
 }
 

@@ -24,3 +24,30 @@ func TestDeviceAdmissionUsesAuthenticatedPeer(t *testing.T) {
 		}
 	}
 }
+
+func TestDeviceAdmissionRelayPeerNormalization(t *testing.T) {
+	p := durableFixture(t)
+	p.config.NodeSecret = "fixture-cluster"
+	for i := 0; i < deviceCodeRateMaxCount; i++ {
+		r := httptest.NewRequest("POST", "https://tunn.test/api/device/code", nil)
+		r.RemoteAddr = "192.0.2.200:1234"
+		r.Header.Set(relayForwardedFor, "::ffff:192.0.2.10")
+		r.Header.Set(relayForwardedProto, "https")
+		r.Header.Set(relayForwardedSignature, p.forwardingSignature(r.Host, "::ffff:192.0.2.10", "https"))
+		w := httptest.NewRecorder()
+		p.handleDeviceCode(w, r)
+		if w.Code != 200 {
+			t.Fatal(w.Code)
+		}
+	}
+	r := httptest.NewRequest("POST", "https://tunn.test/api/device/code", nil)
+	r.RemoteAddr = "192.0.2.10:4321"
+	r.Header.Set(relayForwardedFor, "198.51.100.9")
+	r.Header.Set(relayForwardedProto, "https")
+	r.Header.Set(relayForwardedSignature, "invalid")
+	w := httptest.NewRecorder()
+	p.handleDeviceCode(w, r)
+	if w.Code != 429 {
+		t.Fatal("equivalent ingress peer got another allowance", w.Code)
+	}
+}

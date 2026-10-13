@@ -21,6 +21,7 @@ import (
 
 	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/ehrlich-b/tunn/internal/metering"
+	"github.com/ehrlich-b/tunn/internal/storage"
 	mp "github.com/ehrlich-b/tunn/pkg/proto/meteringv1"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
 	"google.golang.org/grpc"
@@ -563,7 +564,7 @@ func TestIPPolicyTwoRelayHopHeadersAndCONNECT(t *testing.T) {
 func TestIPPolicyCLIOwnerAuthorizationJourney(t *testing.T) {
 	p := durableFixture(t)
 	device := durableLogin(t, p)
-	code, err := p.storage.CreateDeviceCode(context.Background())
+	code, err := p.storage.(storage.ScopedDeviceStorage).CreateDeviceCodeForPurpose(context.Background(), "management", "")
 	if err != nil {
 		t.Fatal(err)
 	}

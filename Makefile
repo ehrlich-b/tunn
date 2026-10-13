@@ -626,3 +626,8 @@ proto-ip-policy:
 	PATH="$(CURDIR)/.scratch/tools:$$PATH" protoc --go_out=. --go-grpc_out=. --go_opt=module=github.com/ehrlich-b/tunn --go-grpc_opt=module=github.com/ehrlich-b/tunn proto/metering.proto
 test-ip-policy:
 	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=120s -run '^TestIPPolicy' ./internal/ippolicy ./internal/metering ./internal/store ./internal/host ./internal/client .
+
+
+.PHONY: test-device-admission
+test-device-admission:
+	go test -race -count=1 -timeout=60s -run '^TestDeviceAdmission' ./internal/host

@@ -141,6 +141,13 @@ bounded reconnects and explicit sharing. The [Node SDK guide](docs/js-sdk.md)
 and package README include lifecycle details and an MCP HTTP quickstart.
 The package is not published to npm; install its local tarball.
 
+### Embed in Python
+
+The source-only [Python SDK](sdk/python/README.md) publishes an HTTP origin or
+ASGI/WSGI handler with synchronous and asyncio lifecycles. A revision-matched
+local helper reuses the Go publisher, authentication and sharing checks. The
+guide includes a Python MCP server quickstart and source-install instructions.
+
 ### Local request inspector
 
 Add `--inspect` when debugging an HTTP endpoint or webhook handler:

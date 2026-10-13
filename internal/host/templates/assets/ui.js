@@ -1,0 +1,11 @@
+(() => {
+'use strict';
+const root = document.documentElement;
+function labels() { document.querySelectorAll('[data-theme-toggle]').forEach(button => { button.textContent = root.dataset.theme === 'dark' ? 'Light theme' : 'Dark theme'; button.setAttribute('aria-label', 'Switch to ' + (root.dataset.theme === 'dark' ? 'light' : 'dark') + ' theme'); }); }
+labels();
+document.querySelectorAll('[data-theme-toggle]').forEach(button => button.addEventListener('click', () => { root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark'; try { localStorage.setItem('tunn-theme', root.dataset.theme); } catch (_) {} labels(); }));
+const menu = document.querySelector('[data-menu]'), nav = document.getElementById('mobile-nav');
+if (menu && nav) { const close = () => { nav.hidden = true; menu.setAttribute('aria-expanded', 'false'); }; menu.addEventListener('click', () => { nav.hidden = !nav.hidden; menu.setAttribute('aria-expanded', String(!nav.hidden)); }); document.addEventListener('keydown', event => { if (event.key === 'Escape' && !nav.hidden) { close(); menu.focus(); } }); nav.querySelectorAll('a').forEach(a => a.addEventListener('click', close)); }
+document.querySelectorAll('[data-copy]').forEach(button => { const label = button.textContent; button.addEventListener('click', async () => { let message; try { await navigator.clipboard.writeText(button.dataset.copy); button.textContent = 'Copied'; message = 'Command copied'; } catch (_) { button.textContent = 'Copy failed'; message = 'Copy failed. Select the command and copy it.'; } let status = button.closest('.command').nextElementSibling; if (!status || !status.classList.contains('copy-status')) { status = document.createElement('div'); status.className = 'copy-status'; status.setAttribute('role','status'); button.closest('.command').after(status); } status.textContent = message; setTimeout(() => { button.textContent = label; }, 2500); }); });
+document.querySelectorAll('[data-period]').forEach(button => button.addEventListener('click', () => { const yearly = button.dataset.period === 'yearly'; document.querySelectorAll('[data-period]').forEach(b => b.setAttribute('aria-pressed', String(b === button))); document.querySelectorAll('[data-monthly]').forEach(e => e.hidden = yearly); document.querySelectorAll('[data-yearly]').forEach(e => e.hidden = !yearly); }));
+})();

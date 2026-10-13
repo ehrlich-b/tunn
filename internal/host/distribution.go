@@ -20,6 +20,9 @@ var guidesCSS string
 
 // Only the apex router calls this handler; publishers keep all their own paths.
 func (p *ProxyServer) serveDistributionPage(w http.ResponseWriter, r *http.Request) bool {
+	if serveWebAsset(w, r) {
+		return true
+	}
 	contentType := "text/html; charset=utf-8"
 	var body string
 	switch r.URL.Path {

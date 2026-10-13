@@ -1,0 +1,1 @@
+(() => { let saved; try { saved = localStorage.getItem('tunn-theme'); } catch (_) {} const dark = document.documentElement.dataset.defaultTheme === 'dark' || matchMedia('(prefers-color-scheme: dark)').matches; document.documentElement.dataset.theme = saved === 'light' || saved === 'dark' ? saved : dark ? 'dark' : 'light'; })();

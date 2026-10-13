@@ -624,3 +624,8 @@ test-candidate-upload-contract:
 .PHONY: test-connector-journey
 test-connector-journey:
 	go test $(GO_TEST_FLAGS) -race -count=1 -v -parallel=2 -timeout=120s -run '^(TestConnector|TestMCPCommand|TestParseMCP|TestMCPOAuth|TestProdAuthMCP|TestProdAuthLoopback)' . ./internal/mcpcheck ./internal/host
+
+
+.PHONY: test-device-admission
+test-device-admission:
+	go test -race -count=1 -timeout=60s -run '^TestDeviceAdmission' ./internal/host

@@ -271,7 +271,7 @@ func (p *ProxyServer) appAccountAccess(r *http.Request, session jwt.MapClaims, o
 // and explicit sharing checks as new requests. Recheck namespace, reservation
 // and publisher authority as well; authority failure closes the transport.
 func (p *ProxyServer) watchAppPermission(r *http.Request, tunnel *TunnelConnection) (*http.Request, func()) {
-	ctx, cancel := context.WithCancel(r.Context())
+	ctx, cancel := context.WithCancelCause(r.Context())
 	go func() {
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
@@ -289,14 +289,14 @@ func (p *ProxyServer) watchAppPermission(r *http.Request, tunnel *TunnelConnecti
 				liveDomain := domainErr == nil && binding != nil && owner != nil && binding.Owner == expected && binding.Owner == owner.ID && binding.Tunnel == tunnel.TunnelID && strings.HasPrefix(binding.Name, "*.")
 				stop()
 				if err != nil || !valid || status != http.StatusOK || !liveDomain {
-					cancel()
+					cancel(&webPermissionError{"app_permission_revoked_or_unavailable"})
 					_ = r.Body.Close()
 					return
 				}
 			}
 		}
 	}()
-	return r.WithContext(ctx), cancel
+	return r.WithContext(ctx), func() { cancel(nil) }
 }
 
 func stripIdentityHeaders(r *http.Request) *http.Request {

@@ -46,7 +46,7 @@ select{text-transform:none;letter-spacing:0;font:500 14px/1 var(--mono);color:#F
 .status.ok{color:var(--ok-ink)}.status.warn{color:var(--warn-ink)}.status.bad{color:var(--err-ink)}
 .request-row.selected .status.ok{color:var(--ok)}.request-row.selected .status.bad,.request-row.selected .status.warn{color:var(--sig)}
 .method{font-size:12px;font-weight:700;color:var(--ink2)}
-.path{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.path{display:block;overflow-wrap:anywhere}
 .row-time{display:block;margin-top:4px;font-size:11px;color:var(--engrave)}
 .duration{text-align:right;font-size:12px;color:var(--engrave)}
 .empty{padding:32px 22px;color:var(--engrave);font:400 13px/1.6 var(--mono)}
@@ -92,30 +92,30 @@ textarea{resize:vertical;min-height:100px}
 <body>
 <header class="site-header"><div class="container"><a class="logo" href="/" aria-label="tunn home"><span class="logo-mark" aria-hidden="true"></span>tunn</a><nav class="site-nav" aria-label="Account navigation"><span class="app-email">{{.Email}}</span><a href="/account/inspect" aria-current="page">Requests</a><a href="/account/sharing">Sharing</a><a href="/account">Account</a></nav><details class="menu"><summary aria-label="Menu"><i aria-hidden="true"></i>Menu</summary><nav aria-label="Account navigation"><a href="/account/inspect" aria-current="page">Requests</a><a href="/account/sharing">Sharing</a><a href="/account">Account</a><a href="/docs">Docs</a></nav></details></div></header>
 <main>
-<div class="eyebrow">YOUR ENDPOINTS</div>
+<div class="eyebrow">YOUR TUNNELS</div>
 <h1>Request inspector</h1>
-<p class="intro">Recent requests to your endpoints. Credentials are redacted and bodies aren’t stored.</p>
-<div class="toolbar panel"><div class="endpoint-field"><label class="endpoint-label" for="endpoint">Endpoint</label><select id="endpoint"><option value="">Loading endpoints…</option></select></div><button id="refresh" type="button">Refresh</button><span class="timestamp" id="updated" role="status" aria-live="polite"></span></div>
-<div class="retention"><svg class="lock" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4.5 7V4.5a3.5 3.5 0 0 1 7 0V7M3 7h10v7H3z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"></path></svg><span><strong>Owner only.</strong> Up to 50 completed requests. History clears when the publisher disconnects or the relay restarts.</span></div>
-<div class="glass grid-bg monitor" aria-hidden="true"><span class="hud"><span>CH1 · requests listed below</span><span id="trace-scale"></span></span><svg viewBox="0 0 1000 100" preserveAspectRatio="none"><path d="M0 80 H1000" stroke="#3A3D37" stroke-dasharray="3 5" fill="none"></path><path id="trace" class="trace" d="M0 80 H1000"></path></svg></div>
+<p class="intro">Recent requests to your tunnels. Passwords and tokens are hidden, and bodies aren’t stored.</p>
+<div class="toolbar panel"><div class="endpoint-field"><label class="endpoint-label" for="endpoint">Tunnel</label><select id="endpoint"><option value="">Loading tunnels…</option></select></div><button id="refresh" type="button">Refresh</button><span class="timestamp" id="updated" role="status" aria-live="polite"></span></div>
+<div class="retention"><svg class="lock" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4.5 7V4.5a3.5 3.5 0 0 1 7 0V7M3 7h10v7H3z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"></path></svg><span><strong>Only you can see this.</strong> Your last 50 requests. The list starts over when your tunnel disconnects.</span></div>
+<div class="glass grid-bg monitor" aria-hidden="true"><span class="hud"><span>CH1 · requests below</span><span id="trace-scale"></span></span><svg viewBox="0 0 1000 100" preserveAspectRatio="none"><path d="M0 80 H1000" stroke="#3A3D37" stroke-dasharray="3 5" fill="none"></path><path id="trace" class="trace" d="M0 80 H1000"></path></svg></div>
 <div id="notice" class="notice" role="alert" hidden></div>
 <div class="grid">
-<section class="card list" aria-labelledby="recent-title"><div class="card-head"><h2 id="recent-title">Recent requests</h2><span id="count" class="count">0 / 50</span></div><div class="columns" aria-hidden="true"><span>Status</span><span>Method</span><span>Path / time</span><span>Time</span></div><div id="requests"><div class="empty"><strong>Choose an endpoint</strong>Its recent HTTP requests will appear here.</div></div></section>
-<section class="card scope-detail" aria-labelledby="detail-title"><div class="card-head"><h2 id="detail-title">Request details</h2><span class="count">Metadata only</span></div><div class="detail" id="detail"><div class="empty"><strong>Select a request</strong>View its headers, byte counts, and replay options.</div></div></section>
+<section class="card list" aria-labelledby="recent-title"><div class="card-head"><h2 id="recent-title">Recent requests</h2><span id="count" class="count">0 / 50</span></div><div class="columns" aria-hidden="true"><span>Status</span><span>Method</span><span>Path / time</span><span>Time</span></div><div id="requests"><div class="empty"><strong>Choose a tunnel</strong>Its recent requests show up here.</div></div></section>
+<section class="card scope-detail" aria-labelledby="detail-title"><div class="card-head"><h2 id="detail-title">Request details</h2><span class="count">Headers only</span></div><div class="detail" id="detail"><div class="empty"><strong>Select a request</strong>View its headers, byte counts, and replay options.</div></div></section>
 </div>
-<p class="footer">Headers and query values follow the local inspector’s redaction rules. Paths and standard headers may still contain application data. HTTP and SSE deliveries appear after completion; open streams, WebSockets, and TCP are excluded.</p>
+<p class="footer">Passwords, cookies and tokens are hidden. Paths and other headers can still hold your app’s data. A request shows up once it finishes. WebSockets and TCP don’t show here.</p>
 </main>
 <dialog id="replay-dialog" class="dialog" aria-labelledby="replay-title">
 <div class="dialog-head"><h2 id="replay-title">Confirm one replay</h2><button type="button" id="close-replay" aria-label="Close replay dialog">Close</button></div>
 <p id="replay-summary" class="dialog-summary code"></p>
-<div class="warning">This sends another request to the publisher’s configured origin. It can repeat side effects. Signatures may expire. Cancellation cannot undo a request already received by the origin.</div>
+<div class="warning">This sends the request to your app again. Anything it did the first time, like a charge or an email, can happen twice. Signed webhooks may be rejected as expired. Cancel can’t take back a request your app already got.</div>
 <p class="footnote" id="intent-expiry"></p>
-<div id="query-editor" hidden><label class="editor" for="replay-path">Original path and query. Restore every redacted value.</label><input type="text" id="replay-path" maxlength="2048" autocomplete="off" spellcheck="false"></div>
-<div id="headers-editor" hidden><label class="editor" for="replay-headers">Full original headers (JSON). Restore every redacted value.</label><textarea id="replay-headers" autocomplete="off" spellcheck="false"></textarea><p class="footnote">Keep all original fields and standard header values. Credentials are never filled from a hidden copy.</p></div>
-<div id="body-editor" hidden><div class="body-format"><label class="editor" for="replay-body" id="body-label">Original request body</label><select id="body-format" aria-label="Body encoding"><option value="text">UTF-8 text</option><option value="base64">Base64 (binary)</option></select></div><textarea id="replay-body" autocomplete="off" spellcheck="false"></textarea></div>
+<div id="query-editor" hidden><label class="editor" for="replay-path">Path and query. Put back every hidden value.</label><input type="text" id="replay-path" maxlength="2048" autocomplete="off" spellcheck="false"></div>
+<div id="headers-editor" hidden><label class="editor" for="replay-headers">Headers as JSON. Put back every hidden value.</label><textarea id="replay-headers" autocomplete="off" spellcheck="false"></textarea><p class="footnote">Keep every header. tunn doesn’t keep a copy of hidden values, so you type them.</p></div>
+<div id="body-editor" hidden><div class="body-format"><label class="editor" for="replay-body" id="body-label">Request body</label><select id="body-format" aria-label="Body encoding"><option value="text">UTF-8 text</option><option value="base64">Base64 (binary)</option></select></div><textarea id="replay-body" autocomplete="off" spellcheck="false"></textarea></div>
 <div id="replay-error" class="notice" role="alert" hidden></div>
-<label class="confirm-check"><input id="confirm-replay" type="checkbox"><span>I restored the original request and want to send it once to this endpoint’s origin.</span></label>
-<div class="dialog-actions"><button id="cancel-replay" type="button">Cancel</button><button id="send-replay" class="primary" type="button" disabled>Replay once to origin</button></div>
+<label class="confirm-check"><input id="confirm-replay" type="checkbox"><span>I put back the original values. Send it once to my app.</span></label>
+<div class="dialog-actions"><button id="cancel-replay" type="button">Cancel</button><button id="send-replay" class="primary" type="button" disabled>Replay once</button></div>
 </dialog>
 <script nonce="{{.Nonce}}">
 (() => {
@@ -154,7 +154,7 @@ function drawTrace() {
 function rows() {
   const container = $('requests'); container.replaceChildren();
   $('count').textContent = events.length + ' / 50'; drawTrace();
-  if (!events.length) { const empty = text('div', '', 'empty'); empty.append(text('strong', 'No requests yet'), text('span', 'Send a request to this endpoint, then refresh.')); container.append(empty); return; }
+  if (!events.length) { const empty = text('div', '', 'empty'); empty.append(text('strong', 'No requests yet'), text('span', 'Open its URL, then refresh.')); container.append(empty); return; }
   [...events].reverse().forEach(event => {
     const row = text('button', '', 'request-row' + (selected && selected.id === event.id ? ' selected' : ''));
     row.type = 'button'; row.dataset.requestId = String(event.id); row.setAttribute('aria-pressed', String(!!selected && selected.id === event.id));
@@ -167,16 +167,16 @@ function rows() {
 function renderDetail() {
   const event = selected, detail = $('detail'); detail.replaceChildren(); if (!event) return;
   detail.append(text('div', 'REQUEST ' + event.id + (event.replay_of ? ' · REPLAY OF ' + event.replay_of : ''), 'eyebrow'), text('h2', event.method + ' ' + event.path, 'detail-title code'));
-  const labels = text('div', '', 'detail-labels'); labels.append(text('span', event.status || '—', 'status ' + statusClass(event.status)), text('span', event.terminal_reason, 'muted'), text('span', event.protocol.toUpperCase(), 'muted')); detail.append(labels);
+  const labels = text('div', '', 'detail-labels'); labels.append(text('span', event.status || '—', 'status ' + statusClass(event.status)), ...(event.terminal_reason === 'complete' ? [] : [text('span', 'Ended early', 'muted')])); detail.append(labels);
   const facts = text('div', '', 'facts');
-  [['Duration', event.duration_ms + ' ms'], ['Received', new Date(event.at).toLocaleString()], ['Request', byteCount(event.request_bytes)], ['Response', byteCount(event.response_bytes)], ['Upload', event.body_complete ? 'Complete' : 'Incomplete']].forEach(([label,value]) => { const fact = text('div',''); fact.append(text('span', label, 'fact-label'), text('span', value, 'fact-value')); facts.append(fact); }); detail.append(facts);
+  [['Duration', event.duration_ms + ' ms'], ['Received', new Date(event.at).toLocaleString()], ['Sent', byteCount(event.request_bytes)], ['Returned', byteCount(event.response_bytes)]].forEach(([label,value]) => { const fact = text('div',''); fact.append(text('span', label, 'fact-label'), text('span', value, 'fact-value')); facts.append(fact); }); detail.append(facts);
   detail.append(text('h3', 'Request headers'));
   const headers = Object.entries(event.headers || {}).sort(([a],[b]) => a.localeCompare(b)).map(([key,value]) => key + ': ' + value).join('\n'); detail.append(text('pre', headers || 'No headers retained.'));
-  detail.append(text('h3', 'Request body')); const body = text('div', '', 'body-note'); body.append(text('strong', byteCount(event.request_bytes) + ' · Body omitted'), text('span', event.request_bytes ? 'The dashboard never retains payloads. Supply the original body to replay.' : 'This request had no body.')); detail.append(body);
+  detail.append(text('h3', 'Request body')); const body = text('div', '', 'body-note'); body.append(text('strong', byteCount(event.request_bytes) + ' · Not stored'), text('span', event.request_bytes ? 'Bodies aren’t stored. Paste the original to replay it.' : 'This request had no body.')); detail.append(body);
   const replay = text('div', '', 'replay-area'); const button = text('button', 'Prepare replay', 'primary'); button.id = 'prepare-replay'; button.type = 'button'; button.disabled = !event.reconstructable || !replaySupported || replaying || loading; button.addEventListener('click', prepareReplay); replay.append(button);
-  let note = 'Review and confirm one request to the configured origin. Replays use your endpoint’s normal permissions and quotas.';
-  if (!replaySupported) note = 'Upgrade the endpoint’s publisher to enable replay. History remains available.';
-  else if (!event.reconstructable) note = event.protocol === 'sse' ? 'SSE streams cannot replay.' : event.truncated ? 'Requests larger than 64 KiB cannot replay.' : event.metadata_truncated ? 'Incomplete or oversized metadata cannot replay.' : 'Incomplete or failed deliveries cannot replay.';
+  let note = 'Check the request, then send it to your app once more. Your usual access rules and limits apply.';
+  if (!replaySupported) note = 'Upgrade tunn on the machine running this tunnel to replay requests.';
+  else if (!event.reconstructable) note = event.protocol === 'sse' ? 'Event streams can’t be replayed.' : event.truncated ? 'Requests over 64 KiB can’t be replayed.' : event.metadata_truncated ? 'Its headers were too large to keep, so it can’t be replayed.' : 'It didn’t finish, so it can’t be replayed.';
   replay.append(text('p', note, 'footnote')); detail.append(replay);
 }
 async function refresh() {
@@ -185,12 +185,12 @@ async function refresh() {
   notify('');
   try {
     const result = await api(basePath());
-    if (session && session !== result.session) { selected = null; notify('The publisher reconnected. Its previous history and replay confirmations have cleared.'); }
+    if (session && session !== result.session) { selected = null; notify('Your tunnel reconnected, so the list started over.'); }
     session = result.session; events = result.events; replaySupported = result.replay_supported;
     if (selected) selected = events.find(event => event.id === selected.id) || null;
     rows(); if (selected) renderDetail(); else resetDetail();
     $('updated').textContent = 'Updated ' + new Date().toLocaleTimeString();
-  } catch (error) { session = ''; events = []; rows(); resetDetail(); notify(error.message); $('updated').textContent = 'History unavailable'; }
+  } catch (error) { session = ''; events = []; rows(); resetDetail(); notify(error.message); $('updated').textContent = 'List unavailable'; }
   finally { loading = false; $('refresh').disabled = false; $('endpoint').disabled = false; if (selected) renderDetail(); }
 }
 async function prepareReplay() {
@@ -232,10 +232,10 @@ $('send-replay').addEventListener('click', async () => {
     const result = await post(encodeURIComponent(pending.endpoint) + '/requests/' + pending.event.id + '/replay', input, controller.signal);
     selected = result.event;
     completed = true;
-    message = 'Replay ' + (result.event.terminal_reason === 'complete' ? 'completed' : 'ended with ' + result.event.terminal_reason) + ': HTTP ' + result.event.status + '. Original request ' + pending.event.id + '.';
-  } catch (error) { message = error.name === 'AbortError' ? 'Replay canceled. The origin may already have received it. Check the history before preparing another action.' : error.message + ' The origin may already have received the request; check history before preparing another action.'; }
+    message = 'Replay ' + (result.event.terminal_reason === 'complete' ? 'completed' : 'ended early') + ': HTTP ' + result.event.status + '. Original request ' + pending.event.id + '.';
+  } catch (error) { message = error.name === 'AbortError' ? 'Replay canceled. Your app may already have it, so check the list before trying again.' : error.message + ' Your app may already have it, so check the list before trying again.'; }
   finally {
-    replaying = false; controller = null; $('confirm-replay').disabled = false; $('send-replay').textContent = 'Replay once to origin'; $('cancel-replay').textContent = 'Cancel'; $('refresh').disabled = false; $('endpoint').disabled = false;
+    replaying = false; controller = null; $('confirm-replay').disabled = false; $('send-replay').textContent = 'Replay once'; $('cancel-replay').textContent = 'Cancel'; $('refresh').disabled = false; $('endpoint').disabled = false;
     closeReplay(); await refresh(); notify(message,completed && selected && selected.terminal_reason === 'complete'); if (selected) { renderDetail(); rows(); }
   }
 });
@@ -246,11 +246,11 @@ async function loadEndpoints() {
   endpointLoading = true; $('refresh').disabled = true;
   try {
     const result = await api('endpoints'); const select = $('endpoint'); select.replaceChildren();
-    if (!result.endpoints.length) { select.append(text('option', 'No endpoints yet')); select.disabled = true; $('requests').replaceChildren(text('div', 'Publish an HTTP endpoint with tunn to start inspecting traffic.', 'empty')); return; }
+    if (!result.endpoints.length) { select.append(text('option', 'No tunnels yet')); select.disabled = true; $('requests').replaceChildren(text('div', 'Run tunn 3000 and its requests show up here.', 'empty')); return; }
     result.endpoints.forEach(name => { const option = text('option', name); option.value = name; select.append(option); });
     const requested = new URL(location.href).searchParams.get('endpoint'); endpoint = result.endpoints.includes(requested) ? requested : result.endpoints[0]; select.value = endpoint;
     await refresh(); if (result.truncated) notify('Showing the first 200 endpoints.');
-  } catch (error) { $('endpoint').replaceChildren(text('option','Endpoints unavailable')); $('endpoint').disabled = true; notify(error.message); }
+  } catch (error) { $('endpoint').replaceChildren(text('option','Tunnels unavailable')); $('endpoint').disabled = true; notify(error.message); }
   finally { endpointLoading = false; if (!loading && !replaying) $('refresh').disabled = false; }
 }
 loadEndpoints();

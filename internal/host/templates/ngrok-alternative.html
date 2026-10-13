@@ -48,7 +48,7 @@ tunn login
 tunn 3000 --allow=alex@example.com</code></pre></div>
  <div class="prose" style="margin-top:28px">
   <p>Alex opens the printed HTTPS URL and signs in with GitHub or an email link. Anyone else gets a 403 at the edge. Use <code>--allow=@example.com</code> for a whole domain and <code>--public</code> for webhooks.</p>
-  <p>Units differ: tunn counts admitted requests plus WebSocket and TCP opens, and transfer in both directions. ngrok counts HTTP requests and data out.</p>
+  <p>Units differ: tunn counts requests that get through, plus WebSocket and TCP opens, and transfer in both directions. ngrok counts HTTP requests and data out.</p>
   <p>ngrok fits better if you need its gateway policies, compliance programs or an enterprise SLA; tunn publishes no SLA. Your laptop and tunn must stay online. <a href="/pricing">See tunn plans</a> · <a href="/mcp-to-claude">Connect a local MCP server</a> · <a href="/share-dev-server-oauth">Share a dev server with OAuth</a></p>
  </div>
 </section>

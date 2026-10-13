@@ -69,7 +69,7 @@ const apex = `https://tunn.test:${port}`, resource = `https://webhooks.tunn.test
     await page.setViewportSize({width:1440,height:900});
     await page.getByRole('button',{name:'Prepare replay',exact:true}).click();
     await page.locator('#replay-dialog').waitFor({state:'visible'});
-    assert.equal(await page.getByRole('button',{name:'Replay once to origin',exact:true}).isDisabled(),true,'confirmation not required');
+    assert.equal(await page.getByRole('button',{name:'Replay once',exact:true}).isDisabled(),true,'confirmation not required');
     const headers = {...original.headers};
     for (const key of Object.keys(headers)) if (headers[key] === '[redacted]') {
       if (key === 'X-Signature') headers[key] = 'HEADER_SENTINEL';
@@ -116,13 +116,13 @@ const apex = `https://tunn.test:${port}`, resource = `https://webhooks.tunn.test
     }
     await page.locator('#replay-headers').fill(JSON.stringify(redirectHeaders,null,2));
     await page.locator('#confirm-replay').check();
-    await page.getByRole('button',{name:'Replay once to origin',exact:true}).click();
+    await page.getByRole('button',{name:'Replay once',exact:true}).click();
     await page.locator('#notice').getByText(/Replay completed: HTTP 307/).waitFor();
     const redirectAfter = await (await fixtureRequest(context,apex+'/api/inspector/webhooks/requests')).json();
     assert.equal(redirectAfter.events.at(-1).replay_of,redirectEvent.id);
     assert.equal(redirectAfter.events.at(-1).status,307);
     assert.equal(redirectAfter.events.length,8);
-    await page.route('**/api/inspector/webhooks/requests',route => route.fulfill({status:503,contentType:'text/plain',body:'Endpoint offline. Web history clears when the publisher disconnects.'}));
+    await page.route('**/api/inspector/webhooks/requests',route => route.fulfill({status:503,contentType:'text/plain',body:'Endpoint offline. Its request list cleared when the tunnel disconnected.'}));
     await page.getByRole('button',{name:'Refresh',exact:true}).click();
     await page.locator('#notice').getByText(/Endpoint offline/).waitFor();
     assert.equal(await page.locator('.request-row').count(),0,'stale traffic remained after offline response');

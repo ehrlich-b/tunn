@@ -954,6 +954,13 @@ type AccountPageData struct {
 	RequestsUsed             int64
 	RequestsLimit            int64
 	UsageAvailable           bool
+	RequestsPercent          int
+	RequestsUsedFormatted    string
+	RequestsLimitFormatted   string
+	TunnelLimit              int
+	NameLimit                int
+	ResetsOn                 string
+	Tunnels                  []tunnelUsage
 	StripeCheckoutURLMonthly string
 	StripeCheckoutURLYearly  string
 	StripeBillingPortalURL   string
@@ -967,10 +974,13 @@ func (p *ProxyServer) handleAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	email, plan := account.PrimaryEmail, account.Plan
 	var usageBytes, requestsUsed int64
+	var tunnels []tunnelUsage
 	usageAvailable := false
+	now := time.Now().UTC()
 	if p.meter != nil {
-		if usage, err := p.meter.Export(r.Context(), &meterpb.ExportRequest{Owner: account.ID, Month: time.Now().UTC().Format("2006-01")}); err == nil && usage.OwnerUsage != nil {
+		if usage, err := p.meter.Export(r.Context(), &meterpb.ExportRequest{Owner: account.ID, Month: now.Format("2006-01")}); err == nil && usage.OwnerUsage != nil {
 			usageBytes, requestsUsed, usageAvailable = usage.OwnerUsage.TotalBytes, usage.OwnerUsage.AdmittedRequests, true
+			tunnels = usageByTunnel(usage.Usage)
 		}
 	}
 
@@ -986,13 +996,8 @@ func (p *ProxyServer) handleAccount(w http.ResponseWriter, r *http.Request) {
 	if p.config.OwnerMonthlyBytes > 0 {
 		quotaBytes = min(quotaBytes, p.config.OwnerMonthlyBytes)
 	}
-	usagePercent := 0
-	if quotaBytes > 0 {
-		usagePercent = int((usageBytes * 100) / quotaBytes)
-		if usagePercent > 100 {
-			usagePercent = 100
-		}
-	}
+	usagePercent, requestsPercent := percentOf(usageBytes, quotaBytes), percentOf(requestsUsed, requestsLimit)
+	tunnelLimit, nameLimit := planLimits(plan)
 
 	// Format bytes
 	usageFormatted := formatBytes(usageBytes)
@@ -1025,6 +1030,9 @@ func (p *ProxyServer) handleAccount(w http.ResponseWriter, r *http.Request) {
 		BillingResumable: account.BillingState == "resumable" && r.URL.Query().Get("billing") != "return",
 		Email:            email,
 		RequestsUsed:     requestsUsed, RequestsLimit: requestsLimit, UsageAvailable: usageAvailable,
+		RequestsPercent: requestsPercent, RequestsUsedFormatted: formatCount(requestsUsed), RequestsLimitFormatted: shortCount(requestsLimit),
+		TunnelLimit: tunnelLimit, NameLimit: nameLimit, Tunnels: tunnels,
+		ResetsOn:                 time.Date(now.Year(), now.Month()+1, 1, 0, 0, 0, 0, time.UTC).Format("Jan 2"),
 		Plan:                     plan,
 		UsageBytes:               usageBytes,
 		QuotaBytes:               quotaBytes,
@@ -1064,13 +1072,14 @@ func formatBytes(bytes int64) string {
 		GB = MB * 1000
 	)
 
+	// Whole amounts print without a decimal: 10 GB, not 10.0 GB.
 	switch {
 	case bytes >= GB:
-		return fmt.Sprintf("%.1f GB", float64(bytes)/GB)
+		return strings.Replace(fmt.Sprintf("%.1f GB", float64(bytes)/GB), ".0 ", " ", 1)
 	case bytes >= MB:
-		return fmt.Sprintf("%.1f MB", float64(bytes)/MB)
+		return strings.Replace(fmt.Sprintf("%.1f MB", float64(bytes)/MB), ".0 ", " ", 1)
 	case bytes >= KB:
-		return fmt.Sprintf("%.1f KB", float64(bytes)/KB)
+		return strings.Replace(fmt.Sprintf("%.1f KB", float64(bytes)/KB), ".0 ", " ", 1)
 	default:
 		return fmt.Sprintf("%d B", bytes)
 	}

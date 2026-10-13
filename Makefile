@@ -659,3 +659,8 @@ test-js-sdk:
 
 test-js-sdk-contract: test-js-sdk
 	TUNN_JS_SDK_CONSUMER="$(CURDIR)/sdk/js/test/go-relay-consumer.mjs" go test $(GO_TEST_FLAGS) -race -count=1 -v -parallel=2 -timeout=120s -run '^TestJavaScriptSDKRelay$$' ./internal/host
+
+# Cross-feature policy ordering, raw webhook bodies and private authorization.
+.PHONY: test-parity-policy
+test-parity-policy:
+	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=120s -run '^TestParity' ./internal/host

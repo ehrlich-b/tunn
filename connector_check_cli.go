@@ -59,7 +59,10 @@ func parseConnectorCheckFlags(args []string) (*connectorCheckOptions, error) {
 	fs.StringVar(&opts.tools.Deny, "deny-tool", "", "")
 	fs.StringVar(&arguments, "arguments", "{}", "")
 	if err := fs.Parse(args); err != nil {
-		return nil, err
+		if errors.Is(err, flag.ErrHelp) {
+			return nil, flag.ErrHelp
+		}
+		return nil, fmt.Errorf("invalid connector-check options; use --help for supported flags and --timeout values such as 3m")
 	}
 	if fs.NArg() != 1 {
 		return nil, fmt.Errorf("provide one printed HTTPS Connector URL ending in /mcp")

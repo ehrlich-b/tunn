@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -87,6 +88,11 @@ func newMCPOAuthFixture(t *testing.T) *mcpOAuthFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
+	return newMCPOAuthFixtureWithDB(t, db)
+}
+
+func newMCPOAuthFixtureWithDB(t *testing.T, db *sql.DB) *mcpOAuthFixture {
+	t.Helper()
 	t.Cleanup(func() { _ = db.Close() })
 	ledger, err := metering.New(db)
 	if err != nil {

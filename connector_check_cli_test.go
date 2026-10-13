@@ -6,6 +6,8 @@ import (
 	"errors"
 	"flag"
 	"net/http"
+	"os"
+	"os/exec"
 	"strings"
 	"testing"
 
@@ -41,6 +43,32 @@ func TestConnectorFailureReports(t *testing.T) {
 		}
 		if !strings.Contains(out.String(), "REQUIRED-UNRUN") || !strings.Contains(out.String(), "url") || diagnostic.Len() != 0 {
 			t.Fatalf("incomplete failure report: %s", out.String())
+		}
+	}
+}
+
+func TestConnectorInvalidFlagsHelper(t *testing.T) {
+	if os.Getenv("TUNN_CHECK_FLAGS_HELPER") != "1" {
+		return
+	}
+	runConnectorCheck([]string{os.Getenv("TUNN_CHECK_BAD_FLAG"), "https://tools.test/mcp"})
+	os.Exit(0)
+}
+func TestConnectorInvalidFlagsDoNotLeak(t *testing.T) {
+	for _, arg := range []string{"--timeout=secret-marker", "--json=secret-marker", "--secret-marker=value"} {
+		_, err := parseConnectorCheckFlags([]string{arg, "https://tools.test/mcp"})
+		if err == nil || strings.Contains(err.Error(), "secret-marker") {
+			t.Fatalf("parser echoed supplied value: %v", err)
+		}
+		cmd := exec.Command(os.Args[0], "-test.run=^TestConnectorInvalidFlagsHelper$")
+		cmd.Env = append(os.Environ(), "TUNN_CHECK_FLAGS_HELPER=1", "TUNN_CHECK_BAD_FLAG="+arg)
+		output, err := cmd.CombinedOutput()
+		var exit *exec.ExitError
+		if !errors.As(err, &exit) || exit.ExitCode() != 1 {
+			t.Fatal("invalid flags did not exit 1")
+		}
+		if strings.Contains(string(output), "secret-marker") || !strings.Contains(string(output), "invalid connector-check options") {
+			t.Fatal("CLI parser output leaked input or omitted action")
 		}
 	}
 }

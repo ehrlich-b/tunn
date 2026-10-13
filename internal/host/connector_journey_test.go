@@ -11,17 +11,26 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/ehrlich-b/tunn/internal/mcpbridge"
 	"github.com/ehrlich-b/tunn/internal/mcpcheck"
+	"github.com/ehrlich-b/tunn/internal/metering"
+	"github.com/ehrlich-b/tunn/internal/storage"
+	"github.com/ehrlich-b/tunn/internal/store"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
 )
 
 func TestConnectorJourneyOAuthToolsAndRevocation(t *testing.T) {
-	f := newMCPOAuthFixture(t)
+	databasePath := filepath.Join(t.TempDir(), "relay.sqlite")
+	db, err := store.OpenLocal(databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := newMCPOAuthFixtureWithDB(t, db)
 	t.Setenv("TUNN_MCP_OAUTH_HELPER", "1")
 	bridge, err := mcpbridge.StartStdioHandler(context.Background(), []string{os.Args[0], "-test.run=^TestMCPOAuthStdioHelper$"}, io.Discard, mcpbridge.Options{AllowedTools: []string{"echo"}})
 	if err != nil {
@@ -59,7 +68,7 @@ func TestConnectorJourneyOAuthToolsAndRevocation(t *testing.T) {
 	}
 	// Real TLS requests to disposable loopback; certificate verification stays on.
 	server := httptest.NewTLSServer(f.p.createHandler())
-	defer server.Close()
+	t.Cleanup(func() { server.Close() })
 	transport := server.Client().Transport.(*http.Transport).Clone()
 	transport.TLSClientConfig = transport.TLSClientConfig.Clone()
 	transport.TLSClientConfig.MinVersion = tls.VersionTLS12
@@ -69,8 +78,37 @@ func TestConnectorJourneyOAuthToolsAndRevocation(t *testing.T) {
 		return (&net.Dialer{}).DialContext(ctx, network, address)
 	}
 	defer transport.CloseIdleConnections()
+	// Close all HTTP handlers before replacing store pointers. Each reopening
+	// reconstructs both OAuth registrations and the grant authority from disk.
+	restart := func() {
+		t.Helper()
+		server.Close()
+		transport.CloseIdleConnections()
+		if err := db.Close(); err != nil {
+			t.Fatal(err)
+		}
+		reopened, err := store.OpenLocal(databasePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		db = reopened
+		t.Cleanup(func() { reopened.Close() })
+		registry, err := newMCPOAuthStore(db)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ledger, err := metering.New(db)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.p.storage = storage.NewLocalStorage(db)
+		f.p.tunnelServer.storage = f.p.storage
+		f.p.mcpOAuth, f.p.meter = registry, ledger
+		server = httptest.NewTLSServer(f.p.createHandler())
+		address = strings.TrimPrefix(server.URL, "https://")
+	}
 	checker := mcpcheck.New(transport)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	d, err := checker.Discover(ctx, "https://tools.tunn.test/mcp")
 	if err != nil {
@@ -134,6 +172,14 @@ func TestConnectorJourneyOAuthToolsAndRevocation(t *testing.T) {
 		t.Fatal("accepted mismatched expected tools")
 	}
 	t.Log("PASS wrong expected tool set rejected")
+	restart()
+	if client, err := f.p.mcpOAuth.client(ctx, clientID); err != nil || client.Name != "tunn connector-check" {
+		t.Fatal("OAuth registration lost on store reopening")
+	}
+	if _, err := checker.CheckTools(ctx, d, token, opts); err != nil {
+		t.Fatalf("grant lost on store reopening: %v", err)
+	}
+	t.Log("PASS disk SQLite registration and active grant persist across close/reopen")
 	owner := relayJWT(t, f.p, "owner@example.com")
 	revoked := f.request("DELETE", "https://tunn.test/api/mcp/clients?tunnel=tools&client_id="+url.QueryEscape(clientID), "", "", owner, nil)
 	if revoked.Code != 204 {
@@ -143,4 +189,9 @@ func TestConnectorJourneyOAuthToolsAndRevocation(t *testing.T) {
 		t.Fatalf("revoked token accepted: %v", err)
 	}
 	t.Log("PASS revoked token rejected on next request")
+	restart()
+	if _, err := checker.CheckTools(ctx, d, token, opts); err == nil || !strings.Contains(err.Error(), "unauthorized") {
+		t.Fatalf("revoked token accepted after store reopening: %v", err)
+	}
+	t.Log("PASS durable revocation still rejects token after close/reopen")
 }

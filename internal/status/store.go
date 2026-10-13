@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -245,4 +247,39 @@ func (s *Store) Snapshot(ctx context.Context, now time.Time) (Snapshot, error) {
 		return v, fmt.Errorf("read incident history: %w", err)
 	}
 	return v, nil
+}
+
+// Uptime is the share of checked minutes that were healthy, for the status page.
+func (s Snapshot) Uptime() string { return percent(s.Healthy, s.Observed) }
+
+// Since is the first UTC day with any check, or "" when nothing was checked.
+func (s Snapshot) Since() string {
+	for _, d := range s.Days {
+		if d.Observed > 0 {
+			if t, err := time.Parse("2006-01-02", d.Date); err == nil {
+				return t.Format("2 Jan 2006")
+			}
+			return d.Date
+		}
+	}
+	return ""
+}
+
+// Up is the share of the day's checked minutes that were healthy.
+func (d Day) Up() string { return percent(d.Healthy, d.Observed) }
+
+// Checked is the share of the day's minutes that had a check.
+func (d Day) Checked() string { return percent(d.Observed, d.Expected) }
+
+func percent(part, whole int) string {
+	if whole <= 0 {
+		return "--"
+	}
+	p := float64(part) * 100 / float64(whole)
+	if part < whole && p > 99.99 {
+		p = 99.99
+	}
+	s := strconv.FormatFloat(p, 'f', 2, 64)
+	s = strings.TrimSuffix(strings.TrimSuffix(s, "0"), ".0")
+	return strings.TrimSuffix(s, ".") + "%"
 }

@@ -73,7 +73,7 @@ func SafeHeader(key string) bool {
 
 func Path(path string) (string, bool, bool) {
 	u, err := url.ParseRequestURI(path)
-	if err != nil || Credential(path) || !strings.HasPrefix(path, "/") || strings.HasPrefix(path, "//") || u.IsAbs() || u.Fragment != "" || len(path) > 2048 {
+	if err != nil || Credential(path) || Credential(u.Path) || !strings.HasPrefix(path, "/") || strings.HasPrefix(path, "//") || u.IsAbs() || u.Fragment != "" || len(path) > 2048 {
 		return "[unavailable path]", true, true
 	}
 	if u.RawQuery == "" {
@@ -84,7 +84,7 @@ func Path(path string) (string, bool, bool) {
 		return u.EscapedPath() + "?[unavailable query]", true, true
 	}
 	for key, values := range query {
-		if len(key) > 128 {
+		if len(key) > 128 || Credential(key) {
 			return u.EscapedPath() + "?[unavailable query]", true, true
 		}
 		for j := range values {
@@ -154,6 +154,11 @@ func Metadata(id, method, path string, headers map[string]string) Event {
 }
 
 func Reconstruct(original Event, input Request) (string, map[string]string, []byte, error) {
+	// Also validate old metadata: omitting a replacement must not bypass a
+	// stricter credential filter introduced since the capture was recorded.
+	if _, _, unsafe := Path(original.Path); unsafe {
+		return "", nil, nil, errors.New("credential-bearing or unavailable path cannot replay")
+	}
 	path, headers, body := original.Path, original.Headers, original.Body
 	if original.QueryRedacted {
 		if input.Path == nil {

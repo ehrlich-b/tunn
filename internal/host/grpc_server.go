@@ -16,6 +16,7 @@ import (
 	"github.com/ehrlich-b/tunn/internal/metering"
 	"github.com/ehrlich-b/tunn/internal/storage"
 	"github.com/ehrlich-b/tunn/internal/store"
+	"github.com/ehrlich-b/tunn/internal/webhook"
 	meterpb "github.com/ehrlich-b/tunn/pkg/proto/meteringv1"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
 	"github.com/golang-jwt/jwt/v4"
@@ -88,9 +89,10 @@ type TunnelConnection struct {
 	CreatorEmail       string
 	AccountID          string // Account ID for usage tracking (from storage)
 	anonymousSSH       bool
-	accountQuotaExempt bool     // Explicit self-hosted authentication without an account
-	AllowedEmails      []string // Includes creator_email + any additional allowed emails
-	AccessTokenSHA256  []byte   // Endpoint-scoped bearer digest; plaintext never reaches the relay
+	accountQuotaExempt bool            // Explicit self-hosted authentication without an account
+	AllowedEmails      []string        // Includes creator_email + any additional allowed emails
+	WebhookPolicy      *webhook.Policy // immutable, active-connection-only key
+	AccessTokenSHA256  []byte          // Endpoint-scoped bearer digest; plaintext never reaches the relay
 	Capabilities       map[string]bool
 	EndpointProtocol   string
 	Plan               string // Registration plan; ingress resolves the current plan.
@@ -270,6 +272,13 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		return fmt.Errorf("reserved subdomain: %s", tunnelID)
 	}
 
+	webhookPolicy, webhookErr := webhook.Compile(regClient.WebhookPolicy)
+	if webhookErr != nil {
+		return rejectTunnelRegistration(stream, webhookErr.Error())
+	}
+	if webhookPolicy != nil && (regClient.EndpointProtocol != "" && regClient.EndpointProtocol != "http" || targetURL == "mcp") {
+		return rejectTunnelRegistration(stream, "Webhook policy requires an HTTP CLI publisher.")
+	}
 	if size := len(regClient.AccessTokenSha256); size != 0 && size != sha256.Size {
 		common.LogError("rejected invalid endpoint token digest", "tunnel_id", tunnelID, "size", size)
 		respMsg := &pb.TunnelMessage{
@@ -318,6 +327,9 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 	var configuredUser bool
 
 	sshIdentity, viaSSH := stream.Context().Value(sshPublisherContextKey{}).(sshPublisher)
+	if viaSSH && webhookPolicy != nil {
+		return rejectTunnelRegistration(stream, "Webhook policy requires an HTTP CLI publisher.")
+	}
 	// Only the in-process SSH adapter can attach this verified identity.
 	if viaSSH {
 		creatorEmail = sshIdentity.email
@@ -489,6 +501,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		accountQuotaExempt: !requiresAccount && hostID == "",
 		AllowedEmails:      allowedEmails,
 		AccessTokenSHA256:  append([]byte(nil), regClient.AccessTokenSha256...),
+		WebhookPolicy:      webhookPolicy,
 		Capabilities:       capabilities,
 		EndpointProtocol:   endpointProtocol,
 		Plan:               plan,
@@ -684,7 +697,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 			RegisterResponse: &pb.RegisterResponse{
 				Success:      true,
 				PublicUrl:    publicURL,
-				Capabilities: []string{common.CapabilityHTTPStreamV1, common.CapabilityConnectionStreamV1, common.CapabilityWebSocketV1, common.CapabilityHTTPResponseTrailersV1, deviceReauthCapability, "web-sharing-v1"},
+				Capabilities: []string{common.CapabilityHTTPStreamV1, common.CapabilityConnectionStreamV1, common.CapabilityWebSocketV1, common.CapabilityHTTPResponseTrailersV1, deviceReauthCapability, "web-sharing-v1", webhook.Capability},
 			},
 		},
 	}

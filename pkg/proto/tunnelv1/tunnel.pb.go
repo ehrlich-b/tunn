@@ -347,8 +347,10 @@ type RegisterClient struct {
 	// Version 1 makes new web publications private unless explicitly public.
 	ExposureVersion uint32 `protobuf:"varint,12,opt,name=exposure_version,json=exposureVersion,proto3" json:"exposure_version,omitempty"`
 	ExposureMode    string `protobuf:"bytes,13,opt,name=exposure_mode,json=exposureMode,proto3" json:"exposure_mode,omitempty"` // "private" or "public"; legacy version 0 is unchanged.
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Publisher-owned policy. Secret is retained only in active relay memory.
+	WebhookPolicy *WebhookPolicy `protobuf:"bytes,14,opt,name=webhook_policy,json=webhookPolicy,proto3" json:"webhook_policy,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *RegisterClient) Reset() {
@@ -456,6 +458,13 @@ func (x *RegisterClient) GetExposureMode() string {
 		return x.ExposureMode
 	}
 	return ""
+}
+
+func (x *RegisterClient) GetWebhookPolicy() *WebhookPolicy {
+	if x != nil {
+		return x.WebhookPolicy
+	}
+	return nil
 }
 
 // RegisterResponse is sent by the server to acknowledge tunnel registration.
@@ -1538,6 +1547,67 @@ func (x *UpdateAccessToken) GetAccessTokenSha256() []byte {
 	return nil
 }
 
+// WebhookPolicy verifies raw HTTP request bytes before forwarding to the origin.
+type WebhookPolicy struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Provider         string                 `protobuf:"bytes,1,opt,name=provider,proto3" json:"provider,omitempty"`                                          // stripe, github, slack, shopify, hmac-sha256
+	Secret           []byte                 `protobuf:"bytes,2,opt,name=secret,proto3" json:"secret,omitempty"`                                              // HMAC key; never log or persist on the relay
+	ToleranceSeconds uint32                 `protobuf:"varint,3,opt,name=tolerance_seconds,json=toleranceSeconds,proto3" json:"tolerance_seconds,omitempty"` // 1–3600; use 300 for body-only providers
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *WebhookPolicy) Reset() {
+	*x = WebhookPolicy{}
+	mi := &file_proto_tunnel_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WebhookPolicy) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WebhookPolicy) ProtoMessage() {}
+
+func (x *WebhookPolicy) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_tunnel_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WebhookPolicy.ProtoReflect.Descriptor instead.
+func (*WebhookPolicy) Descriptor() ([]byte, []int) {
+	return file_proto_tunnel_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *WebhookPolicy) GetProvider() string {
+	if x != nil {
+		return x.Provider
+	}
+	return ""
+}
+
+func (x *WebhookPolicy) GetSecret() []byte {
+	if x != nil {
+		return x.Secret
+	}
+	return nil
+}
+
+func (x *WebhookPolicy) GetToleranceSeconds() uint32 {
+	if x != nil {
+		return x.ToleranceSeconds
+	}
+	return 0
+}
+
 var File_proto_tunnel_proto protoreflect.FileDescriptor
 
 const file_proto_tunnel_proto_rawDesc = "" +
@@ -1560,7 +1630,7 @@ const file_proto_tunnel_proto_rawDesc = "" +
 	"\x15connection_half_close\x18\r \x01(\v2\x1c.tunn.v1.ConnectionHalfCloseH\x00R\x13connectionHalfClose\x12E\n" +
 	"\x10connection_close\x18\x0e \x01(\v2\x18.tunn.v1.ConnectionCloseH\x00R\x0fconnectionClose\x12L\n" +
 	"\x13update_access_token\x18\x0f \x01(\v2\x1a.tunn.v1.UpdateAccessTokenH\x00R\x11updateAccessTokenB\t\n" +
-	"\amessage\"\xb3\x03\n" +
+	"\amessage\"\xf2\x03\n" +
 	"\x0eRegisterClient\x12\x1b\n" +
 	"\ttunnel_id\x18\x01 \x01(\tR\btunnelId\x12\x1d\n" +
 	"\n" +
@@ -1576,7 +1646,8 @@ const file_proto_tunnel_proto_rawDesc = "" +
 	" \x03(\tR\fcapabilities\x12+\n" +
 	"\x11endpoint_protocol\x18\v \x01(\tR\x10endpointProtocol\x12)\n" +
 	"\x10exposure_version\x18\f \x01(\rR\x0fexposureVersion\x12#\n" +
-	"\rexposure_mode\x18\r \x01(\tR\fexposureModeJ\x04\b\a\x10\bJ\x04\b\b\x10\t\"\x94\x01\n" +
+	"\rexposure_mode\x18\r \x01(\tR\fexposureMode\x12=\n" +
+	"\x0ewebhook_policy\x18\x0e \x01(\v2\x16.tunn.v1.WebhookPolicyR\rwebhookPolicyJ\x04\b\a\x10\bJ\x04\b\b\x10\t\"\x94\x01\n" +
 	"\x10RegisterResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12#\n" +
 	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\x12\x1d\n" +
@@ -1660,7 +1731,11 @@ const file_proto_tunnel_proto_rawDesc = "" +
 	"\rconnection_id\x18\x01 \x01(\tR\fconnectionId\x12#\n" +
 	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\"C\n" +
 	"\x11UpdateAccessToken\x12.\n" +
-	"\x13access_token_sha256\x18\x01 \x01(\fR\x11accessTokenSha2562V\n" +
+	"\x13access_token_sha256\x18\x01 \x01(\fR\x11accessTokenSha256\"p\n" +
+	"\rWebhookPolicy\x12\x1a\n" +
+	"\bprovider\x18\x01 \x01(\tR\bprovider\x12\x16\n" +
+	"\x06secret\x18\x02 \x01(\fR\x06secret\x12+\n" +
+	"\x11tolerance_seconds\x18\x03 \x01(\rR\x10toleranceSeconds2V\n" +
 	"\rTunnelService\x12E\n" +
 	"\x0fEstablishTunnel\x12\x16.tunn.v1.TunnelMessage\x1a\x16.tunn.v1.TunnelMessage(\x010\x01B.Z,github.com/ehrlich-b/tunn/pkg/proto/tunnelv1b\x06proto3"
 
@@ -1676,7 +1751,7 @@ func file_proto_tunnel_proto_rawDescGZIP() []byte {
 	return file_proto_tunnel_proto_rawDescData
 }
 
-var file_proto_tunnel_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
+var file_proto_tunnel_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
 var file_proto_tunnel_proto_goTypes = []any{
 	(*TunnelMessage)(nil),       // 0: tunn.v1.TunnelMessage
 	(*RegisterClient)(nil),      // 1: tunn.v1.RegisterClient
@@ -1697,10 +1772,11 @@ var file_proto_tunnel_proto_goTypes = []any{
 	(*ConnectionHalfClose)(nil), // 16: tunn.v1.ConnectionHalfClose
 	(*ConnectionClose)(nil),     // 17: tunn.v1.ConnectionClose
 	(*UpdateAccessToken)(nil),   // 18: tunn.v1.UpdateAccessToken
-	nil,                         // 19: tunn.v1.HttpRequest.HeadersEntry
-	nil,                         // 20: tunn.v1.HttpResponse.HeadersEntry
-	nil,                         // 21: tunn.v1.HttpRequestHead.HeadersEntry
-	nil,                         // 22: tunn.v1.HttpResponseHead.HeadersEntry
+	(*WebhookPolicy)(nil),       // 19: tunn.v1.WebhookPolicy
+	nil,                         // 20: tunn.v1.HttpRequest.HeadersEntry
+	nil,                         // 21: tunn.v1.HttpResponse.HeadersEntry
+	nil,                         // 22: tunn.v1.HttpRequestHead.HeadersEntry
+	nil,                         // 23: tunn.v1.HttpResponseHead.HeadersEntry
 }
 var file_proto_tunnel_proto_depIdxs = []int32{
 	1,  // 0: tunn.v1.TunnelMessage.register_client:type_name -> tunn.v1.RegisterClient
@@ -1718,23 +1794,24 @@ var file_proto_tunnel_proto_depIdxs = []int32{
 	16, // 12: tunn.v1.TunnelMessage.connection_half_close:type_name -> tunn.v1.ConnectionHalfClose
 	17, // 13: tunn.v1.TunnelMessage.connection_close:type_name -> tunn.v1.ConnectionClose
 	18, // 14: tunn.v1.TunnelMessage.update_access_token:type_name -> tunn.v1.UpdateAccessToken
-	19, // 15: tunn.v1.HttpRequest.headers:type_name -> tunn.v1.HttpRequest.HeadersEntry
-	20, // 16: tunn.v1.HttpResponse.headers:type_name -> tunn.v1.HttpResponse.HeadersEntry
-	9,  // 17: tunn.v1.HttpResponse.header_fields:type_name -> tunn.v1.HttpHeader
-	9,  // 18: tunn.v1.HttpResponse.trailers:type_name -> tunn.v1.HttpHeader
-	12, // 19: tunn.v1.ConnectionOpen.http_request:type_name -> tunn.v1.HttpRequestHead
-	21, // 20: tunn.v1.HttpRequestHead.headers:type_name -> tunn.v1.HttpRequestHead.HeadersEntry
-	14, // 21: tunn.v1.ConnectionAccept.http_response:type_name -> tunn.v1.HttpResponseHead
-	22, // 22: tunn.v1.HttpResponseHead.headers:type_name -> tunn.v1.HttpResponseHead.HeadersEntry
-	9,  // 23: tunn.v1.HttpResponseHead.header_fields:type_name -> tunn.v1.HttpHeader
-	9,  // 24: tunn.v1.ConnectionHalfClose.trailers:type_name -> tunn.v1.HttpHeader
-	0,  // 25: tunn.v1.TunnelService.EstablishTunnel:input_type -> tunn.v1.TunnelMessage
-	0,  // 26: tunn.v1.TunnelService.EstablishTunnel:output_type -> tunn.v1.TunnelMessage
-	26, // [26:27] is the sub-list for method output_type
-	25, // [25:26] is the sub-list for method input_type
-	25, // [25:25] is the sub-list for extension type_name
-	25, // [25:25] is the sub-list for extension extendee
-	0,  // [0:25] is the sub-list for field type_name
+	19, // 15: tunn.v1.RegisterClient.webhook_policy:type_name -> tunn.v1.WebhookPolicy
+	20, // 16: tunn.v1.HttpRequest.headers:type_name -> tunn.v1.HttpRequest.HeadersEntry
+	21, // 17: tunn.v1.HttpResponse.headers:type_name -> tunn.v1.HttpResponse.HeadersEntry
+	9,  // 18: tunn.v1.HttpResponse.header_fields:type_name -> tunn.v1.HttpHeader
+	9,  // 19: tunn.v1.HttpResponse.trailers:type_name -> tunn.v1.HttpHeader
+	12, // 20: tunn.v1.ConnectionOpen.http_request:type_name -> tunn.v1.HttpRequestHead
+	22, // 21: tunn.v1.HttpRequestHead.headers:type_name -> tunn.v1.HttpRequestHead.HeadersEntry
+	14, // 22: tunn.v1.ConnectionAccept.http_response:type_name -> tunn.v1.HttpResponseHead
+	23, // 23: tunn.v1.HttpResponseHead.headers:type_name -> tunn.v1.HttpResponseHead.HeadersEntry
+	9,  // 24: tunn.v1.HttpResponseHead.header_fields:type_name -> tunn.v1.HttpHeader
+	9,  // 25: tunn.v1.ConnectionHalfClose.trailers:type_name -> tunn.v1.HttpHeader
+	0,  // 26: tunn.v1.TunnelService.EstablishTunnel:input_type -> tunn.v1.TunnelMessage
+	0,  // 27: tunn.v1.TunnelService.EstablishTunnel:output_type -> tunn.v1.TunnelMessage
+	27, // [27:28] is the sub-list for method output_type
+	26, // [26:27] is the sub-list for method input_type
+	26, // [26:26] is the sub-list for extension type_name
+	26, // [26:26] is the sub-list for extension extendee
+	0,  // [0:26] is the sub-list for field type_name
 }
 
 func init() { file_proto_tunnel_proto_init() }
@@ -1765,7 +1842,7 @@ func file_proto_tunnel_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_tunnel_proto_rawDesc), len(file_proto_tunnel_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   23,
+			NumMessages:   24,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

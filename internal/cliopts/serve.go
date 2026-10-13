@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ehrlich-b/tunn/internal/common"
+	"github.com/ehrlich-b/tunn/internal/webhook"
 )
 
 type Serve struct {
@@ -20,6 +21,8 @@ type Serve struct {
 	Stdio                                                                             bool
 	Tools                                                                             []string
 	Adapter                                                                           string
+	WebhookProvider, WebhookSecretFile                                                string
+	WebhookTolerance                                                                  time.Duration
 }
 
 // PublicationFlags defines identity, naming and sharing options for every publisher.
@@ -65,6 +68,9 @@ func MCPToolFlag(fs *flag.FlagSet, tools *[]string) {
 
 func ServeFlags(fs *flag.FlagSet, o *Serve) {
 	o.WebSocket = common.DefaultWebSocketOptions()
+	fs.StringVar(&o.WebhookProvider, "verify-webhook", "", "verify stripe, github, slack, shopify or hmac-sha256 at the edge")
+	fs.StringVar(&o.WebhookSecretFile, "webhook-secret-file", "", "private signing-secret file (copied to endpoint secret storage)")
+	fs.DurationVar(&o.WebhookTolerance, "webhook-tolerance", webhook.DefaultTolerance, "signed timestamp tolerance, whole seconds from 1s to 1h")
 	PublicationFlags(fs, o)
 	fs.StringVar(&o.Target, "target", "", "HTTP upstream URL (SSH dials it through -R)")
 	fs.BoolVar(&o.SkipLocalTLSVerify, "skip-local-tls-verify", false, "skip local HTTPS certificate verification")
@@ -142,6 +148,23 @@ func parseServe(args []string, requireTarget bool, kind string) (*Serve, error) 
 	}
 	if len(targets) == 1 {
 		o.Target = targets[0]
+	}
+	webhookOptions := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "verify-webhook" || f.Name == "webhook-secret-file" || f.Name == "webhook-tolerance" {
+			webhookOptions = true
+		}
+	})
+	if webhookOptions {
+		if !requireTarget {
+			return nil, fmt.Errorf("webhook policy is supported only by the HTTP CLI")
+		}
+		if o.WebhookProvider == "" || o.WebhookSecretFile == "" {
+			return nil, fmt.Errorf("--verify-webhook and --webhook-secret-file are required together")
+		}
+		if err := webhook.ValidateOptions(o.WebhookProvider, o.WebhookTolerance); err != nil {
+			return nil, err
+		}
 	}
 	if o.Public && (len(o.AllowedEmails) > 0 || o.Bearer) {
 		return nil, fmt.Errorf("--public cannot be combined with --allow, --allow-domain or --bearer")

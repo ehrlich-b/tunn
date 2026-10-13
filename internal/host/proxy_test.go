@@ -232,7 +232,12 @@ func TestProxyServerRun(t *testing.T) {
 		Timeout: 1 * time.Second,
 	}
 
-	resp, err := client.Get("https://localhost:18443/health")
+	req, err := http.NewRequest(http.MethodGet, "https://127.0.0.1:18443/health", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Host = cfg.Domain
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Logf("HTTP/2 server connection attempt: %v (may be expected in test environment)", err)
 	} else {

@@ -139,3 +139,11 @@ Local validation: `make test-policy` checks durable admission, owner API and CLI
 request forwarding, the authenticated internal RPC, and a disposable TLS relay
 with a real publisher and HTTP origin. Hosted account acceptance and cluster
 upgrade acceptance must be completed separately.
+
+## Combining policies
+
+Webhook signatures are verified against incoming headers and raw body bytes before
+origin header edits. Header edits cannot supply or erase sender verification.
+Web inspector history retains sanitized incoming headers; confirmed replay reruns
+the current header/rate, IP, sharing, quota and webhook checks. App-device admission
+shares its existing total deadline with both IP and request-policy authorities.

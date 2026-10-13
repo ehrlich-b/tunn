@@ -38,7 +38,11 @@ func (p *ProxyServer) checkOwnerIPPolicy(w http.ResponseWriter, r *http.Request,
 		http.Error(w, "IP policy authority unavailable", 503)
 		return false
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	parent := r.Context()
+	if admission, _ := parent.Value(appAdmissionKey{}).(context.Context); admission != nil {
+		parent = admission
+	}
+	ctx, cancel := context.WithTimeout(parent, 5*time.Second)
 	defer cancel()
 	policy, err := b.IPPolicy(ctx, &pb.IPPolicyRequest{Operation: "get", Owner: owner, Endpoint: endpoint})
 	if err != nil || policy == nil {

@@ -110,7 +110,11 @@ func (p *ProxyServer) applyEndpointPolicy(w http.ResponseWriter, r *http.Request
 	if ip, err := netip.ParseAddr(peer); err == nil {
 		peer = ip.Unmap().String()
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	parent := r.Context()
+	if admission, _ := parent.Value(appAdmissionKey{}).(context.Context); admission != nil {
+		parent = admission
+	}
+	ctx, cancel := context.WithTimeout(parent, 5*time.Second)
 	defer cancel()
 	out, err := backend.EndpointPolicy(ctx, &pb.EndpointPolicyRequest{Operation: "admit", Owner: s.event.Owner, Endpoint: t.TunnelID, ResourceId: resourceID, ClientIp: peer, GrantId: s.event.GrantId})
 	if err != nil || out == nil || out.Decision == nil {

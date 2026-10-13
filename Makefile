@@ -716,3 +716,8 @@ python-wheel: build-python-helper
 	mkdir -p sdk/python/src/tunn/_bin
 	cp "$(PYTHON_HELPER_OUTPUT)" sdk/python/src/tunn/_bin/tunn-python-bridge
 	cd sdk/python && $(PYTHON) -m build --wheel
+
+# Cross-feature signature, replay inputs and shared admission deadlines.
+.PHONY: test-all-features
+test-all-features:
+	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=120s -run '^TestAll' ./internal/host

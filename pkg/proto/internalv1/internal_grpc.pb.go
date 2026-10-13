@@ -161,6 +161,7 @@ var InternalService_ServiceDesc = grpc.ServiceDesc{
 const (
 	LoginNodeDB_RecordUsage_FullMethodName             = "/internal.LoginNodeDB/RecordUsage"
 	LoginNodeDB_GetMonthlyUsage_FullMethodName         = "/internal.LoginNodeDB/GetMonthlyUsage"
+	LoginNodeDB_CheckManagementDevice_FullMethodName   = "/internal.LoginNodeDB/CheckManagementDevice"
 	LoginNodeDB_CreateDeviceCode_FullMethodName        = "/internal.LoginNodeDB/CreateDeviceCode"
 	LoginNodeDB_GetDeviceCode_FullMethodName           = "/internal.LoginNodeDB/GetDeviceCode"
 	LoginNodeDB_AuthorizeDeviceCode_FullMethodName     = "/internal.LoginNodeDB/AuthorizeDeviceCode"
@@ -191,6 +192,7 @@ type LoginNodeDBClient interface {
 	RecordUsage(ctx context.Context, in *RecordUsageRequest, opts ...grpc.CallOption) (*RecordUsageResponse, error)
 	GetMonthlyUsage(ctx context.Context, in *GetMonthlyUsageRequest, opts ...grpc.CallOption) (*GetMonthlyUsageResponse, error)
 	// Device codes for CLI login
+	CheckManagementDevice(ctx context.Context, in *CheckManagementDeviceRequest, opts ...grpc.CallOption) (*CheckManagementDeviceResponse, error)
 	CreateDeviceCode(ctx context.Context, in *CreateDeviceCodeRequest, opts ...grpc.CallOption) (*DeviceCodeResponse, error)
 	GetDeviceCode(ctx context.Context, in *GetDeviceCodeRequest, opts ...grpc.CallOption) (*DeviceCodeResponse, error)
 	AuthorizeDeviceCode(ctx context.Context, in *AuthorizeDeviceCodeRequest, opts ...grpc.CallOption) (*AuthorizeDeviceCodeResponse, error)
@@ -238,6 +240,16 @@ func (c *loginNodeDBClient) GetMonthlyUsage(ctx context.Context, in *GetMonthlyU
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetMonthlyUsageResponse)
 	err := c.cc.Invoke(ctx, LoginNodeDB_GetMonthlyUsage_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *loginNodeDBClient) CheckManagementDevice(ctx context.Context, in *CheckManagementDeviceRequest, opts ...grpc.CallOption) (*CheckManagementDeviceResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CheckManagementDeviceResponse)
+	err := c.cc.Invoke(ctx, LoginNodeDB_CheckManagementDevice_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -425,6 +437,7 @@ type LoginNodeDBServer interface {
 	RecordUsage(context.Context, *RecordUsageRequest) (*RecordUsageResponse, error)
 	GetMonthlyUsage(context.Context, *GetMonthlyUsageRequest) (*GetMonthlyUsageResponse, error)
 	// Device codes for CLI login
+	CheckManagementDevice(context.Context, *CheckManagementDeviceRequest) (*CheckManagementDeviceResponse, error)
 	CreateDeviceCode(context.Context, *CreateDeviceCodeRequest) (*DeviceCodeResponse, error)
 	GetDeviceCode(context.Context, *GetDeviceCodeRequest) (*DeviceCodeResponse, error)
 	AuthorizeDeviceCode(context.Context, *AuthorizeDeviceCodeRequest) (*AuthorizeDeviceCodeResponse, error)
@@ -463,6 +476,9 @@ func (UnimplementedLoginNodeDBServer) RecordUsage(context.Context, *RecordUsageR
 }
 func (UnimplementedLoginNodeDBServer) GetMonthlyUsage(context.Context, *GetMonthlyUsageRequest) (*GetMonthlyUsageResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetMonthlyUsage not implemented")
+}
+func (UnimplementedLoginNodeDBServer) CheckManagementDevice(context.Context, *CheckManagementDeviceRequest) (*CheckManagementDeviceResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CheckManagementDevice not implemented")
 }
 func (UnimplementedLoginNodeDBServer) CreateDeviceCode(context.Context, *CreateDeviceCodeRequest) (*DeviceCodeResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreateDeviceCode not implemented")
@@ -568,6 +584,24 @@ func _LoginNodeDB_GetMonthlyUsage_Handler(srv interface{}, ctx context.Context, 
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(LoginNodeDBServer).GetMonthlyUsage(ctx, req.(*GetMonthlyUsageRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LoginNodeDB_CheckManagementDevice_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CheckManagementDeviceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LoginNodeDBServer).CheckManagementDevice(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LoginNodeDB_CheckManagementDevice_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LoginNodeDBServer).CheckManagementDevice(ctx, req.(*CheckManagementDeviceRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -892,6 +926,10 @@ var LoginNodeDB_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetMonthlyUsage",
 			Handler:    _LoginNodeDB_GetMonthlyUsage_Handler,
+		},
+		{
+			MethodName: "CheckManagementDevice",
+			Handler:    _LoginNodeDB_CheckManagementDevice_Handler,
 		},
 		{
 			MethodName: "CreateDeviceCode",

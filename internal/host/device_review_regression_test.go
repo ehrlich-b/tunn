@@ -185,10 +185,10 @@ func TestReviewProductionBaseDatabaseMigration(t *testing.T) {
 	w := httptest.NewRecorder()
 	p.handleDeviceToken(w, httptest.NewRequest("GET", "https://tunn.test/api/device/token?code=existing-authorized-code", nil))
 	var exchange durableTokenFixture
-	if err := json.Unmarshal(w.Body.Bytes(), &exchange); err != nil || w.Code != 200 || exchange.Expires != 86400 || exchange.Refresh != "" {
-		t.Fatal("existing legacy device exchange rejected", w.Code, err)
+	if err := json.Unmarshal(w.Body.Bytes(), &exchange); err != nil || w.Code != 400 || exchange.Access != "" {
+		t.Fatal("outstanding code granted management", w.Code, err)
 	}
-	t.Log("110485c database reopened; additive migration twice; baseline-minted access/session and outstanding legacy device code remain valid")
+	t.Log("110485c database reopened; additive migration twice; baseline-minted access/session remain valid; outstanding codes retain publisher scope")
 }
 
 // Capture every original schema and row, including opaque blobs, before any
@@ -212,7 +212,13 @@ func reviewDatabaseSnapshot(t *testing.T, db *sql.DB) map[string]string {
 	}
 	_ = schemas.Close()
 	for name, schema := range result {
-		rows, err := db.Query(`SELECT * FROM "` + strings.ReplaceAll(name, `"`, `""`) + `"`)
+		query := `SELECT * FROM "` + strings.ReplaceAll(name, `"`, `""`) + `"`
+		if name == "device_codes" {
+			query = `SELECT code,user_code,expires_at,authorized,email FROM device_codes`
+			schema = strings.ReplaceAll(schema, ", purpose TEXT NOT NULL DEFAULT 'publisher'", "")
+			schema = strings.ReplaceAll(schema, ", account_id TEXT NOT NULL DEFAULT ''", "")
+		}
+		rows, err := db.Query(query)
 		if err != nil {
 			t.Fatal(err)
 		}

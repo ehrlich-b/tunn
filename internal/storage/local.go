@@ -88,7 +88,11 @@ func (s *LocalStorage) CheckHealth(ctx context.Context) error {
 
 // CreateDeviceCode creates a new device code for CLI login.
 func (s *LocalStorage) CreateDeviceCode(ctx context.Context) (*DeviceCode, error) {
-	code, err := s.deviceCodes.Create()
+	return s.CreateDeviceCodeForPurpose(ctx, "publisher", "")
+}
+
+func (s *LocalStorage) CreateDeviceCodeForPurpose(ctx context.Context, purpose, accountID string) (*DeviceCode, error) {
+	code, err := s.deviceCodes.CreateForPurpose(purpose, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -99,6 +103,7 @@ func (s *LocalStorage) CreateDeviceCode(ctx context.Context) (*DeviceCode, error
 		Interval:   code.Interval,
 		Authorized: code.Authorized,
 		Email:      code.Email,
+		Purpose:    code.Purpose, AccountID: code.AccountID,
 	}, nil
 }
 
@@ -115,6 +120,7 @@ func (s *LocalStorage) GetDeviceCode(ctx context.Context, code string) (*DeviceC
 		Interval:   dc.Interval,
 		Authorized: dc.Authorized,
 		Email:      dc.Email,
+		Purpose:    dc.Purpose, AccountID: dc.AccountID,
 	}, nil
 }
 
@@ -131,6 +137,7 @@ func (s *LocalStorage) GetDeviceCodeByUserCode(ctx context.Context, userCode str
 		Interval:   dc.Interval,
 		Authorized: dc.Authorized,
 		Email:      dc.Email,
+		Purpose:    dc.Purpose, AccountID: dc.AccountID,
 	}, nil
 }
 
@@ -470,4 +477,27 @@ func (s *LocalStorage) FindOrCreateGoogleIdentity(ctx context.Context, subject, 
 		return nil, err
 	}
 	return storeAccountToStorage(acc), nil
+}
+
+func (s *LocalStorage) CheckManagementDevice(ctx context.Context, id, email, accountID string) (bool, error) {
+	var owner, bound string
+	err := s.db.QueryRowContext(ctx, `SELECT email,account_id FROM durable_devices WHERE id=? AND purpose='management' AND revoked=0`, id).Scan(&owner, &bound)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if common.NormalizeEmail(owner) != common.NormalizeEmail(email) || bound != accountID {
+		return false, nil
+	}
+	original, err := s.GetAccount(ctx, bound)
+	if err != nil || original == nil {
+		return false, err
+	}
+	current, err := s.GetAccountByEmail(ctx, email)
+	if err != nil || current == nil {
+		return false, err
+	}
+	return original.ID == current.ID && current.OperationalState == "active", nil
 }

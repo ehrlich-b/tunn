@@ -10,7 +10,7 @@ const scratch = mkdtempSync(join(tmpdir(), 'tunn-js-consumer-'));
 try {
   const packed = JSON.parse(execFileSync('npm', ['pack', '--json', '--pack-destination', scratch], { cwd: packageRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] }))[0];
   const files = packed.files.map(f => f.path);
-  assert.ok(files.includes('dist/index.js') && files.includes('dist/index.d.ts') && files.includes('proto/tunnel.proto') && files.includes('README.md'));
+  assert.ok(files.includes('dist/index.js') && files.includes('dist/index.d.ts') && files.includes('proto/tunnel.proto') && files.includes('README.md') && files.includes('examples/mcp-server.mjs'));
   assert.ok(files.every(f => !f.startsWith('test/') && !f.startsWith('src/') && !f.includes('node_modules') && !f.endsWith('.key')));
   const consumer = join(scratch, 'app'); mkdirSync(consumer);
   const lock = JSON.parse(readFileSync(join(packageRoot, 'package-lock.json')));

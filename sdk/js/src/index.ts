@@ -119,11 +119,10 @@ class RunningTunnel implements Tunnel {
       let retries = 0;
       while (!this.#controller.signal.aborted) {
         this.emit({ state: 'connecting' });
-        const start = Date.now();
-        const result = await this.session();
+        const { error: result, stable } = await this.session();
         if (result?.code === 'registration_rejected' || result?.code === 'protocol_violation') { error = result; break; }
         if (this.#controller.signal.aborted) break;
-        if (Date.now() - start >= 30_000) retries = 0;
+        if (stable) retries = 0;
         if (retries >= this.#config.reconnect.maxAttempts) { error = result ?? new TunnelError('connection_failed'); break; }
         const cap = Math.min(this.#config.reconnect.maxDelayMs, this.#config.reconnect.initialDelayMs * 2 ** Math.min(retries, 31));
         const retryDelayMs = Math.max(1, Math.floor(cap * (0.5 + Math.random() / 2)));
@@ -156,7 +155,7 @@ class RunningTunnel implements Tunnel {
       return ![this.#config.authToken, this.#config.tunnelKey, this.#config.endpointToken].some(secret => secret && forms.some(form => form.includes(secret)));
     } catch { return false; }
   }
-  private async session(): Promise<TunnelError | undefined> {
+  private async session(): Promise<{ error?: TunnelError; stable: boolean }> {
     const config = this.#config;
     const credentials = grpc.credentials.createSsl(config.relayCA ? Buffer.from(config.relayCA) : undefined);
     const client = new TunnelService(config.serverAddr, credentials, {
@@ -169,12 +168,14 @@ class RunningTunnel implements Tunnel {
     const session = new AbortController();
     let forwarder: Forwarder | undefined;
     let registered = false;
+    let readyAt: number | undefined;
+    let finishedAt = 0;
     let resolve!: (result: TunnelError | undefined) => void;
     const ended = new Promise<TunnelError | undefined>(done => { resolve = done; });
     let finished = false;
     const finish = (error?: TunnelError) => {
       if (finished) return;
-      finished = true; resolve(error);
+      finished = true; finishedAt = Date.now(); resolve(error);
       session.abort(); stream.cancel();
     };
     const abort = () => finish();
@@ -191,7 +192,7 @@ class RunningTunnel implements Tunnel {
           const response = message.registerResponse;
           if (!response.success) return finish(new TunnelError('registration_rejected'));
           if (!this.validURL(response.publicUrl) || (config.requireSharing && !response.capabilities.includes('web-sharing-v1')) || (config.requireUpstreamAuth && !response.capabilities.includes('websocket-v1'))) return finish(new TunnelError('protocol_violation'));
-          registered = true; clearTimeout(timer);
+          registered = true; readyAt = Date.now(); clearTimeout(timer);
           forwarder = new Forwarder(config, response.capabilities.includes('http-response-trailers-v1'), send);
           this.emit({ state: 'ready', url: response.publicUrl });
         } else if (message.message === 'registerResponse') finish(new TunnelError('protocol_violation'));
@@ -212,6 +213,6 @@ class RunningTunnel implements Tunnel {
     this.#controller.signal.removeEventListener('abort', abort);
     client.close();
     await forwarder?.close();
-    return result;
+    return { error: result, stable: readyAt !== undefined && finishedAt - readyAt >= 30_000 };
   }
 }

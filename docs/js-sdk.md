@@ -73,7 +73,10 @@ request trailers and does not advertise WebSocket, TCP/Unix or device renewal.
 The Go SDK/CLI provides the other transports. `publishHandler` uses loopback
 HTTP rather than Go's in-memory handler pipes; app handlers use ordinary Node
 server semantics. Disconnected requests are interrupted and never replayed.
-The MCP app/client must recover its own session after a reconnect.
+The MCP app/client must recover its own session after a reconnect. Retry budgets
+reset only after a registered session stays ready for 30 seconds. Completed
+HTTP error responses may abandon uploads; successful completion waits for valid
+upload EOF.
 
 Run `make test-js-sdk` for local TLS regressions and an isolated tarball/type
 consumer, then `make test-js-sdk-contract` for real Node-to-Go TLS relay

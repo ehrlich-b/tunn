@@ -376,3 +376,80 @@ test('runnable MCP example initializes, lists/calls a tool, and rejects wrong Ho
   assert.equal((await request(s, 'wrong-host', '/mcp', true, 'POST', { ...headers, Host: 'evil.invalid' })).statusCode, 403);
   assert.equal((await request(s, 'wrong-origin', '/mcp', true, 'POST', { ...headers, Origin: 'https://evil.invalid' })).statusCode, 403);
 });
+
+for (const stable of [false, true]) {
+  test(`retry budget resets only after a ready session: ${stable}`, async t => {
+    let now = Date.now();
+    t.mock.method(Date, 'now', () => now);
+    const controller = new AbortController();
+    let tunnel;
+    const r = await relay(t, async (s, attempt) => {
+      const register = await s.next('registerClient');
+      if (stable && attempt === 2) {
+        ready(s, register); await until(() => tunnel.status.state === 'ready');
+        now += 31_000;
+      } else if (!stable) now += 31_000;
+      // Bound the old buggy implementation without long timers or load.
+      if (attempt >= 4) controller.abort();
+      s.call.end();
+    });
+    tunnel = publish({ origin, ...r.options, signal: controller.signal, reconnect: { maxAttempts: 1, initialDelayMs: 2, maxDelayMs: 2 } });
+    t.after(() => tunnel.close().catch(() => {}));
+    await assert.rejects(tunnel.wait(), fails('connection_failed'));
+    assert.equal(r.sessions.length, stable ? 3 : 2);
+  });
+}
+
+for (const status of [400, 413, 500]) {
+  test(`completed early ${status} abandons upload and releases the worker`, async t => {
+    const r = await relay(t, async s => ready(s, await s.next('registerClient')));
+    const tunnel = publishHandler((req, res) => { if (req.url === '/reject') { res.writeHead(status).end('rejected'); } else { req.resume(); res.end('accepted'); } }, { ...r.options, maxConnections: 1, httpTimeoutMs: 60 });
+    t.after(() => tunnel.close()); await tunnel.waitReady(); const s = r.sessions[0];
+    s.call.write({ connectionOpen: { connectionId: 'reject', protocol: 'http', httpRequest: { method: 'POST', path: '/reject', contentLength: 20 } } });
+    // No upload data or EOF: a rejected caller is allowed to stop immediately.
+    assert.equal((await s.next('connectionAccept')).httpResponse.statusCode, status);
+    assert.equal((await s.next('connectionData')).data.toString(), 'rejected');
+    await s.next('connectionHalfClose');
+    await new Promise(resolve => setTimeout(resolve, 10));
+    s.call.write({ connectionData: { connectionId: 'reject', data: Buffer.from('late') } });
+    assert.equal((await request(s, 'next', '/ok')).body.toString(), 'accepted');
+    assert.equal(tunnel.status.state, 'ready');
+  });
+}
+
+test('streamed upload progresses while an early response prefix is open', async t => {
+  const r = await relay(t, async s => ready(s, await s.next('registerClient')));
+  const tunnel = publishHandler(async (req, res) => {
+    res.write('prefix:'); const chunks = []; for await (const part of req) chunks.push(part);
+    res.end(Buffer.concat(chunks));
+  }, r.options);
+  t.after(() => tunnel.close()); await tunnel.waitReady(); const s = r.sessions[0];
+  s.call.write({ connectionOpen: { connectionId: 'duplex', protocol: 'http', httpRequest: { method: 'POST', path: '/', contentLength: -1 } } });
+  await s.next('connectionAccept'); assert.equal((await s.next('connectionData')).data.toString(), 'prefix:');
+  for (const part of ['one', 'two']) s.call.write({ connectionData: { connectionId: 'duplex', data: Buffer.from(part) } });
+  s.call.write({ connectionHalfClose: { connectionId: 'duplex' } });
+  assert.equal((await s.next('connectionData')).data.toString(), 'onetwo'); await s.next('connectionHalfClose');
+});
+
+test('truncated upstream response sends error terminal after delivered prefix', async t => {
+  const r = await relay(t, async s => ready(s, await s.next('registerClient')));
+  let truncate;
+  const app = http.createServer((_req, res) => { res.writeHead(200, { 'Content-Length': '8' }); res.write('prefix'); truncate = () => res.destroy(); });
+  const appOrigin = await listen(t, app);
+  const tunnel = publish({ origin: appOrigin, ...r.options }); t.after(() => tunnel.close()); await tunnel.waitReady(); const s = r.sessions[0];
+  s.call.write({ connectionOpen: { connectionId: 'truncated', protocol: 'http', httpRequest: { method: 'GET', path: '/', contentLength: 0 } } });
+  s.call.write({ connectionHalfClose: { connectionId: 'truncated' } });
+  await s.next('connectionAccept'); assert.equal((await s.next('connectionData')).data.toString(), 'prefix');
+  truncate(); assert.equal((await s.next()).message, 'connectionClose');
+});
+
+test('session reconnect destroys old pending HTTP workers', async t => {
+  let closed = 0;
+  const r = await relay(t, async s => ready(s, await s.next('registerClient')));
+  const tunnel = publishHandler((req, _res) => { req.socket.once('close', () => closed++); }, { ...r.options, reconnect: { maxAttempts: 1, initialDelayMs: 2, maxDelayMs: 2 } });
+  t.after(() => tunnel.close()); await tunnel.waitReady();
+  r.sessions[0].call.write({ connectionOpen: { connectionId: 'old', protocol: 'http', httpRequest: { method: 'GET', path: '/', contentLength: 0 } } });
+  await new Promise(resolve => setTimeout(resolve, 25)); r.sessions[0].call.end();
+  await until(() => closed === 1 && r.sessions.length === 2 && tunnel.status.state === 'ready');
+  await tunnel.close(); assert.equal(closed, 1);
+});

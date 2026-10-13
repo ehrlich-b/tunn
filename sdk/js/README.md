@@ -130,11 +130,13 @@ Streaming bodies are not buffered in full. Upload queues are bounded to 512 KiB
 per request; exceeding this bound fails that request. Streaming SSE bodies have
 no SDK time limit after headers and end with cancellation, origin/relay close,
 or the application's completion. Request bodies must end with relay EOF,
-including a zero-length upload. Errors after response headers abort the stream.
+including a zero-length upload. Completed error responses (status 400 or higher)
+can abandon an unfinished upload; successful responses validate upload EOF
+before their clean terminal. Errors after response headers abort the stream.
 
 `reconnect: { maxAttempts: 5, initialDelayMs: 1000, maxDelayMs: 30000 }` is the
 default. Five consecutive retries use exponential equal jitter; the budget
-resets after a session lasts 30 seconds. Zero attempts disables retries. The
+resets after a successfully registered session stays ready for 30 seconds. Zero attempts disables retries. The
 name is generated once if absent and retained; a changed URL on reconnect
 fails closed. Registration rejection/protocol violations are terminal.
 Caller origins remain running after close; handler servers and their sockets

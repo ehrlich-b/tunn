@@ -14,7 +14,8 @@
   "files": [
     "dist",
     "proto/tunnel.proto",
-    "README.md"
+    "README.md",
+    "examples/mcp-server.mjs"
   ],
   "engines": {
     "node": ">=20"
@@ -33,5 +34,6 @@
     "@modelcontextprotocol/sdk": "1.32.1",
     "@types/node": "^22.0.0",
     "typescript": "^5.9.0"
-  }
+  },
+  "private": true
 }

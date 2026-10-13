@@ -70,7 +70,7 @@ export class Forwarder {
       case 'connectionData': {
         const { connectionId, data } = message.connectionData;
         const c = this.#active.get(connectionId);
-        if (!c) break;
+        if (!c || c.terminal) break;
         if (c.inputEnded || data.length > chunkSize || c.request.writableLength + data.length > inputQueueLimit || (c.length >= 0 && c.received + data.length > c.length)) {
           this.fail(c); break;
         }
@@ -79,7 +79,7 @@ export class Forwarder {
       }
       case 'connectionHalfClose': {
         const c = this.#active.get(message.connectionHalfClose.connectionId);
-        if (!c) break;
+        if (!c || c.terminal) break;
         if (c.inputEnded || message.connectionHalfClose.trailers?.length || (c.length >= 0 && c.received !== c.length)) { this.fail(c); break; }
         c.inputEnded = true; c.request.end(); c.resolveInput(); break;
       }
@@ -217,7 +217,9 @@ export class Forwarder {
     if (trailers.length && !this.trailers) throw new Error('unsupported trailers');
     // An early response may finish before its upload. Keep the request worker
     // alive until EOF so upload errors cannot be reported as a clean response.
-    await c.inputDone;
+    // Rejections can finish without consuming an upload (for example 413).
+    // A caller may stop sending as soon as it sees the error response.
+    if (statusCode < 400) await c.inputDone;
     if (c.terminal) return;
     // Mark completion before awaiting the terminal write: a late upload close must not send a second terminal.
     c.terminal = true;

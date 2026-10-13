@@ -70,6 +70,10 @@ func newAppDeviceFixture(t *testing.T) *appDeviceFixture {
 	}
 	db.SetMaxOpenConns(1)
 	t.Cleanup(func() { db.Close() })
+	// Retain the existing synthetic-billing guard in this disposable DB.
+	if _, err = db.Exec(`CREATE TABLE ops_fixture(id INTEGER PRIMARY KEY,value TEXT); INSERT INTO ops_fixture VALUES(1,'disposable-local')`); err != nil {
+		t.Fatal(err)
+	}
 	if _, err = db.Exec(`INSERT INTO accounts(id,primary_email,plan,created_at) VALUES(?,?,'pro',1);`, tunnel.AccountID, appDeviceTestEmail); err != nil {
 		t.Fatal(err)
 	}

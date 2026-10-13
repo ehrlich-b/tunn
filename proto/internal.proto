@@ -248,5 +248,6 @@ message BeginBillingCheckoutResponse { string reference = 1; string destination 
 message ForwardedPermissionRequest {
  string tunnel_id = 1; string host = 2; string path = 3; string method = 4;
  string peer = 5; string scheme = 6; map<string,string> headers = 7;
+ bool admission = 8;
 }
-message ForwardedPermissionResponse { bool allowed = 1; }
+message ForwardedPermissionResponse { bool allowed = 1; int32 status = 2; string location = 3; repeated string challenges = 4; uint32 version = 5; string request_id = 6; }

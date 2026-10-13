@@ -17,7 +17,7 @@ func (p *ProxyServer) watchAccountRequest(r *http.Request, t *TunnelConnection, 
 	if !ok || t.accountQuotaExempt || t.AccountID == "" || admitted == nil {
 		return r, func() {}
 	}
-	ctx, cancel := context.WithCancel(r.Context())
+	ctx, cancel := context.WithCancelCause(r.Context())
 	go func() {
 		timer := time.NewTicker(time.Second)
 		defer timer.Stop()
@@ -30,7 +30,7 @@ func (p *ProxyServer) watchAccountRequest(r *http.Request, t *TunnelConnection, 
 				status, err := lookup.LookupAccountStatus(checkCtx, t.AccountID)
 				stop()
 				if err != nil || status == nil || status.State != "active" || status.Version != admitted.OperationalVersion {
-					cancel()
+					cancel(&webPermissionError{"account_permission_revoked_or_unavailable"})
 					if err != nil || status == nil || status.State != "active" {
 						t.CloseAccountStreams()
 					}
@@ -40,7 +40,7 @@ func (p *ProxyServer) watchAccountRequest(r *http.Request, t *TunnelConnection, 
 			}
 		}
 	}()
-	return r.WithContext(ctx), cancel
+	return r.WithContext(ctx), func() { cancel(nil) }
 }
 func (t *TunnelConnection) CloseAccountStreams() { t.closePendingConnections() }
 func (p *ProxyServer) currentTime() time.Time {

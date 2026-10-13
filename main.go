@@ -78,6 +78,7 @@ Usage:
   tunn grant create <name>       Issue a metered, expiring consumer token
   tunn grant revoke <name> <id>  Revoke one consumer grant
   tunn domain add|verify|list|delete  Manage Pro custom domains
+  tunn status serve|incident|resolve  Relay probe history and local incident notes
   tunn admin --help             Local authenticated account and billing controls
 
 Examples:
@@ -120,6 +121,8 @@ Options:
 
 	// Route to subcommand or default serve behavior
 	switch args[0] {
+	case "status":
+		runStatus(args[1:])
 	case "admin":
 		runOperations(args[1:])
 	case "service", "hosts", "openclaw":

@@ -387,3 +387,21 @@ Use `tunn 8080 --public --verify-webhook=stripe --webhook-secret-file=PATH`
 to verify raw HTTP deliveries before they reach your app. Stripe, GitHub, Slack,
 Shopify and generic HMAC-SHA256 are supported. See the [webhook guide](docs/webhook-verification.md)
 for private secret storage, timestamp checks and copy-paste examples.
+
+### Relay status and Docker client
+
+Public `/status` and `/status.json` show externally collected health/readiness
+observations, a 90-day history window and local operator incident notes. Gaps
+and stale data remain unknown; no availability SLA is promised. See
+[collector setup](docs/status.md) or `/docs/status`.
+
+The separate [client Docker image](docs/docker-client.md) supports Linux
+amd64/arm64. After selecting a verified image in `TUNN_IMAGE` and signing in to
+its named volume, the Linux host-port quickstart is:
+
+```sh
+docker run --rm --init --network host -v tunn-client-home:/home/tunn "$TUNN_IMAGE" http 8080
+```
+
+The image and manual publication workflow are prepared for operator release;
+registry publication and live account acceptance are separate steps.

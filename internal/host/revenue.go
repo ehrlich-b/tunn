@@ -85,6 +85,14 @@ func (p *ProxyServer) handleDocs(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", 405)
 		return
 	}
+	if r.URL.Path == "/docs/status" {
+		serveFeatureDocs(w, r, "tunn - Status measurements", statusDocsHTML)
+		return
+	}
+	if r.URL.Path == "/docs/docker" {
+		serveFeatureDocs(w, r, "tunn - Docker client", dockerDocsHTML)
+		return
+	}
 	if r.URL.Path != "/docs" && r.URL.Path != "/docs/" && r.URL.Path != "/docs/mcp-to-claude" && r.URL.Path != "/docs/webhook-verification" && r.URL.Path != "/docs/ip-restrictions" {
 		http.NotFound(w, r)
 		return

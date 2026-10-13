@@ -149,6 +149,7 @@ func writePageStart(w io.Writer, title string) {
     <nav class="header-nav">
       <a href="/pricing">Pricing</a>
       <a href="/docs">Docs</a>
+      <a href="/status">Status</a>
       <a href="https://github.com/ehrlich-b/tunn">Code</a>
     </nav>
   </div>

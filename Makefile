@@ -630,3 +630,8 @@ test-web-inspector:
 test-web-inspector-browser:
 	@test -n "$$TUNN_INSPECT_PLAYWRIGHT_MODULE" || { echo 'REQUIRED-UNRUN: set TUNN_INSPECT_PLAYWRIGHT_MODULE to installed Playwright'; exit 1; }
 	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=90s -run '^TestWebInspectorBrowserJourney$$' ./internal/host
+
+
+.PHONY: test-device-admission
+test-device-admission:
+	go test -race -count=1 -timeout=60s -run '^TestDeviceAdmission' ./internal/host

@@ -619,3 +619,11 @@ test-candidate-baseline:
 .PHONY: test-candidate-upload-contract
 test-candidate-upload-contract:
 	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=45s -run '^(TestHTTPFidelity(UploadTerminalSchedules|UploadFailureAbortsResponse|WireUploadEOFAbortsResponse|UnknownUploadLimitBeforeEmptyResponse|UploadLimitAfterPrefixAbortsResponse|ChunkedUploadProgressAfterPrefix)|TestProxyToLocalReturnsResponseErrors|TestDogfoodUpload)' ./internal/host
+
+# External probe history and operator-only incident notes.
+.PHONY: test-status client-image-local
+test-status:
+	go test $(GO_TEST_FLAGS) -race -p 2 -parallel=2 -count=1 -timeout=90s -run '^TestStatus' ./internal/status ./internal/host ./internal/config .
+client-image-local:
+	@mkdir -p "$(BUILD_DIR)"
+	docker buildx build --platform linux/amd64,linux/arm64 --file Dockerfile.client --output type=oci,dest=$(BUILD_DIR)/tunn-client.oci.tar .

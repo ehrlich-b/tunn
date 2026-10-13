@@ -1,0 +1,7 @@
+<style>.page-container{max-width:800px}h2,p,pre{margin-bottom:20px}pre{padding:16px;background:#f6f8fa;overflow:auto}</style>
+<h1 class="page-title">Run the tunn client in Docker</h1>
+<p>The client image candidate supports Linux Intel/AMD and ARM. Publication and anonymous pulling must be verified before using a registry tag. For a locally built image, set <code>TUNN_IMAGE=tunn-client:local</code>.</p>
+<h2>Sign in once</h2><pre>docker run --rm -it -v tunn-client-home:/home/tunn "$TUNN_IMAGE" login</pre><p>Follow the printed browser link. Keep the named volume private; it stores the container's login credentials.</p>
+<h2>Expose host port 8080 on Linux</h2><pre>docker run --rm --init --network host -v tunn-client-home:/home/tunn "$TUNN_IMAGE" http 8080</pre><p>The application must be running. The tunnel is private by default. Add <code>--allow=friend@example.com</code> for selected browser access. Add <code>--public</code> only when public access is intended.</p>
+<p>On Docker Desktop, omit <code>--network host</code> and use <code>http://host.docker.internal:8080</code> as the target. Container localhost is separate from your laptop. No inbound port publishing is needed.</p>
+<p>See the <a href="https://github.com/ehrlich-b/tunn/blob/main/docs/docker-client.md">Docker build, publication and network guide</a> for immutable registry tags and details. The image has no shell or Node/Python runtime for stdio MCP subprocesses.</p>

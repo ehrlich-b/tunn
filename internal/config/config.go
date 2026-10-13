@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	statuspage "github.com/ehrlich-b/tunn/internal/status"
 	"os"
 	"strconv"
 )
@@ -19,6 +20,7 @@ type Config struct {
 	Environment Environment
 
 	// Server configuration
+	StatusURL string // Explicit independent status collector origin (optional).
 	Domain    string
 	CertFile  string
 	KeyFile   string
@@ -106,6 +108,12 @@ func LoadConfig() (*Config, error) {
 		Environment: env,
 	}
 
+	cfg.StatusURL = os.Getenv("TUNN_STATUS_URL")
+	if cfg.StatusURL != "" {
+		if _, err := statuspage.Origin(cfg.StatusURL); err != nil {
+			return nil, fmt.Errorf("TUNN_STATUS_URL: %w", err)
+		}
+	}
 	cfg.HostModeEnabled = os.Getenv("TUNN_HOST_MODE") == "true"
 	cfg.SSHHostKeyFile = os.Getenv("TUNN_SSH_HOST_KEY_FILE")
 	cfg.SSHAddr = os.Getenv("TUNN_SSH_ADDR")

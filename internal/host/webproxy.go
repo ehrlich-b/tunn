@@ -268,6 +268,16 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		session.event.Caller = "grant:" + grant.Id
 		session.event.GrantId = grant.Id
 		session.event.AuthMethod = "grant"
+		if grant.Revoked || grant.ExpiresAt <= time.Now().UnixMilli() {
+			session.reason = "grant_expired"
+			if grant.Revoked {
+				session.reason = "grant_revoked"
+			}
+			w.Header().Set("Tunn-Limit-Reason", session.reason)
+			http.Error(w, "Invalid endpoint grant", http.StatusForbidden)
+			return nil
+		}
+		session.event.AuthMethod = "grant"
 		if strings.HasPrefix(token, "tunn_mcp_") {
 			session.event.AuthMethod = "mcp_oauth"
 		}
@@ -465,6 +475,11 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		session.reason = "request_body_too_large"
 		session.event.ContentLength = r.ContentLength
 		writeIngressError(w, &requestBodyTooLargeError{MaxBodySize})
+		return nil
+	}
+	var policyAllowed bool
+	r, policyAllowed = p.applyEndpointPolicy(w, r, tunnel, session)
+	if !policyAllowed {
 		return nil
 	}
 	if !session.admit(r.Context(), w, r) {

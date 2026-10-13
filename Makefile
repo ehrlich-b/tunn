@@ -619,3 +619,12 @@ test-candidate-baseline:
 .PHONY: test-candidate-upload-contract
 test-candidate-upload-contract:
 	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=45s -run '^(TestHTTPFidelity(UploadTerminalSchedules|UploadFailureAbortsResponse|WireUploadEOFAbortsResponse|UnknownUploadLimitBeforeEmptyResponse|UploadLimitAfterPrefixAbortsResponse|ChunkedUploadProgressAfterPrefix)|TestProxyToLocalReturnsResponseErrors|TestDogfoodUpload)' ./internal/host
+
+# Durable policy, owner API/CLI and authenticated relay forwarding regressions.
+.PHONY: proto-policy test-policy
+proto-policy:
+	protoc --go_out=. --go-grpc_out=. --go_opt=module=github.com/ehrlich-b/tunn --go-grpc_opt=module=github.com/ehrlich-b/tunn proto/metering.proto
+
+test-policy:
+	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=90s ./internal/trafficpolicy ./internal/metering
+	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=120s -run '^(TestPolicy|TestProdAuthRoute|TestProdAuthInternalRPC|TestDomainAccountOwnerResourceRevocation|TestForwardedHTTP|TestMetering)' ./internal/host ./internal/client .

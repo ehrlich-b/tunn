@@ -1155,6 +1155,151 @@ func (x *SharingResponse) GetResources() []*WebResource {
 	return nil
 }
 
+// Owner policy configuration and atomic admission share the login authority.
+type EndpointPolicyRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Operation     string                 `protobuf:"bytes,1,opt,name=operation,proto3" json:"operation,omitempty"` // get, set, clear, admit
+	Owner         string                 `protobuf:"bytes,2,opt,name=owner,proto3" json:"owner,omitempty"`
+	Endpoint      string                 `protobuf:"bytes,3,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
+	ResourceId    string                 `protobuf:"bytes,4,opt,name=resource_id,json=resourceId,proto3" json:"resource_id,omitempty"` // mandatory immutable generation for ingress
+	PolicyJson    []byte                 `protobuf:"bytes,5,opt,name=policy_json,json=policyJson,proto3" json:"policy_json,omitempty"` // strict, bounded trafficpolicy.Policy JSON
+	ClientIp      string                 `protobuf:"bytes,6,opt,name=client_ip,json=clientIp,proto3" json:"client_ip,omitempty"`       // canonical peer, supplied only by authenticated relay
+	GrantId       string                 `protobuf:"bytes,7,opt,name=grant_id,json=grantId,proto3" json:"grant_id,omitempty"`          // revalidate revocation/expiry atomically with policy admission
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EndpointPolicyRequest) Reset() {
+	*x = EndpointPolicyRequest{}
+	mi := &file_proto_metering_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EndpointPolicyRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EndpointPolicyRequest) ProtoMessage() {}
+
+func (x *EndpointPolicyRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_metering_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EndpointPolicyRequest.ProtoReflect.Descriptor instead.
+func (*EndpointPolicyRequest) Descriptor() ([]byte, []int) {
+	return file_proto_metering_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *EndpointPolicyRequest) GetOperation() string {
+	if x != nil {
+		return x.Operation
+	}
+	return ""
+}
+
+func (x *EndpointPolicyRequest) GetOwner() string {
+	if x != nil {
+		return x.Owner
+	}
+	return ""
+}
+
+func (x *EndpointPolicyRequest) GetEndpoint() string {
+	if x != nil {
+		return x.Endpoint
+	}
+	return ""
+}
+
+func (x *EndpointPolicyRequest) GetResourceId() string {
+	if x != nil {
+		return x.ResourceId
+	}
+	return ""
+}
+
+func (x *EndpointPolicyRequest) GetPolicyJson() []byte {
+	if x != nil {
+		return x.PolicyJson
+	}
+	return nil
+}
+
+func (x *EndpointPolicyRequest) GetClientIp() string {
+	if x != nil {
+		return x.ClientIp
+	}
+	return ""
+}
+
+func (x *EndpointPolicyRequest) GetGrantId() string {
+	if x != nil {
+		return x.GrantId
+	}
+	return ""
+}
+
+type EndpointPolicyResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	PolicyJson    []byte                 `protobuf:"bytes,1,opt,name=policy_json,json=policyJson,proto3" json:"policy_json,omitempty"`
+	Decision      *Decision              `protobuf:"bytes,2,opt,name=decision,proto3" json:"decision,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EndpointPolicyResponse) Reset() {
+	*x = EndpointPolicyResponse{}
+	mi := &file_proto_metering_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EndpointPolicyResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EndpointPolicyResponse) ProtoMessage() {}
+
+func (x *EndpointPolicyResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_metering_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EndpointPolicyResponse.ProtoReflect.Descriptor instead.
+func (*EndpointPolicyResponse) Descriptor() ([]byte, []int) {
+	return file_proto_metering_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *EndpointPolicyResponse) GetPolicyJson() []byte {
+	if x != nil {
+		return x.PolicyJson
+	}
+	return nil
+}
+
+func (x *EndpointPolicyResponse) GetDecision() *Decision {
+	if x != nil {
+		return x.Decision
+	}
+	return nil
+}
+
 var File_proto_metering_proto protoreflect.FileDescriptor
 
 const file_proto_metering_proto_rawDesc = "" +
@@ -1268,8 +1413,23 @@ const file_proto_metering_proto_rawDesc = "" +
 	"\n" +
 	"expires_at\x18\b \x01(\x03R\texpiresAt\"F\n" +
 	"\x0fSharingResponse\x123\n" +
-	"\tresources\x18\x01 \x03(\v2\x15.metering.WebResourceR\tresources2\x87\x04\n" +
-	"\bMetering\x12>\n" +
+	"\tresources\x18\x01 \x03(\v2\x15.metering.WebResourceR\tresources\"\xe1\x01\n" +
+	"\x15EndpointPolicyRequest\x12\x1c\n" +
+	"\toperation\x18\x01 \x01(\tR\toperation\x12\x14\n" +
+	"\x05owner\x18\x02 \x01(\tR\x05owner\x12\x1a\n" +
+	"\bendpoint\x18\x03 \x01(\tR\bendpoint\x12\x1f\n" +
+	"\vresource_id\x18\x04 \x01(\tR\n" +
+	"resourceId\x12\x1f\n" +
+	"\vpolicy_json\x18\x05 \x01(\fR\n" +
+	"policyJson\x12\x1b\n" +
+	"\tclient_ip\x18\x06 \x01(\tR\bclientIp\x12\x19\n" +
+	"\bgrant_id\x18\a \x01(\tR\agrantId\"i\n" +
+	"\x16EndpointPolicyResponse\x12\x1f\n" +
+	"\vpolicy_json\x18\x01 \x01(\fR\n" +
+	"policyJson\x12.\n" +
+	"\bdecision\x18\x02 \x01(\v2\x12.metering.DecisionR\bdecision2\xdc\x04\n" +
+	"\bMetering\x12S\n" +
+	"\x0eEndpointPolicy\x12\x1f.metering.EndpointPolicyRequest\x1a .metering.EndpointPolicyResponse\x12>\n" +
 	"\aSharing\x12\x18.metering.SharingRequest\x1a\x19.metering.SharingResponse\x124\n" +
 	"\aResolve\x12\x18.metering.ResolveRequest\x1a\x0f.metering.Grant\x12/\n" +
 	"\vCreateGrant\x12\x0f.metering.Grant\x1a\x0f.metering.Grant\x12G\n" +
@@ -1293,22 +1453,24 @@ func file_proto_metering_proto_rawDescGZIP() []byte {
 	return file_proto_metering_proto_rawDescData
 }
 
-var file_proto_metering_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_proto_metering_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
 var file_proto_metering_proto_goTypes = []any{
-	(*Grant)(nil),              // 0: metering.Grant
-	(*ResolveRequest)(nil),     // 1: metering.ResolveRequest
-	(*ListGrantsRequest)(nil),  // 2: metering.ListGrantsRequest
-	(*ListGrantsResponse)(nil), // 3: metering.ListGrantsResponse
-	(*Event)(nil),              // 4: metering.Event
-	(*Decision)(nil),           // 5: metering.Decision
-	(*ChargeRequest)(nil),      // 6: metering.ChargeRequest
-	(*Usage)(nil),              // 7: metering.Usage
-	(*ExportRequest)(nil),      // 8: metering.ExportRequest
-	(*ExportResponse)(nil),     // 9: metering.ExportResponse
-	(*WebResource)(nil),        // 10: metering.WebResource
-	(*SharingRequest)(nil),     // 11: metering.SharingRequest
-	(*SharingResponse)(nil),    // 12: metering.SharingResponse
-	(*emptypb.Empty)(nil),      // 13: google.protobuf.Empty
+	(*Grant)(nil),                  // 0: metering.Grant
+	(*ResolveRequest)(nil),         // 1: metering.ResolveRequest
+	(*ListGrantsRequest)(nil),      // 2: metering.ListGrantsRequest
+	(*ListGrantsResponse)(nil),     // 3: metering.ListGrantsResponse
+	(*Event)(nil),                  // 4: metering.Event
+	(*Decision)(nil),               // 5: metering.Decision
+	(*ChargeRequest)(nil),          // 6: metering.ChargeRequest
+	(*Usage)(nil),                  // 7: metering.Usage
+	(*ExportRequest)(nil),          // 8: metering.ExportRequest
+	(*ExportResponse)(nil),         // 9: metering.ExportResponse
+	(*WebResource)(nil),            // 10: metering.WebResource
+	(*SharingRequest)(nil),         // 11: metering.SharingRequest
+	(*SharingResponse)(nil),        // 12: metering.SharingResponse
+	(*EndpointPolicyRequest)(nil),  // 13: metering.EndpointPolicyRequest
+	(*EndpointPolicyResponse)(nil), // 14: metering.EndpointPolicyResponse
+	(*emptypb.Empty)(nil),          // 15: google.protobuf.Empty
 }
 var file_proto_metering_proto_depIdxs = []int32{
 	0,  // 0: metering.ListGrantsResponse.grants:type_name -> metering.Grant
@@ -1318,29 +1480,32 @@ var file_proto_metering_proto_depIdxs = []int32{
 	7,  // 4: metering.ExportResponse.owner_usage:type_name -> metering.Usage
 	0,  // 5: metering.WebResource.people:type_name -> metering.Grant
 	10, // 6: metering.SharingResponse.resources:type_name -> metering.WebResource
-	11, // 7: metering.Metering.Sharing:input_type -> metering.SharingRequest
-	1,  // 8: metering.Metering.Resolve:input_type -> metering.ResolveRequest
-	0,  // 9: metering.Metering.CreateGrant:input_type -> metering.Grant
-	2,  // 10: metering.Metering.ListGrants:input_type -> metering.ListGrantsRequest
-	0,  // 11: metering.Metering.RevokeGrant:input_type -> metering.Grant
-	4,  // 12: metering.Metering.Admit:input_type -> metering.Event
-	6,  // 13: metering.Metering.Charge:input_type -> metering.ChargeRequest
-	4,  // 14: metering.Metering.Finish:input_type -> metering.Event
-	8,  // 15: metering.Metering.Export:input_type -> metering.ExportRequest
-	12, // 16: metering.Metering.Sharing:output_type -> metering.SharingResponse
-	0,  // 17: metering.Metering.Resolve:output_type -> metering.Grant
-	0,  // 18: metering.Metering.CreateGrant:output_type -> metering.Grant
-	3,  // 19: metering.Metering.ListGrants:output_type -> metering.ListGrantsResponse
-	13, // 20: metering.Metering.RevokeGrant:output_type -> google.protobuf.Empty
-	5,  // 21: metering.Metering.Admit:output_type -> metering.Decision
-	5,  // 22: metering.Metering.Charge:output_type -> metering.Decision
-	13, // 23: metering.Metering.Finish:output_type -> google.protobuf.Empty
-	9,  // 24: metering.Metering.Export:output_type -> metering.ExportResponse
-	16, // [16:25] is the sub-list for method output_type
-	7,  // [7:16] is the sub-list for method input_type
-	7,  // [7:7] is the sub-list for extension type_name
-	7,  // [7:7] is the sub-list for extension extendee
-	0,  // [0:7] is the sub-list for field type_name
+	5,  // 7: metering.EndpointPolicyResponse.decision:type_name -> metering.Decision
+	13, // 8: metering.Metering.EndpointPolicy:input_type -> metering.EndpointPolicyRequest
+	11, // 9: metering.Metering.Sharing:input_type -> metering.SharingRequest
+	1,  // 10: metering.Metering.Resolve:input_type -> metering.ResolveRequest
+	0,  // 11: metering.Metering.CreateGrant:input_type -> metering.Grant
+	2,  // 12: metering.Metering.ListGrants:input_type -> metering.ListGrantsRequest
+	0,  // 13: metering.Metering.RevokeGrant:input_type -> metering.Grant
+	4,  // 14: metering.Metering.Admit:input_type -> metering.Event
+	6,  // 15: metering.Metering.Charge:input_type -> metering.ChargeRequest
+	4,  // 16: metering.Metering.Finish:input_type -> metering.Event
+	8,  // 17: metering.Metering.Export:input_type -> metering.ExportRequest
+	14, // 18: metering.Metering.EndpointPolicy:output_type -> metering.EndpointPolicyResponse
+	12, // 19: metering.Metering.Sharing:output_type -> metering.SharingResponse
+	0,  // 20: metering.Metering.Resolve:output_type -> metering.Grant
+	0,  // 21: metering.Metering.CreateGrant:output_type -> metering.Grant
+	3,  // 22: metering.Metering.ListGrants:output_type -> metering.ListGrantsResponse
+	15, // 23: metering.Metering.RevokeGrant:output_type -> google.protobuf.Empty
+	5,  // 24: metering.Metering.Admit:output_type -> metering.Decision
+	5,  // 25: metering.Metering.Charge:output_type -> metering.Decision
+	15, // 26: metering.Metering.Finish:output_type -> google.protobuf.Empty
+	9,  // 27: metering.Metering.Export:output_type -> metering.ExportResponse
+	18, // [18:28] is the sub-list for method output_type
+	8,  // [8:18] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_proto_metering_proto_init() }
@@ -1354,7 +1519,7 @@ func file_proto_metering_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_metering_proto_rawDesc), len(file_proto_metering_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   13,
+			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

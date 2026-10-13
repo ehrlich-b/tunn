@@ -20,15 +20,16 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	Metering_Sharing_FullMethodName     = "/metering.Metering/Sharing"
-	Metering_Resolve_FullMethodName     = "/metering.Metering/Resolve"
-	Metering_CreateGrant_FullMethodName = "/metering.Metering/CreateGrant"
-	Metering_ListGrants_FullMethodName  = "/metering.Metering/ListGrants"
-	Metering_RevokeGrant_FullMethodName = "/metering.Metering/RevokeGrant"
-	Metering_Admit_FullMethodName       = "/metering.Metering/Admit"
-	Metering_Charge_FullMethodName      = "/metering.Metering/Charge"
-	Metering_Finish_FullMethodName      = "/metering.Metering/Finish"
-	Metering_Export_FullMethodName      = "/metering.Metering/Export"
+	Metering_EndpointPolicy_FullMethodName = "/metering.Metering/EndpointPolicy"
+	Metering_Sharing_FullMethodName        = "/metering.Metering/Sharing"
+	Metering_Resolve_FullMethodName        = "/metering.Metering/Resolve"
+	Metering_CreateGrant_FullMethodName    = "/metering.Metering/CreateGrant"
+	Metering_ListGrants_FullMethodName     = "/metering.Metering/ListGrants"
+	Metering_RevokeGrant_FullMethodName    = "/metering.Metering/RevokeGrant"
+	Metering_Admit_FullMethodName          = "/metering.Metering/Admit"
+	Metering_Charge_FullMethodName         = "/metering.Metering/Charge"
+	Metering_Finish_FullMethodName         = "/metering.Metering/Finish"
+	Metering_Export_FullMethodName         = "/metering.Metering/Export"
 )
 
 // MeteringClient is the client API for Metering service.
@@ -37,6 +38,7 @@ const (
 //
 // Only the login node serves this API, behind the existing node-secret interceptor.
 type MeteringClient interface {
+	EndpointPolicy(ctx context.Context, in *EndpointPolicyRequest, opts ...grpc.CallOption) (*EndpointPolicyResponse, error)
 	Sharing(ctx context.Context, in *SharingRequest, opts ...grpc.CallOption) (*SharingResponse, error)
 	Resolve(ctx context.Context, in *ResolveRequest, opts ...grpc.CallOption) (*Grant, error)
 	CreateGrant(ctx context.Context, in *Grant, opts ...grpc.CallOption) (*Grant, error)
@@ -55,6 +57,16 @@ type meteringClient struct {
 
 func NewMeteringClient(cc grpc.ClientConnInterface) MeteringClient {
 	return &meteringClient{cc}
+}
+
+func (c *meteringClient) EndpointPolicy(ctx context.Context, in *EndpointPolicyRequest, opts ...grpc.CallOption) (*EndpointPolicyResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(EndpointPolicyResponse)
+	err := c.cc.Invoke(ctx, Metering_EndpointPolicy_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *meteringClient) Sharing(ctx context.Context, in *SharingRequest, opts ...grpc.CallOption) (*SharingResponse, error) {
@@ -153,6 +165,7 @@ func (c *meteringClient) Export(ctx context.Context, in *ExportRequest, opts ...
 //
 // Only the login node serves this API, behind the existing node-secret interceptor.
 type MeteringServer interface {
+	EndpointPolicy(context.Context, *EndpointPolicyRequest) (*EndpointPolicyResponse, error)
 	Sharing(context.Context, *SharingRequest) (*SharingResponse, error)
 	Resolve(context.Context, *ResolveRequest) (*Grant, error)
 	CreateGrant(context.Context, *Grant) (*Grant, error)
@@ -173,6 +186,9 @@ type MeteringServer interface {
 // pointer dereference when methods are called.
 type UnimplementedMeteringServer struct{}
 
+func (UnimplementedMeteringServer) EndpointPolicy(context.Context, *EndpointPolicyRequest) (*EndpointPolicyResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method EndpointPolicy not implemented")
+}
 func (UnimplementedMeteringServer) Sharing(context.Context, *SharingRequest) (*SharingResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Sharing not implemented")
 }
@@ -219,6 +235,24 @@ func RegisterMeteringServer(s grpc.ServiceRegistrar, srv MeteringServer) {
 		t.testEmbeddedByValue()
 	}
 	s.RegisterService(&Metering_ServiceDesc, srv)
+}
+
+func _Metering_EndpointPolicy_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EndpointPolicyRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MeteringServer).EndpointPolicy(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Metering_EndpointPolicy_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MeteringServer).EndpointPolicy(ctx, req.(*EndpointPolicyRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _Metering_Sharing_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -390,6 +424,10 @@ var Metering_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "metering.Metering",
 	HandlerType: (*MeteringServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "EndpointPolicy",
+			Handler:    _Metering_EndpointPolicy_Handler,
+		},
 		{
 			MethodName: "Sharing",
 			Handler:    _Metering_Sharing_Handler,

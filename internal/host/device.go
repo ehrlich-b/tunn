@@ -220,7 +220,7 @@ func (p *ProxyServer) showDeviceAuthorizePage(w http.ResponseWriter, r *http.Req
 	writePageStart(w, "tunn - Authorize Device")
 	_, _ = fmt.Fprintf(w, `
 <h1 class="page-title">Authorize Device</h1>
-<p class="page-subtitle">A device is requesting access to your account. Updated clients receive renewable publish/connect credentials; revoke them at /account/devices.</p>
+<p class="page-subtitle">A device is requesting access to your account. Publisher clients receive renewable publish/connect credentials; revoke them at /account/devices. Account-management clients receive a separate 24-hour credential with account administration access.</p>
 <div class="device-info">
 <p><strong>Code:</strong> <code>%s</code></p>
 <p><strong>Account:</strong> %s</p>

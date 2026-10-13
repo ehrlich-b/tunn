@@ -124,7 +124,7 @@ func (s *Store) Sharing(ctx context.Context, in *pb.SharingRequest) (*pb.Sharing
 			}
 		}
 		if in.Operation == "list" {
-			rows, err := tx.QueryContext(ctx, `SELECT id,owner,endpoint,mode FROM web_resources WHERE owner=? ORDER BY endpoint`, in.Owner)
+			rows, err := tx.QueryContext(ctx, `SELECT id,owner,endpoint,mode FROM web_resources WHERE owner=? AND mode<>'policy-only' ORDER BY endpoint`, in.Owner)
 			if err != nil {
 				return err
 			}
@@ -149,7 +149,7 @@ func (s *Store) Sharing(ctx context.Context, in *pb.SharingRequest) (*pb.Sharing
 				if len(in.InitialEmails) > s.maxResourcePeople {
 					return ErrCapacity
 				}
-				if in.Mode != "private" && in.Mode != "public" && in.Mode != "legacy-public" {
+				if in.Mode != "private" && in.Mode != "public" && in.Mode != "legacy-public" && in.Mode != "policy-only" {
 					return fmt.Errorf("invalid exposure")
 				}
 				if err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -197,7 +197,7 @@ func (s *Store) Sharing(ctx context.Context, in *pb.SharingRequest) (*pb.Sharing
 					}
 				}
 			} else {
-				if err != nil || r.Owner != in.Owner || in.ResourceId != "" && in.ResourceId != r.Id {
+				if err != nil || r.Owner != in.Owner || r.Mode == "policy-only" || in.ResourceId != "" && in.ResourceId != r.Id {
 					return fmt.Errorf("resource not found")
 				}
 				switch in.Operation {

@@ -61,6 +61,7 @@ type Store struct {
 	maxEvents, maxUsage, maxGrants                             int
 	maxOwnerGrants, maxResourcePeople, maxOwnerResources       int
 	maxSharingAudit, maxOwnerSharingAudit, maxSharingMutations int
+	maxPolicyBuckets, maxEndpointPolicyBuckets                 int
 	ownerRequests, ownerBytes                                  int64
 	accountPlans                                               bool
 }
@@ -84,7 +85,7 @@ func WithOwnerGrantLimit(limit int) Option {
 }
 
 func New(db *sql.DB, options ...Option) (*Store, error) {
-	s := &Store{db: db, now: time.Now, maxEvents: MaxEvents, maxUsage: MaxUsageRows, maxGrants: MaxGrants, maxOwnerGrants: MaxOwnerGrants, maxResourcePeople: MaxResourcePeople, maxOwnerResources: MaxOwnerResources, maxSharingAudit: MaxSharingAudit, maxOwnerSharingAudit: MaxOwnerSharingAudit, maxSharingMutations: MaxSharingMutationsPerMinute}
+	s := &Store{db: db, now: time.Now, maxEvents: MaxEvents, maxUsage: MaxUsageRows, maxGrants: MaxGrants, maxOwnerGrants: MaxOwnerGrants, maxResourcePeople: MaxResourcePeople, maxOwnerResources: MaxOwnerResources, maxSharingAudit: MaxSharingAudit, maxOwnerSharingAudit: MaxOwnerSharingAudit, maxSharingMutations: MaxSharingMutationsPerMinute, maxPolicyBuckets: MaxPolicyBuckets, maxEndpointPolicyBuckets: MaxEndpointPolicyBuckets}
 	for _, option := range options {
 		option(s)
 	}
@@ -174,6 +175,9 @@ SELECT account_id,'legacy','legacy',month,max(0,bytes_used-coalesce((SELECT sum(
 		}
 	}
 	if err := s.initSharing(); err != nil {
+		return nil, err
+	}
+	if err := s.initEndpointPolicy(); err != nil {
 		return nil, err
 	}
 	return s, nil

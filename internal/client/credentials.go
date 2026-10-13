@@ -63,6 +63,9 @@ func canonicalCredentialServer(server string) (string, error) {
 }
 
 func (l *LoginClient) saveCredentials(token *TokenResponse) error {
+	if l.PolicyOwner {
+		return l.savePolicyOwnerCredentials(token)
+	}
 	if token.RefreshToken == "" {
 		dir, err := configDirectory()
 		if err != nil {

@@ -178,6 +178,7 @@ const (
 	LoginNodeDB_ProcessBillingEvent_FullMethodName     = "/internal.LoginNodeDB/ProcessBillingEvent"
 	LoginNodeDB_IntakeReport_FullMethodName            = "/internal.LoginNodeDB/IntakeReport"
 	LoginNodeDB_BeginBillingCheckout_FullMethodName    = "/internal.LoginNodeDB/BeginBillingCheckout"
+	LoginNodeDB_AppDeviceCheck_FullMethodName          = "/internal.LoginNodeDB/AppDeviceCheck"
 )
 
 // LoginNodeDBClient is the client API for LoginNodeDB service.
@@ -213,6 +214,8 @@ type LoginNodeDBClient interface {
 	ProcessBillingEvent(ctx context.Context, in *ProcessBillingEventRequest, opts ...grpc.CallOption) (*ProcessBillingEventResponse, error)
 	IntakeReport(ctx context.Context, in *IntakeReportRequest, opts ...grpc.CallOption) (*IntakeReportResponse, error)
 	BeginBillingCheckout(ctx context.Context, in *BeginBillingCheckoutRequest, opts ...grpc.CallOption) (*BeginBillingCheckoutResponse, error)
+	// Live app credentials and expiring concurrency leases; never carries raw secrets.
+	AppDeviceCheck(ctx context.Context, in *AppDeviceCheckRequest, opts ...grpc.CallOption) (*AppDeviceCheckResponse, error)
 }
 
 type loginNodeDBClient struct {
@@ -413,6 +416,16 @@ func (c *loginNodeDBClient) BeginBillingCheckout(ctx context.Context, in *BeginB
 	return out, nil
 }
 
+func (c *loginNodeDBClient) AppDeviceCheck(ctx context.Context, in *AppDeviceCheckRequest, opts ...grpc.CallOption) (*AppDeviceCheckResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AppDeviceCheckResponse)
+	err := c.cc.Invoke(ctx, LoginNodeDB_AppDeviceCheck_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // LoginNodeDBServer is the server API for LoginNodeDB service.
 // All implementations must embed UnimplementedLoginNodeDBServer
 // for forward compatibility.
@@ -446,6 +459,8 @@ type LoginNodeDBServer interface {
 	ProcessBillingEvent(context.Context, *ProcessBillingEventRequest) (*ProcessBillingEventResponse, error)
 	IntakeReport(context.Context, *IntakeReportRequest) (*IntakeReportResponse, error)
 	BeginBillingCheckout(context.Context, *BeginBillingCheckoutRequest) (*BeginBillingCheckoutResponse, error)
+	// Live app credentials and expiring concurrency leases; never carries raw secrets.
+	AppDeviceCheck(context.Context, *AppDeviceCheckRequest) (*AppDeviceCheckResponse, error)
 	mustEmbedUnimplementedLoginNodeDBServer()
 }
 
@@ -512,6 +527,9 @@ func (UnimplementedLoginNodeDBServer) IntakeReport(context.Context, *IntakeRepor
 }
 func (UnimplementedLoginNodeDBServer) BeginBillingCheckout(context.Context, *BeginBillingCheckoutRequest) (*BeginBillingCheckoutResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method BeginBillingCheckout not implemented")
+}
+func (UnimplementedLoginNodeDBServer) AppDeviceCheck(context.Context, *AppDeviceCheckRequest) (*AppDeviceCheckResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AppDeviceCheck not implemented")
 }
 func (UnimplementedLoginNodeDBServer) mustEmbedUnimplementedLoginNodeDBServer() {}
 func (UnimplementedLoginNodeDBServer) testEmbeddedByValue()                     {}
@@ -876,6 +894,24 @@ func _LoginNodeDB_BeginBillingCheckout_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _LoginNodeDB_AppDeviceCheck_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AppDeviceCheckRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LoginNodeDBServer).AppDeviceCheck(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LoginNodeDB_AppDeviceCheck_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LoginNodeDBServer).AppDeviceCheck(ctx, req.(*AppDeviceCheckRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // LoginNodeDB_ServiceDesc is the grpc.ServiceDesc for LoginNodeDB service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -958,6 +994,10 @@ var LoginNodeDB_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "BeginBillingCheckout",
 			Handler:    _LoginNodeDB_BeginBillingCheckout_Handler,
+		},
+		{
+			MethodName: "AppDeviceCheck",
+			Handler:    _LoginNodeDB_AppDeviceCheck_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

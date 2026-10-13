@@ -1,7 +1,9 @@
 package store
 
 import (
+	"crypto/sha256"
 	"database/sql"
+	"encoding/base64"
 	"github.com/ehrlich-b/tunn/internal/common"
 )
 
@@ -17,7 +19,7 @@ ON CONFLICT(account_id,month) DO UPDATE SET bytes_used=account_usage.bytes_used+
 		return err
 	}
 	// Metering is optional; account-only stores need not initialize the ledger.
-	for _, table := range []string{"meter_usage", "meter_events", "meter_grants", "web_resources", "account_provider_identities", "sharing_audit", "sharing_mutation_rate", "ip_policies"} {
+	for _, table := range []string{"meter_usage", "meter_events", "meter_grants", "web_resources", "account_provider_identities", "sharing_audit", "sharing_mutation_rate", "ip_policies", "app_devices", "app_device_invitations"} {
 		var exists int
 		if err := tx.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&exists); err != nil {
 			return err
@@ -34,6 +36,15 @@ ON CONFLICT(owner,endpoint) DO UPDATE SET data='{"deny_cidrs":["0.0.0.0/0","::/0
 				return err
 			}
 			if _, err := tx.Exec("DELETE FROM ip_policies WHERE owner=?", from); err != nil {
+				return err
+			}
+		} else if table == "app_devices" || table == "app_device_invitations" {
+			// Keep indexed ownership and public assertion metadata canonical in
+			// the verified merge transaction; the originating mailbox is retained.
+			if _, err := tx.Exec("UPDATE "+table+" SET account=?,data=json_set(CAST(data AS TEXT),'$.account_id',?) WHERE account=?", to, to, from); err != nil {
+				return err
+			}
+			if _, err := tx.Exec("UPDATE "+table+" SET data=json_set(CAST(data AS TEXT),'$.publisher',?) WHERE json_extract(CAST(data AS TEXT),'$.publisher')=?", to, from); err != nil {
 				return err
 			}
 		} else if table == "sharing_mutation_rate" {
@@ -77,6 +88,60 @@ request_bytes=meter_usage.request_bytes+excluded.request_bytes, response_bytes=m
 			if _, err := tx.Exec("UPDATE "+table+" SET owner=?,data=json_set(CAST(data AS TEXT),'$.owner',?) WHERE owner=?", to, to, from); err != nil {
 				return err
 			}
+		}
+	}
+	return mergeAppDeviceRates(tx, from, to)
+}
+
+func mergeAppDeviceRates(tx *sql.Tx, from, to string) error {
+	var exists int
+	if err := tx.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type='table' AND name='app_device_rates'`).Scan(&exists); err != nil {
+		return err
+	}
+	if exists == 0 {
+		return nil
+	}
+	hosts := map[string]bool{}
+	for _, table := range []string{"app_devices", "app_device_invitations"} {
+		if err := tx.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&exists); err != nil {
+			return err
+		}
+		if exists == 0 {
+			continue
+		}
+		rows, err := tx.Query(`SELECT DISTINCT json_extract(CAST(data AS TEXT),'$.hostname') FROM `+table+` WHERE account=?`, to)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var host string
+			if err = rows.Scan(&host); err != nil {
+				rows.Close()
+				return err
+			}
+			hosts[host] = true
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return err
+		}
+	}
+	key := func(kind, value string) string {
+		d := sha256.Sum256([]byte(value))
+		return kind + ":" + base64.RawURLEncoding.EncodeToString(d[:])
+	}
+	pairs := [][2]string{{key("invite", from), key("invite", to)}}
+	for host := range hosts {
+		pairs = append(pairs, [2]string{key("validate-account", from+"\x00"+host), key("validate-account", to+"\x00"+host)})
+	}
+	for _, pair := range pairs {
+		if _, err := tx.Exec(`INSERT INTO app_device_rates(key,minute,count) SELECT ?,minute,count FROM app_device_rates WHERE key=?
+ ON CONFLICT(key) DO UPDATE SET count=CASE WHEN minute=excluded.minute THEN count+excluded.count WHEN excluded.minute>minute THEN excluded.count ELSE count END,minute=max(minute,excluded.minute)`, pair[1], pair[0]); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`DELETE FROM app_device_rates WHERE key=?`, pair[0]); err != nil {
+			return err
 		}
 	}
 	return nil

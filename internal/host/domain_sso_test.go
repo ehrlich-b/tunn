@@ -69,6 +69,7 @@ func appProxyFixtureDB(t *testing.T) (*ProxyServer, *TunnelConnection, ed25519.P
 	if err != nil {
 		t.Fatal(err)
 	}
+	db.SetMaxOpenConns(1)
 	t.Cleanup(func() { db.Close() })
 	if _, err := db.Exec(`INSERT INTO accounts(id,primary_email,plan,created_at) VALUES(?,?,'free',1)`, tunnel.AccountID, bryanEmail); err != nil {
 		t.Fatal(err)
@@ -165,7 +166,7 @@ func TestDomainAppAccountOwnerAndSignedIdentity(t *testing.T) {
 		r.Header.Set("Tunn-Authorization", "Bearer "+token)
 		w := httptest.NewRecorder()
 		p.createHandler().ServeHTTP(w, r)
-		if w.Code != 302 {
+		if w.Code != 401 {
 			t.Fatal("bearer bypassed account gate", w.Code)
 		}
 	}

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -102,6 +103,7 @@ type ProxyServer struct {
 	orgProviderInits  map[string]*orgProviderInit
 	mcpOAuth          *mcpOAuthStore
 	devices           *deviceCredentialStore
+	appDevices        *appDeviceStore
 
 	// Proxy storage reference (non-login node only, to update connection on discovery)
 	proxyStorage *storage.ProxyStorage
@@ -173,6 +175,7 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 	var localMeter *metering.Store
 	var localOAuth *mcpOAuthStore
 	var localDevices *deviceCredentialStore
+	var localAppDevices *appDeviceStore
 	var localOrgLogins *orgLoginStore
 
 	if cfg.LoginNode {
@@ -186,6 +189,10 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 			return nil, fmt.Errorf("initialize device credentials: %w", err)
 		}
 		localStorage = storage.NewLocalStorage(db)
+		localAppDevices, err = newAppDeviceStore(db)
+		if err != nil {
+			return nil, fmt.Errorf("initialize app devices: %w", err)
+		}
 		if len(cfg.OIDCOrgs) > 0 {
 			localOrgLogins, err = newOrgLoginStore(db)
 			if err != nil {
@@ -246,6 +253,7 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 	// Register LoginNodeDB service on login node only
 	if localStorage != nil {
 		loginNodeDBServer := NewLoginNodeDBServer(localStorage)
+		loginNodeDBServer.appDevices = localAppDevices
 		internalv1.RegisterLoginNodeDBServer(internalGRPCServer, loginNodeDBServer)
 		meterpb.RegisterMeteringServer(internalGRPCServer, localMeter)
 		common.LogInfo("registered LoginNodeDB gRPC service")
@@ -276,6 +284,7 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 		planMeter:          true,
 		mcpOAuth:           localOAuth,
 		devices:            localDevices,
+		appDevices:         localAppDevices,
 		orgLogins:          localOrgLogins,
 		proxyStorage:       proxyStorage,
 		isLoginNode:        cfg.LoginNode,
@@ -912,6 +921,10 @@ func (p *ProxyServer) createHandler() http.Handler {
 	mux.HandleFunc("/api/device/token", p.handleDeviceToken)
 	mux.HandleFunc("/api/device/refresh", p.handleDeviceRefresh)
 	mux.HandleFunc("/account/devices", p.handleDevices)
+	mux.HandleFunc("/account/app-devices", p.handleAppDevices)
+	mux.HandleFunc("/pair/app-device", p.handleAppDevices)
+	mux.HandleFunc("/api/app-devices", p.handleAppDevices)
+	mux.HandleFunc("/api/app-devices/", p.handleAppDevices)
 	mux.HandleFunc("/api/endpoints/", p.handleMeteringAPI)
 	mux.HandleFunc("/api/ip-policy", p.handleIPPolicyAPI)
 	mux.HandleFunc("/api/ip-policy/", p.handleIPPolicyAPI)
@@ -937,10 +950,18 @@ func (p *ProxyServer) createHandler() http.Handler {
 		if p.protectedResponse(r) {
 			w = protectResponse(w)
 		}
+		if isAppCredentialAttempt(r) && !p.customerHost(r.Host) {
+			appAuthenticationError(w, 401)
+			return
+		}
 		// Publishers own every path on their tunnel origin. Serving platform
 		// forms there would let their scripts read session-bound CSRF tokens.
 		if p.customerHost(r.Host) && r.URL.Path == appCallback {
 			p.handleDomainCallback(w, r)
+			return
+		}
+		if p.customerHost(r.Host) && r.URL.Path == "/.tunn/devices" && r.Method == http.MethodGet && len(appHeaderValues(r.Header, "Tunn-Authorization")) == 0 && !isAppCredentialAttempt(r) {
+			http.Redirect(w, r, "https://"+p.loginAuthority()+"/account/app-devices?host="+url.QueryEscape(requestHostname(r.Host)), 302)
 			return
 		}
 		if p.customerHost(r.Host) || extractTunnelID(requestHostname(r.Host), p.Domain) != "" {

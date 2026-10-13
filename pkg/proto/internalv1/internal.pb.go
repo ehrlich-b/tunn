@@ -166,6 +166,7 @@ type FindTunnelResponse struct {
 	CreatorEmail  string   `protobuf:"bytes,4,opt,name=creator_email,json=creatorEmail,proto3" json:"creator_email,omitempty"`
 	EndpointKind  string   `protobuf:"bytes,5,opt,name=endpoint_kind,json=endpointKind,proto3" json:"endpoint_kind,omitempty"`
 	AllowedEmails []string `protobuf:"bytes,6,rep,name=allowed_emails,json=allowedEmails,proto3" json:"allowed_emails,omitempty"`
+	ResourceId    string   `protobuf:"bytes,7,opt,name=resource_id,json=resourceId,proto3" json:"resource_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -242,6 +243,149 @@ func (x *FindTunnelResponse) GetAllowedEmails() []string {
 	return nil
 }
 
+func (x *FindTunnelResponse) GetResourceId() string {
+	if x != nil {
+		return x.ResourceId
+	}
+	return ""
+}
+
+type AppDeviceCheckRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Operation     string                 `protobuf:"bytes,1,opt,name=operation,proto3" json:"operation,omitempty"` // resolve, acquire, renew, release, failure
+	TokenSha256   []byte                 `protobuf:"bytes,2,opt,name=token_sha256,json=tokenSha256,proto3" json:"token_sha256,omitempty"`
+	Source        string                 `protobuf:"bytes,3,opt,name=source,proto3" json:"source,omitempty"`
+	Hostname      string                 `protobuf:"bytes,4,opt,name=hostname,proto3" json:"hostname,omitempty"`
+	DeviceId      string                 `protobuf:"bytes,5,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
+	LeaseId       string                 `protobuf:"bytes,6,opt,name=lease_id,json=leaseId,proto3" json:"lease_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AppDeviceCheckRequest) Reset() {
+	*x = AppDeviceCheckRequest{}
+	mi := &file_proto_internal_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AppDeviceCheckRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AppDeviceCheckRequest) ProtoMessage() {}
+
+func (x *AppDeviceCheckRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AppDeviceCheckRequest.ProtoReflect.Descriptor instead.
+func (*AppDeviceCheckRequest) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *AppDeviceCheckRequest) GetOperation() string {
+	if x != nil {
+		return x.Operation
+	}
+	return ""
+}
+
+func (x *AppDeviceCheckRequest) GetTokenSha256() []byte {
+	if x != nil {
+		return x.TokenSha256
+	}
+	return nil
+}
+
+func (x *AppDeviceCheckRequest) GetSource() string {
+	if x != nil {
+		return x.Source
+	}
+	return ""
+}
+
+func (x *AppDeviceCheckRequest) GetHostname() string {
+	if x != nil {
+		return x.Hostname
+	}
+	return ""
+}
+
+func (x *AppDeviceCheckRequest) GetDeviceId() string {
+	if x != nil {
+		return x.DeviceId
+	}
+	return ""
+}
+
+func (x *AppDeviceCheckRequest) GetLeaseId() string {
+	if x != nil {
+		return x.LeaseId
+	}
+	return ""
+}
+
+type AppDeviceCheckResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Status        int32                  `protobuf:"varint,1,opt,name=status,proto3" json:"status,omitempty"`
+	DeviceJson    []byte                 `protobuf:"bytes,2,opt,name=device_json,json=deviceJson,proto3" json:"device_json,omitempty"` // non-secret scope and lifecycle metadata only
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AppDeviceCheckResponse) Reset() {
+	*x = AppDeviceCheckResponse{}
+	mi := &file_proto_internal_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AppDeviceCheckResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AppDeviceCheckResponse) ProtoMessage() {}
+
+func (x *AppDeviceCheckResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AppDeviceCheckResponse.ProtoReflect.Descriptor instead.
+func (*AppDeviceCheckResponse) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *AppDeviceCheckResponse) GetStatus() int32 {
+	if x != nil {
+		return x.Status
+	}
+	return 0
+}
+
+func (x *AppDeviceCheckResponse) GetDeviceJson() []byte {
+	if x != nil {
+		return x.DeviceJson
+	}
+	return nil
+}
+
 // Usage tracking messages
 type RecordUsageRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -253,7 +397,7 @@ type RecordUsageRequest struct {
 
 func (x *RecordUsageRequest) Reset() {
 	*x = RecordUsageRequest{}
-	mi := &file_proto_internal_proto_msgTypes[4]
+	mi := &file_proto_internal_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -265,7 +409,7 @@ func (x *RecordUsageRequest) String() string {
 func (*RecordUsageRequest) ProtoMessage() {}
 
 func (x *RecordUsageRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_internal_proto_msgTypes[4]
+	mi := &file_proto_internal_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -278,7 +422,7 @@ func (x *RecordUsageRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecordUsageRequest.ProtoReflect.Descriptor instead.
 func (*RecordUsageRequest) Descriptor() ([]byte, []int) {
-	return file_proto_internal_proto_rawDescGZIP(), []int{4}
+	return file_proto_internal_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *RecordUsageRequest) GetAccountId() string {
@@ -303,7 +447,7 @@ type RecordUsageResponse struct {
 
 func (x *RecordUsageResponse) Reset() {
 	*x = RecordUsageResponse{}
-	mi := &file_proto_internal_proto_msgTypes[5]
+	mi := &file_proto_internal_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -315,7 +459,7 @@ func (x *RecordUsageResponse) String() string {
 func (*RecordUsageResponse) ProtoMessage() {}
 
 func (x *RecordUsageResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_internal_proto_msgTypes[5]
+	mi := &file_proto_internal_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -328,7 +472,7 @@ func (x *RecordUsageResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecordUsageResponse.ProtoReflect.Descriptor instead.
 func (*RecordUsageResponse) Descriptor() ([]byte, []int) {
-	return file_proto_internal_proto_rawDescGZIP(), []int{5}
+	return file_proto_internal_proto_rawDescGZIP(), []int{7}
 }
 
 type GetMonthlyUsageRequest struct {
@@ -340,7 +484,7 @@ type GetMonthlyUsageRequest struct {
 
 func (x *GetMonthlyUsageRequest) Reset() {
 	*x = GetMonthlyUsageRequest{}
-	mi := &file_proto_internal_proto_msgTypes[6]
+	mi := &file_proto_internal_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -352,7 +496,7 @@ func (x *GetMonthlyUsageRequest) String() string {
 func (*GetMonthlyUsageRequest) ProtoMessage() {}
 
 func (x *GetMonthlyUsageRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_internal_proto_msgTypes[6]
+	mi := &file_proto_internal_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -365,7 +509,7 @@ func (x *GetMonthlyUsageRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetMonthlyUsageRequest.ProtoReflect.Descriptor instead.
 func (*GetMonthlyUsageRequest) Descriptor() ([]byte, []int) {
-	return file_proto_internal_proto_rawDescGZIP(), []int{6}
+	return file_proto_internal_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *GetMonthlyUsageRequest) GetAccountId() string {
@@ -384,7 +528,7 @@ type GetMonthlyUsageResponse struct {
 
 func (x *GetMonthlyUsageResponse) Reset() {
 	*x = GetMonthlyUsageResponse{}
-	mi := &file_proto_internal_proto_msgTypes[7]
+	mi := &file_proto_internal_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -396,7 +540,7 @@ func (x *GetMonthlyUsageResponse) String() string {
 func (*GetMonthlyUsageResponse) ProtoMessage() {}
 
 func (x *GetMonthlyUsageResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_internal_proto_msgTypes[7]
+	mi := &file_proto_internal_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -409,7 +553,7 @@ func (x *GetMonthlyUsageResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetMonthlyUsageResponse.ProtoReflect.Descriptor instead.
 func (*GetMonthlyUsageResponse) Descriptor() ([]byte, []int) {
-	return file_proto_internal_proto_rawDescGZIP(), []int{7}
+	return file_proto_internal_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *GetMonthlyUsageResponse) GetBytesUsed() int64 {
@@ -430,7 +574,7 @@ type CreateDeviceCodeRequest struct {
 
 func (x *CreateDeviceCodeRequest) Reset() {
 	*x = CreateDeviceCodeRequest{}
-	mi := &file_proto_internal_proto_msgTypes[8]
+	mi := &file_proto_internal_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -442,7 +586,7 @@ func (x *CreateDeviceCodeRequest) String() string {
 func (*CreateDeviceCodeRequest) ProtoMessage() {}
 
 func (x *CreateDeviceCodeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_internal_proto_msgTypes[8]
+	mi := &file_proto_internal_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -455,7 +599,7 @@ func (x *CreateDeviceCodeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateDeviceCodeRequest.ProtoReflect.Descriptor instead.
 func (*CreateDeviceCodeRequest) Descriptor() ([]byte, []int) {
-	return file_proto_internal_proto_rawDescGZIP(), []int{8}
+	return file_proto_internal_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *CreateDeviceCodeRequest) GetPurpose() string {
@@ -483,7 +627,7 @@ type CheckManagementDeviceRequest struct {
 
 func (x *CheckManagementDeviceRequest) Reset() {
 	*x = CheckManagementDeviceRequest{}
-	mi := &file_proto_internal_proto_msgTypes[9]
+	mi := &file_proto_internal_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -495,7 +639,7 @@ func (x *CheckManagementDeviceRequest) String() string {
 func (*CheckManagementDeviceRequest) ProtoMessage() {}
 
 func (x *CheckManagementDeviceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_internal_proto_msgTypes[9]
+	mi := &file_proto_internal_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -508,7 +652,7 @@ func (x *CheckManagementDeviceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CheckManagementDeviceRequest.ProtoReflect.Descriptor instead.
 func (*CheckManagementDeviceRequest) Descriptor() ([]byte, []int) {
-	return file_proto_internal_proto_rawDescGZIP(), []int{9}
+	return file_proto_internal_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *CheckManagementDeviceRequest) GetDeviceId() string {
@@ -541,7 +685,7 @@ type CheckManagementDeviceResponse struct {
 
 func (x *CheckManagementDeviceResponse) Reset() {
 	*x = CheckManagementDeviceResponse{}
-	mi := &file_proto_internal_proto_msgTypes[10]
+	mi := &file_proto_internal_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -553,7 +697,7 @@ func (x *CheckManagementDeviceResponse) String() string {
 func (*CheckManagementDeviceResponse) ProtoMessage() {}
 
 func (x *CheckManagementDeviceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_internal_proto_msgTypes[10]
+	mi := &file_proto_internal_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -566,7 +710,7 @@ func (x *CheckManagementDeviceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CheckManagementDeviceResponse.ProtoReflect.Descriptor instead.
 func (*CheckManagementDeviceResponse) Descriptor() ([]byte, []int) {
-	return file_proto_internal_proto_rawDescGZIP(), []int{10}
+	return file_proto_internal_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *CheckManagementDeviceResponse) GetValid() bool {
@@ -593,7 +737,7 @@ type DeviceCodeResponse struct {
 
 func (x *DeviceCodeResponse) Reset() {
 	*x = DeviceCodeResponse{}
-	mi := &file_proto_internal_proto_msgTypes[11]
+	mi := &file_proto_internal_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -605,7 +749,7 @@ func (x *DeviceCodeResponse) String() string {
 func (*DeviceCodeResponse) ProtoMessage() {}
 
 func (x *DeviceCodeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_internal_proto_msgTypes[11]
+	mi := &file_proto_internal_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -618,7 +762,7 @@ func (x *DeviceCodeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeviceCodeResponse.ProtoReflect.Descriptor instead.
 func (*DeviceCodeResponse) Descriptor() ([]byte, []int) {
-	return file_proto_internal_proto_rawDescGZIP(), []int{11}
+	return file_proto_internal_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *DeviceCodeResponse) GetCode() string {
@@ -694,7 +838,7 @@ type GetDeviceCodeRequest struct {
 
 func (x *GetDeviceCodeRequest) Reset() {
 	*x = GetDeviceCodeRequest{}
-	mi := &file_proto_internal_proto_msgTypes[12]
+	mi := &file_proto_internal_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -706,7 +850,7 @@ func (x *GetDeviceCodeRequest) String() string {
 func (*GetDeviceCodeRequest) ProtoMessage() {}
 
 func (x *GetDeviceCodeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_internal_proto_msgTypes[12]
+	mi := &file_proto_internal_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -719,7 +863,7 @@ func (x *GetDeviceCodeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetDeviceCodeRequest.ProtoReflect.Descriptor instead.
 func (*GetDeviceCodeRequest) Descriptor() ([]byte, []int) {
-	return file_proto_internal_proto_rawDescGZIP(), []int{12}
+	return file_proto_internal_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *GetDeviceCodeRequest) GetCode() string {
@@ -746,7 +890,7 @@ type AuthorizeDeviceCodeRequest struct {
 
 func (x *AuthorizeDeviceCodeRequest) Reset() {
 	*x = AuthorizeDeviceCodeRequest{}
-	mi := &file_proto_internal_proto_msgTypes[13]
+	mi := &file_proto_internal_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -758,7 +902,7 @@ func (x *AuthorizeDeviceCodeRequest) String() string {
 func (*AuthorizeDeviceCodeRequest) ProtoMessage() {}
 
 func (x *AuthorizeDeviceCodeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_internal_proto_msgTypes[13]
+	mi := &file_proto_internal_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -771,7 +915,7 @@ func (x *AuthorizeDeviceCodeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AuthorizeDeviceCodeRequest.ProtoReflect.Descriptor instead.
 func (*AuthorizeDeviceCodeRequest) Descriptor() ([]byte, []int) {
-	return file_proto_internal_proto_rawDescGZIP(), []int{13}
+	return file_proto_internal_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *AuthorizeDeviceCodeRequest) GetCode() string {
@@ -797,7 +941,7 @@ type AuthorizeDeviceCodeResponse struct {
 
 func (x *AuthorizeDeviceCodeResponse) Reset() {
 	*x = AuthorizeDeviceCodeResponse{}
-	mi := &file_proto_internal_proto_msgTypes[14]
+	mi := &file_proto_internal_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -809,7 +953,7 @@ func (x *AuthorizeDeviceCodeResponse) String() string {
 func (*AuthorizeDeviceCodeResponse) ProtoMessage() {}
 
 func (x *AuthorizeDeviceCodeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_internal_proto_msgTypes[14]
+	mi := &file_proto_internal_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -822,7 +966,7 @@ func (x *AuthorizeDeviceCodeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AuthorizeDeviceCodeResponse.ProtoReflect.Descriptor instead.
 func (*AuthorizeDeviceCodeResponse) Descriptor() ([]byte, []int) {
-	return file_proto_internal_proto_rawDescGZIP(), []int{14}
+	return file_proto_internal_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *AuthorizeDeviceCodeResponse) GetSuccess() bool {
@@ -851,7 +995,7 @@ type AccountResponse struct {
 
 func (x *AccountResponse) Reset() {
 	*x = AccountResponse{}
-	mi := &file_proto_internal_proto_msgTypes[15]
+	mi := &file_proto_internal_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -863,7 +1007,7 @@ func (x *AccountResponse) String() string {
 func (*AccountResponse) ProtoMessage() {}
 
 func (x *AccountResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_internal_proto_msgTypes[15]
+	mi := &file_proto_internal_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -876,7 +1020,7 @@ func (x *AccountResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AccountResponse.ProtoReflect.Descriptor instead.
 func (*AccountResponse) Descriptor() ([]byte, []int) {
-	return file_proto_internal_proto_rawDescGZIP(), []int{15}
+	return file_proto_internal_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *AccountResponse) GetFound() bool {
@@ -960,7 +1104,7 @@ type AccountEmail struct {
 
 func (x *AccountEmail) Reset() {
 	*x = AccountEmail{}
-	mi := &file_proto_internal_proto_msgTypes[16]
+	mi := &file_proto_internal_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -972,7 +1116,7 @@ func (x *AccountEmail) String() string {
 func (*AccountEmail) ProtoMessage() {}
 
 func (x *AccountEmail) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_internal_proto_msgTypes[16]
+	mi := &file_proto_internal_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -985,7 +1129,7 @@ func (x *AccountEmail) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AccountEmail.ProtoReflect.Descriptor instead.
 func (*AccountEmail) Descriptor() ([]byte, []int) {
-	return file_proto_internal_proto_rawDescGZIP(), []int{16}
+	return file_proto_internal_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *AccountEmail) GetEmail() string {
@@ -1018,7 +1162,7 @@ type GetAccountRequest struct {
 
 func (x *GetAccountRequest) Reset() {
 	*x = GetAccountRequest{}
-	mi := &file_proto_internal_proto_msgTypes[17]
+	mi := &file_proto_internal_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1030,7 +1174,7 @@ func (x *GetAccountRequest) String() string {
 func (*GetAccountRequest) ProtoMessage() {}
 
 func (x *GetAccountRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_internal_proto_msgTypes[17]
+	mi := &file_proto_internal_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1043,7 +1187,7 @@ func (x *GetAccountRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetAccountRequest.ProtoReflect.Descriptor instead.
 func (*GetAccountRequest) Descriptor() ([]byte, []int) {
-	return file_proto_internal_proto_rawDescGZIP(), []int{17}
+	return file_proto_internal_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *GetAccountRequest) GetAccountId() string {
@@ -1062,7 +1206,7 @@ type GetAccountByEmailRequest struct {
 
 func (x *GetAccountByEmailRequest) Reset() {
 	*x = GetAccountByEmailRequest{}
-	mi := &file_proto_internal_proto_msgTypes[18]
+	mi := &file_proto_internal_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1074,7 +1218,7 @@ func (x *GetAccountByEmailRequest) String() string {
 func (*GetAccountByEmailRequest) ProtoMessage() {}
 
 func (x *GetAccountByEmailRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_internal_proto_msgTypes[18]
+	mi := &file_proto_internal_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1087,7 +1231,7 @@ func (x *GetAccountByEmailRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetAccountByEmailRequest.ProtoReflect.Descriptor instead.
 func (*GetAccountByEmailRequest) Descriptor() ([]byte, []int) {
-	return file_proto_internal_proto_rawDescGZIP(), []int{18}
+	return file_proto_internal_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *GetAccountByEmailRequest) GetEmail() string {
@@ -1111,7 +1255,7 @@ type FindOrCreateByEmailsRequest struct {
 
 func (x *FindOrCreateByEmailsRequest) Reset() {
 	*x = FindOrCreateByEmailsRequest{}
-	mi := &file_proto_internal_proto_msgTypes[19]
+	mi := &file_proto_internal_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1123,7 +1267,7 @@ func (x *FindOrCreateByEmailsRequest) String() string {
 func (*FindOrCreateByEmailsRequest) ProtoMessage() {}
 
 func (x *FindOrCreateByEmailsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_internal_proto_msgTypes[19]
+	mi := &file_proto_internal_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1136,7 +1280,7 @@ func (x *FindOrCreateByEmailsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FindOrCreateByEmailsRequest.ProtoReflect.Descriptor instead.
 func (*FindOrCreateByEmailsRequest) Descriptor() ([]byte, []int) {
-	return file_proto_internal_proto_rawDescGZIP(), []int{19}
+	return file_proto_internal_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *FindOrCreateByEmailsRequest) GetEmails() []string {
@@ -1183,7 +1327,7 @@ type GetEmailBucketRequest struct {
 
 func (x *GetEmailBucketRequest) Reset() {
 	*x = GetEmailBucketRequest{}
-	mi := &file_proto_internal_proto_msgTypes[20]
+	mi := &file_proto_internal_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1195,7 +1339,7 @@ func (x *GetEmailBucketRequest) String() string {
 func (*GetEmailBucketRequest) ProtoMessage() {}
 
 func (x *GetEmailBucketRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_internal_proto_msgTypes[20]
+	mi := &file_proto_internal_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1208,7 +1352,7 @@ func (x *GetEmailBucketRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetEmailBucketRequest.ProtoReflect.Descriptor instead.
 func (*GetEmailBucketRequest) Descriptor() ([]byte, []int) {
-	return file_proto_internal_proto_rawDescGZIP(), []int{20}
+	return file_proto_internal_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *GetEmailBucketRequest) GetEmail() string {
@@ -1227,7 +1371,7 @@ type GetEmailBucketResponse struct {
 
 func (x *GetEmailBucketResponse) Reset() {
 	*x = GetEmailBucketResponse{}
-	mi := &file_proto_internal_proto_msgTypes[21]
+	mi := &file_proto_internal_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1239,7 +1383,7 @@ func (x *GetEmailBucketResponse) String() string {
 func (*GetEmailBucketResponse) ProtoMessage() {}
 
 func (x *GetEmailBucketResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_internal_proto_msgTypes[21]
+	mi := &file_proto_internal_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1252,7 +1396,7 @@ func (x *GetEmailBucketResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetEmailBucketResponse.ProtoReflect.Descriptor instead.
 func (*GetEmailBucketResponse) Descriptor() ([]byte, []int) {
-	return file_proto_internal_proto_rawDescGZIP(), []int{21}
+	return file_proto_internal_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *GetEmailBucketResponse) GetEmails() []string {
@@ -1272,7 +1416,7 @@ type UpdatePlanRequest struct {
 
 func (x *UpdatePlanRequest) Reset() {
 	*x = UpdatePlanRequest{}
-	mi := &file_proto_internal_proto_msgTypes[22]
+	mi := &file_proto_internal_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1284,7 +1428,7 @@ func (x *UpdatePlanRequest) String() string {
 func (*UpdatePlanRequest) ProtoMessage() {}
 
 func (x *UpdatePlanRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_internal_proto_msgTypes[22]
+	mi := &file_proto_internal_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1297,7 +1441,7 @@ func (x *UpdatePlanRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdatePlanRequest.ProtoReflect.Descriptor instead.
 func (*UpdatePlanRequest) Descriptor() ([]byte, []int) {
-	return file_proto_internal_proto_rawDescGZIP(), []int{22}
+	return file_proto_internal_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *UpdatePlanRequest) GetAccountId() string {
@@ -1322,7 +1466,7 @@ type UpdatePlanResponse struct {
 
 func (x *UpdatePlanResponse) Reset() {
 	*x = UpdatePlanResponse{}
-	mi := &file_proto_internal_proto_msgTypes[23]
+	mi := &file_proto_internal_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1334,7 +1478,7 @@ func (x *UpdatePlanResponse) String() string {
 func (*UpdatePlanResponse) ProtoMessage() {}
 
 func (x *UpdatePlanResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_internal_proto_msgTypes[23]
+	mi := &file_proto_internal_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1347,7 +1491,7 @@ func (x *UpdatePlanResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdatePlanResponse.ProtoReflect.Descriptor instead.
 func (*UpdatePlanResponse) Descriptor() ([]byte, []int) {
-	return file_proto_internal_proto_rawDescGZIP(), []int{23}
+	return file_proto_internal_proto_rawDescGZIP(), []int{25}
 }
 
 // Tunnel tracking messages
@@ -1362,7 +1506,7 @@ type RegisterTunnelRequest struct {
 
 func (x *RegisterTunnelRequest) Reset() {
 	*x = RegisterTunnelRequest{}
-	mi := &file_proto_internal_proto_msgTypes[24]
+	mi := &file_proto_internal_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1374,7 +1518,7 @@ func (x *RegisterTunnelRequest) String() string {
 func (*RegisterTunnelRequest) ProtoMessage() {}
 
 func (x *RegisterTunnelRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_internal_proto_msgTypes[24]
+	mi := &file_proto_internal_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1387,7 +1531,7 @@ func (x *RegisterTunnelRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegisterTunnelRequest.ProtoReflect.Descriptor instead.
 func (*RegisterTunnelRequest) Descriptor() ([]byte, []int) {
-	return file_proto_internal_proto_rawDescGZIP(), []int{24}
+	return file_proto_internal_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *RegisterTunnelRequest) GetTunnelId() string {
@@ -1423,7 +1567,7 @@ type RegisterTunnelResponse struct {
 
 func (x *RegisterTunnelResponse) Reset() {
 	*x = RegisterTunnelResponse{}
-	mi := &file_proto_internal_proto_msgTypes[25]
+	mi := &file_proto_internal_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1435,7 +1579,7 @@ func (x *RegisterTunnelResponse) String() string {
 func (*RegisterTunnelResponse) ProtoMessage() {}
 
 func (x *RegisterTunnelResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_internal_proto_msgTypes[25]
+	mi := &file_proto_internal_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1448,7 +1592,7 @@ func (x *RegisterTunnelResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegisterTunnelResponse.ProtoReflect.Descriptor instead.
 func (*RegisterTunnelResponse) Descriptor() ([]byte, []int) {
-	return file_proto_internal_proto_rawDescGZIP(), []int{25}
+	return file_proto_internal_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *RegisterTunnelResponse) GetAllowed() bool {
@@ -1488,7 +1632,7 @@ type UnregisterTunnelRequest struct {
 
 func (x *UnregisterTunnelRequest) Reset() {
 	*x = UnregisterTunnelRequest{}
-	mi := &file_proto_internal_proto_msgTypes[26]
+	mi := &file_proto_internal_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1500,7 +1644,7 @@ func (x *UnregisterTunnelRequest) String() string {
 func (*UnregisterTunnelRequest) ProtoMessage() {}
 
 func (x *UnregisterTunnelRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_internal_proto_msgTypes[26]
+	mi := &file_proto_internal_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1513,7 +1657,7 @@ func (x *UnregisterTunnelRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnregisterTunnelRequest.ProtoReflect.Descriptor instead.
 func (*UnregisterTunnelRequest) Descriptor() ([]byte, []int) {
-	return file_proto_internal_proto_rawDescGZIP(), []int{26}
+	return file_proto_internal_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *UnregisterTunnelRequest) GetTunnelId() string {
@@ -1531,7 +1675,7 @@ type UnregisterTunnelResponse struct {
 
 func (x *UnregisterTunnelResponse) Reset() {
 	*x = UnregisterTunnelResponse{}
-	mi := &file_proto_internal_proto_msgTypes[27]
+	mi := &file_proto_internal_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1543,7 +1687,7 @@ func (x *UnregisterTunnelResponse) String() string {
 func (*UnregisterTunnelResponse) ProtoMessage() {}
 
 func (x *UnregisterTunnelResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_internal_proto_msgTypes[27]
+	mi := &file_proto_internal_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1556,7 +1700,7 @@ func (x *UnregisterTunnelResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnregisterTunnelResponse.ProtoReflect.Descriptor instead.
 func (*UnregisterTunnelResponse) Descriptor() ([]byte, []int) {
-	return file_proto_internal_proto_rawDescGZIP(), []int{27}
+	return file_proto_internal_proto_rawDescGZIP(), []int{29}
 }
 
 type GetTunnelCountRequest struct {
@@ -1568,7 +1712,7 @@ type GetTunnelCountRequest struct {
 
 func (x *GetTunnelCountRequest) Reset() {
 	*x = GetTunnelCountRequest{}
-	mi := &file_proto_internal_proto_msgTypes[28]
+	mi := &file_proto_internal_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1580,7 +1724,7 @@ func (x *GetTunnelCountRequest) String() string {
 func (*GetTunnelCountRequest) ProtoMessage() {}
 
 func (x *GetTunnelCountRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_internal_proto_msgTypes[28]
+	mi := &file_proto_internal_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1593,7 +1737,7 @@ func (x *GetTunnelCountRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTunnelCountRequest.ProtoReflect.Descriptor instead.
 func (*GetTunnelCountRequest) Descriptor() ([]byte, []int) {
-	return file_proto_internal_proto_rawDescGZIP(), []int{28}
+	return file_proto_internal_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *GetTunnelCountRequest) GetAccountId() string {
@@ -1612,7 +1756,7 @@ type GetTunnelCountResponse struct {
 
 func (x *GetTunnelCountResponse) Reset() {
 	*x = GetTunnelCountResponse{}
-	mi := &file_proto_internal_proto_msgTypes[29]
+	mi := &file_proto_internal_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1624,7 +1768,7 @@ func (x *GetTunnelCountResponse) String() string {
 func (*GetTunnelCountResponse) ProtoMessage() {}
 
 func (x *GetTunnelCountResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_internal_proto_msgTypes[29]
+	mi := &file_proto_internal_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1637,7 +1781,7 @@ func (x *GetTunnelCountResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTunnelCountResponse.ProtoReflect.Descriptor instead.
 func (*GetTunnelCountResponse) Descriptor() ([]byte, []int) {
-	return file_proto_internal_proto_rawDescGZIP(), []int{29}
+	return file_proto_internal_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *GetTunnelCountResponse) GetCount() int32 {
@@ -1658,7 +1802,7 @@ type MarkMagicTokenUsedRequest struct {
 
 func (x *MarkMagicTokenUsedRequest) Reset() {
 	*x = MarkMagicTokenUsedRequest{}
-	mi := &file_proto_internal_proto_msgTypes[30]
+	mi := &file_proto_internal_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1670,7 +1814,7 @@ func (x *MarkMagicTokenUsedRequest) String() string {
 func (*MarkMagicTokenUsedRequest) ProtoMessage() {}
 
 func (x *MarkMagicTokenUsedRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_internal_proto_msgTypes[30]
+	mi := &file_proto_internal_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1683,7 +1827,7 @@ func (x *MarkMagicTokenUsedRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MarkMagicTokenUsedRequest.ProtoReflect.Descriptor instead.
 func (*MarkMagicTokenUsedRequest) Descriptor() ([]byte, []int) {
-	return file_proto_internal_proto_rawDescGZIP(), []int{30}
+	return file_proto_internal_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *MarkMagicTokenUsedRequest) GetJti() string {
@@ -1709,7 +1853,7 @@ type MarkMagicTokenUsedResponse struct {
 
 func (x *MarkMagicTokenUsedResponse) Reset() {
 	*x = MarkMagicTokenUsedResponse{}
-	mi := &file_proto_internal_proto_msgTypes[31]
+	mi := &file_proto_internal_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1721,7 +1865,7 @@ func (x *MarkMagicTokenUsedResponse) String() string {
 func (*MarkMagicTokenUsedResponse) ProtoMessage() {}
 
 func (x *MarkMagicTokenUsedResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_internal_proto_msgTypes[31]
+	mi := &file_proto_internal_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1734,7 +1878,7 @@ func (x *MarkMagicTokenUsedResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MarkMagicTokenUsedResponse.ProtoReflect.Descriptor instead.
 func (*MarkMagicTokenUsedResponse) Descriptor() ([]byte, []int) {
-	return file_proto_internal_proto_rawDescGZIP(), []int{31}
+	return file_proto_internal_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *MarkMagicTokenUsedResponse) GetWasUnused() bool {
@@ -1754,7 +1898,7 @@ type CheckMagicLinkRateLimitRequest struct {
 
 func (x *CheckMagicLinkRateLimitRequest) Reset() {
 	*x = CheckMagicLinkRateLimitRequest{}
-	mi := &file_proto_internal_proto_msgTypes[32]
+	mi := &file_proto_internal_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1766,7 +1910,7 @@ func (x *CheckMagicLinkRateLimitRequest) String() string {
 func (*CheckMagicLinkRateLimitRequest) ProtoMessage() {}
 
 func (x *CheckMagicLinkRateLimitRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_internal_proto_msgTypes[32]
+	mi := &file_proto_internal_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1779,7 +1923,7 @@ func (x *CheckMagicLinkRateLimitRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CheckMagicLinkRateLimitRequest.ProtoReflect.Descriptor instead.
 func (*CheckMagicLinkRateLimitRequest) Descriptor() ([]byte, []int) {
-	return file_proto_internal_proto_rawDescGZIP(), []int{32}
+	return file_proto_internal_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *CheckMagicLinkRateLimitRequest) GetEmail() string {
@@ -1800,7 +1944,7 @@ type CheckMagicLinkRateLimitResponse struct {
 
 func (x *CheckMagicLinkRateLimitResponse) Reset() {
 	*x = CheckMagicLinkRateLimitResponse{}
-	mi := &file_proto_internal_proto_msgTypes[33]
+	mi := &file_proto_internal_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1812,7 +1956,7 @@ func (x *CheckMagicLinkRateLimitResponse) String() string {
 func (*CheckMagicLinkRateLimitResponse) ProtoMessage() {}
 
 func (x *CheckMagicLinkRateLimitResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_internal_proto_msgTypes[33]
+	mi := &file_proto_internal_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1825,7 +1969,7 @@ func (x *CheckMagicLinkRateLimitResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CheckMagicLinkRateLimitResponse.ProtoReflect.Descriptor instead.
 func (*CheckMagicLinkRateLimitResponse) Descriptor() ([]byte, []int) {
-	return file_proto_internal_proto_rawDescGZIP(), []int{33}
+	return file_proto_internal_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *CheckMagicLinkRateLimitResponse) GetAllowed() bool {
@@ -1858,7 +2002,7 @@ type ProcessBillingEventRequest struct {
 
 func (x *ProcessBillingEventRequest) Reset() {
 	*x = ProcessBillingEventRequest{}
-	mi := &file_proto_internal_proto_msgTypes[34]
+	mi := &file_proto_internal_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1870,7 +2014,7 @@ func (x *ProcessBillingEventRequest) String() string {
 func (*ProcessBillingEventRequest) ProtoMessage() {}
 
 func (x *ProcessBillingEventRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_internal_proto_msgTypes[34]
+	mi := &file_proto_internal_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1883,7 +2027,7 @@ func (x *ProcessBillingEventRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProcessBillingEventRequest.ProtoReflect.Descriptor instead.
 func (*ProcessBillingEventRequest) Descriptor() ([]byte, []int) {
-	return file_proto_internal_proto_rawDescGZIP(), []int{34}
+	return file_proto_internal_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *ProcessBillingEventRequest) GetEventJson() []byte {
@@ -1902,7 +2046,7 @@ type ProcessBillingEventResponse struct {
 
 func (x *ProcessBillingEventResponse) Reset() {
 	*x = ProcessBillingEventResponse{}
-	mi := &file_proto_internal_proto_msgTypes[35]
+	mi := &file_proto_internal_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1914,7 +2058,7 @@ func (x *ProcessBillingEventResponse) String() string {
 func (*ProcessBillingEventResponse) ProtoMessage() {}
 
 func (x *ProcessBillingEventResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_internal_proto_msgTypes[35]
+	mi := &file_proto_internal_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1927,7 +2071,7 @@ func (x *ProcessBillingEventResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProcessBillingEventResponse.ProtoReflect.Descriptor instead.
 func (*ProcessBillingEventResponse) Descriptor() ([]byte, []int) {
-	return file_proto_internal_proto_rawDescGZIP(), []int{35}
+	return file_proto_internal_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *ProcessBillingEventResponse) GetResultJson() []byte {
@@ -1948,7 +2092,7 @@ type IntakeReportRequest struct {
 
 func (x *IntakeReportRequest) Reset() {
 	*x = IntakeReportRequest{}
-	mi := &file_proto_internal_proto_msgTypes[36]
+	mi := &file_proto_internal_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1960,7 +2104,7 @@ func (x *IntakeReportRequest) String() string {
 func (*IntakeReportRequest) ProtoMessage() {}
 
 func (x *IntakeReportRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_internal_proto_msgTypes[36]
+	mi := &file_proto_internal_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1973,7 +2117,7 @@ func (x *IntakeReportRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use IntakeReportRequest.ProtoReflect.Descriptor instead.
 func (*IntakeReportRequest) Descriptor() ([]byte, []int) {
-	return file_proto_internal_proto_rawDescGZIP(), []int{36}
+	return file_proto_internal_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *IntakeReportRequest) GetAccountId() string {
@@ -2006,7 +2150,7 @@ type IntakeReportResponse struct {
 
 func (x *IntakeReportResponse) Reset() {
 	*x = IntakeReportResponse{}
-	mi := &file_proto_internal_proto_msgTypes[37]
+	mi := &file_proto_internal_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2018,7 +2162,7 @@ func (x *IntakeReportResponse) String() string {
 func (*IntakeReportResponse) ProtoMessage() {}
 
 func (x *IntakeReportResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_internal_proto_msgTypes[37]
+	mi := &file_proto_internal_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2031,7 +2175,7 @@ func (x *IntakeReportResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use IntakeReportResponse.ProtoReflect.Descriptor instead.
 func (*IntakeReportResponse) Descriptor() ([]byte, []int) {
-	return file_proto_internal_proto_rawDescGZIP(), []int{37}
+	return file_proto_internal_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *IntakeReportResponse) GetReportJson() []byte {
@@ -2051,7 +2195,7 @@ type BeginBillingCheckoutRequest struct {
 
 func (x *BeginBillingCheckoutRequest) Reset() {
 	*x = BeginBillingCheckoutRequest{}
-	mi := &file_proto_internal_proto_msgTypes[38]
+	mi := &file_proto_internal_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2063,7 +2207,7 @@ func (x *BeginBillingCheckoutRequest) String() string {
 func (*BeginBillingCheckoutRequest) ProtoMessage() {}
 
 func (x *BeginBillingCheckoutRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_internal_proto_msgTypes[38]
+	mi := &file_proto_internal_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2076,7 +2220,7 @@ func (x *BeginBillingCheckoutRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BeginBillingCheckoutRequest.ProtoReflect.Descriptor instead.
 func (*BeginBillingCheckoutRequest) Descriptor() ([]byte, []int) {
-	return file_proto_internal_proto_rawDescGZIP(), []int{38}
+	return file_proto_internal_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *BeginBillingCheckoutRequest) GetAccountId() string {
@@ -2103,7 +2247,7 @@ type BeginBillingCheckoutResponse struct {
 
 func (x *BeginBillingCheckoutResponse) Reset() {
 	*x = BeginBillingCheckoutResponse{}
-	mi := &file_proto_internal_proto_msgTypes[39]
+	mi := &file_proto_internal_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2115,7 +2259,7 @@ func (x *BeginBillingCheckoutResponse) String() string {
 func (*BeginBillingCheckoutResponse) ProtoMessage() {}
 
 func (x *BeginBillingCheckoutResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_internal_proto_msgTypes[39]
+	mi := &file_proto_internal_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2128,7 +2272,7 @@ func (x *BeginBillingCheckoutResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BeginBillingCheckoutResponse.ProtoReflect.Descriptor instead.
 func (*BeginBillingCheckoutResponse) Descriptor() ([]byte, []int) {
-	return file_proto_internal_proto_rawDescGZIP(), []int{39}
+	return file_proto_internal_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *BeginBillingCheckoutResponse) GetReference() string {
@@ -2155,7 +2299,7 @@ const file_proto_internal_proto_rawDesc = "" +
 	"\ris_login_node\x18\x01 \x01(\bR\visLoginNode\x12\x17\n" +
 	"\anode_id\x18\x02 \x01(\tR\x06nodeId\"0\n" +
 	"\x11FindTunnelRequest\x12\x1b\n" +
-	"\ttunnel_id\x18\x01 \x01(\tR\btunnelId\"\xdd\x01\n" +
+	"\ttunnel_id\x18\x01 \x01(\tR\btunnelId\"\xfe\x01\n" +
 	"\x12FindTunnelResponse\x12\x14\n" +
 	"\x05found\x18\x01 \x01(\bR\x05found\x12!\n" +
 	"\fnode_address\x18\x02 \x01(\tR\vnodeAddress\x12\x1d\n" +
@@ -2163,7 +2307,20 @@ const file_proto_internal_proto_rawDesc = "" +
 	"account_id\x18\x03 \x01(\tR\taccountId\x12#\n" +
 	"\rcreator_email\x18\x04 \x01(\tR\fcreatorEmail\x12#\n" +
 	"\rendpoint_kind\x18\x05 \x01(\tR\fendpointKind\x12%\n" +
-	"\x0eallowed_emails\x18\x06 \x03(\tR\rallowedEmails\"I\n" +
+	"\x0eallowed_emails\x18\x06 \x03(\tR\rallowedEmails\x12\x1f\n" +
+	"\vresource_id\x18\a \x01(\tR\n" +
+	"resourceId\"\xc4\x01\n" +
+	"\x15AppDeviceCheckRequest\x12\x1c\n" +
+	"\toperation\x18\x01 \x01(\tR\toperation\x12!\n" +
+	"\ftoken_sha256\x18\x02 \x01(\fR\vtokenSha256\x12\x16\n" +
+	"\x06source\x18\x03 \x01(\tR\x06source\x12\x1a\n" +
+	"\bhostname\x18\x04 \x01(\tR\bhostname\x12\x1b\n" +
+	"\tdevice_id\x18\x05 \x01(\tR\bdeviceId\x12\x19\n" +
+	"\blease_id\x18\x06 \x01(\tR\aleaseId\"Q\n" +
+	"\x16AppDeviceCheckResponse\x12\x16\n" +
+	"\x06status\x18\x01 \x01(\x05R\x06status\x12\x1f\n" +
+	"\vdevice_json\x18\x02 \x01(\fR\n" +
+	"deviceJson\"I\n" +
 	"\x12RecordUsageRequest\x12\x1d\n" +
 	"\n" +
 	"account_id\x18\x01 \x01(\tR\taccountId\x12\x14\n" +
@@ -2301,7 +2458,7 @@ const file_proto_internal_proto_rawDesc = "" +
 	"\x0fInternalService\x12G\n" +
 	"\n" +
 	"FindTunnel\x12\x1b.internal.FindTunnelRequest\x1a\x1c.internal.FindTunnelResponse\x12D\n" +
-	"\vGetNodeInfo\x12\x19.internal.NodeInfoRequest\x1a\x1a.internal.NodeInfoResponse2\xa5\r\n" +
+	"\vGetNodeInfo\x12\x19.internal.NodeInfoRequest\x1a\x1a.internal.NodeInfoResponse2\xfa\r\n" +
 	"\vLoginNodeDB\x12J\n" +
 	"\vRecordUsage\x12\x1c.internal.RecordUsageRequest\x1a\x1d.internal.RecordUsageResponse\x12V\n" +
 	"\x0fGetMonthlyUsage\x12 .internal.GetMonthlyUsageRequest\x1a!.internal.GetMonthlyUsageResponse\x12h\n" +
@@ -2323,7 +2480,8 @@ const file_proto_internal_proto_rawDesc = "" +
 	"\x17CheckMagicLinkRateLimit\x12(.internal.CheckMagicLinkRateLimitRequest\x1a).internal.CheckMagicLinkRateLimitResponse\x12b\n" +
 	"\x13ProcessBillingEvent\x12$.internal.ProcessBillingEventRequest\x1a%.internal.ProcessBillingEventResponse\x12M\n" +
 	"\fIntakeReport\x12\x1d.internal.IntakeReportRequest\x1a\x1e.internal.IntakeReportResponse\x12e\n" +
-	"\x14BeginBillingCheckout\x12%.internal.BeginBillingCheckoutRequest\x1a&.internal.BeginBillingCheckoutResponseB0Z.github.com/ehrlich-b/tunn/pkg/proto/internalv1b\x06proto3"
+	"\x14BeginBillingCheckout\x12%.internal.BeginBillingCheckoutRequest\x1a&.internal.BeginBillingCheckoutResponse\x12S\n" +
+	"\x0eAppDeviceCheck\x12\x1f.internal.AppDeviceCheckRequest\x1a .internal.AppDeviceCheckResponseB0Z.github.com/ehrlich-b/tunn/pkg/proto/internalv1b\x06proto3"
 
 var (
 	file_proto_internal_proto_rawDescOnce sync.Once
@@ -2337,95 +2495,99 @@ func file_proto_internal_proto_rawDescGZIP() []byte {
 	return file_proto_internal_proto_rawDescData
 }
 
-var file_proto_internal_proto_msgTypes = make([]protoimpl.MessageInfo, 40)
+var file_proto_internal_proto_msgTypes = make([]protoimpl.MessageInfo, 42)
 var file_proto_internal_proto_goTypes = []any{
 	(*NodeInfoRequest)(nil),                 // 0: internal.NodeInfoRequest
 	(*NodeInfoResponse)(nil),                // 1: internal.NodeInfoResponse
 	(*FindTunnelRequest)(nil),               // 2: internal.FindTunnelRequest
 	(*FindTunnelResponse)(nil),              // 3: internal.FindTunnelResponse
-	(*RecordUsageRequest)(nil),              // 4: internal.RecordUsageRequest
-	(*RecordUsageResponse)(nil),             // 5: internal.RecordUsageResponse
-	(*GetMonthlyUsageRequest)(nil),          // 6: internal.GetMonthlyUsageRequest
-	(*GetMonthlyUsageResponse)(nil),         // 7: internal.GetMonthlyUsageResponse
-	(*CreateDeviceCodeRequest)(nil),         // 8: internal.CreateDeviceCodeRequest
-	(*CheckManagementDeviceRequest)(nil),    // 9: internal.CheckManagementDeviceRequest
-	(*CheckManagementDeviceResponse)(nil),   // 10: internal.CheckManagementDeviceResponse
-	(*DeviceCodeResponse)(nil),              // 11: internal.DeviceCodeResponse
-	(*GetDeviceCodeRequest)(nil),            // 12: internal.GetDeviceCodeRequest
-	(*AuthorizeDeviceCodeRequest)(nil),      // 13: internal.AuthorizeDeviceCodeRequest
-	(*AuthorizeDeviceCodeResponse)(nil),     // 14: internal.AuthorizeDeviceCodeResponse
-	(*AccountResponse)(nil),                 // 15: internal.AccountResponse
-	(*AccountEmail)(nil),                    // 16: internal.AccountEmail
-	(*GetAccountRequest)(nil),               // 17: internal.GetAccountRequest
-	(*GetAccountByEmailRequest)(nil),        // 18: internal.GetAccountByEmailRequest
-	(*FindOrCreateByEmailsRequest)(nil),     // 19: internal.FindOrCreateByEmailsRequest
-	(*GetEmailBucketRequest)(nil),           // 20: internal.GetEmailBucketRequest
-	(*GetEmailBucketResponse)(nil),          // 21: internal.GetEmailBucketResponse
-	(*UpdatePlanRequest)(nil),               // 22: internal.UpdatePlanRequest
-	(*UpdatePlanResponse)(nil),              // 23: internal.UpdatePlanResponse
-	(*RegisterTunnelRequest)(nil),           // 24: internal.RegisterTunnelRequest
-	(*RegisterTunnelResponse)(nil),          // 25: internal.RegisterTunnelResponse
-	(*UnregisterTunnelRequest)(nil),         // 26: internal.UnregisterTunnelRequest
-	(*UnregisterTunnelResponse)(nil),        // 27: internal.UnregisterTunnelResponse
-	(*GetTunnelCountRequest)(nil),           // 28: internal.GetTunnelCountRequest
-	(*GetTunnelCountResponse)(nil),          // 29: internal.GetTunnelCountResponse
-	(*MarkMagicTokenUsedRequest)(nil),       // 30: internal.MarkMagicTokenUsedRequest
-	(*MarkMagicTokenUsedResponse)(nil),      // 31: internal.MarkMagicTokenUsedResponse
-	(*CheckMagicLinkRateLimitRequest)(nil),  // 32: internal.CheckMagicLinkRateLimitRequest
-	(*CheckMagicLinkRateLimitResponse)(nil), // 33: internal.CheckMagicLinkRateLimitResponse
-	(*ProcessBillingEventRequest)(nil),      // 34: internal.ProcessBillingEventRequest
-	(*ProcessBillingEventResponse)(nil),     // 35: internal.ProcessBillingEventResponse
-	(*IntakeReportRequest)(nil),             // 36: internal.IntakeReportRequest
-	(*IntakeReportResponse)(nil),            // 37: internal.IntakeReportResponse
-	(*BeginBillingCheckoutRequest)(nil),     // 38: internal.BeginBillingCheckoutRequest
-	(*BeginBillingCheckoutResponse)(nil),    // 39: internal.BeginBillingCheckoutResponse
+	(*AppDeviceCheckRequest)(nil),           // 4: internal.AppDeviceCheckRequest
+	(*AppDeviceCheckResponse)(nil),          // 5: internal.AppDeviceCheckResponse
+	(*RecordUsageRequest)(nil),              // 6: internal.RecordUsageRequest
+	(*RecordUsageResponse)(nil),             // 7: internal.RecordUsageResponse
+	(*GetMonthlyUsageRequest)(nil),          // 8: internal.GetMonthlyUsageRequest
+	(*GetMonthlyUsageResponse)(nil),         // 9: internal.GetMonthlyUsageResponse
+	(*CreateDeviceCodeRequest)(nil),         // 10: internal.CreateDeviceCodeRequest
+	(*CheckManagementDeviceRequest)(nil),    // 11: internal.CheckManagementDeviceRequest
+	(*CheckManagementDeviceResponse)(nil),   // 12: internal.CheckManagementDeviceResponse
+	(*DeviceCodeResponse)(nil),              // 13: internal.DeviceCodeResponse
+	(*GetDeviceCodeRequest)(nil),            // 14: internal.GetDeviceCodeRequest
+	(*AuthorizeDeviceCodeRequest)(nil),      // 15: internal.AuthorizeDeviceCodeRequest
+	(*AuthorizeDeviceCodeResponse)(nil),     // 16: internal.AuthorizeDeviceCodeResponse
+	(*AccountResponse)(nil),                 // 17: internal.AccountResponse
+	(*AccountEmail)(nil),                    // 18: internal.AccountEmail
+	(*GetAccountRequest)(nil),               // 19: internal.GetAccountRequest
+	(*GetAccountByEmailRequest)(nil),        // 20: internal.GetAccountByEmailRequest
+	(*FindOrCreateByEmailsRequest)(nil),     // 21: internal.FindOrCreateByEmailsRequest
+	(*GetEmailBucketRequest)(nil),           // 22: internal.GetEmailBucketRequest
+	(*GetEmailBucketResponse)(nil),          // 23: internal.GetEmailBucketResponse
+	(*UpdatePlanRequest)(nil),               // 24: internal.UpdatePlanRequest
+	(*UpdatePlanResponse)(nil),              // 25: internal.UpdatePlanResponse
+	(*RegisterTunnelRequest)(nil),           // 26: internal.RegisterTunnelRequest
+	(*RegisterTunnelResponse)(nil),          // 27: internal.RegisterTunnelResponse
+	(*UnregisterTunnelRequest)(nil),         // 28: internal.UnregisterTunnelRequest
+	(*UnregisterTunnelResponse)(nil),        // 29: internal.UnregisterTunnelResponse
+	(*GetTunnelCountRequest)(nil),           // 30: internal.GetTunnelCountRequest
+	(*GetTunnelCountResponse)(nil),          // 31: internal.GetTunnelCountResponse
+	(*MarkMagicTokenUsedRequest)(nil),       // 32: internal.MarkMagicTokenUsedRequest
+	(*MarkMagicTokenUsedResponse)(nil),      // 33: internal.MarkMagicTokenUsedResponse
+	(*CheckMagicLinkRateLimitRequest)(nil),  // 34: internal.CheckMagicLinkRateLimitRequest
+	(*CheckMagicLinkRateLimitResponse)(nil), // 35: internal.CheckMagicLinkRateLimitResponse
+	(*ProcessBillingEventRequest)(nil),      // 36: internal.ProcessBillingEventRequest
+	(*ProcessBillingEventResponse)(nil),     // 37: internal.ProcessBillingEventResponse
+	(*IntakeReportRequest)(nil),             // 38: internal.IntakeReportRequest
+	(*IntakeReportResponse)(nil),            // 39: internal.IntakeReportResponse
+	(*BeginBillingCheckoutRequest)(nil),     // 40: internal.BeginBillingCheckoutRequest
+	(*BeginBillingCheckoutResponse)(nil),    // 41: internal.BeginBillingCheckoutResponse
 }
 var file_proto_internal_proto_depIdxs = []int32{
-	16, // 0: internal.AccountResponse.emails:type_name -> internal.AccountEmail
+	18, // 0: internal.AccountResponse.emails:type_name -> internal.AccountEmail
 	2,  // 1: internal.InternalService.FindTunnel:input_type -> internal.FindTunnelRequest
 	0,  // 2: internal.InternalService.GetNodeInfo:input_type -> internal.NodeInfoRequest
-	4,  // 3: internal.LoginNodeDB.RecordUsage:input_type -> internal.RecordUsageRequest
-	6,  // 4: internal.LoginNodeDB.GetMonthlyUsage:input_type -> internal.GetMonthlyUsageRequest
-	9,  // 5: internal.LoginNodeDB.CheckManagementDevice:input_type -> internal.CheckManagementDeviceRequest
-	8,  // 6: internal.LoginNodeDB.CreateDeviceCode:input_type -> internal.CreateDeviceCodeRequest
-	12, // 7: internal.LoginNodeDB.GetDeviceCode:input_type -> internal.GetDeviceCodeRequest
-	13, // 8: internal.LoginNodeDB.AuthorizeDeviceCode:input_type -> internal.AuthorizeDeviceCodeRequest
-	17, // 9: internal.LoginNodeDB.GetAccount:input_type -> internal.GetAccountRequest
-	18, // 10: internal.LoginNodeDB.GetAccountByEmail:input_type -> internal.GetAccountByEmailRequest
-	19, // 11: internal.LoginNodeDB.FindOrCreateByEmails:input_type -> internal.FindOrCreateByEmailsRequest
-	20, // 12: internal.LoginNodeDB.GetEmailBucket:input_type -> internal.GetEmailBucketRequest
-	22, // 13: internal.LoginNodeDB.UpdatePlan:input_type -> internal.UpdatePlanRequest
-	24, // 14: internal.LoginNodeDB.RegisterTunnel:input_type -> internal.RegisterTunnelRequest
-	26, // 15: internal.LoginNodeDB.UnregisterTunnel:input_type -> internal.UnregisterTunnelRequest
-	28, // 16: internal.LoginNodeDB.GetTunnelCount:input_type -> internal.GetTunnelCountRequest
-	30, // 17: internal.LoginNodeDB.MarkMagicTokenUsed:input_type -> internal.MarkMagicTokenUsedRequest
-	32, // 18: internal.LoginNodeDB.CheckMagicLinkRateLimit:input_type -> internal.CheckMagicLinkRateLimitRequest
-	34, // 19: internal.LoginNodeDB.ProcessBillingEvent:input_type -> internal.ProcessBillingEventRequest
-	36, // 20: internal.LoginNodeDB.IntakeReport:input_type -> internal.IntakeReportRequest
-	38, // 21: internal.LoginNodeDB.BeginBillingCheckout:input_type -> internal.BeginBillingCheckoutRequest
-	3,  // 22: internal.InternalService.FindTunnel:output_type -> internal.FindTunnelResponse
-	1,  // 23: internal.InternalService.GetNodeInfo:output_type -> internal.NodeInfoResponse
-	5,  // 24: internal.LoginNodeDB.RecordUsage:output_type -> internal.RecordUsageResponse
-	7,  // 25: internal.LoginNodeDB.GetMonthlyUsage:output_type -> internal.GetMonthlyUsageResponse
-	10, // 26: internal.LoginNodeDB.CheckManagementDevice:output_type -> internal.CheckManagementDeviceResponse
-	11, // 27: internal.LoginNodeDB.CreateDeviceCode:output_type -> internal.DeviceCodeResponse
-	11, // 28: internal.LoginNodeDB.GetDeviceCode:output_type -> internal.DeviceCodeResponse
-	14, // 29: internal.LoginNodeDB.AuthorizeDeviceCode:output_type -> internal.AuthorizeDeviceCodeResponse
-	15, // 30: internal.LoginNodeDB.GetAccount:output_type -> internal.AccountResponse
-	15, // 31: internal.LoginNodeDB.GetAccountByEmail:output_type -> internal.AccountResponse
-	15, // 32: internal.LoginNodeDB.FindOrCreateByEmails:output_type -> internal.AccountResponse
-	21, // 33: internal.LoginNodeDB.GetEmailBucket:output_type -> internal.GetEmailBucketResponse
-	23, // 34: internal.LoginNodeDB.UpdatePlan:output_type -> internal.UpdatePlanResponse
-	25, // 35: internal.LoginNodeDB.RegisterTunnel:output_type -> internal.RegisterTunnelResponse
-	27, // 36: internal.LoginNodeDB.UnregisterTunnel:output_type -> internal.UnregisterTunnelResponse
-	29, // 37: internal.LoginNodeDB.GetTunnelCount:output_type -> internal.GetTunnelCountResponse
-	31, // 38: internal.LoginNodeDB.MarkMagicTokenUsed:output_type -> internal.MarkMagicTokenUsedResponse
-	33, // 39: internal.LoginNodeDB.CheckMagicLinkRateLimit:output_type -> internal.CheckMagicLinkRateLimitResponse
-	35, // 40: internal.LoginNodeDB.ProcessBillingEvent:output_type -> internal.ProcessBillingEventResponse
-	37, // 41: internal.LoginNodeDB.IntakeReport:output_type -> internal.IntakeReportResponse
-	39, // 42: internal.LoginNodeDB.BeginBillingCheckout:output_type -> internal.BeginBillingCheckoutResponse
-	22, // [22:43] is the sub-list for method output_type
-	1,  // [1:22] is the sub-list for method input_type
+	6,  // 3: internal.LoginNodeDB.RecordUsage:input_type -> internal.RecordUsageRequest
+	8,  // 4: internal.LoginNodeDB.GetMonthlyUsage:input_type -> internal.GetMonthlyUsageRequest
+	11, // 5: internal.LoginNodeDB.CheckManagementDevice:input_type -> internal.CheckManagementDeviceRequest
+	10, // 6: internal.LoginNodeDB.CreateDeviceCode:input_type -> internal.CreateDeviceCodeRequest
+	14, // 7: internal.LoginNodeDB.GetDeviceCode:input_type -> internal.GetDeviceCodeRequest
+	15, // 8: internal.LoginNodeDB.AuthorizeDeviceCode:input_type -> internal.AuthorizeDeviceCodeRequest
+	19, // 9: internal.LoginNodeDB.GetAccount:input_type -> internal.GetAccountRequest
+	20, // 10: internal.LoginNodeDB.GetAccountByEmail:input_type -> internal.GetAccountByEmailRequest
+	21, // 11: internal.LoginNodeDB.FindOrCreateByEmails:input_type -> internal.FindOrCreateByEmailsRequest
+	22, // 12: internal.LoginNodeDB.GetEmailBucket:input_type -> internal.GetEmailBucketRequest
+	24, // 13: internal.LoginNodeDB.UpdatePlan:input_type -> internal.UpdatePlanRequest
+	26, // 14: internal.LoginNodeDB.RegisterTunnel:input_type -> internal.RegisterTunnelRequest
+	28, // 15: internal.LoginNodeDB.UnregisterTunnel:input_type -> internal.UnregisterTunnelRequest
+	30, // 16: internal.LoginNodeDB.GetTunnelCount:input_type -> internal.GetTunnelCountRequest
+	32, // 17: internal.LoginNodeDB.MarkMagicTokenUsed:input_type -> internal.MarkMagicTokenUsedRequest
+	34, // 18: internal.LoginNodeDB.CheckMagicLinkRateLimit:input_type -> internal.CheckMagicLinkRateLimitRequest
+	36, // 19: internal.LoginNodeDB.ProcessBillingEvent:input_type -> internal.ProcessBillingEventRequest
+	38, // 20: internal.LoginNodeDB.IntakeReport:input_type -> internal.IntakeReportRequest
+	40, // 21: internal.LoginNodeDB.BeginBillingCheckout:input_type -> internal.BeginBillingCheckoutRequest
+	4,  // 22: internal.LoginNodeDB.AppDeviceCheck:input_type -> internal.AppDeviceCheckRequest
+	3,  // 23: internal.InternalService.FindTunnel:output_type -> internal.FindTunnelResponse
+	1,  // 24: internal.InternalService.GetNodeInfo:output_type -> internal.NodeInfoResponse
+	7,  // 25: internal.LoginNodeDB.RecordUsage:output_type -> internal.RecordUsageResponse
+	9,  // 26: internal.LoginNodeDB.GetMonthlyUsage:output_type -> internal.GetMonthlyUsageResponse
+	12, // 27: internal.LoginNodeDB.CheckManagementDevice:output_type -> internal.CheckManagementDeviceResponse
+	13, // 28: internal.LoginNodeDB.CreateDeviceCode:output_type -> internal.DeviceCodeResponse
+	13, // 29: internal.LoginNodeDB.GetDeviceCode:output_type -> internal.DeviceCodeResponse
+	16, // 30: internal.LoginNodeDB.AuthorizeDeviceCode:output_type -> internal.AuthorizeDeviceCodeResponse
+	17, // 31: internal.LoginNodeDB.GetAccount:output_type -> internal.AccountResponse
+	17, // 32: internal.LoginNodeDB.GetAccountByEmail:output_type -> internal.AccountResponse
+	17, // 33: internal.LoginNodeDB.FindOrCreateByEmails:output_type -> internal.AccountResponse
+	23, // 34: internal.LoginNodeDB.GetEmailBucket:output_type -> internal.GetEmailBucketResponse
+	25, // 35: internal.LoginNodeDB.UpdatePlan:output_type -> internal.UpdatePlanResponse
+	27, // 36: internal.LoginNodeDB.RegisterTunnel:output_type -> internal.RegisterTunnelResponse
+	29, // 37: internal.LoginNodeDB.UnregisterTunnel:output_type -> internal.UnregisterTunnelResponse
+	31, // 38: internal.LoginNodeDB.GetTunnelCount:output_type -> internal.GetTunnelCountResponse
+	33, // 39: internal.LoginNodeDB.MarkMagicTokenUsed:output_type -> internal.MarkMagicTokenUsedResponse
+	35, // 40: internal.LoginNodeDB.CheckMagicLinkRateLimit:output_type -> internal.CheckMagicLinkRateLimitResponse
+	37, // 41: internal.LoginNodeDB.ProcessBillingEvent:output_type -> internal.ProcessBillingEventResponse
+	39, // 42: internal.LoginNodeDB.IntakeReport:output_type -> internal.IntakeReportResponse
+	41, // 43: internal.LoginNodeDB.BeginBillingCheckout:output_type -> internal.BeginBillingCheckoutResponse
+	5,  // 44: internal.LoginNodeDB.AppDeviceCheck:output_type -> internal.AppDeviceCheckResponse
+	23, // [23:45] is the sub-list for method output_type
+	1,  // [1:23] is the sub-list for method input_type
 	1,  // [1:1] is the sub-list for extension type_name
 	1,  // [1:1] is the sub-list for extension extendee
 	0,  // [0:1] is the sub-list for field type_name
@@ -2442,7 +2604,7 @@ func file_proto_internal_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_internal_proto_rawDesc), len(file_proto_internal_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   40,
+			NumMessages:   42,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

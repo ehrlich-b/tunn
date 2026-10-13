@@ -12,6 +12,12 @@ DOCKER_IMAGE := $(APP_NAME):latest
 FLY_APP_NAME := $(APP_NAME)
 .DEFAULT_GOAL := all
 
+.PHONY: test-app-devices test-app-devices-browser
+test-app-devices:
+	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=180s -run '^TestAppDevice' ./internal/host ./sdk
+test-app-devices-browser:
+	go test $(GO_TEST_FLAGS) -race -count=1 -timeout=120s -run '^TestAppDeviceBrowserJourney$$' ./internal/host
+
 .PHONY: test-ops-config test-ops-store test-ops-host test-ops-host-unit test-ops-logs test-ops-scripts test-ops-regression test-ops
 test-ops-config:
 	go test $(GO_TEST_FLAGS) -p 2 -parallel=2 -count=1 -timeout=60s ./internal/config

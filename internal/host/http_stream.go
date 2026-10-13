@@ -1,6 +1,7 @@
 package host
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -82,7 +83,7 @@ func (p *ProxyServer) proxyStreamingHTTPOverGRPC(w http.ResponseWriter, r *http.
 	if _, replay := r.Context().Value(inspectorReplayKey{}).(*inspectorReplay); replay {
 		open.Protocol = common.HTTPOriginReplayProtocol
 	}
-	if err := tunnel.SendMessage(&pb.TunnelMessage{
+	if err := tunnel.SendMessageContext(r.Context(), &pb.TunnelMessage{
 		Message: &pb.TunnelMessage_ConnectionOpen{ConnectionOpen: open},
 	}); err != nil {
 		return fmt.Errorf("failed to open streamed HTTP connection: %w", err)
@@ -100,12 +101,15 @@ func (p *ProxyServer) proxyStreamingHTTPOverGRPC(w http.ResponseWriter, r *http.
 	requestDone := make(chan struct{})
 	go func() {
 		defer close(requestDone)
-		_, err := streamConnectionInput(body, tunnel, connectionID, &requestBytes, MaxBodySize)
+		_, err := streamConnectionInputContext(r.Context(), body, tunnel, connectionID, &requestBytes, MaxBodySize)
 		requestResult <- requestBodyResult{err: err}
 	}()
 	defer func() {
 		_ = body.Close()
-		<-requestDone
+		select {
+		case <-requestDone:
+		case <-r.Context().Done():
+		}
 	}()
 
 	headerTimer := time.NewTimer(streamResponseHeaderTimeout)
@@ -237,6 +241,9 @@ func waitStreamingHTTPResponseStart(
 }
 
 func streamConnectionInput(body io.ReadCloser, tunnel *TunnelConnection, connectionID string, count *atomic.Int64, maxBytes int64) (int64, error) {
+	return streamConnectionInputContext(tunnel.Stream.Context(), body, tunnel, connectionID, count, maxBytes)
+}
+func streamConnectionInputContext(ctx context.Context, body io.ReadCloser, tunnel *TunnelConnection, connectionID string, count *atomic.Int64, maxBytes int64) (int64, error) {
 	// The caller owns body cleanup. Closing unfinished HTTP/1 input sets a
 	// read deadline and can cancel Request.Context through net/http's read
 	// loop. The response owner must receive the upload result first, so that
@@ -260,7 +267,7 @@ func streamConnectionInput(body io.ReadCloser, tunnel *TunnelConnection, connect
 				return current, fmt.Errorf("bandwidth rate limit exceeded")
 			}
 			chunk := append([]byte(nil), buffer[:n]...)
-			if sendErr := tunnel.SendMessage(&pb.TunnelMessage{
+			if sendErr := tunnel.SendMessageContext(ctx, &pb.TunnelMessage{
 				Message: &pb.TunnelMessage_ConnectionData{
 					ConnectionData: &pb.ConnectionData{ConnectionId: connectionID, Data: chunk},
 				},
@@ -269,7 +276,7 @@ func streamConnectionInput(body io.ReadCloser, tunnel *TunnelConnection, connect
 			}
 		}
 		if err == io.EOF {
-			if sendErr := tunnel.SendMessage(&pb.TunnelMessage{
+			if sendErr := tunnel.SendMessageContext(ctx, &pb.TunnelMessage{
 				Message: &pb.TunnelMessage_ConnectionHalfClose{
 					ConnectionHalfClose: &pb.ConnectionHalfClose{ConnectionId: connectionID},
 				},

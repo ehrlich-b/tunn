@@ -88,6 +88,14 @@ var prodAuthRoutes = []prodAuthRoute{
 	{"POST", "/api/inspector/tools/requests/1/replay", "/api/inspector/", "{}", [11]int{401, 401, 401, 401, 403, 401, 401, 401, 401, 401, 401}},
 	{"GET", "/account", "/account", "", [11]int{302, 302, 302, 302, 200, 200, 302, 302, 302, 302, 302}},
 	{"GET", "/account/devices", "/account/devices", "", [11]int{302, 302, 302, 302, 200, 200, 302, 302, 302, 302, 302}},
+	// The owner cookie comes from a verified mailbox callback; legacy cookies
+	// and publisher/capability credentials cannot replace that account binding.
+	{"GET", "/account/app-devices", "/account/app-devices", "", [11]int{302, 302, 302, 302, 200, 302, 302, 302, 302, 302, 302}},
+	{"GET", "/pair/app-device", "/pair/app-device", "", [11]int{200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200}},
+	{"GET", "/api/app-devices", "/api/app-devices", "", [11]int{401, 401, 401, 401, 200, 401, 401, 401, 401, 401, 401}},
+	{"GET", "/api/app-devices/script", "/api/app-devices/", "", [11]int{200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200}},
+	{"POST", "/api/app-devices/claims", "/api/app-devices/", `{}`, [11]int{400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400}},
+	{"POST", "/api/app-devices/invitations", "/api/app-devices/", "", [11]int{401, 401, 401, 401, 403, 401, 401, 401, 401, 401, 401}},
 	{"POST", "/account/devices", "/account/devices", "csrf", [11]int{302, 302, 302, 302, 404, 404, 302, 302, 302, 302, 302}},
 	{"GET", "/pricing", "/pricing", "", [11]int{200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200}},
 	{"GET", "/ngrok-alternative", "/ngrok-alternative", "", [11]int{200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200}},
@@ -153,6 +161,10 @@ func newProdAuthFixture(t *testing.T) *prodAuthFixture {
 		t.Fatal(deviceErr)
 	}
 	f.p.devices = deviceRegistry
+	f.p.appDevices, deviceErr = newAppDeviceStore(db)
+	if deviceErr != nil {
+		t.Fatal(deviceErr)
+	}
 	ctx := context.Background()
 	if _, err := f.p.storage.FindOrCreateByEmails(ctx, []string{"owner@example.com", "alias@example.net"}, "test"); err != nil {
 		t.Fatal(err)

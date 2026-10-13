@@ -53,6 +53,7 @@ func (s *InternalServer) FindTunnel(ctx context.Context, req *internalv1.FindTun
 			CreatorEmail:  tunnel.CreatorEmail,
 			EndpointKind:  tunnel.TargetURL,
 			AllowedEmails: append([]string(nil), tunnel.AllowedEmails...),
+			ResourceId:    tunnel.ResourceID,
 		}, nil
 	}
 

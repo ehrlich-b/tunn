@@ -18,7 +18,8 @@ import (
 // Non-login nodes connect to this service via gRPC.
 type LoginNodeDBServer struct {
 	internalv1.UnimplementedLoginNodeDBServer
-	storage *storage.LocalStorage
+	storage    *storage.LocalStorage
+	appDevices *appDeviceStore
 }
 
 func (s *LoginNodeDBServer) ProcessBillingEvent(ctx context.Context, r *internalv1.ProcessBillingEventRequest) (*internalv1.ProcessBillingEventResponse, error) {

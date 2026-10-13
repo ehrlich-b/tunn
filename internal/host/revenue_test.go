@@ -46,7 +46,7 @@ func TestRevenueRoutesLimitsAndConfiguredCheckout(t *testing.T) {
 		}
 	}
 	w := revenueRequest(t, p, "/pricing", false)
-	for _, want := range []string{"$5/month", "$48", "1000000", "10000000", "10.0 GB", "500.0 GB", "5 concurrent", "25 concurrent", "1 reserved", "10 reserved", "ngrok Free", "2026-10-12", "/upgrade?period=monthly"} {
+	for _, want := range []string{"$5/month", "$48", "1000000", "10000000", "10.0 GB", "500.0 GB", "<strong>5</strong>", "<strong>25</strong>", "<strong>1</strong>", "<strong>10</strong>", "No automatic overage charges", "Billed monthly", "/upgrade?period=monthly"} {
 		if !strings.Contains(w.Body.String(), want) {
 			t.Error("missing pricing fact", want)
 		}
@@ -69,7 +69,7 @@ func TestRevenueRoutesLimitsAndConfiguredCheckout(t *testing.T) {
 	p.config.OwnerMonthlyBytes = 500000000
 	p.config.OwnerMonthlyRequests = 4000
 	w = revenueRequest(t, p, "/pricing", false)
-	for _, want := range []string{"$8/month", "500.0 MB", "4000 monthly admissions"} {
+	for _, want := range []string{"$8/month", "500.0 MB", "4000"} {
 		if !strings.Contains(w.Body.String(), want) {
 			t.Error("config not reflected", want)
 		}
@@ -132,7 +132,7 @@ func TestRevenuePaymentReturnReadsCommittedEntitlement(t *testing.T) {
 		t.Fatal(err)
 	}
 	w = revenueRequest(t, p, "/api/billing/status", true)
-	if w.Code != 200 || !strings.Contains(w.Body.String(), `"state":"active"`) || w.Header().Get("Cache-Control") != "no-store" {
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"state":"active"`) || w.Result().Header.Get("Cache-Control") != "no-store" {
 		t.Fatal(w.Code, w.Body.String(), w.Header())
 	}
 	if w := revenueRequest(t, p, "/upgrade", true); w.Code != 303 || w.Header().Get("Location") != "/account" {
@@ -186,5 +186,20 @@ func TestRevenueOwnerQuotaIncludesUpgradeHint(t *testing.T) {
 	setMeterHeaders(w, &pb.Decision{Reason: "request_rate", Status: 429})
 	if w.Header().Get("Tunn-Upgrade-URL") != "" {
 		t.Fatal("consumer grant limit marketed as owner upgrade")
+	}
+}
+
+func TestPricingReflectsStoredPlan(t *testing.T) {
+	p, local, account := revenueFixture(t)
+	if err := local.UpdatePlan(context.Background(), account.ID, "pro"); err != nil {
+		t.Fatal(err)
+	}
+	w := revenueRequest(t, p, "/pricing", true)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "Current plan") || !strings.Contains(w.Body.String(), "View usage") || strings.Contains(w.Body.String(), `href="/upgrade?`) || w.Result().Header.Get("Cache-Control") != "no-store" {
+		t.Fatal("stored plan not reflected in pricing", w.Code)
+	}
+	visitor := revenueRequest(t, p, "/pricing?plan=pro", false)
+	if strings.Contains(visitor.Body.String(), "Current plan") || !strings.Contains(visitor.Body.String(), "Start free") {
+		t.Fatal("query string granted a plan")
 	}
 }

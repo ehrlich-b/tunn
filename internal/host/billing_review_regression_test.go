@@ -259,7 +259,7 @@ func TestReviewCheckoutDisabledDoesNotBreakFreeTunnel(t *testing.T) {
 	}
 	w = httptest.NewRecorder()
 	p.handlePricing(w, httptest.NewRequest("GET", "https://tunn.to/pricing", nil))
-	if !strings.Contains(w.Body.String(), "5 concurrent tunnels") {
+	if !strings.Contains(w.Body.String(), `<li><span>Concurrent tunnels</span><strong>5</strong></li>`) {
 		t.Fatal(w.Body.String())
 	}
 }

@@ -16,7 +16,11 @@ var pageHeader string
 
 // writePageStart writes the HTML head and opening body tags with header
 func writePageStart(w io.Writer, title string) {
-	_, _ = fmt.Fprintf(w, `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>%s</title><link rel="preload" href="/assets/space-grotesk-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin><link rel="stylesheet" href="/assets/system.css"><script src="/assets/theme.js"></script><script defer src="/assets/ui.js"></script></head><body>`, title)
+	defaultTheme := ""
+	if title == "tunn - Pricing" {
+		defaultTheme = ` data-default-theme="dark"`
+	}
+	_, _ = fmt.Fprintf(w, `<!DOCTYPE html><html lang="en"%s><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>%s</title><link rel="preload" href="/assets/space-grotesk-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin><link rel="stylesheet" href="/assets/system.css"><script src="/assets/theme.js"></script><script defer src="/assets/ui.js"></script></head><body>`, defaultTheme, title)
 	_, _ = fmt.Fprint(w, pageHeader, `<main id="main" class="page-container">`)
 }
 

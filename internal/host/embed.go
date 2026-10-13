@@ -24,3 +24,6 @@ var docsHTML string
 
 //go:embed templates/webhook-verification.html
 var webhookDocsHTML string
+
+//go:embed templates/quickstart.html
+var quickstartHTML string

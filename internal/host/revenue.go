@@ -15,6 +15,8 @@ import (
 )
 
 type revenuePageData struct {
+	CurrentPlan                       string
+	PlanUnavailable, CheckoutReview   bool
 	MonthlyUSD, YearlyUSD             int
 	FreeTunnels, ProTunnels           int
 	FreeRequests, ProRequests         int64
@@ -54,13 +56,17 @@ func (p *ProxyServer) revenueData() revenuePageData {
 }
 
 func (p *ProxyServer) renderRevenuePage(w http.ResponseWriter, content string) {
+	renderRevenueData(w, content, p.revenueData())
+}
+
+func renderRevenueData(w http.ResponseWriter, content string, data revenuePageData) {
 	tmpl, err := template.New("revenue").Parse(content)
 	if err != nil {
 		http.Error(w, "Page unavailable", 500)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err = tmpl.Execute(w, p.revenueData()); err != nil {
+	if err = tmpl.Execute(w, data); err != nil {
 		http.Error(w, "Page unavailable", http.StatusInternalServerError)
 	}
 }
@@ -71,8 +77,23 @@ func (p *ProxyServer) handlePricing(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	data := p.revenueData()
+	if email, signedIn := p.getAuthFromCookie(r); signedIn {
+		w.Header().Set("Cache-Control", "no-store")
+		data.PlanUnavailable = true
+		if p.storage != nil && p.storage.Available() {
+			if account, err := p.storage.GetAccountByEmail(r.Context(), email); err == nil && account != nil {
+				data.CurrentPlan = account.Plan
+				data.PlanUnavailable = account.Plan != "free" && account.Plan != "pro"
+				data.CheckoutReview = account.Plan != "pro" && account.BillingState != "available"
+			}
+		}
+		if data.PlanUnavailable || data.CheckoutReview || data.CurrentPlan == "pro" {
+			data.MonthlyAvailable, data.YearlyAvailable = false, false
+		}
+	}
 	writePageStart(w, "tunn - Pricing")
-	p.renderRevenuePage(w, pricingHTML)
+	renderRevenueData(w, pricingHTML, data)
 	writePageEnd(w)
 }
 
@@ -93,7 +114,7 @@ func (p *ProxyServer) handleDocs(w http.ResponseWriter, r *http.Request) {
 		serveFeatureDocs(w, r, "tunn - Docker client", dockerDocsHTML)
 		return
 	}
-	if r.URL.Path != "/docs" && r.URL.Path != "/docs/" && r.URL.Path != "/docs/mcp-to-claude" && r.URL.Path != "/docs/webhook-verification" && r.URL.Path != "/docs/ip-restrictions" {
+	if r.URL.Path != "/docs" && r.URL.Path != "/docs/" && r.URL.Path != "/docs/quickstart" && r.URL.Path != "/docs/mcp-to-claude" && r.URL.Path != "/docs/webhook-verification" && r.URL.Path != "/docs/ip-restrictions" {
 		http.NotFound(w, r)
 		return
 	}
@@ -109,8 +130,11 @@ func (p *ProxyServer) handleDocs(w http.ResponseWriter, r *http.Request) {
 	} else if r.URL.Path == "/docs/ip-restrictions" {
 		writePageStart(w, "tunn - IP restrictions")
 		_, _ = fmt.Fprint(w, ipRestrictionsHTML)
-	} else {
+	} else if r.URL.Path == "/docs/quickstart" {
 		writePageStart(w, "tunn - Quickstart")
+		_, _ = fmt.Fprint(w, quickstartHTML)
+	} else {
+		writePageStart(w, "tunn - Docs")
 		_, _ = fmt.Fprint(w, docsHTML)
 	}
 	writePageEnd(w)

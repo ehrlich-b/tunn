@@ -22,3 +22,8 @@ html{scroll-behavior:smooth;scroll-padding-top:24px}body{overflow-wrap:break-wor
 @font-face{font-family:'Plex Sans fallback';src:local('Arial'),local('Liberation Sans');size-adjust:101%;ascent-override:101.98%;descent-override:27.72%;line-gap-override:0%}
 body{font-family:'IBM Plex Sans','Plex Sans fallback',Arial,sans-serif}code,pre,.mono,.eyebrow,.example-label{font-family:'IBM Plex Mono','Plex Mono fallback',monospace}
 @media(max-width:768px){.hero-actions>a:not(.btn){width:150px;white-space:nowrap}}
+.page-container:has(>.heading-block){padding-top:0}.comparison-main{padding-block:0}.comparison-table tbody th{background:var(--surface);color:var(--text)}
+@media(max-width:768px){.page-container:has(.docs-entry){padding-top:32px}}
+.comparison-table thead th{background:var(--raised);color:var(--muted)}.comparison-table th,.comparison-table td{border-color:var(--line)}
+.docs-entry .doc-main{padding:0}.doc-rail a[aria-current=page]{font-weight:600;text-decoration:underline;text-underline-offset:4px}
+.comparison-main h1,.comparison-main h2,.comparison-main p{margin:0}.plan>.chip{margin-left:12px}

@@ -109,6 +109,12 @@ func TestReviewPreviouslyAuthorizedCodeCanonicalizesAtExchange(t *testing.T) {
 		w := httptest.NewRecorder()
 		p.handleDeviceToken(w, httptest.NewRequest("GET", path, nil))
 		var token durableTokenFixture
+		if !durable {
+			if w.Code != 400 {
+				t.Fatal("unscoped code granted management")
+			}
+			continue
+		}
 		if err := json.Unmarshal(w.Body.Bytes(), &token); err != nil || w.Code != 200 {
 			t.Fatal("old authorized code exchange failed", w.Code, err)
 		}

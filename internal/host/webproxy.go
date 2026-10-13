@@ -269,7 +269,7 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 	if account != nil {
 		owner = account.ID
 	}
-	if !p.checkOwnerIPPolicy(w, r, owner, tunnelID) {
+	if probe == nil && !p.checkOwnerIPPolicy(w, r, owner, tunnelID) {
 		session.reason = "ip_policy_denied"
 		if meterWriter.status == 503 {
 			session.reason = "ip_policy_authority_unavailable"
@@ -640,7 +640,9 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		if err != nil {
 			meterWriter.bodyMeter = false
 			if cause := context.Cause(r.Context()); cause != nil {
-				err = cause
+				session.recordError(cause, r.Context())
+				writeIngressError(w, cause)
+				return nil
 			}
 			var limit *ingressLimitError
 			var unavailable *meterUnavailableError

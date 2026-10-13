@@ -26,6 +26,7 @@ import (
 	"github.com/ehrlich-b/tunn/internal/storage"
 	"github.com/ehrlich-b/tunn/internal/store"
 	"github.com/ehrlich-b/tunn/internal/webhook"
+	ipb "github.com/ehrlich-b/tunn/pkg/proto/internalv1"
 	meterpb "github.com/ehrlich-b/tunn/pkg/proto/meteringv1"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
 	"google.golang.org/grpc"
@@ -200,6 +201,9 @@ func TestWebhookEndToEnd(t *testing.T) {
 			t.Run(fmt.Sprintf("%s/buffered=%t", provider, buffered), func(t *testing.T) {
 				s := startHookStack(t, provider, buffered, false)
 				ingress := &ProxyServer{Domain: s.proxy.Domain, config: &config.Config{Insecure: true, NodeSecret: s.proxy.config.NodeSecret}, tunnelServer: NewTunnelServer(s.proxy.config, nil, nil, nil), tunnelCache: map[string]string{"hook": s.relay.Listener.Addr().String()}}
+				authority := NewInternalServer(s.proxy.tunnelServer, s.relay.Listener.Addr().String(), false)
+				authority.proxy = s.proxy
+				ingress.nodeClients = map[string]ipb.InternalServiceClient{"publisher": forwardPermissionPeer{server: authority}}
 				for _, remote := range []bool{false, true} {
 					for _, kind := range []string{"valid", "tampered", "missing", "duplicate", "upgrade"} {
 						t.Run(fmt.Sprintf("remote=%t/%s", remote, kind), func(t *testing.T) {
@@ -389,6 +393,9 @@ func TestWebhookHostedAdmissionAndMetering(t *testing.T) {
 						return r
 					}
 					ingress := &ProxyServer{Domain: s.proxy.Domain, config: &config.Config{Insecure: true, NodeSecret: s.proxy.config.NodeSecret}, tunnelServer: NewTunnelServer(s.proxy.config, nil, nil, nil), tunnelCache: map[string]string{"hook": s.relay.Listener.Addr().String()}}
+					authority := NewInternalServer(s.proxy.tunnelServer, s.relay.Listener.Addr().String(), false)
+					authority.proxy = s.proxy
+					ingress.nodeClients = map[string]ipb.InternalServiceClient{"publisher": forwardPermissionPeer{server: authority}}
 					serve := func(r *http.Request) *httptest.ResponseRecorder {
 						w := httptest.NewRecorder()
 						if remote {

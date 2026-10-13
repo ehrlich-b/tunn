@@ -75,7 +75,7 @@ func (s *InternalServer) CheckForwardedPermission(ctx context.Context, in *ipb.F
 		}
 		r = r.WithContext(context.WithValue(r.Context(), domainOwnerKey{}, binding.Owner))
 		if strings.HasPrefix(binding.Name, "*.") {
-			r = r.WithContext(context.WithValue(r.Context(), domainAppKey{}, true))
+			return nil, status.Error(codes.Unimplemented, "App streams use the app permission service")
 		}
 	}
 	writer := &permissionProbeWriter{header: make(http.Header), status: http.StatusOK}

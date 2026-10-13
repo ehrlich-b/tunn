@@ -22,60 +22,68 @@ import (
 
 var version = "development build"
 
+func productHeading() string {
+	if version == "development build" || version == "" {
+		return "tunn"
+	}
+	return "tunn " + version
+}
 func firstRun(out io.Writer) {
-	fmt.Fprintf(out, "tunn %s\n\nSign in\n  tunn login\n\nRun your app on port 3000, then\n  tunn http 3000\n\nAnyone with the link\n  tunn http 3000 --public\n\nAll commands\n  tunn --help\n", version)
+	fmt.Fprintf(out, "%s\n\nSign in\n  tunn login\n\nRun your app on port 3000, then choose access\n", productHeading())
+	commandLadder(out)
+	fmt.Fprintln(out, "\nAll commands\n  tunn --help")
+}
+func commandLadder(out io.Writer) {
+	writeCLIHelp(out, `  tunn 3000                         Only you
+  tunn 3000 --allow=alex@example.com  You and Alex
+  tunn 3000 --allow=@example.com     You and that email domain
+  tunn 3000 --public                Anyone with the link
+`)
 }
 func printHelp(out io.Writer) {
-	text := fmt.Sprintf(`tunn %s
-
-Start
-  tunn login                  Sign in
-  tunn http 3000              Only you and invited people
-  tunn http 3000 --public     Anyone with the link
-  tunn hosts                  List machines and tunnels
-  tunn service status         Check the local service
-  tunn http --help             HTTP options
-
+	fmt.Fprintf(out, "%s\n\n", productHeading())
+	writeCLIHelp(out, "Start\n  tunn login                        Sign in\n\nChoose who gets in\n")
+	commandLadder(out)
+	writeCLIHelp(out, `
 Inspect
-  tunn http 3000 --inspect    Open the local request inspector
-  tunn hosts --json           Inventory JSON
-  tunn http 3000 --json       Request events as JSON lines
+  tunn 3000 --inspect               Local request inspector
+  tunn 3000 --json                  Request events as JSON lines
+  tunn hosts --json                 Machine and tunnel inventory
 
 Access
-  tunn share NAME EMAIL       Invite a person
-  tunn unshare NAME EMAIL     Remove a person
-  tunn access NAME            List access
-  tunn keys add|list|remove    Account SSH keys
-  tunn token NAME             Endpoint token
-  tunn ip-policy --help       IP rules
-  tunn usage NAME             Usage and decisions
-  tunn grant --help           Consumer tokens
-  tunn policy --help          Headers and rate limits
+  tunn share NAME EMAIL             Invite to a running tunnel
+  tunn unshare NAME EMAIL           Remove access
+  tunn access NAME                  List access
+  tunn keys --help                  Account SSH keys
+  tunn token NAME                   Endpoint token
+  tunn ip-policy --help             IP rules
+  tunn usage NAME                   Usage and decisions
+  tunn grant --help                 Consumer tokens
+  tunn policy --help                Headers and rate limits
 
 More
-  tunn mcp --help             Local MCP server
-  tunn connector-check --help  Check an MCP connector
-  tunn tcp --help             Raw TCP endpoint
-  tunn unix --help            Unix socket endpoint
-  tunn connect --help         Connect to a remote endpoint
-  tunn domain --help          Custom domains
-  tunn service --help         Persistent endpoints
-  tunn openclaw --help        Phone setup
-  tunn status --help          Service probe collector (operators)
-  tunn admin --help           Account controls (operators)
+  tunn http --help                  HTTP options
+  tunn hosts                        List machines and tunnels
+  tunn service --help               Persistent endpoints
+  tunn service status               Check the local service
+  tunn mcp --help                   Local MCP server
+  tunn connector-check --help       Check an MCP connector
+  tunn tcp --help                   Raw TCP endpoint
+  tunn unix --help                  Unix socket endpoint
+  tunn connect --help               Connect to a remote endpoint
+  tunn domain --help                Custom domains
+  tunn openclaw --help              Phone setup
 
-Targets
-  tunn http localhost:3000
-  tunn http https://localhost:8443
-  tunn 3000
+Compare · diff tunn ngrok
+  Choose visitor emails with --allow
+  https://tunn.to/ngrok-alternative
 
 Global options go before the command
   --verbosity none|error|request|trace
-  --dev                       Local development configuration
-  --insecure                  Skip relay TLS verification
-  --version                   Print version
-`, version)
-	writeCLIHelp(out, text)
+    Choose the log detail
+  --version
+    Print version
+`)
 }
 
 func shellURL(value string) string {
@@ -160,6 +168,7 @@ type cliSession struct {
 	retryAdvice    bool
 	lastRequest    time.Time
 	publicURL      string
+	health         string
 	serve          *client.ServeClient
 }
 
@@ -183,27 +192,44 @@ func attachCLI(ctx context.Context, s *client.ServeClient, o *terminal.Output, v
 			}
 		case client.StateReady:
 			c.ready = true
+			c.health = ""
 			c.retryAdvice = false
-			scope := "Only you and invited people"
-			if len(s.AccessTokenSHA256) > 0 {
-				scope = "Private · Sign in or use an endpoint token"
-			}
-			if s.Public {
-				scope = "Public · Anyone with the link"
-			}
 			first := c.publicURL == ""
 			if !first && len(viewerActive) > 0 && viewerActive[0] {
 				o.Hint("Inspector history cleared after reconnect")
 			}
 			if c.publicURL != e.PublicURL {
-				o.Route(e.PublicURL, target, scope)
+				access := "private"
+				if s.Public {
+					access = "public"
+				}
+				o.Route(e.PublicURL, target, access, len(s.AccessTokenSHA256) > 0, s.AllowedEmails...)
 				c.publicURL = e.PublicURL
 			}
 			o.State("checking", "Checking local app…", "HTTPS route created", "", 0)
+			if !first {
+				o.State("reconnected", "Reconnected", "", "", 0)
+			}
 			c.probeLocked(ctx)
 			if first {
 				o.Hint("Ctrl+C stops this tunnel")
-				o.Waiting(e.PublicURL)
+				if !s.Public {
+					o.Hint("Current access: tunn access " + shellURL(s.TunnelID))
+					localURL, parseErr := url.Parse(s.TargetURL)
+					if parseErr != nil || localURL == nil || localURL.User != nil || localURL.RawQuery != "" {
+						o.Hint("Invite to this tunnel:")
+						o.Hint("tunn share " + shellURL(s.TunnelID) + " alex@example.com")
+					} else {
+						o.Hint("Invite someone when starting a tunnel:")
+						invite := "tunn " + shellURL(strings.TrimPrefix(s.TargetURL, "http://"))
+						if o.TTY && o.Width < 70 {
+							o.Hint(invite + " \\")
+							o.Hint("  --allow=alex@example.com")
+						} else {
+							o.Hint(invite + " --allow=alex@example.com")
+						}
+					}
+				}
 			}
 		case client.StateReconnecting:
 			c.ready = false
@@ -215,7 +241,7 @@ func attachCLI(ctx context.Context, s *client.ServeClient, o *terminal.Output, v
 				o.State("offline", "Cannot reach tunn", detail, "tunn hosts --json", 0)
 				c.retryAdvice = true
 			}
-			o.State("reconnecting", fmt.Sprintf("Retrying in %s", e.RetryDelay.Round(time.Millisecond)), "", "", e.RetryDelay)
+			o.State("reconnecting", fmt.Sprintf("Retrying in %.1f s", e.RetryDelay.Seconds()), "", "", e.RetryDelay)
 		}
 	}
 	if s.Inspector == nil {
@@ -229,8 +255,9 @@ func attachCLI(ctx context.Context, s *client.ServeClient, o *terminal.Output, v
 		}
 		if c.ready && ctx.Err() == nil {
 			if e.TerminalReason == "target_error" {
-				o.State("unreachable", "Local app unreachable", "Edge connected", check, 0)
+				c.unreachable(nil)
 			} else if e.TerminalReason == "complete" {
+				c.health = "online"
 				o.State("online", "Online", "", "", 0)
 			}
 		}
@@ -246,6 +273,9 @@ func attachCLI(ctx context.Context, s *client.ServeClient, o *terminal.Output, v
 			default:
 				message = "Request did not complete"
 			}
+		}
+		if e.Status == 413 {
+			message = "Body rejected; edge limit is 100 MiB"
 		}
 		o.Request(terminal.Event{At: e.At.Format(time.RFC3339Nano), Method: e.Method, Path: e.Path, Status: e.Status, DurationMS: e.DurationMS, RequestBytes: e.RequestBytes, ResponseBytes: e.ResponseBytes, ActiveStreams: m.ActiveStreams, State: state, Message: message})
 	}
@@ -273,10 +303,27 @@ func (c *cliSession) probeLocked(ctx context.Context) {
 		return
 	}
 	if err != nil {
-		c.out.State("unreachable", "Local app unreachable", "Edge connected", c.check, 0)
+		c.unreachable(err)
 		return
 	}
+	c.health = "online"
 	c.out.State("online", "Online", "", "", 0)
+}
+
+func (c *cliSession) unreachable(err error) {
+	if c.health == "unreachable" {
+		return
+	}
+	c.health = "unreachable"
+	detail := "Local app did not respond"
+	if err != nil && strings.Contains(strings.ToLower(err.Error()), "connection refused") {
+		detail = "Connection refused"
+	}
+	c.out.State("unreachable", "Local app unreachable", c.target+" · "+detail, c.check, 0)
+	c.out.Diagnostic("browser [o] Not checked")
+	c.out.Diagnostic("edge [ok] Connected")
+	c.out.Diagnostic("tunn on laptop [ok] Connected")
+	c.out.Diagnostic(c.target + " [x] " + detail)
 }
 
 func commonTrace() bool { return *verbosity == "trace" }
@@ -291,17 +338,77 @@ var helpColumns = regexp.MustCompile(`^\s*((?:tunn |--).+?) {2,}(.+)$`)
 
 func writeCLIHelp(out io.Writer, text string) {
 	if terminal.New(out, out, false).Width >= 70 {
-		_, _ = io.WriteString(out, text)
+		for _, line := range strings.Split(strings.TrimSuffix(text, "\n"), "\n") {
+			match := helpColumns.FindStringSubmatch(line)
+			if len(match) == 3 {
+				fmt.Fprintf(out, "  %-34s  %s\n", match[1], match[2])
+			} else {
+				fmt.Fprintln(out, line)
+			}
+		}
 		return
 	}
 	for _, line := range strings.Split(strings.TrimSuffix(text, "\n"), "\n") {
 		match := helpColumns.FindStringSubmatch(line)
 		if len(match) == 3 {
-			fmt.Fprintln(out, match[2])
 			fmt.Fprintln(out, "  "+match[1])
+			fmt.Fprintln(out, "    "+match[2])
 			fmt.Fprintln(out)
 		} else {
 			fmt.Fprintln(out, line)
 		}
+	}
+}
+
+func printRawHelp(out io.Writer, kind string) {
+	switch kind {
+	case "tcp":
+		writeCLIHelp(out, `Usage: tunn tcp HOST:PORT [options]
+
+Publish a TCP service through tunn.
+Private by default; visitors use tunn connect.
+
+Example
+  tunn tcp localhost:5432 --name db \
+    --allow=alex@example.com
+
+Options
+  --name NAME     Choose the endpoint name
+  --allow EMAILS  People or email domains
+  --public        Anyone with the link
+`)
+	case "unix":
+		writeCLIHelp(out, `Usage: tunn unix PATH [options]
+
+Publish a Unix socket through tunn.
+Private by default; visitors use tunn connect.
+
+Example
+  tunn unix ./app.sock --name app \
+    --allow=alex@example.com
+
+Options
+  --name NAME     Choose the endpoint name
+  --allow EMAILS  People or email domains
+  --public        Anyone with the link
+  --adapter http  Forward HTTP to the socket
+`)
+	case "connect":
+		writeCLIHelp(out, `Usage: tunn connect ENDPOINT [options]
+
+Forward an endpoint to a local port.
+Use account access or an endpoint token.
+
+Example
+  tunn connect db --account \
+    --listen 127.0.0.1:15432
+
+Options
+  --account          Use your signed-in account
+  --token-file FILE  Read an endpoint token
+  --listen ADDRESS   Local loopback address
+  --stdio            Forward standard input/output
+  --public           Connect without credentials
+`)
 	}
 }

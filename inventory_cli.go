@@ -33,21 +33,21 @@ func jsonRequested(args []string) bool {
 func printHosts(out, errout io.Writer, machines []common.Machine) error {
 	o := terminal.New(out, errout, false)
 	if len(machines) == 0 {
-		o.Hint("No registered machines")
-		o.Hint("tunn service --help")
+		o.Reading("No registered machines")
+		o.Reading("tunn service --help")
 		return nil
 	}
 	for index, m := range machines {
 		if index > 0 {
-			o.Hint("")
+			o.Reading("")
 		}
-		o.Hint(m.Name)
+		o.Reading(m.Name)
 		if len(m.Tunnels) == 0 {
-			o.Hint("No tunnels on this machine")
+			o.Reading("No tunnels on this machine")
 			continue
 		}
 		for _, t := range m.Tunnels {
-			o.Hint("  " + t.Name + " · " + strings.ToUpper(t.Kind))
+			o.Reading("  " + t.Name + " · " + strings.ToUpper(t.Kind))
 			o.URL("  " + t.URL)
 			state := "[o] Status unknown"
 			if t.Online {
@@ -55,7 +55,7 @@ func printHosts(out, errout io.Writer, machines []common.Machine) error {
 			} else if !t.LastSeen.IsZero() {
 				state = "[x] Offline"
 			}
-			o.Hint("  " + state)
+			o.Reading("  " + state)
 			seen := "No check received"
 			if !t.LastSeen.IsZero() {
 				age := time.Since(t.LastSeen)
@@ -65,8 +65,21 @@ func printHosts(out, errout io.Writer, machines []common.Machine) error {
 					seen = "Seen " + age.Round(time.Second).String() + " ago"
 				}
 			}
-			o.Hint("  App not checked · " + seen)
-			o.Hint("  Access: tunn access " + shellURL(t.Name))
+			o.Reading("  App not checked · " + seen)
+			scope := "Unknown · check access"
+			switch t.Access {
+			case "public", "legacy-public":
+				scope = "Anyone with the link"
+			case "private":
+				scope = "Only you and invited people"
+				if t.EndpointToken {
+					scope = "Sign in or use an endpoint token"
+				}
+			}
+			o.Reading("  Access: " + scope)
+			if t.Access == "" || t.Access == "unknown" {
+				o.Hint("  tunn access " + shellURL(t.Name))
+			}
 		}
 	}
 	return nil
@@ -75,7 +88,7 @@ func serviceStatusResult(out io.Writer, result string, err error) error {
 	text := strings.ToLower(result)
 	if err != nil {
 		if strings.Contains(text, "could not be found") || strings.Contains(text, "not installed") || strings.Contains(text, "not-found") {
-			return &cliCommandError{cause: err, state: "stopped", title: "Service not installed", command: "tunn service --help"}
+			return &cliCommandError{cause: err, state: "stopped", title: "Service not installed", command: "tunn service install"}
 		}
 		if strings.Contains(text, "inactive") || strings.Contains(text, "stopped") {
 			return &cliCommandError{cause: err, state: "stopped", title: "Service stopped", command: "tunn service restart"}

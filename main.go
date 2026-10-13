@@ -94,7 +94,7 @@ func main() {
 	case "login":
 		if len(args) > 1 {
 			if len(args) == 2 && (args[1] == "--help" || args[1] == "-h") {
-				fmt.Fprintln(os.Stdout, "Usage: tunn login\n\nSign in in your browser, then run\ntunn http 3000")
+				fmt.Fprintln(os.Stdout, "Usage: tunn login\n\nOpen your browser to sign in, then run\ntunn http 3000")
 				return
 			}
 			reportCLIError("Invalid sign-in command", "Login takes no options", "tunn login", false)
@@ -561,11 +561,11 @@ func runTCP(args []string) {
 	opts, err := parseTCPFlags(args)
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			fmt.Fprintln(os.Stderr, "Usage: tunn tcp [--name NAME] [--allow EMAILS|--public] <host:port>")
+			printRawHelp(os.Stderr, "tcp")
 			return
 		}
 		common.LogError("invalid TCP endpoint", "error", err)
-		fmt.Fprintln(os.Stderr, "Usage: tunn tcp [--name NAME] [--allow EMAILS|--public] <host:port>")
+		printRawHelp(os.Stderr, "tcp")
 		os.Exit(1)
 	}
 	runRawPublisher(opts, "tcp", "tcp")
@@ -575,11 +575,11 @@ func runUnix(args []string) {
 	opts, err := parseUnixFlags(args)
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			fmt.Fprintln(os.Stderr, "Usage: tunn unix [--name NAME] [--allow EMAILS|--public] PATH")
+			printRawHelp(os.Stderr, "unix")
 			return
 		}
 		common.LogError("invalid Unix endpoint", "error", err)
-		fmt.Fprintln(os.Stderr, "Usage: tunn unix [--name NAME] [--allow EMAILS|--public] PATH")
+		printRawHelp(os.Stderr, "unix")
 		os.Exit(1)
 	}
 	endpointProtocol := "tcp"
@@ -730,11 +730,11 @@ func runConnect(args []string) {
 	opts, err := parseConnectFlags(args)
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			fmt.Fprintln(os.Stderr, "Usage: tunn connect [--listen 127.0.0.1:PORT] [--token-file FILE] <endpoint>")
+			printRawHelp(os.Stderr, "connect")
 			return
 		}
 		common.LogError("invalid connect command", "error", err)
-		fmt.Fprintln(os.Stderr, "Usage: tunn connect [--listen 127.0.0.1:PORT] [--token-file FILE] <endpoint>")
+		printRawHelp(os.Stderr, "connect")
 		os.Exit(1)
 	}
 	cfg, err := config.LoadConfig()

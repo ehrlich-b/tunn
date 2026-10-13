@@ -522,6 +522,11 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		_ = controller.SetReadDeadline(time.Time{})
 		if err != nil {
 			meterWriter.bodyMeter = false
+			if cause := context.Cause(r.Context()); cause != nil {
+				session.recordError(cause, r.Context())
+				writeIngressError(w, cause)
+				return nil
+			}
 			var limit *ingressLimitError
 			var unavailable *meterUnavailableError
 			if errors.As(err, &limit) || errors.As(err, &unavailable) {

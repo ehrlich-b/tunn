@@ -101,8 +101,9 @@ type TunnelConnection struct {
 	bandwidthPlan string
 
 	// Stream send mutex - gRPC streams are NOT thread-safe for concurrent Send()
-	streamMu sync.Mutex
-	authMu   sync.RWMutex
+	streamGateOnce sync.Once
+	streamGate     chan struct{}
+	authMu         sync.RWMutex
 
 	// HTTP request tracking
 	pendingMu       sync.RWMutex
@@ -139,9 +140,43 @@ func (t *TunnelConnection) updateAccessTokenDigest(digest []byte) {
 
 // SendMessage sends a message on the stream in a thread-safe manner.
 func (t *TunnelConnection) SendMessage(msg *pb.TunnelMessage) error {
-	t.streamMu.Lock()
-	defer t.streamMu.Unlock()
+	t.lockStreamSend()
+	defer t.unlockStreamSend()
 	return t.Stream.Send(msg)
+}
+
+func (t *TunnelConnection) initStreamGate() {
+	t.streamGateOnce.Do(func() { t.streamGate = make(chan struct{}, 1) })
+}
+func (t *TunnelConnection) lockStreamSend()   { t.initStreamGate(); t.streamGate <- struct{}{} }
+func (t *TunnelConnection) unlockStreamSend() { <-t.streamGate }
+
+// Only one Send can be in flight per publisher. Cancellation never waits for
+// its stream lock or a blocked gRPC send; the one outstanding sender retains
+// the gate until completion, so cancellation cannot spawn unbounded senders.
+func (t *TunnelConnection) SendMessageContext(ctx context.Context, msg *pb.TunnelMessage) error {
+	t.initStreamGate()
+	select {
+	case t.streamGate <- struct{}{}:
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.Stream.Context().Done():
+		return t.Stream.Context().Err()
+	}
+	if err := ctx.Err(); err != nil {
+		t.unlockStreamSend()
+		return err
+	}
+	done := make(chan error, 1)
+	go func() { err := t.Stream.Send(msg); t.unlockStreamSend(); done <- err }()
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.Stream.Context().Done():
+		return t.Stream.Context().Err()
+	}
 }
 
 // CheckRateLimit checks if the specified number of bytes can be sent.
@@ -653,7 +688,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 	// The tunnel becomes visible before the registration reply reaches the
 	// publisher. Hold its send lock so an incoming request cannot overtake
 	// RegisterResponse on the same gRPC stream.
-	conn.streamMu.Lock()
+	conn.lockStreamSend()
 	s.tunnels[tunnelID] = conn
 	s.mu.Unlock()
 
@@ -690,7 +725,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 	}
 
 	err = stream.Send(respMsg)
-	conn.streamMu.Unlock()
+	conn.unlockStreamSend()
 	if err != nil {
 		return fmt.Errorf("failed to send registration response: %w", err)
 	}

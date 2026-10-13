@@ -41,7 +41,7 @@ func (p *ProxyServer) proxyWebSocketOverGRPC(w http.ResponseWriter, r *http.Requ
 	}
 	defer tunnel.removePendingConnection(id, pending)
 	defer sendConnectionClose(tunnel.Stream.Context(), tunnel, id, "")
-	if err := tunnel.SendMessage(&pb.TunnelMessage{Message: &pb.TunnelMessage_ConnectionOpen{
+	if err := tunnel.SendMessageContext(r.Context(), &pb.TunnelMessage{Message: &pb.TunnelMessage_ConnectionOpen{
 		ConnectionOpen: &pb.ConnectionOpen{ConnectionId: id, Protocol: "websocket", SourceAddress: r.RemoteAddr,
 			HttpRequest: &pb.HttpRequestHead{Method: r.Method, Path: r.URL.RequestURI(), Headers: p.forwardedHTTPHeaders(r)}},
 	}}); err != nil {
@@ -136,7 +136,10 @@ func (p *ProxyServer) proxyWebSocketOverGRPC(w http.ResponseWriter, r *http.Requ
 		case <-pending.done:
 			closeUpgradedConnection(conn)
 		case <-r.Context().Done():
-			_ = conn.SetReadDeadline(time.Now())
+			_ = conn.SetDeadline(time.Now())
+			if context.Cause(r.Context()) == context.Canceled {
+				closeUpgradedConnection(conn)
+			}
 		case <-watchDone:
 		}
 	}()
@@ -176,7 +179,7 @@ func (p *ProxyServer) proxyWebSocketOverGRPC(w http.ResponseWriter, r *http.Requ
 					inputDone <- fmt.Errorf("WebSocket bandwidth limit exceeded")
 					return
 				}
-				if err := tunnel.SendMessage(&pb.TunnelMessage{Message: &pb.TunnelMessage_ConnectionData{
+				if err := tunnel.SendMessageContext(r.Context(), &pb.TunnelMessage{Message: &pb.TunnelMessage_ConnectionData{
 					ConnectionData: &pb.ConnectionData{ConnectionId: id, Data: append([]byte(nil), chunk...)},
 				}}); err != nil {
 					inputDone <- err

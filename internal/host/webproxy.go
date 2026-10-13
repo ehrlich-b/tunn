@@ -10,9 +10,12 @@ import (
 	"fmt"
 	"html"
 	"io"
+	"net"
 	"net/http"
+	"net/http/httptrace"
 	"net/http/httputil"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -71,13 +74,19 @@ func (p *ProxyServer) handleWebProxy(w http.ResponseWriter, r *http.Request) {
 	// Extract tunnel ID from hostname
 	tunnelID := extractTunnelID(requestHostname(r.Host), p.Domain)
 	if p.customerHost(r.Host) {
+		admission, stop := context.WithDeadline(r.Context(), p.appAdmissionDeadline(r))
+		defer stop()
+		r = r.WithContext(context.WithValue(r.Context(), appAdmissionKey{}, admission))
+		if !p.prepareAppCredential(w, r, admission) {
+			return
+		}
 		if p.domains == nil {
 			http.NotFound(w, r)
 			return
 		}
-		binding, err := p.domains.Route(r.Context(), &domainpb.Domain{Name: requestHostname(r.Host)})
+		binding, err := p.domains.Route(admission, &domainpb.Domain{Name: requestHostname(r.Host)})
 		if err != nil {
-			domainHTTPError(w, err)
+			p.appRouteFailure(w, r, err)
 			return
 		}
 		tunnelID = binding.Tunnel
@@ -90,6 +99,10 @@ func (p *ProxyServer) handleWebProxy(w http.ResponseWriter, r *http.Request) {
 	// If this is the apex domain (no tunnel ID), show info page
 	if tunnelID == "" {
 		p.handleApexDomain(w, r)
+		return
+	}
+	if isAppCredentialAttempt(r) && r.Context().Value(domainAppKey{}) != true {
+		appAuthenticationError(w, 401)
 		return
 	}
 	// 1. Check if tunnel is local
@@ -124,7 +137,11 @@ func (p *ProxyServer) handleWebProxy(w http.ResponseWriter, r *http.Request) {
 	// 3. Probe other nodes (with timeout to prevent slow nodes from blocking)
 	for addr, client := range p.nodeClients {
 		common.LogInfo("probing node for tunnel", "tunnel_id", tunnelID, "node_addr", addr)
-		probeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		probeParent := r.Context()
+		if admission, _ := r.Context().Value(appAdmissionKey{}).(context.Context); admission != nil {
+			probeParent = admission
+		}
+		probeCtx, cancel := context.WithTimeout(probeParent, 5*time.Second)
 		resp, err := client.FindTunnel(probeCtx, &internalv1.FindTunnelRequest{TunnelId: tunnelID})
 		cancel()
 		if err != nil {
@@ -150,7 +167,9 @@ func (p *ProxyServer) handleWebProxy(w http.ResponseWriter, r *http.Request) {
 		id, err := generateConnectionID()
 		if err == nil {
 			w.Header().Set("Tunn-Request-ID", id)
-			_, err = p.meter.Admit(r.Context(), &meterpb.Event{RequestId: id, Endpoint: tunnelID, Caller: "anonymous", AuthMethod: "none", Reason: "endpoint_offline", Status: 503})
+			auditContext, stopAudit := appAuthorityContext(r)
+			_, err = p.meter.Admit(auditContext, &meterpb.Event{RequestId: id, Endpoint: tunnelID, Caller: "anonymous", AuthMethod: "none", Reason: "endpoint_offline", Status: 503})
+			stopAudit()
 			if err != nil {
 				p.operations.drops.Add(1)
 				common.LogError("failed to audit offline endpoint", "request_id", id, "error", err)
@@ -176,7 +195,23 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		http.Error(w, "SSH endpoint replaced", http.StatusForbidden)
 		return nil
 	}
-	account, accountErr := p.currentTunnelAccount(r.Context(), tunnel)
+	accountContext, stopAccountLookup := appAuthorityContext(r)
+	if r.Context().Value(domainAppKey{}) == true && r.Context().Value(appPrecheckedKey{}) == nil {
+		if !p.prepareAppCredential(w, r, accountContext) {
+			stopAccountLookup()
+			return nil
+		}
+	}
+	account, accountErr := p.currentTunnelAccount(accountContext, tunnel)
+	stopAccountLookup()
+	if r.Context().Value(domainAppKey{}) == true && accountErr != nil {
+		code := 503
+		if errors.Is(accountErr, errUnknownTunnelAccount) {
+			code = 403
+		}
+		http.Error(w, http.StatusText(code), code)
+		return nil
+	}
 	if owner, ok := r.Context().Value(domainOwnerKey{}).(string); ok && (owner == "" || account == nil || account.ID != owner) {
 		http.Error(w, "Domain tunnel ownership mismatch", http.StatusForbidden)
 		return nil
@@ -188,6 +223,7 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		if !allowed {
 			return nil
 		}
+		defer p.releaseAppDevice(r)
 		appEmail, _ = appSession["email"].(string)
 		appID, _ := appSession["account_id"].(string)
 		appProvider, _ := appSession["provider"].(string)
@@ -210,14 +246,18 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 	if p.meter != nil {
 		w.Header().Set("Tunn-Request-ID", session.event.RequestId)
 	}
-	defer session.complete(r.Context(), meterWriter)
+	defer func() { session.complete(r.Context(), meterWriter) }()
+	admissionContext := r.Context()
+	if r.Context().Value(domainAppKey{}) == true {
+		admissionContext, _ = appAuthorityContext(r)
+	}
 	grantAuthenticated := false
 	var webResource *meterpb.WebResource
 	var webEmails []string
 	var orgIdentity *orgSession
 	if tunnel.ResourceID != "" {
 		var err error
-		webResource, err = p.webResource(r.Context(), tunnel)
+		webResource, err = p.webResource(admissionContext, tunnel)
 		if err != nil {
 			session.reason = "permission_authority_unavailable"
 			http.Error(w, "Web permission authority unavailable", 503)
@@ -343,8 +383,11 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		if !capabilityAuthenticated && !appOwner {
 			// Get user's email bucket (all emails associated with their account)
 			if orgIdentity == nil && p.storage != nil && p.storage.Available() {
-				if bucket, err := p.storage.GetEmailBucket(r.Context(), userEmail); err == nil {
+				if bucket, err := p.storage.GetEmailBucket(admissionContext, userEmail); err == nil {
 					userEmails = bucket
+				} else if r.Context().Value(domainAppKey{}) == true {
+					http.Error(w, "Account authority unavailable", 503)
+					return nil
 				}
 			}
 
@@ -450,7 +493,11 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 			http.Error(w, "Account status unavailable", http.StatusServiceUnavailable)
 			return nil
 		}
-		if accountErr != nil || account == nil || !p.planMeter && !p.checkQuota(r.Context(), account.ID, account.Plan) {
+		if accountErr != nil || account == nil || !p.planMeter && !p.checkQuota(admissionContext, account.ID, account.Plan) {
+			if r.Context().Value(domainAppKey{}) == true && admissionContext.Err() != nil {
+				http.Error(w, "Account authority unavailable", 503)
+				return nil
+			}
 			session.reason = "account_quota"
 			common.LogInfo("quota exceeded, rejecting request",
 				"tunnel_id", tunnelID,
@@ -467,7 +514,7 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		writeIngressError(w, &requestBodyTooLargeError{MaxBodySize})
 		return nil
 	}
-	if !session.admit(r.Context(), w, r) {
+	if !session.admit(admissionContext, w, r) {
 		return nil
 	}
 	r, stopAccountWatch := p.watchAccountRequest(r, tunnel, account)
@@ -479,6 +526,15 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		go session.watch(ctx, cancel)
 	}
 	r = r.WithContext(context.WithValue(r.Context(), meterContextKey{}, session))
+	meterWriter.ctx = r.Context()
+	if r.Context().Value(domainAppKey{}) == true {
+		p.signalAppAdmission(w, r)
+	}
+	if r.Context().Value(domainAppKey{}) == true {
+		controller := http.NewResponseController(w)
+		stopIO := context.AfterFunc(r.Context(), func() { _ = controller.SetReadDeadline(time.Now()); _ = controller.SetWriteDeadline(time.Now()) })
+		defer stopIO()
+	}
 	if p.meter != nil {
 		r.Body = &meterRequestBody{ReadCloser: r.Body, meter: session, ctx: r.Context()}
 	}
@@ -624,7 +680,7 @@ func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, 
 		},
 	}
 
-	if err := tunnel.SendMessage(msg); err != nil {
+	if err := tunnel.SendMessageContext(r.Context(), msg); err != nil {
 		return fmt.Errorf("failed to send http request: %w", err)
 	}
 
@@ -763,6 +819,42 @@ func generateConnectionID() (string, error) {
 // If the remote node returns 503, the cache entry is invalidated so the next
 // request will re-probe for the tunnel's current location.
 func (p *ProxyServer) proxyToNode(w http.ResponseWriter, r *http.Request, nodeAddr string, tunnelID string) {
+	var admission *appForwardAdmission
+	if r.Context().Value(domainAppKey{}) == true {
+		check, stop := appAuthorityContext(r)
+		if check.Err() != nil {
+			stop()
+			http.Error(w, "Admission authority unavailable", 503)
+			return
+		}
+		if p.config.NodeSecret == "" {
+			stop()
+			http.Error(w, "Relay authentication unavailable", 503)
+			return
+		}
+		d, _ := check.Deadline()
+		stop()
+		var stopWatch func()
+		r, stopWatch = p.watchForwardedApp(r)
+		defer stopWatch()
+		ctx, cancel := context.WithCancel(r.Context())
+		defer cancel()
+		id, err := generateConnectionID()
+		if err != nil {
+			http.Error(w, "Admission unavailable", 503)
+			return
+		}
+		peer, proto := p.forwardingPeer(r)
+		admission = &appForwardAdmission{deadline: d, id: id, cancel: cancel}
+		admission.proof = p.appRelaySignature(r.Host, peer, proto, strconv.FormatInt(d.UnixMilli(), 10), id, "admitted")
+		admission.timer = time.AfterFunc(max(time.Until(d), 0), cancel)
+		defer admission.timer.Stop()
+		r = r.WithContext(httptrace.WithClientTrace(ctx, admission.trace()))
+		writer := &appForwardWriter{ResponseWriter: w, ctx: r.Context()}
+		stopIO := context.AfterFunc(r.Context(), writer.abort)
+		defer stopIO()
+		w = writer
+	}
 	target, err := url.Parse("https://" + nodeAddr)
 	if err != nil {
 		common.LogError("failed to parse node address", "error", err, "node_addr", nodeAddr)
@@ -784,15 +876,27 @@ func (p *ProxyServer) proxyToNode(w http.ResponseWriter, r *http.Request, nodeAd
 		req.Header.Del(relayForwardedFor)
 		req.Header.Del(relayForwardedProto)
 		req.Header.Del(relayForwardedSignature)
+		req.Header.Del(appRelayDeadline)
+		req.Header.Del(appRelayAdmissionID)
+		req.Header.Del(appRelayAdmissionSignature)
 		if signature := p.forwardingSignature(originalHost, peer, proto); signature != "" {
 			req.Header.Set(relayForwardedFor, peer)
 			req.Header.Set(relayForwardedProto, proto)
 			req.Header.Set(relayForwardedSignature, signature)
 		}
+		if admission != nil {
+			deadline := strconv.FormatInt(admission.deadline.UnixMilli(), 10)
+			req.Header.Set(appRelayDeadline, deadline)
+			req.Header.Set(appRelayAdmissionID, admission.id)
+			req.Header.Set(appRelayAdmissionSignature, p.appRelaySignature(originalHost, peer, proto, deadline, admission.id, "request"))
+		}
 	}
 
 	// Invalidate cache on 503 (tunnel no longer on this node)
 	proxy.ModifyResponse = func(resp *http.Response) error {
+		if admission != nil {
+			admission.timer.Stop()
+		}
 		if resp.StatusCode == http.StatusServiceUnavailable {
 			common.LogInfo("remote node returned 503, invalidating cache", "tunnel_id", tunnelID, "node_addr", nodeAddr)
 			p.cacheMu.Lock()
@@ -804,8 +908,34 @@ func (p *ProxyServer) proxyToNode(w http.ResponseWriter, r *http.Request, nodeAd
 
 	// We need to create a custom transport to skip TLS verification if needed,
 	// since we are using self-signed certs in development.
-	proxy.Transport = &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: p.config.Insecure},
+	tlsConfig := &tls.Config{InsecureSkipVerify: p.config.Insecure}
+	if p.config.InternalCACert != "" {
+		pool, err := loadInternalCA(p.config.InternalCACert)
+		if err != nil {
+			http.Error(w, "Relay trust unavailable", 503)
+			return
+		}
+		tlsConfig.RootCAs = pool
+	}
+	transport := &http.Transport{TLSClientConfig: tlsConfig}
+	if admission != nil {
+		transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+			dial, stop := context.WithDeadline(ctx, admission.deadline)
+			defer stop()
+			return (&net.Dialer{}).DialContext(dial, network, address)
+		}
+		transport.TLSHandshakeTimeout = max(time.Until(admission.deadline), time.Millisecond)
+	}
+	defer transport.CloseIdleConnections()
+	proxy.Transport = transport
+	if admission != nil {
+		proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+			if writer, ok := w.(*appForwardWriter); ok && !writer.started.Load() {
+				http.Error(writer.ResponseWriter, "Relay admission unavailable", 503)
+				return
+			}
+			http.Error(w, "Relay admission or stream unavailable", 503)
+		}
 	}
 
 	common.LogInfo("proxying to remote node", "node_addr", nodeAddr, "tunnel_id", tunnelID)

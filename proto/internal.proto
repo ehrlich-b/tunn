@@ -43,6 +43,8 @@ service LoginNodeDB {
   rpc ProcessBillingEvent(ProcessBillingEventRequest) returns (ProcessBillingEventResponse);
   rpc IntakeReport(IntakeReportRequest) returns (IntakeReportResponse);
   rpc BeginBillingCheckout(BeginBillingCheckoutRequest) returns (BeginBillingCheckoutResponse);
+  // Live app credentials and expiring concurrency leases; never carries raw secrets.
+  rpc AppDeviceCheck(AppDeviceCheckRequest) returns (AppDeviceCheckResponse);
 }
 
 
@@ -69,6 +71,20 @@ message FindTunnelResponse {
   string creator_email = 4;
   string endpoint_kind = 5;
   repeated string allowed_emails = 6;
+  string resource_id = 7;
+}
+
+message AppDeviceCheckRequest {
+  string operation = 1; // resolve, acquire, renew, release, failure
+  bytes token_sha256 = 2;
+  string source = 3;
+  string hostname = 4;
+  string device_id = 5;
+  string lease_id = 6;
+}
+message AppDeviceCheckResponse {
+  int32 status = 1;
+  bytes device_json = 2; // non-secret scope and lifecycle metadata only
 }
 
 // Usage tracking messages

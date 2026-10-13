@@ -224,12 +224,17 @@ func (p *ProxyServer) handleDomainCallback(w http.ResponseWriter, r *http.Reques
 // reserved name belong to the publisher UUID; guests require an explicit live
 // sharing permission even if the publisher selected public mode.
 func (p *ProxyServer) authorizeDomainApp(w http.ResponseWriter, r *http.Request, owner *storage.Account, tunnel *TunnelConnection) (jwt.MapClaims, bool) {
+	if secret, explicit, malformed := appCredential(r); explicit {
+		return p.authorizeAppDevice(w, r, owner, tunnel, secret, malformed)
+	}
 	session, ok := p.accountSession(r)
 	if !ok {
 		p.startDomainSSO(w, r)
 		return nil, false
 	}
-	account, status := p.appAccountAccess(r, session, owner, tunnel)
+	check, stop := appAuthorityContext(r)
+	account, status := p.appAccountAccess(r.WithContext(check), session, owner, tunnel)
+	stop()
 	if status != http.StatusOK {
 		http.Error(w, http.StatusText(status), status)
 		return nil, false
@@ -281,6 +286,16 @@ func (p *ProxyServer) watchAppPermission(r *http.Request, tunnel *TunnelConnecti
 				return
 			case <-ticker.C:
 				check, stop := context.WithTimeout(ctx, 2*time.Second)
+				if auth, _ := r.Context().Value(appDeviceAuthKey{}).(*appDeviceAuth); auth != nil {
+					valid := p.recheckAppDevice(check, r, tunnel, auth)
+					stop()
+					if !valid {
+						cancel()
+						_ = r.Body.Close()
+						return
+					}
+					continue
+				}
 				owner, err := p.currentTunnelAccount(check, tunnel)
 				session, valid := p.accountSession(r)
 				_, status := p.appAccountAccess(r.WithContext(check), session, owner, tunnel)

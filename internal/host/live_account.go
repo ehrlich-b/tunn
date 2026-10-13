@@ -2,10 +2,13 @@ package host
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/ehrlich-b/tunn/internal/storage"
 )
+
+var errUnknownTunnelAccount = errors.New("unknown tunnel account")
 
 // Connection ownership is immutable. Resolve its UUID through shared storage so
 // merges and billing changes take effect on every node without a reconnect.
@@ -21,7 +24,7 @@ func (p *ProxyServer) currentTunnelAccount(ctx context.Context, tunnel *TunnelCo
 		return nil, err
 	}
 	if account == nil || account.ID == "" {
-		return nil, fmt.Errorf("unknown tunnel account")
+		return nil, errUnknownTunnelAccount
 	}
 	return account, nil
 }

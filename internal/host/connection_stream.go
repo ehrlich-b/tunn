@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/ehrlich-b/tunn/internal/common"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
@@ -127,7 +128,9 @@ func sendConnectionClose(ctx context.Context, tunnel *TunnelConnection, connecti
 	if ctx.Err() != nil {
 		return
 	}
-	_ = tunnel.SendMessage(&pb.TunnelMessage{
+	cleanup, stop := context.WithTimeout(ctx, 100*time.Millisecond)
+	defer stop()
+	_ = tunnel.SendMessageContext(cleanup, &pb.TunnelMessage{
 		Message: &pb.TunnelMessage_ConnectionClose{
 			ConnectionClose: &pb.ConnectionClose{
 				ConnectionId: connectionID,

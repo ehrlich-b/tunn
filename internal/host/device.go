@@ -32,7 +32,7 @@ func (p *ProxyServer) handleDeviceCode(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Rate limit by IP address
-	clientIP := extractClientIP(r)
+	clientIP, _ := p.forwardingPeer(r)
 	if !p.checkDeviceCodeRateLimit(clientIP) {
 		common.LogInfo("device code rate limit exceeded", "ip", clientIP)
 		http.Error(w, "Too many requests. Please try again later.", http.StatusTooManyRequests)

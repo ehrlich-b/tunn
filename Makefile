@@ -628,3 +628,7 @@ proto-policy:
 test-policy:
 	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=90s ./internal/trafficpolicy ./internal/metering
 	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=120s -run '^(TestPolicy|TestProdAuthRoute|TestProdAuthInternalRPC|TestDomainAccountOwnerResourceRevocation|TestForwardedHTTP|TestMetering)' ./internal/host ./internal/client .
+
+.PHONY: test-device-admission
+test-device-admission:
+	go test -race -count=1 -timeout=60s -run '^TestDeviceAdmission' ./internal/host

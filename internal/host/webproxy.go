@@ -182,6 +182,33 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		return nil
 	}
 
+	session := newIngressMeter(p, tunnel)
+	if account != nil {
+		session.accountID, session.event.Owner = account.ID, account.ID
+		tunnel.updateBandwidthPlan(account.Plan)
+	}
+	meterWriter := &meterResponseWriter{ResponseWriter: w, meter: session, ctx: r.Context(), status: 200}
+	w = meterWriter
+	if p.meter != nil {
+		w.Header().Set("Tunn-Request-ID", session.event.RequestId)
+	}
+	defer session.complete(r.Context(), meterWriter)
+	if tunnel.AccountID != "" && p.ipPolicyBackend() != nil && (accountErr != nil || account == nil) {
+		http.Error(w, "IP policy ownership authority unavailable", 503)
+		return nil
+	}
+	owner := tunnel.AccountID
+	if account != nil {
+		owner = account.ID
+	}
+	if !p.checkOwnerIPPolicy(w, r, owner, tunnelID) {
+		session.reason = "ip_policy_denied"
+		if meterWriter.status == 503 {
+			session.reason = "ip_policy_authority_unavailable"
+		}
+		return nil
+	}
+
 	appEmail, appOwner := "", false
 	if r.Context().Value(domainAppKey{}) == true {
 		appSession, allowed := p.authorizeDomainApp(w, r, account, tunnel)
@@ -200,17 +227,6 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		r.Header.Set("X-Tunn-Identity", assertion)
 		r.Header.Set("X-Tunn-User-Email", appEmail)
 	}
-	session := newIngressMeter(p, tunnel)
-	if account != nil {
-		session.accountID, session.event.Owner = account.ID, account.ID
-		tunnel.updateBandwidthPlan(account.Plan)
-	}
-	meterWriter := &meterResponseWriter{ResponseWriter: w, meter: session, ctx: r.Context(), status: 200}
-	w = meterWriter
-	if p.meter != nil {
-		w.Header().Set("Tunn-Request-ID", session.event.RequestId)
-	}
-	defer session.complete(r.Context(), meterWriter)
 	grantAuthenticated := false
 	var webResource *meterpb.WebResource
 	var webEmails []string
@@ -772,15 +788,19 @@ func (p *ProxyServer) proxyToNode(w http.ResponseWriter, r *http.Request, nodeAd
 
 	proxy := httputil.NewSingleHostReverseProxy(target)
 
-	// CRITICAL: Preserve original Host header so remote node can extract tunnel ID.
-	// NewSingleHostReverseProxy's default Director rewrites Host to target.Host,
-	// but the remote node needs the original subdomain (e.g., abc123.tunn.to).
-	originalDirector := proxy.Director
+	// Preserve endpoint authority, and install signed peer metadata after the
+	// proxy removes hop headers named by an untrusted Connection header.
 	peer, proto := p.forwardingPeer(r)
-	proxy.Director = func(req *http.Request) {
-		originalHost := req.Host // Save original before Director modifies it
-		originalDirector(req)
-		req.Host = originalHost // Restore original Host
+	if p.forwardingSignature(r.Host, peer, proto) == "" {
+		http.Error(w, "Relay identity unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	proxy.Director = nil
+	proxy.Rewrite = func(pr *httputil.ProxyRequest) {
+		pr.SetURL(target)
+		req := pr.Out
+		originalHost := pr.In.Host
+		req.Host = originalHost
 		req.Header.Del(relayForwardedFor)
 		req.Header.Del(relayForwardedProto)
 		req.Header.Del(relayForwardedSignature)
@@ -806,6 +826,11 @@ func (p *ProxyServer) proxyToNode(w http.ResponseWriter, r *http.Request, nodeAd
 	// since we are using self-signed certs in development.
 	proxy.Transport = &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: p.config.Insecure},
+	}
+	defer proxy.Transport.(*http.Transport).CloseIdleConnections()
+	if r.Method == http.MethodConnect {
+		p.proxyConnectToNode(w, r, target, peer, proto, tunnelID)
+		return
 	}
 
 	common.LogInfo("proxying to remote node", "node_addr", nodeAddr, "tunnel_id", tunnelID)

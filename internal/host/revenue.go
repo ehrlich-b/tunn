@@ -85,12 +85,15 @@ func (p *ProxyServer) handleDocs(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", 405)
 		return
 	}
-	if r.URL.Path != "/docs" && r.URL.Path != "/docs/" && r.URL.Path != "/docs/mcp-to-claude" {
+	if r.URL.Path != "/docs" && r.URL.Path != "/docs/" && r.URL.Path != "/docs/mcp-to-claude" && r.URL.Path != "/docs/ip-restrictions" {
 		http.NotFound(w, r)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if r.URL.Path == "/docs/mcp-to-claude" {
+	if r.URL.Path == "/docs/ip-restrictions" {
+		writePageStart(w, "tunn - IP restrictions")
+		_, _ = fmt.Fprint(w, ipRestrictionsHTML)
+	} else if r.URL.Path == "/docs/mcp-to-claude" {
 		writePageStart(w, "tunn - Connect local MCP to Claude.ai")
 		_, _ = fmt.Fprint(w, mcpTutorialHTML)
 	} else {

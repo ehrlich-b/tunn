@@ -5,6 +5,7 @@ import "google/protobuf/empty.proto";
 
 // Only the login node serves this API, behind the existing node-secret interceptor.
 service Metering {
+  rpc IPPolicy(IPPolicyRequest) returns (.metering.IPPolicy);
   rpc Sharing(SharingRequest) returns (SharingResponse);
   rpc Resolve(ResolveRequest) returns (Grant);
   rpc CreateGrant(Grant) returns (Grant);
@@ -126,3 +127,19 @@ message SharingRequest {
   int64 expires_at = 8;
 }
 message SharingResponse { repeated WebResource resources = 1; }
+
+// Policies are scoped to an account UUID and an endpoint name; an empty name
+// selects the account default. Endpoint policies replace that default.
+message IPPolicyRequest {
+  string operation = 1; // get, set, delete
+  string owner = 2;
+  string endpoint = 3;
+  repeated string allow_cidrs = 4;
+  repeated string deny_cidrs = 5;
+}
+message IPPolicy {
+  repeated string allow_cidrs = 1;
+  repeated string deny_cidrs = 2;
+  bool inherited = 3;
+  bool configured = 4; // an empty configured endpoint policy permits all IPs
+}

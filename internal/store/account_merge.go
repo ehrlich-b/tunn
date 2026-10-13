@@ -17,7 +17,7 @@ ON CONFLICT(account_id,month) DO UPDATE SET bytes_used=account_usage.bytes_used+
 		return err
 	}
 	// Metering is optional; account-only stores need not initialize the ledger.
-	for _, table := range []string{"meter_usage", "meter_events", "meter_grants", "web_resources", "account_provider_identities", "sharing_audit", "sharing_mutation_rate"} {
+	for _, table := range []string{"meter_usage", "meter_events", "meter_grants", "web_resources", "account_provider_identities", "sharing_audit", "sharing_mutation_rate", "ip_policies"} {
 		var exists int
 		if err := tx.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&exists); err != nil {
 			return err
@@ -25,7 +25,18 @@ ON CONFLICT(account_id,month) DO UPDATE SET bytes_used=account_usage.bytes_used+
 		if exists == 0 {
 			continue
 		}
-		if table == "sharing_mutation_rate" {
+		if table == "ip_policies" {
+			// Preserve every scope across identity merges. Conflicting defaults
+			// or endpoint policies block both address families until edited.
+			if _, err := tx.Exec(`INSERT INTO ip_policies(owner,endpoint,data)
+SELECT ?,endpoint,data FROM ip_policies WHERE owner=?
+ON CONFLICT(owner,endpoint) DO UPDATE SET data='{"deny_cidrs":["0.0.0.0/0","::/0"],"configured":true}'`, to, from); err != nil {
+				return err
+			}
+			if _, err := tx.Exec("DELETE FROM ip_policies WHERE owner=?", from); err != nil {
+				return err
+			}
+		} else if table == "sharing_mutation_rate" {
 			if _, err := tx.Exec(`INSERT INTO sharing_mutation_rate(owner,minute,count) SELECT ?,minute,count FROM sharing_mutation_rate WHERE owner=?
    ON CONFLICT(owner) DO UPDATE SET count=CASE WHEN sharing_mutation_rate.minute=excluded.minute THEN sharing_mutation_rate.count+excluded.count WHEN excluded.minute>sharing_mutation_rate.minute THEN excluded.count ELSE sharing_mutation_rate.count END,
    minute=max(sharing_mutation_rate.minute,excluded.minute)`, to, from); err != nil {

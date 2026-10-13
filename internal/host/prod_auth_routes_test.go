@@ -40,6 +40,13 @@ type prodAuthRoute struct {
 // their own proof (OAuth code, email link, webhook signature, or CSRF); a 400
 // below means account credentials do not substitute for that missing proof.
 var prodAuthRoutes = []prodAuthRoute{
+	{"GET", "/api/ip-policy", "/api/ip-policy", "", [11]int{401, 200, 200, 200, 401, 401, 401, 401, 401, 401, 401}},
+	{"GET", "/api/ip-policy/unknown", "/api/ip-policy/", "", [11]int{401, 200, 200, 200, 401, 401, 401, 401, 401, 401, 401}},
+	{"PUT", "/api/ip-policy/unknown", "/api/ip-policy/", `{}`, [11]int{401, 200, 200, 200, 401, 401, 401, 401, 401, 401, 401}},
+	{"DELETE", "/api/ip-policy/unknown", "/api/ip-policy/", "", [11]int{401, 200, 200, 200, 401, 401, 401, 401, 401, 401, 401}},
+	{"GET", "/account/ip-policy", "/account/ip-policy", "", [11]int{302, 302, 302, 302, 200, 200, 302, 302, 302, 302, 302}},
+	{"POST", "/account/ip-policy", "/account/ip-policy", "", [11]int{302, 302, 302, 302, 403, 403, 302, 302, 302, 302, 302}},
+	{"GET", "/docs/ip-restrictions", "/docs/", "", [11]int{200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200}},
 	{"GET", "/auth/domain", "/auth/domain", "", [11]int{400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400}},
 	{"GET", "/.well-known/tunn-jwks.json", "/.well-known/tunn-jwks.json", "", [11]int{503, 503, 503, 503, 503, 503, 503, 503, 503, 503, 503}},
 	{"GET", "/auth/org/unknown", "/auth/org/", "", [11]int{404, 404, 404, 404, 404, 404, 404, 404, 404, 404, 404}},

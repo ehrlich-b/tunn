@@ -5,23 +5,103 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="inspector-csrf" content="{{.CSRF}}">
 <title>Request inspector · tunn</title>
-<style>
-*{box-sizing:border-box}body{margin:0;background:#f6f8fa;color:#1f2328;font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif}a{color:#0969da;text-decoration:none}a:hover{text-decoration:underline}button,input,select,textarea{font:inherit}button,select{border:1px solid #d1d9e0;border-radius:7px;background:#fff;color:#1f2328;padding:9px 13px}button{cursor:pointer}button:hover{background:#f3f4f6}button:disabled{opacity:.5;cursor:default}button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px solid #80ccff;outline-offset:2px}header{background:#fff;border-bottom:1px solid #d1d9e0}nav{max-width:1224px;margin:auto;min-height:64px;display:flex;align-items:center;justify-content:space-between;padding:0 24px;gap:16px}.logo{font-size:24px;font-weight:750;color:#0969da}.nav-right{display:flex;gap:22px;align-items:center}.email{font-size:13px;color:#57606a;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}main{max-width:1224px;margin:38px auto;padding:0 24px 50px}.eyebrow{font-size:11px;font-weight:700;letter-spacing:1.2px;color:#57606a}h1{font-size:30px;line-height:1.25;margin:7px 0 9px;letter-spacing:-.6px}h2{font-size:16px;margin:0;font-weight:650}h3{font-size:13px;margin:22px 0 9px}p{margin:0 0 12px}.muted{color:#57606a}.intro{font-size:15px}.toolbar{display:flex;gap:12px;align-items:end;margin:24px 0 18px}.endpoint-label{font-size:12px;font-weight:600;display:block;margin-bottom:5px}.endpoint-field{min-width:210px}select{width:100%}.timestamp{font-size:12px;color:#57606a;margin:auto 0 auto auto}.retention{display:flex;align-items:center;gap:12px;background:#ddf4ff;border:1px solid #b6e3ff;border-radius:8px;padding:12px 16px;font-size:13px;color:#0550ae}.lock{flex-shrink:0;width:16px;height:16px}.grid{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:20px;margin-top:22px;align-items:start}.card{background:#fff;border:1px solid #d1d9e0;border-radius:12px;overflow:hidden}.card-head{padding:19px 20px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #d8dee4}.count{font-size:12px;color:#57606a;background:#f6f8fa;padding:2px 8px;border-radius:12px}.columns,.request-row{display:grid;grid-template-columns:52px 64px minmax(0,1fr) 55px;gap:9px;align-items:center}.columns{padding:10px 20px;background:#f6f8fa;color:#57606a;font-size:11px;font-weight:600}.request-row{width:100%;text-align:left;border:0;border-bottom:1px solid #eaeef2;border-radius:0;padding:16px 20px;line-height:1.4;font-size:13px}.request-row:last-child{border-bottom:0}.request-row.selected{background:#ddf4ff;box-shadow:inset 3px 0 #0969da}.request-row:hover{background:#f6f8fa}.request-row.selected:hover{background:#ddf4ff}.code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}.status{font-size:12px;font-weight:650;display:inline-block;border-radius:5px;background:#eaeef2;padding:3px 7px;text-align:center}.status.ok{background:#dafbe1;color:#116329}.status.warn{background:#fff8c5;color:#7d4e00}.status.bad{background:#ffebe9;color:#a40e26}.method{font-size:11px;font-weight:700;color:#57606a}.path{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block}.row-time{display:block;margin-top:4px;font-size:11px;color:#57606a;font-family:inherit}.duration{text-align:right;font-size:11px;color:#57606a}.empty{padding:34px 24px;color:#57606a}.empty strong{display:block;color:#1f2328;margin-bottom:5px}.detail{padding:22px}.detail-title{font-size:17px;overflow-wrap:anywhere;margin:6px 0 12px}.detail-labels{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:12px}.facts{display:grid;grid-template-columns:1fr 1fr;gap:13px 20px;margin-top:22px}.fact-label{display:block;color:#57606a;font-size:11px;margin-bottom:3px}.fact-value{font-size:13px;overflow-wrap:anywhere}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f6f8fa;border:1px solid #eaeef2;border-radius:7px;padding:13px;font:12px/1.8 ui-monospace,SFMono-Regular,Consolas,monospace;margin:0}.body-note{border:1px dashed #d1d9e0;border-radius:7px;padding:13px;color:#57606a;font-size:12px}.body-note strong{display:block;color:#1f2328;margin-bottom:3px}.replay-area{border-top:1px solid #d8dee4;margin-top:22px;padding-top:19px}.primary{background:#0969da;border-color:#0969da;color:#fff;font-weight:600}.primary:hover{background:#0550ae}.primary:disabled{background:#0969da}.footnote{font-size:12px;margin:10px 0 0;color:#57606a}.notice{margin-top:16px;border-radius:7px;padding:12px 15px;border:1px solid #ffcecb;background:#ffebe9;color:#a40e26;overflow-wrap:anywhere}.notice.success{background:#dafbe1;border-color:#aceebb;color:#116329}[hidden]{display:none!important}.footer{margin-top:18px;font-size:12px;color:#57606a}.dialog{border:1px solid #d1d9e0;border-radius:12px;padding:24px;width:600px;max-width:calc(100vw - 24px);max-height:calc(100dvh - 32px);overflow:auto;color:#1f2328}.dialog::backdrop{background:rgba(31,35,40,.45)}.dialog-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:12px}.dialog-head h2{font-size:20px}.dialog label.editor{display:block;font-size:12px;font-weight:600;margin:14px 0 6px}.dialog input[type=text],textarea{display:block;width:100%;border:1px solid #d1d9e0;border-radius:6px;padding:10px;background:#f6f8fa;color:#1f2328;font:12px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace}textarea{resize:vertical;min-height:100px}.body-format{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px}.body-format select{width:auto;font-size:12px;padding:6px 8px}.confirm-check{display:flex;align-items:start;gap:9px;margin:20px 0 16px;font-size:13px}.confirm-check input{margin-top:4px;flex-shrink:0}.dialog-actions{display:flex;gap:10px;justify-content:flex-end}.warning{background:#fff8c5;border:1px solid #eac54f;border-radius:7px;padding:12px;font-size:12px}.dialog .notice{font-size:12px}.dialog-summary{font-size:13px;overflow-wrap:anywhere;margin-bottom:12px}
-@media(max-width:760px){nav{padding:0 18px;min-height:58px}.email{display:none}.nav-right{gap:15px}main{margin:25px auto;padding:0 16px 36px}h1{font-size:26px}.intro{font-size:14px}.toolbar{flex-wrap:wrap;margin-top:20px}.endpoint-field{flex:1;min-width:170px}.timestamp{width:100%;margin:0;font-size:11px}.retention{align-items:start;font-size:12px;padding:12px}.grid{grid-template-columns:1fr;gap:16px;margin-top:18px}.card-head{padding:15px 16px}.columns{padding:9px 16px}.request-row{padding:14px 16px}.columns,.request-row{grid-template-columns:44px 49px minmax(0,1fr) 44px;gap:6px}.method{font-size:10px}.request-row{font-size:12px}.status{font-size:11px;padding:3px 5px}.detail{padding:18px}.dialog{padding:18px}.dialog-head h2{font-size:18px}.retention .lock{margin-top:2px}}
+<style>{{.CSS}}
+body{font-size:14px}
+main{max-width:1440px;margin:0 auto;padding:22px 40px 56px}
+.eyebrow{font:500 11px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--engrave)}
+main>h1{font-size:52px;margin:12px 0 10px}
+.intro{color:var(--ink2);font-size:16px;margin-bottom:0}
+.muted{color:var(--engrave)}
+.app-email{font:500 11px/1 var(--mono);letter-spacing:.06em;color:var(--engrave);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+button,select{font:700 12px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;min-height:40px;padding:0 16px;border:0;border-radius:8px;color:var(--ink);background:linear-gradient(180deg,#F7F5F1,#DEDAD2);box-shadow:inset 0 1px 0 #fff,0 0 0 1px rgba(0,0,0,.14),0 3px 0 #B9B3A7;cursor:pointer}
+button:disabled{opacity:.5;cursor:default}
+select{text-transform:none;letter-spacing:0;font:500 14px/1 var(--mono);color:#F3F0E8;background:var(--glass);box-shadow:inset 0 2px 6px rgba(0,0,0,.7),0 1px 0 var(--plate-hi);width:100%}
+.primary{color:#fff;background:linear-gradient(180deg,#FF6A33,#E8430A);box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 0 0 1px #B83405,0 3px 0 #A22E04}
+.toolbar{display:flex;gap:14px;align-items:end;margin:22px 0 14px;padding:16px 20px}
+.endpoint-label{display:block;margin-bottom:8px;font:500 11px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--engrave)}
+.endpoint-field{min-width:240px}
+.timestamp{margin:auto 0 auto auto;font:500 11px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--engrave)}
+.retention{display:flex;align-items:center;gap:12px;font:400 13px/1.5 var(--mono);color:var(--ink2);padding:0 4px}
+.lock{flex-shrink:0;width:16px;height:16px;color:var(--sig-ink)}
+.monitor{height:96px;margin-top:14px}
+.monitor svg{position:absolute;inset:0;width:100%;height:100%}
+.monitor .hud{left:14px;right:14px;top:10px}
+.grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:16px;margin-top:16px;align-items:start}
+.card{border-radius:14px;overflow:hidden}
+.card.list{background:linear-gradient(180deg,var(--plate-hi),var(--plate));box-shadow:inset 0 1px 0 #fff,0 10px 24px -14px rgba(40,34,24,.45),0 0 0 1px rgba(0,0,0,.07)}
+.card.scope-detail{background:var(--glass);color:var(--phos);box-shadow:inset 0 0 0 1px #000,0 10px 24px -14px rgba(0,0,0,.6)}
+.card-head{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--plate-lo)}
+.card.scope-detail .card-head{border-color:#2C2F2A}
+.card-head h2{font:500 11px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--engrave)}
+.card.scope-detail .card-head h2{color:var(--dim)}
+.count{font:500 11px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--engrave)}
+.columns,.request-row{display:grid;grid-template-columns:56px 64px minmax(0,1fr) 62px;gap:10px;align-items:center}
+.columns{padding:12px 20px;font:500 10px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--engrave);border-bottom:1px solid var(--plate-lo)}
+.request-row{width:100%;min-height:56px;text-align:left;padding:10px 20px;border:0;border-radius:0;border-bottom:1px solid var(--plate-lo);background:none;box-shadow:none;font:500 13px/1.35 var(--mono);letter-spacing:0;text-transform:none;color:var(--ink)}
+.request-row:hover{background:rgba(255,255,255,.35)}
+.request-row.selected,.request-row.selected:hover{background:var(--glass);color:#F3F0E8;box-shadow:inset 3px 0 var(--sig)}
+.request-row.selected .row-time,.request-row.selected .duration,.request-row.selected .method{color:var(--dim)}
+.code{font-family:var(--mono)}
+.status{font:700 13px/1 var(--mono)}
+.status.ok{color:var(--ok-ink)}.status.warn{color:var(--warn-ink)}.status.bad{color:var(--err-ink)}
+.request-row.selected .status.ok{color:var(--ok)}.request-row.selected .status.bad,.request-row.selected .status.warn{color:var(--sig)}
+.method{font-size:12px;font-weight:700;color:var(--ink2)}
+.path{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row-time{display:block;margin-top:4px;font-size:11px;color:var(--engrave)}
+.duration{text-align:right;font-size:12px;color:var(--engrave)}
+.empty{padding:32px 22px;color:var(--engrave);font:400 13px/1.6 var(--mono)}
+.empty strong{display:block;color:var(--ink);margin-bottom:4px}
+.card.scope-detail .empty strong{color:#F3F0E8}
+.detail{padding:22px 24px 26px;font-family:var(--mono)}
+.detail .eyebrow{color:var(--dim)}
+.detail-title{font:700 22px/1.3 var(--mono);color:#F3F0E8;overflow-wrap:anywhere;margin:10px 0 12px;text-transform:none;letter-spacing:0}
+.detail-labels{display:flex;flex-wrap:wrap;gap:12px;align-items:center;font-size:13px}
+.detail-labels .status{padding:5px 8px;border-radius:5px;background:#2A2B27}
+.detail-labels .status.ok{color:var(--ok)}.detail-labels .status.bad,.detail-labels .status.warn{color:#151614;background:var(--sig)}
+.detail .muted{color:var(--dim)}
+.facts{display:grid;grid-template-columns:1fr 1fr;gap:14px 22px;margin-top:20px;padding-top:18px;border-top:1px solid #2C2F2A}
+.fact-label{display:block;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim);margin-bottom:4px}
+.fact-value{font-size:14px;color:#F3F0E8;overflow-wrap:anywhere}
+.detail h3{font:500 10px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--dim);margin:24px 0 10px;padding-top:18px;border-top:1px solid #2C2F2A}
+pre{white-space:pre-wrap;overflow-wrap:anywhere;margin:0;font:500 13px/1.8 var(--mono);color:#F3F0E8;background:none;padding:0}
+.body-note{font-size:13px;color:var(--phos)}
+.body-note strong{display:block;color:#F3F0E8;margin-bottom:4px}
+.replay-area{margin-top:22px;padding-top:18px;border-top:1px solid #2C2F2A}
+.footnote{font:400 12px/1.6 var(--mono);color:var(--dim);margin:10px 0 0}
+.dialog .footnote{color:var(--engrave)}
+.notice{margin-top:14px;padding:12px 14px;border-radius:8px;background:#F3D6CF;color:var(--err-ink);font:500 13px/1.5 var(--mono);overflow-wrap:anywhere}
+.notice.success{background:#DCE9D6;color:var(--ok-ink)}
+.footer{margin-top:18px;font:400 12px/1.6 var(--mono);color:var(--engrave)}
+.dialog{border:0;border-radius:14px;padding:24px;width:600px;max-width:calc(100vw - 24px);max-height:calc(100dvh - 32px);overflow:auto;color:var(--ink);background:var(--plate);box-shadow:0 24px 80px rgba(0,0,0,.45)}
+.dialog::backdrop{background:rgba(21,22,20,.55)}
+.dialog-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:14px}
+.dialog-head h2{font-size:24px}
+.dialog label.editor{display:block;margin:14px 0 6px;font:500 11px/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--engrave)}
+.dialog input[type=text],textarea{display:block;width:100%;font:500 12px/1.6 var(--mono)}
+textarea{resize:vertical;min-height:100px}
+.body-format{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px}
+.body-format select{width:auto}
+.confirm-check{display:flex;align-items:start;gap:10px;margin:20px 0 16px;font:400 13px/1.5 var(--mono)}
+.confirm-check input{margin-top:3px;flex-shrink:0;width:18px;height:18px;accent-color:var(--sig)}
+.dialog-actions{display:flex;gap:12px;justify-content:flex-end}
+.warning{padding:12px;border-radius:8px;background:#EBDDB8;color:#5A3D00;font:400 12px/1.6 var(--mono)}
+.dialog-summary{font-size:13px;overflow-wrap:anywhere;margin-bottom:12px}
+@media(max-width:760px){main{padding:16px 18px 40px}main>h1{font-size:36px}.intro{font-size:14px}.app-email{display:none}.toolbar{flex-wrap:wrap;padding:14px}.endpoint-field{flex:1;min-width:0}.timestamp{width:100%;margin:0}.monitor{height:64px}.grid{grid-template-columns:1fr}.columns,.request-row{grid-template-columns:44px 50px minmax(0,1fr) 48px;gap:6px}.request-row,.columns{padding-left:14px;padding-right:14px}.detail{padding:18px}.facts{grid-template-columns:1fr 1fr}.dialog{padding:18px}}
 </style>
 </head>
 <body>
-<header><nav aria-label="Account navigation"><a class="logo" href="/">tunn</a><div class="nav-right"><span class="email">{{.Email}}</span><a href="/account">Account</a><a href="/account/sharing">Sharing</a></div></nav></header>
+<header class="site-header"><div class="container"><a class="logo" href="/" aria-label="tunn home"><span class="logo-mark" aria-hidden="true"></span>tunn</a><nav class="site-nav" aria-label="Account navigation"><span class="app-email">{{.Email}}</span><a href="/account/inspect" aria-current="page">Requests</a><a href="/account/sharing">Sharing</a><a href="/account">Account</a></nav><details class="menu"><summary aria-label="Menu"><i aria-hidden="true"></i>Menu</summary><nav aria-label="Account navigation"><a href="/account/inspect" aria-current="page">Requests</a><a href="/account/sharing">Sharing</a><a href="/account">Account</a><a href="/docs">Docs</a></nav></details></div></header>
 <main>
 <div class="eyebrow">YOUR ENDPOINTS</div>
 <h1>Request inspector</h1>
-<p class="intro muted">Recent traffic, with credentials redacted and bodies omitted.</p>
-<div class="toolbar"><div class="endpoint-field"><label class="endpoint-label" for="endpoint">Endpoint</label><select id="endpoint"><option value="">Loading endpoints…</option></select></div><button id="refresh" type="button">Refresh</button><span class="timestamp" id="updated" role="status" aria-live="polite"></span></div>
+<p class="intro">Recent requests to your endpoints. Credentials are redacted and bodies aren’t stored.</p>
+<div class="toolbar panel"><div class="endpoint-field"><label class="endpoint-label" for="endpoint">Endpoint</label><select id="endpoint"><option value="">Loading endpoints…</option></select></div><button id="refresh" type="button">Refresh</button><span class="timestamp" id="updated" role="status" aria-live="polite"></span></div>
 <div class="retention"><svg class="lock" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4.5 7V4.5a3.5 3.5 0 0 1 7 0V7M3 7h10v7H3z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"></path></svg><span><strong>Owner only.</strong> Up to 50 completed requests. History clears when the publisher disconnects or the relay restarts.</span></div>
+<div class="glass grid-bg monitor" aria-hidden="true"><span class="hud"><span>CH1 · requests listed below</span><span id="trace-scale"></span></span><svg viewBox="0 0 1000 100" preserveAspectRatio="none"><path d="M0 80 H1000" stroke="#3A3D37" stroke-dasharray="3 5" fill="none"></path><path id="trace" class="trace" d="M0 80 H1000"></path></svg></div>
 <div id="notice" class="notice" role="alert" hidden></div>
 <div class="grid">
-<section class="card" aria-labelledby="recent-title"><div class="card-head"><h2 id="recent-title">Recent requests</h2><span id="count" class="count">0 / 50</span></div><div class="columns" aria-hidden="true"><span>Status</span><span>Method</span><span>Path / time</span><span>Time</span></div><div id="requests"><div class="empty"><strong>Choose an endpoint</strong>Its recent HTTP requests will appear here.</div></div></section>
-<section class="card" aria-labelledby="detail-title"><div class="card-head"><h2 id="detail-title">Request details</h2><span class="count">Metadata only</span></div><div class="detail" id="detail"><div class="empty"><strong>Select a request</strong>View its headers, byte counts, and replay options.</div></div></section>
+<section class="card list" aria-labelledby="recent-title"><div class="card-head"><h2 id="recent-title">Recent requests</h2><span id="count" class="count">0 / 50</span></div><div class="columns" aria-hidden="true"><span>Status</span><span>Method</span><span>Path / time</span><span>Time</span></div><div id="requests"><div class="empty"><strong>Choose an endpoint</strong>Its recent HTTP requests will appear here.</div></div></section>
+<section class="card scope-detail" aria-labelledby="detail-title"><div class="card-head"><h2 id="detail-title">Request details</h2><span class="count">Metadata only</span></div><div class="detail" id="detail"><div class="empty"><strong>Select a request</strong>View its headers, byte counts, and replay options.</div></div></section>
 </div>
 <p class="footer">Headers and query values follow the local inspector’s redaction rules. Paths and standard headers may still contain application data. HTTP and SSE deliveries appear after completion; open streams, WebSockets, and TCP are excluded.</p>
 </main>
@@ -30,8 +110,8 @@
 <p id="replay-summary" class="dialog-summary code"></p>
 <div class="warning">This sends another request to the publisher’s configured origin. It can repeat side effects. Signatures may expire. Cancellation cannot undo a request already received by the origin.</div>
 <p class="footnote" id="intent-expiry"></p>
-<div id="query-editor" hidden><label class="editor" for="replay-path">Original path and query — restore every redacted value</label><input type="text" id="replay-path" maxlength="2048" autocomplete="off" spellcheck="false"></div>
-<div id="headers-editor" hidden><label class="editor" for="replay-headers">Full original headers (JSON) — restore every redacted value</label><textarea id="replay-headers" autocomplete="off" spellcheck="false"></textarea><p class="footnote">Keep all original fields and standard header values. Credentials are never filled from a hidden copy.</p></div>
+<div id="query-editor" hidden><label class="editor" for="replay-path">Original path and query. Restore every redacted value.</label><input type="text" id="replay-path" maxlength="2048" autocomplete="off" spellcheck="false"></div>
+<div id="headers-editor" hidden><label class="editor" for="replay-headers">Full original headers (JSON). Restore every redacted value.</label><textarea id="replay-headers" autocomplete="off" spellcheck="false"></textarea><p class="footnote">Keep all original fields and standard header values. Credentials are never filled from a hidden copy.</p></div>
 <div id="body-editor" hidden><div class="body-format"><label class="editor" for="replay-body" id="body-label">Original request body</label><select id="body-format" aria-label="Body encoding"><option value="text">UTF-8 text</option><option value="base64">Base64 (binary)</option></select></div><textarea id="replay-body" autocomplete="off" spellcheck="false"></textarea></div>
 <div id="replay-error" class="notice" role="alert" hidden></div>
 <label class="confirm-check"><input id="confirm-replay" type="checkbox"><span>I restored the original request and want to send it once to this endpoint’s origin.</span></label>
@@ -62,9 +142,18 @@ async function api(path, options = {}) {
 function post(path, body, signal) { return api(path, {method:'POST', headers:{'Content-Type':'application/json','X-Tunn-CSRF':csrf}, body:JSON.stringify(body), signal}); }
 function basePath() { return encodeURIComponent(endpoint) + '/requests'; }
 function resetDetail() { selected = null; $('detail').replaceChildren(text('div', 'Select a request to view its details.', 'empty')); }
+function drawTrace() {
+  const times = events.map(event => Date.parse(event.at)).filter(Number.isFinite);
+  if (!times.length) { $('trace').setAttribute('d', 'M0 80 H1000'); $('trace-scale').textContent = ''; return; }
+  const start = Math.min(...times), span = Math.max(Math.max(...times) - start, 1000);
+  const peaks = events.map(event => [40 + 920 * (Date.parse(event.at) - start) / span, Math.min(44, 12 + Math.sqrt(event.duration_ms || 0) * 4)]).sort((a, b) => a[0] - b[0]);
+  let d = 'M0 80', last = 0;
+  peaks.forEach(([x, h]) => { if (x - 10 < last) x = last + 10; d += ' H' + (x - 6).toFixed(1) + ' L' + x.toFixed(1) + ' ' + (80 - h).toFixed(1) + ' L' + (x + 5).toFixed(1) + ' ' + (80 + h / 4).toFixed(1) + ' L' + (x + 9).toFixed(1) + ' 80'; last = x + 9; });
+  $('trace').setAttribute('d', d + ' H1000'); $('trace-scale').textContent = Math.round(span / 1000) + ' s';
+}
 function rows() {
   const container = $('requests'); container.replaceChildren();
-  $('count').textContent = events.length + ' / 50';
+  $('count').textContent = events.length + ' / 50'; drawTrace();
   if (!events.length) { const empty = text('div', '', 'empty'); empty.append(text('strong', 'No requests yet'), text('span', 'Send a request to this endpoint, then refresh.')); container.append(empty); return; }
   [...events].reverse().forEach(event => {
     const row = text('button', '', 'request-row' + (selected && selected.id === event.id ? ' selected' : ''));
@@ -80,7 +169,7 @@ function renderDetail() {
   detail.append(text('div', 'REQUEST ' + event.id + (event.replay_of ? ' · REPLAY OF ' + event.replay_of : ''), 'eyebrow'), text('h2', event.method + ' ' + event.path, 'detail-title code'));
   const labels = text('div', '', 'detail-labels'); labels.append(text('span', event.status || '—', 'status ' + statusClass(event.status)), text('span', event.terminal_reason, 'muted'), text('span', event.protocol.toUpperCase(), 'muted')); detail.append(labels);
   const facts = text('div', '', 'facts');
-  [['Duration', event.duration_ms + ' ms'], ['Received', new Date(event.at).toLocaleString()], ['Request', byteCount(event.request_bytes)], ['Response', byteCount(event.response_bytes)], ['Connection ID', event.connection_id], ['Upload', event.body_complete ? 'Complete' : 'Incomplete']].forEach(([label,value]) => { const fact = text('div',''); fact.append(text('span', label, 'fact-label'), text('span', value, 'fact-value')); facts.append(fact); }); detail.append(facts);
+  [['Duration', event.duration_ms + ' ms'], ['Received', new Date(event.at).toLocaleString()], ['Request', byteCount(event.request_bytes)], ['Response', byteCount(event.response_bytes)], ['Upload', event.body_complete ? 'Complete' : 'Incomplete']].forEach(([label,value]) => { const fact = text('div',''); fact.append(text('span', label, 'fact-label'), text('span', value, 'fact-value')); facts.append(fact); }); detail.append(facts);
   detail.append(text('h3', 'Request headers'));
   const headers = Object.entries(event.headers || {}).sort(([a],[b]) => a.localeCompare(b)).map(([key,value]) => key + ': ' + value).join('\n'); detail.append(text('pre', headers || 'No headers retained.'));
   detail.append(text('h3', 'Request body')); const body = text('div', '', 'body-note'); body.append(text('strong', byteCount(event.request_bytes) + ' · Body omitted'), text('span', event.request_bytes ? 'The dashboard never retains payloads. Supply the original body to replay.' : 'This request had no body.')); detail.append(body);

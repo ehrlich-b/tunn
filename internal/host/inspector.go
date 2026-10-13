@@ -103,8 +103,11 @@ func (p *ProxyServer) handleInspectorPage(w http.ResponseWriter, r *http.Request
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Referrer-Policy", "no-referrer")
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'nonce-"+nonce+"'; style-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
-	_ = tmpl.Execute(w, struct{ Email, CSRF, Nonce string }{account.PrimaryEmail, csrf, nonce})
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'nonce-"+nonce+"'; style-src 'unsafe-inline'; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+	_ = tmpl.Execute(w, struct {
+		Email, CSRF, Nonce string
+		CSS                template.CSS
+	}{account.PrimaryEmail, csrf, nonce, template.CSS(baseCSS)})
 }
 func inspectorJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json")

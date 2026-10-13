@@ -21,6 +21,20 @@ type revenuePageData struct {
 	FreeBytes, ProBytes               string
 	FreeReservations, Reservations    int
 	MonthlyAvailable, YearlyAvailable bool
+	// Short display forms of the same limits, such as 1M and 10 GB.
+	FreeRequestsShort, ProRequestsShort string
+	FreeBytesShort, ProBytesShort       string
+}
+
+// shortCount renders an allowance compactly without rounding it.
+func shortCount(n int64) string {
+	switch {
+	case n >= 1000000 && n%1000000 == 0:
+		return fmt.Sprintf("%dM", n/1000000)
+	case n >= 1000 && n%1000 == 0:
+		return fmt.Sprintf("%dK", n/1000)
+	}
+	return fmt.Sprint(n)
 }
 
 // Restrict configured destinations to Stripe origins. Missing/malformed config
@@ -50,11 +64,14 @@ func (p *ProxyServer) revenueData() revenuePageData {
 		freeBytes = min(freeBytes, p.config.OwnerMonthlyBytes)
 		proBytes = min(proBytes, p.config.OwnerMonthlyBytes)
 	}
-	return revenuePageData{MonthlyUSD: monthly, YearlyUSD: yearly, FreeTunnels: storage.FreeTunnelLimit, ProTunnels: storage.ProTunnelLimit, FreeRequests: freeRequests, ProRequests: proRequests, FreeBytes: formatBytes(freeBytes), ProBytes: formatBytes(proBytes), FreeReservations: store.FreeReservedSubdomains, Reservations: store.MaxReservedSubdomains, MonthlyAvailable: p.config.BillingEnabled && p.config.StripeWebhookSecret != "" && monthOK, YearlyAvailable: p.config.BillingEnabled && p.config.StripeWebhookSecret != "" && yearOK}
+	data := revenuePageData{MonthlyUSD: monthly, YearlyUSD: yearly, FreeTunnels: storage.FreeTunnelLimit, ProTunnels: storage.ProTunnelLimit, FreeRequests: freeRequests, ProRequests: proRequests, FreeBytes: formatBytes(freeBytes), ProBytes: formatBytes(proBytes), FreeReservations: store.FreeReservedSubdomains, Reservations: store.MaxReservedSubdomains, MonthlyAvailable: p.config.BillingEnabled && p.config.StripeWebhookSecret != "" && monthOK, YearlyAvailable: p.config.BillingEnabled && p.config.StripeWebhookSecret != "" && yearOK}
+	data.FreeRequestsShort, data.ProRequestsShort = shortCount(data.FreeRequests), shortCount(data.ProRequests)
+	data.FreeBytesShort, data.ProBytesShort = strings.Replace(data.FreeBytes, ".0 ", " ", 1), strings.Replace(data.ProBytes, ".0 ", " ", 1)
+	return data
 }
 
 func (p *ProxyServer) renderRevenuePage(w http.ResponseWriter, content string) {
-	tmpl, err := template.New("revenue").Parse(content)
+	tmpl, err := template.New("revenue").Parse(withSiteChrome(content))
 	if err != nil {
 		http.Error(w, "Page unavailable", 500)
 		return
@@ -71,7 +88,7 @@ func (p *ProxyServer) handlePricing(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	writePageStart(w, "tunn - Pricing")
+	writePageStartAt(w, "tunn - Pricing", "pricing")
 	p.renderRevenuePage(w, pricingHTML)
 	writePageEnd(w)
 }
@@ -110,7 +127,7 @@ func (p *ProxyServer) handleDocs(w http.ResponseWriter, r *http.Request) {
 		writePageStart(w, "tunn - IP restrictions")
 		_, _ = fmt.Fprint(w, ipRestrictionsHTML)
 	} else {
-		writePageStart(w, "tunn - Quickstart")
+		writePageStartAt(w, "tunn - Quickstart", "docs")
 		_, _ = fmt.Fprint(w, docsHTML)
 	}
 	writePageEnd(w)

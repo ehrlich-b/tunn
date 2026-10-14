@@ -16,6 +16,7 @@ import (
 	"github.com/ehrlich-b/tunn/internal/cliopts"
 	"github.com/ehrlich-b/tunn/internal/config"
 	"github.com/ehrlich-b/tunn/internal/relaytransport"
+	"github.com/mattn/go-isatty"
 )
 
 type sharingOptions struct {
@@ -155,7 +156,9 @@ func exitIfLoginRequired(err error) {
 	}
 }
 
+// stdinIsTerminal reports a person at a terminal. A service's /dev/null stdin
+// is a character device too, so the mode bits alone would start a browser login.
 func stdinIsTerminal() bool {
-	info, err := os.Stdin.Stat()
-	return err == nil && info.Mode()&os.ModeCharDevice != 0
+	fd := os.Stdin.Fd()
+	return isatty.IsTerminal(fd) || isatty.IsCygwinTerminal(fd)
 }

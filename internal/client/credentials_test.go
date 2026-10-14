@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -36,7 +37,7 @@ func refreshFixtureResponse(r *http.Request, access, refresh string) *http.Respo
 func TestDurableClientExpirySkewAtomicAndConcurrentRefresh(t *testing.T) {
 	m, state := credentialFixture(t)
 	now := time.Unix(500000000, 0)
-	m.now = func() time.Time { return now }
+	m.Now = func() time.Time { return now }
 	state.Expires = now.Add(300 * time.Second)
 	if err := saveCredentialState(m.path, state); err != nil {
 		t.Fatal(err)
@@ -55,7 +56,7 @@ func TestDurableClientExpirySkewAtomicAndConcurrentRefresh(t *testing.T) {
 		return refreshFixtureResponse(r, "new-access-with-different-server-clock", "tunn_rt_new-secret"), nil
 	})
 	m.HTTPClient = &http.Client{Transport: transport}
-	second := &CredentialManager{ServerAddr: m.ServerAddr, path: m.path, HTTPClient: m.HTTPClient, now: m.now}
+	second := &CredentialManager{ServerAddr: m.ServerAddr, path: m.path, HTTPClient: m.HTTPClient, Now: m.Now}
 	for _, manager := range []*CredentialManager{m, second} {
 		token, err := manager.Token(context.Background(), false)
 		if err != nil || token != state.Access {
@@ -179,7 +180,7 @@ func TestDurableClientPublisherRefreshesFor48Hours(t *testing.T) {
 	var seconds atomic.Int64
 	seconds.Store(time.Now().Unix())
 	clock := func() time.Time { return time.Unix(seconds.Load(), 0) }
-	m.now = clock
+	m.Now = clock
 	state.Expires = clock().Add(300 * time.Second)
 	if err := saveCredentialState(m.path, state); err != nil {
 		t.Fatal(err)
@@ -320,5 +321,77 @@ func TestDurableCrossProcessRefresh(t *testing.T) {
 	count, err := os.ReadFile(filepath.Join(filepath.Dir(m.path), "refresh-count"))
 	if err != nil || string(count) != "refresh\n" {
 		t.Fatal("processes reused rotating secret", string(count), err)
+	}
+}
+
+func TestDurablePublisherRetriesFailedRenewalWithinReplayWindow(t *testing.T) {
+	m, state := credentialFixture(t)
+	m.Now = func() time.Time { return state.Expires.Add(-30 * time.Second) }
+	var attempts atomic.Int64
+	m.HTTPClient = &http.Client{Transport: meteringTransportFunc(func(r *http.Request) (*http.Response, error) {
+		if attempts.Add(1) == 1 {
+			return nil, fmt.Errorf("network down")
+		}
+		return refreshFixtureResponse(r, "renewed-access", "renewed-refresh"), nil
+	})}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	sent := make(chan string, 1)
+	sender := durableLeaseSender{sent: func(msg *pb.TunnelMessage) error {
+		sent <- msg.GetRegisterClient().AuthToken
+		cancel()
+		return nil
+	}}
+	started := time.Now()
+	publisher := &ServeClient{Credentials: m}
+	go func() { _ = publisher.maintainDeviceLease(ctx, sender, state.Access, 20*time.Millisecond) }()
+	select {
+	case token := <-sent:
+		if token != "renewed-access" || attempts.Load() != 2 {
+			t.Fatal(token, attempts.Load())
+		}
+	case <-ctx.Done():
+		t.Fatal("renewal not retried")
+	}
+	// With the production interval the retry still lands inside the relay's
+	// 60-second replay window: one request timeout plus at most one second.
+	if delay := ReconnectDelay(time.Second, 30*time.Second, 0); delay > time.Second || refreshRequestTimeout+delay >= 60*time.Second {
+		t.Fatal("retry can miss the replay window", delay)
+	}
+	if time.Since(started) > 5*time.Second {
+		t.Fatal("retry waited too long")
+	}
+}
+
+func TestLoginRequiredClassification(t *testing.T) {
+	t.Setenv("TUNN_CONFIG_DIR", filepath.Join(t.TempDir(), "forge"))
+	cases := []struct {
+		err       error
+		login     bool
+		transient bool
+	}{
+		{&credentialRefreshError{true, "device login revoked, reused or rejected; run tunn login on this device"}, true, false},
+		{&permanentTunnelError{err: &credentialRefreshError{true, "revoked"}}, true, false},
+		{&credentialRefreshError{false, "credential refresh could not reach the login server"}, false, false},
+		{ErrNotLoggedIn, true, false},
+		{&permanentTunnelError{err: fmt.Errorf("registration failed: Invalid or expired token. Run 'tunn login' to refresh."), kind: FailureRegistration}, true, false},
+		{&permanentTunnelError{err: fmt.Errorf("registration failed: Account service temporarily unavailable."), kind: FailureRegistration}, false, true},
+		{&permanentTunnelError{err: fmt.Errorf("registration failed: Tunnel ownership could not be verified. Please try again later."), kind: FailureRegistration}, false, true},
+		{&permanentTunnelError{err: fmt.Errorf("registration failed: Device token expired during registration; retry renewal."), kind: FailureRegistration}, false, true},
+		{&permanentTunnelError{err: fmt.Errorf("registration failed: tunnel ID already in use"), kind: FailureRegistration}, false, false},
+		{&permanentTunnelError{err: fmt.Errorf("relay lacks durable publisher renewal; update the relay")}, false, false},
+	}
+	for _, c := range cases {
+		if LoginRequired(c.err) != c.login {
+			t.Errorf("LoginRequired(%v) = %t", c.err, !c.login)
+		}
+		var permanent *permanentTunnelError
+		if errors.As(c.err, &permanent) && transientRegistration(permanent) != c.transient {
+			t.Errorf("transientRegistration(%v) = %t", c.err, !c.transient)
+		}
+	}
+	message := LoginRequiredMessage()
+	if strings.Contains(message, "\n") || !strings.Contains(message, "TUNN_CONFIG_DIR="+filepath.Join(filepath.Dir(os.Getenv("TUNN_CONFIG_DIR")), "forge")+" tunn login") {
+		t.Fatal("login message does not name the fix on one line:", message)
 	}
 }

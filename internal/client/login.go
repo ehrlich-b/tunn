@@ -101,6 +101,9 @@ func (l *LoginClient) Run(ctx context.Context) error {
 	tokenPath, _ := l.getTokenPath() // saveToken already checked the path.
 	common.LogInfo("login successful", "token_file", tokenPath)
 	_, _ = fmt.Fprintln(output, "Logged in successfully!")
+	if !l.PolicyOwner && token.RefreshToken == "" {
+		_, _ = fmt.Fprintln(output, "Warning: this relay issued a login that cannot renew; always-on tunnels stop when it expires. Run tunn login again after the relay is updated.")
+	}
 
 	return nil
 }
@@ -258,6 +261,9 @@ func (l *LoginClient) getTokenPath() (string, error) {
 	return filepath.Join(dir, "token"), nil
 }
 
+// ErrNotLoggedIn means no publisher login is saved in the config directory.
+var ErrNotLoggedIn = errors.New("no token found, please run 'tunn login' first")
+
 // LoadToken loads the saved access token
 func LoadToken() (string, error) {
 	tokenPath, err := (&LoginClient{}).getTokenPath()
@@ -267,7 +273,7 @@ func LoadToken() (string, error) {
 	data, err := os.ReadFile(tokenPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return "", fmt.Errorf("no token found, please run 'tunn login' first")
+			return "", ErrNotLoggedIn
 		}
 		return "", fmt.Errorf("failed to read token: %w", err)
 	}

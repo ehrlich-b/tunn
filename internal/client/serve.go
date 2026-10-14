@@ -108,6 +108,7 @@ type ServeClient struct {
 	MaxReconnectDelay time.Duration // Maximum delay between reconnects (default: 30s)
 	InitialDelay      time.Duration // Initial delay for exponential backoff (default: 1s)
 	ReconnectLimit    *int          // nil keeps CLI retries unlimited; otherwise bounds retries
+	RenewInterval     time.Duration // How often a live publisher checks its device login (default: 30s)
 	ConnectTimeout    time.Duration // Bounds connection and registration, not an established tunnel
 
 	// HTTP client settings
@@ -158,26 +159,23 @@ func (s *ServeClient) Run(ctx context.Context) error {
 		if duration > 30*time.Second {
 			authRetried = false
 		}
-		if s.Credentials != nil && status.Code(err) == codes.Unauthenticated && !authRetried {
-			token, refreshErr := s.Credentials.Token(ctx, true)
-			if refreshErr != nil {
-				return fmt.Errorf("publisher authentication renewal: %w", refreshErr)
-			}
-			s.AuthToken = token
-			authRetried = true
-			continue
-		}
 		var permanent *permanentTunnelError
-		if errors.As(err, &permanent) {
-			if s.Credentials != nil && permanent.kind == FailureRegistration && !authRetried {
-				token, refreshErr := s.Credentials.Token(ctx, true)
-				if refreshErr != nil {
-					return fmt.Errorf("publisher authentication renewal: %w", refreshErr)
-				}
+		isPermanent := errors.As(err, &permanent)
+		if s.Credentials != nil && !authRetried && (status.Code(err) == codes.Unauthenticated || isPermanent && permanent.kind == FailureRegistration) {
+			token, refreshErr := s.Credentials.Token(ctx, true)
+			if refreshErr == nil {
 				s.AuthToken = token
 				authRetried = true
 				continue
 			}
+			if terminalCredentialError(refreshErr) || ctx.Err() != nil {
+				return fmt.Errorf("publisher authentication renewal: %w", refreshErr)
+			}
+			// Only the relay's rejection needs a human; retry an unreachable
+			// login server with the reconnect backoff.
+			err, isPermanent = refreshErr, false
+		}
+		if isPermanent && !transientRegistration(permanent) {
 			return err
 		}
 		// Reset backoff if connection was stable for at least 30 seconds
@@ -206,8 +204,31 @@ func (s *ServeClient) Run(ctx context.Context) error {
 
 		// Exponential backoff with cap
 		backoffAttempt++
+		authRetried = false
 		s.Inspector.reconnected()
 	}
+}
+
+func (s *ServeClient) renewInterval() time.Duration {
+	if s.RenewInterval > 0 {
+		return s.RenewInterval
+	}
+	return 30 * time.Second
+}
+
+// transientRegistration reports relay rejections that ask the publisher to
+// retry, such as an account or login service restarting with the relay.
+func transientRegistration(err *permanentTunnelError) bool {
+	if err.kind != FailureRegistration {
+		return false
+	}
+	message := err.Error()
+	for _, retry := range []string{"temporarily unavailable", "try again later", "retry renewal"} {
+		if strings.Contains(message, retry) {
+			return true
+		}
+	}
+	return false
 }
 
 // runOnce establishes a single gRPC tunnel connection and handles messages until disconnection
@@ -463,7 +484,7 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 		workers.Add(1)
 		go func() {
 			defer workers.Done()
-			if err := s.maintainDeviceLease(connCtx, sender, s.AuthToken, 30*time.Second); err != nil {
+			if err := s.maintainDeviceLease(connCtx, sender, s.AuthToken, s.renewInterval()); err != nil {
 				renewalError <- err
 				cancel()
 			}
@@ -882,8 +903,9 @@ func (s *ServeClient) sendOneHealthCheck(sender messageSender) {
 }
 
 func (s *ServeClient) maintainDeviceLease(ctx context.Context, sender messageSender, current string, interval time.Duration) error {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
+	timer := time.NewTimer(interval)
+	defer timer.Stop()
+	failures := 0
 	for {
 		if ctx.Err() != nil {
 			return nil
@@ -891,7 +913,7 @@ func (s *ServeClient) maintainDeviceLease(ctx context.Context, sender messageSen
 		select {
 		case <-ctx.Done():
 			return nil
-		case <-ticker.C:
+		case <-timer.C:
 			token, err := s.Credentials.Token(ctx, false)
 			if err != nil {
 				if ctx.Err() != nil {
@@ -901,8 +923,13 @@ func (s *ServeClient) maintainDeviceLease(ctx context.Context, sender messageSen
 					return err
 				}
 				s.log(slog.LevelError, "publisher credential refresh failed", "error", err)
+				// Retry a pending rotation well inside the relay's replay window.
+				timer.Reset(ReconnectDelay(time.Second, interval, failures))
+				failures++
 				continue
 			}
+			failures = 0
+			timer.Reset(interval)
 			if ctx.Err() != nil {
 				return nil
 			}

@@ -34,11 +34,15 @@ type savedCredentials struct {
 type CredentialManager struct {
 	ServerAddr string
 	HTTPClient *http.Client
+	Now        func() time.Time // Optional clock for expiry decisions; nil uses time.Now
 	path       string
-	now        func() time.Time
 	mu         sync.Mutex
 	last       string
 }
+
+// A lost refresh response must be retried inside the relay's 60-second replay
+// window, so one attempt never outlives a quarter of it.
+const refreshRequestTimeout = 15 * time.Second
 
 type credentialRefreshError struct {
 	terminal bool
@@ -49,6 +53,31 @@ func (e *credentialRefreshError) Error() string { return e.message }
 func terminalCredentialError(err error) bool {
 	var e *credentialRefreshError
 	return errors.As(err, &e) && e.terminal
+}
+
+// ExitLoginRequired is the exit status of a publisher whose login can no
+// longer renew. Service units set RestartPreventExitStatus to it so a revoked
+// login stops once instead of restarting in a loop.
+const ExitLoginRequired = 78
+
+// LoginRequired reports whether only a new tunn login can recover from err:
+// the relay terminally rejected renewal, or rejected a login that cannot renew.
+func LoginRequired(err error) bool {
+	if terminalCredentialError(err) || errors.Is(err, ErrNotLoggedIn) {
+		return true
+	}
+	var permanent *permanentTunnelError
+	return errors.As(err, &permanent) && permanent.kind == FailureRegistration && strings.Contains(permanent.Error(), "tunn login")
+}
+
+// LoginRequiredMessage is the single line a service logs before exiting with
+// ExitLoginRequired.
+func LoginRequiredMessage() string {
+	dir, err := configDirectory()
+	if err != nil {
+		return "tunn: this machine's login is missing, expired or revoked and cannot renew; run 'tunn login' here, then restart this service"
+	}
+	return fmt.Sprintf("tunn: this machine's login is missing, expired or revoked and cannot renew; run 'TUNN_CONFIG_DIR=%s tunn login' here, then restart this service", dir)
 }
 
 func canonicalCredentialServer(server string) (string, error) {
@@ -161,8 +190,8 @@ func LoadTunnelToken(ctx context.Context, server string, insecure bool) (string,
 	return token, manager, err
 }
 func (m *CredentialManager) currentTime() time.Time {
-	if m.now != nil {
-		return m.now()
+	if m.Now != nil {
+		return m.Now()
 	}
 	return time.Now()
 }
@@ -204,6 +233,8 @@ func (m *CredentialManager) Token(ctx context.Context, force bool) (string, erro
 		}
 	}
 	data, _ := json.Marshal(map[string]string{"refresh_token": state.Refresh, "request_id": state.Pending})
+	ctx, cancel := context.WithTimeout(ctx, refreshRequestTimeout)
+	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, server+"/api/device/refresh", bytes.NewReader(data))
 	if err != nil {
 		return "", err

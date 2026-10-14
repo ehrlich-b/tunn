@@ -936,6 +936,7 @@ func (p *ProxyServer) createHandler() http.Handler {
 	mux.HandleFunc("/account/sharing", p.handleSharingPage)
 	mux.HandleFunc("/api/usage", p.handleMeteringAPI)
 	mux.HandleFunc("/api/grants", p.handleMeteringAPI)
+	mux.HandleFunc("/api/domains/publisher", p.handleNamespacePublisher)
 	mux.HandleFunc("/api/domains", p.handleDomainsAPI)
 	mux.HandleFunc("/api/domains/", p.handleDomainsAPI)
 	mux.HandleFunc("/api/reports", p.handleReportIntake)

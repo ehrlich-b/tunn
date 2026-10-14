@@ -28,10 +28,12 @@ Add requires Pro and returns a unique cname_target. Set your DNS CNAME to
 that exact target, then run verify to provision HTTPS. Wildcard claims can
 instead prove ownership with TXT _tunn-verification.<suffix> = cname_target;
 route the DNS-only wildcard CNAME to the edge. Verify checks ownership, and
-HTTPS is issued on demand for each owner-reserved app name. Repeating wildcard
-add with --tunnel reserves another app name under the existing claim. Publish the reserved
-name with tunn serve --name <reserved-name> <target>. List shows DNS and
-certificate state. Delete removes the domain; the tunnel name stays reserved.
+HTTPS is issued on demand for each namespace app name (Pro: 50 per namespace).
+Repeating wildcard add with --tunnel registers another app without consuming
+any of the four shared *.tunn.to reservations. Publish with tunn serve
+--namespace apps.example.com --name <app-name> <target>. List shows app names
+and publisher IDs. Delete removes namespace names and keys; existing shared
+*.tunn.to reservations remain.
 `
 
 type domainOptions struct {
@@ -152,7 +154,7 @@ func executeDomains(args []string, out io.Writer) error {
 	case "delete":
 		_, err = c.DomainCall(ctx, "DELETE", o.name, "", nil)
 		if err == nil {
-			_, err = fmt.Fprintln(out, "Domain deleted; tunnel name remains reserved")
+			_, err = fmt.Fprintln(out, "Domain deleted; namespace app names and keys removed; existing shared tunnel reservations preserved")
 		}
 		return err
 	}

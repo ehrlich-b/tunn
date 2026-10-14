@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ehrlich-b/tunn/internal/store"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/domainv1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -68,11 +67,6 @@ func (r *Registry) wildcardCertificate(ctx context.Context, parent *pb.Domain, h
 	if err != nil || strings.HasPrefix(name, "*.") {
 		return nil, status.Error(codes.NotFound, "concrete app hostname required")
 	}
-	// Only the owner's reserved names can cause an order, never arbitrary SNI.
-	var owner string
-	if err := r.db.QueryRowContext(ctx, `SELECT account_id FROM reserved_subdomains WHERE subdomain=?`, parent.Tunnel).Scan(&owner); err != nil || owner != parent.Owner {
-		return nil, status.Error(codes.PermissionDenied, "app name must be reserved by domain owner")
-	}
 	select {
 	case r.issueGate <- struct{}{}:
 	case <-ctx.Done():
@@ -108,7 +102,7 @@ func (r *Registry) wildcardCertificate(ctx context.Context, parent *pb.Domain, h
 		if token == "" || strings.ContainsAny(token, "/\\") || len(token) > 256 || len(value) > 1024 {
 			return nil, fmt.Errorf("invalid HTTP-01 challenge")
 		}
-		result, err := r.db.ExecContext(ctx, `INSERT INTO domain_challenges(name,target,token,value,expires) SELECT ?,target,?,?,? FROM custom_domains WHERE name=? AND owner=? AND target=? AND state='ready' AND verified_until>? AND EXISTS(SELECT 1 FROM accounts a JOIN reserved_subdomains s ON s.account_id=a.id WHERE a.id=custom_domains.owner AND a.plan='pro' AND s.subdomain=?) ON CONFLICT(name) DO UPDATE SET target=excluded.target,token=excluded.token,value=excluded.value,expires=excluded.expires`, name, token, value, r.now().Add(10*time.Minute).Unix(), parent.Name, parent.Owner, parent.CnameTarget, r.now().Unix(), parent.Tunnel)
+		result, err := r.db.ExecContext(ctx, `INSERT INTO domain_challenges(name,target,token,value,expires) SELECT ?,target,?,?,? FROM custom_domains d WHERE name=? AND owner=? AND target=? AND state='ready' AND verified_until>? AND EXISTS(SELECT 1 FROM accounts a JOIN namespace_app_names n ON n.parent=d.name AND n.target=d.target WHERE a.id=d.owner AND a.plan='pro' AND n.tunnel=? AND `+appAuthority+`) ON CONFLICT(name) DO UPDATE SET target=excluded.target,token=excluded.token,value=excluded.value,expires=excluded.expires`, name, token, value, r.now().Add(10*time.Minute).Unix(), parent.Name, parent.Owner, parent.CnameTarget, r.now().Unix(), parent.Tunnel)
 		if err != nil {
 			return nil, err
 		}
@@ -150,7 +144,7 @@ func (r *Registry) wildcardCertificate(ctx context.Context, parent *pb.Domain, h
 	if err != nil {
 		return nil, err
 	}
-	result, err := r.db.ExecContext(ctx, `INSERT INTO wildcard_certificates(name,parent,target,certificate,key,not_after) SELECT ?,name,target,?,?,? FROM custom_domains WHERE name=? AND owner=? AND target=? AND state='ready' AND verified_until>? AND EXISTS(SELECT 1 FROM accounts a JOIN reserved_subdomains s ON s.account_id=a.id WHERE a.id=custom_domains.owner AND a.plan='pro' AND s.subdomain=?) ON CONFLICT(name) DO UPDATE SET parent=excluded.parent,target=excluded.target,certificate=excluded.certificate,key=excluded.key,not_after=excluded.not_after`, name, cert, sealed, leaf.NotAfter.Unix(), parent.Name, parent.Owner, parent.CnameTarget, r.now().Unix(), parent.Tunnel)
+	result, err := r.db.ExecContext(ctx, `INSERT INTO wildcard_certificates(name,parent,target,certificate,key,not_after) SELECT ?,name,target,?,?,? FROM custom_domains d WHERE name=? AND owner=? AND target=? AND state='ready' AND verified_until>? AND EXISTS(SELECT 1 FROM accounts a JOIN namespace_app_names n ON n.parent=d.name AND n.target=d.target WHERE a.id=d.owner AND a.plan='pro' AND n.tunnel=? AND `+appAuthority+`) ON CONFLICT(name) DO UPDATE SET parent=excluded.parent,target=excluded.target,certificate=excluded.certificate,key=excluded.key,not_after=excluded.not_after`, name, cert, sealed, leaf.NotAfter.Unix(), parent.Name, parent.Owner, parent.CnameTarget, r.now().Unix(), parent.Tunnel)
 	if err != nil {
 		return nil, err
 	}
@@ -187,36 +181,13 @@ func (r *Registry) refreshWildcardCertificates(ctx context.Context) error {
 	return ctx.Err()
 }
 
-func reserveWildcardApp(ctx context.Context, tx *sql.Tx, owner, name string, now time.Time) error {
-	var existing string
-	err := tx.QueryRowContext(ctx, `SELECT account_id FROM reserved_subdomains WHERE subdomain=?`, name).Scan(&existing)
-	if err == nil {
-		if existing != owner {
-			return status.Error(codes.PermissionDenied, "app name belongs to another owner")
-		}
-		return nil
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return err
-	}
-	var count int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM reserved_subdomains WHERE account_id=?`, owner).Scan(&count); err != nil {
-		return err
-	}
-	if count >= store.MaxReservedSubdomains {
-		return status.Error(codes.ResourceExhausted, "reserved tunnel name limit reached")
-	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO reserved_subdomains(subdomain,account_id,created_at) VALUES(?,?,?)`, name, owner, now.Unix())
-	return err
-}
-
 // Read the key under the current reservation predicate, including cached and
 // failed-renewal responses; an earlier Route check cannot authorize this read.
 func (r *Registry) cachedWildcard(ctx context.Context, parent *pb.Domain, name string) (*pb.CertificatePair, error) {
 	var cert, key []byte
-	err := r.db.QueryRowContext(ctx, `SELECT c.certificate,c.key FROM wildcard_certificates c JOIN custom_domains d ON d.name=c.parent AND d.target=c.target JOIN accounts a ON a.id=d.owner JOIN reserved_subdomains s ON s.account_id=d.owner WHERE c.name=? AND d.name=? AND d.owner=? AND d.target=? AND d.state='ready' AND d.verified_until>? AND a.plan='pro' AND s.subdomain=? AND c.not_after>?`, name, parent.Name, parent.Owner, parent.CnameTarget, r.now().Unix(), parent.Tunnel, r.now().Unix()).Scan(&cert, &key)
+	err := r.db.QueryRowContext(ctx, `SELECT c.certificate,c.key FROM wildcard_certificates c JOIN custom_domains d ON d.name=c.parent AND d.target=c.target JOIN accounts a ON a.id=d.owner JOIN namespace_app_names n ON n.parent=d.name AND n.target=d.target WHERE c.name=? AND d.name=? AND d.owner=? AND d.target=? AND d.state='ready' AND d.verified_until>? AND a.plan='pro' AND n.tunnel=? AND `+appAuthority+` AND c.not_after>?`, name, parent.Name, parent.Owner, parent.CnameTarget, r.now().Unix(), parent.Tunnel, r.now().Unix()).Scan(&cert, &key)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, status.Error(codes.FailedPrecondition, "app reservation or domain authority changed")
+		return nil, status.Error(codes.FailedPrecondition, "namespace app name or domain authority changed")
 	}
 	if err != nil {
 		return nil, err

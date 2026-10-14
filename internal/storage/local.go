@@ -215,7 +215,17 @@ func (s *LocalStorage) RegisterTunnel(ctx context.Context, tunnelID, accountID, 
 
 	// Every node registers here, so reservation ownership is authoritative
 	// even when the ingress node has no local account database.
-	owner, err := s.accounts.GetSubdomainOwner(tunnelID)
+	namespaceOwner, scoped, err := s.accounts.NamespaceTunnelOwner(ctx, tunnelID, s.currentTime())
+	if err != nil {
+		return nil, err
+	}
+	if scoped && namespaceOwner != accountID {
+		return &TunnelRegistration{Allowed: false, Reason: "namespace app name requires its verified owning account"}, nil
+	}
+	owner := namespaceOwner
+	if !scoped {
+		owner, err = s.accounts.GetSubdomainOwner(tunnelID)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -254,7 +264,7 @@ func (s *LocalStorage) RegisterTunnel(ctx context.Context, tunnelID, accountID, 
 
 	// Auto-claim within each plan allowance on replicas and the login node.
 	// A full reservation allowance still permits an unreserved active name.
-	if owner == "" {
+	if !scoped && owner == "" {
 		_ = s.accounts.ReserveSubdomain(accountID, tunnelID)
 		owner, err = s.accounts.GetSubdomainOwner(tunnelID)
 		if err != nil {

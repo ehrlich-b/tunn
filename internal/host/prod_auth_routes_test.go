@@ -134,6 +134,7 @@ var prodAuthRoutes = []prodAuthRoute{
 	{"GET", "/api/usage", "/api/usage", "", [11]int{401, 200, 200, 200, 401, 401, 401, 401, 401, 401, 401}},
 	{"GET", "/api/grants", "/api/grants", "", [11]int{401, 200, 200, 200, 401, 401, 401, 401, 401, 401, 401}},
 	{"GET", "/api/domains", "/api/domains", "", [11]int{401, 200, 200, 200, 401, 401, 401, 401, 401, 401, 401}},
+	{"POST", "/api/domains/publisher", "/api/domains/publisher", `{"name":"tools.apps.example.com"}`, [11]int{401, 200, 403, 200, 401, 401, 401, 401, 401, 401, 401}},
 	{"POST", "/api/domains", "/api/domains", `{"name":"work.example.com","tunnel":"tools"}`, [11]int{401, 201, 409, 201, 401, 401, 401, 401, 401, 401, 401}},
 	{"POST", "/api/domains/work.example.com/verify", "/api/domains/", "", [11]int{401, 409, 404, 409, 401, 401, 401, 401, 401, 401, 401}},
 	{"DELETE", "/api/domains/work.example.com", "/api/domains/", "", [11]int{401, 204, 404, 204, 401, 401, 401, 401, 401, 401, 401}},
@@ -191,12 +192,21 @@ func newProdAuthFixture(t *testing.T) *prodAuthFixture {
 	if w := f.request("POST", "https://tunn.test/api/hosts", manifest, "application/json", relayJWT(t, f.p, "owner@example.com"), nil); w.Code != 200 {
 		t.Fatalf("host seed: %d %s", w.Code, w.Body)
 	}
-	registry, err := domains.New(db, f.p.Domain, bytes.Repeat([]byte{1}, 32), &hostDomainDNS{target: "unproved.example"}, nil)
+	dns := &hostDomainDNS{target: "unproved.example"}
+	registry, err := domains.New(db, f.p.Domain, bytes.Repeat([]byte{1}, 32), dns, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	f.p.domains = registry
 	if _, err := registry.Add(ctx, &domainpb.Domain{Name: "work.example.com", Tunnel: "tools", Owner: f.tunnel.AccountID}); err != nil {
+		t.Fatal(err)
+	}
+	namespace, err := registry.Add(ctx, &domainpb.Domain{Name: "*.apps.example.com", Tunnel: "tools", Owner: f.tunnel.AccountID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dns.target = namespace.CnameTarget
+	if _, err := registry.Verify(ctx, namespace); err != nil {
 		t.Fatal(err)
 	}
 	f.p.sshKeys, err = sshfront.NewRegistry(db)

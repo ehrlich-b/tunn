@@ -3,13 +3,14 @@
 Prerequisites: tunn installed on forge, a durable publisher login belonging to
 `ehrlich.bryan@gmail.com`, an existing Pro account, and an app process listening
 only on `127.0.0.1:3000`. Keep the app and publisher supervised by systemd.
-The existing account and reserved-name limits apply; this change does not alter
-plans or billing. The relay prerequisites are in [the operator guide](docs/APPS-DOMAINS.md).
+Pro permits 50 app names per custom namespace; the four shared `*.tunn.to`
+reservations and ten concurrent tunnels remain independent. Plans and billing
+are unchanged. The relay prerequisites are in [the operator guide](docs/APPS-DOMAINS.md).
 
 First app: **four one-time domain steps, one publishing step, two browser steps**
 (seven steps after prerequisites):
 
-1. Attach and reserve the first app name:
+1. Attach the namespace and register the first app name:
    `tunn domain add '*.apps.ehrlich.dev' --tunnel dashboard`.
    Save the returned `cname_target`; it is the unique ownership proof value.
 2. Bryan/coordinator sets the one-time, DNS-only CNAME
@@ -23,7 +24,7 @@ First app: **four one-time domain steps, one publishing step, two browser steps*
 4. Run `tunn domain verify '*.apps.ehrlich.dev'`. This verifies ownership;
    concrete hostname certificates are issued on first connection, not wildcard
    certificates. No DNS API key is needed for HTTP-01 issuance or renewal.
-5. Publish `tunn serve --name dashboard http://127.0.0.1:3000` under the same
+5. Publish `tunn serve --namespace apps.ehrlich.dev --name dashboard http://127.0.0.1:3000` under the same
    account and leave it running. The CLI may also print its `tunn.to` address;
    the app address is `https://dashboard.apps.ehrlich.dev`.
 6. Open that app URL. The edge obtains its real certificate, then sends the
@@ -35,10 +36,13 @@ First app: **four one-time domain steps, one publishing step, two browser steps*
 
 Next app: **two publisher steps and one browser step**: repeat
 `tunn domain add '*.apps.ehrlich.dev' --tunnel reports` (idempotently reuses the
-claim and reserves that name), publish with `--name reports`, open
+claim and registers that name), publish with `--namespace apps.ehrlich.dev --name reports`, open
 `https://reports.apps.ehrlich.dev`. The central tunn account session is reused; no
-new provider login is required while it is valid. Existing Pro reserved-name
-limit: four names. Returning to an already signed-in app is **one browser step**.
+new provider login is required while it is valid. Pro namespace app-name
+limit: 50 names, independent of four shared reservations. `tunn domain list`
+shows the registered labels and publisher IDs. The 51st name reports that limit;
+repeating an existing name still succeeds. Deleting the namespace removes its
+app names and keys together, preserving existing shared reservations. Returning to an already signed-in app is **one browser step**.
 Provider consent screens or reading the email link may add interactions to the first login.
 
 A different GitHub account or email receives 403 after login unless the owner

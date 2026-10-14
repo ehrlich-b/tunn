@@ -91,6 +91,9 @@ func New(db *sql.DB, base string, key []byte, dns DNSResolver, issuer Issuer) (*
 	if err := r.migrateClaims(); err != nil {
 		return nil, err
 	}
+	if err := store.MigrateNamespaceNames(db); err != nil {
+		return nil, err
+	}
 	return r, nil
 }
 func (r *Registry) encrypt(name string, data []byte) ([]byte, error) {
@@ -145,14 +148,14 @@ func (r *Registry) Add(ctx context.Context, in *pb.Domain) (*pb.Domain, error) {
 			}
 		} else {
 			if wildcard && in.Tunnel != "" {
-				if err := reserveWildcardApp(ctx, tx, in.Owner, in.Tunnel, r.now()); err != nil {
+				if err := reserveWildcardApp(ctx, tx, name, in.Owner, in.Tunnel, r.now()); err != nil {
 					return nil, err
 				}
 			}
 			if err := tx.Commit(); err != nil {
 				return nil, err
 			}
-			return r.owned(ctx, &pb.Domain{Name: name, Owner: in.Owner})
+			return r.managementRead(ctx, name)
 		}
 	}
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -173,11 +176,6 @@ func (r *Registry) Add(ctx context.Context, in *pb.Domain) (*pb.Domain, error) {
 			return nil, err
 		}
 	}
-	if wildcard && in.Tunnel != "" {
-		if err := reserveWildcardApp(ctx, tx, in.Owner, in.Tunnel, r.now()); err != nil {
-			return nil, err
-		}
-	}
 	if !wildcard {
 		// Reuse the central reservation table, including the same paid slot limit.
 		err = tx.QueryRowContext(ctx, `SELECT account_id FROM reserved_subdomains WHERE subdomain=?`, in.Tunnel).Scan(&owner)
@@ -188,6 +186,9 @@ func (r *Registry) Add(ctx context.Context, in *pb.Domain) (*pb.Domain, error) {
 			return nil, err
 		}
 		if errors.Is(err, sql.ErrNoRows) {
+			if err := store.CheckNewSharedReservation(in.Tunnel); err != nil {
+				return nil, status.Error(codes.PermissionDenied, err.Error())
+			}
 			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM reserved_subdomains WHERE account_id=?`, in.Owner).Scan(&count); err != nil {
 				return nil, err
 			}
@@ -214,13 +215,18 @@ func (r *Registry) Add(ctx context.Context, in *pb.Domain) (*pb.Domain, error) {
 	if _, err := tx.ExecContext(ctx, `INSERT INTO custom_domains(name,owner,tunnel,target,pending_until,proven) VALUES(?,?,?,?,?,?)`, name, in.Owner, bindingTunnel, target, r.now().Add(PendingClaimTTL).Unix(), reclaimProof); err != nil {
 		return nil, err
 	}
+	if wildcard && in.Tunnel != "" {
+		if err := reserveWildcardApp(ctx, tx, name, in.Owner, in.Tunnel, r.now()); err != nil {
+			return nil, err
+		}
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM domain_reclaim_requests WHERE name=? AND owner=?`, name, in.Owner); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
-	return r.read(ctx, name)
+	return r.managementRead(ctx, name)
 }
 
 const domainColumns = `name,owner,tunnel,target,state,verified_until,not_after,last_error`
@@ -250,7 +256,17 @@ func (r *Registry) List(ctx context.Context, in *pb.Owner) (*pb.DomainList, erro
 		}
 		out.Domains = append(out.Domains, d)
 	}
-	return out, rows.Err()
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	for _, d := range out.Domains {
+		if err := r.appNames(ctx, d); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
 }
 func (r *Registry) owned(ctx context.Context, in *pb.Domain) (*pb.Domain, error) {
 	name, err := NormalizeName(in.Name, r.base)
@@ -454,11 +470,9 @@ func (r *Registry) Route(ctx context.Context, in *pb.Domain) (*pb.Domain, error)
 		if !ValidLabel(label) || common.IsReservedTunnelName(label) {
 			return nil, status.Error(codes.NotFound, "invalid app name")
 		}
-		var owner string
-		if err := r.db.QueryRowContext(ctx, `SELECT account_id FROM reserved_subdomains WHERE subdomain=?`, label).Scan(&owner); err != nil || owner != d.Owner {
-			return nil, status.Error(codes.PermissionDenied, "app name must be reserved by domain owner")
+		if err := r.db.QueryRowContext(ctx, `SELECT n.tunnel FROM namespace_app_names n JOIN custom_domains d ON d.name=n.parent AND d.target=n.target WHERE n.parent=? AND n.target=? AND n.label=? AND d.owner=? AND `+appAuthority, d.Name, d.CnameTarget, label, d.Owner).Scan(&d.Tunnel); err != nil {
+			return nil, status.Error(codes.PermissionDenied, "app name must be registered in this namespace by its owner")
 		}
-		d.Tunnel = label
 	}
 	return d, nil
 }
@@ -492,7 +506,7 @@ func (r *Registry) Challenge(ctx context.Context, in *pb.ChallengeRequest) (*pb.
 		return nil, status.Error(codes.NotFound, "challenge not found")
 	}
 	var value string
-	err = r.db.QueryRowContext(ctx, `SELECT c.value FROM domain_challenges c JOIN custom_domains d ON d.target=c.target JOIN accounts a ON a.id=d.owner WHERE c.name=? AND c.token=? AND c.expires>? AND a.plan='pro' AND EXISTS(SELECT 1 FROM reserved_subdomains s WHERE s.account_id=d.owner AND ((d.tunnel!='' AND s.subdomain=d.tunnel) OR (d.tunnel='' AND d.state='ready' AND d.verified_until>? AND d.name='*.'||substr(c.name,instr(c.name,'.')+1) AND s.subdomain=substr(c.name,1,instr(c.name,'.')-1))))`, name, in.Token, r.now().Unix(), r.now().Unix()).Scan(&value)
+	err = r.db.QueryRowContext(ctx, `SELECT c.value FROM domain_challenges c JOIN custom_domains d ON d.target=c.target JOIN accounts a ON a.id=d.owner WHERE c.name=? AND c.token=? AND c.expires>? AND a.plan='pro' AND ((d.tunnel!='' AND EXISTS(SELECT 1 FROM reserved_subdomains s WHERE s.account_id=d.owner AND s.subdomain=d.tunnel)) OR (d.tunnel='' AND d.state='ready' AND d.verified_until>? AND d.name='*.'||substr(c.name,instr(c.name,'.')+1) AND EXISTS(SELECT 1 FROM namespace_app_names n WHERE n.parent=d.name AND n.target=d.target AND n.label=substr(c.name,1,instr(c.name,'.')-1) AND `+appAuthority+`)))`, name, in.Token, r.now().Unix(), r.now().Unix()).Scan(&value)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, status.Error(codes.NotFound, "challenge not found")
 	}

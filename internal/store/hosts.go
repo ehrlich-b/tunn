@@ -90,6 +90,11 @@ func (s *HostStore) Register(accountID string, manifest common.HostManifest) err
 		if err != nil && err != sql.ErrNoRows {
 			return err
 		}
+		if owner == "" {
+			if err := CheckNewSharedReservation(endpoint.Name); err != nil {
+				return err
+			}
+		}
 		if owner != "" && owner != accountID {
 			return fmt.Errorf("name %s is reserved by another account", endpoint.Name)
 		}

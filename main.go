@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
@@ -22,9 +23,11 @@ import (
 	"github.com/ehrlich-b/tunn/internal/cliopts"
 	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/ehrlich-b/tunn/internal/config"
+	"github.com/ehrlich-b/tunn/internal/domains"
 	"github.com/ehrlich-b/tunn/internal/host"
 	"github.com/ehrlich-b/tunn/internal/hostmode"
 	"github.com/ehrlich-b/tunn/internal/mcpbridge"
+	"github.com/ehrlich-b/tunn/internal/relaytransport"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/joho/godotenv"
@@ -898,6 +901,7 @@ type serveCommandOptions struct {
 	qr, public                         bool
 	target                             string
 	tunnelID                           string
+	namespace                          string
 	allowedEmails                      []string
 	tunnelKey                          string
 	clientSecret                       string
@@ -914,10 +918,18 @@ func parseServeFlags(args []string) (*serveCommandOptions, error) {
 	if err != nil {
 		return nil, err
 	}
+	if o.Namespace != "" {
+		if !isValidEndpointName(o.Name) || common.IsReservedTunnelName(o.Name) {
+			return nil, fmt.Errorf("--namespace requires a valid --name app label")
+		}
+		if _, err := domains.NormalizeName("*."+strings.TrimPrefix(o.Namespace, "*."), ""); err != nil {
+			return nil, fmt.Errorf("invalid --namespace: %w", err)
+		}
+	}
 	if o.Secret == "" {
 		o.Secret = os.Getenv("TUNN_SECRET")
 	}
-	return &serveCommandOptions{webhookProvider: o.WebhookProvider, webhookSecretFile: o.WebhookSecretFile, webhookTolerance: o.WebhookTolerance, target: o.Target, tunnelID: o.Name, allowedEmails: o.AllowedEmails, tunnelKey: o.TunnelKey, clientSecret: o.Secret, skipLocalTLSVerify: o.SkipLocalTLSVerify, inspect: o.Inspect, inspectBody: o.InspectBody, bearer: o.Bearer, requireUpstreamAuth: o.RequireUpstreamAuth, webSocket: o.WebSocket, expire: o.Expire, qr: o.QR, public: o.Public}, nil
+	return &serveCommandOptions{webhookProvider: o.WebhookProvider, webhookSecretFile: o.WebhookSecretFile, webhookTolerance: o.WebhookTolerance, target: o.Target, tunnelID: o.Name, namespace: o.Namespace, allowedEmails: o.AllowedEmails, tunnelKey: o.TunnelKey, clientSecret: o.Secret, skipLocalTLSVerify: o.SkipLocalTLSVerify, inspect: o.Inspect, inspectBody: o.InspectBody, bearer: o.Bearer, requireUpstreamAuth: o.RequireUpstreamAuth, webSocket: o.WebSocket, expire: o.Expire, qr: o.QR, public: o.Public}, nil
 }
 
 func runLogin() {
@@ -1038,6 +1050,20 @@ func runServe(args []string) {
 
 	}
 
+	if opts.namespace != "" {
+		transport := relaytransport.Transport(cfg.Insecure || *insecure)
+		management := &client.ManagementClient{ServerURL: cfg.ServerAddr, OwnerToken: token, HTTPClient: &http.Client{Transport: transport, Timeout: 30 * time.Second}}
+		lookupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		tunnelID, err = management.NamespaceTunnel(lookupCtx, opts.namespace, tunnelID)
+		cancel()
+		transport.CloseIdleConnections()
+		if err != nil {
+			common.LogError("namespace app publication failed", "error", err)
+			os.Exit(1)
+		}
+		fmt.Fprintf(os.Stderr, "App URL: https://%s.%s\n", opts.tunnelID, strings.TrimPrefix(strings.ToLower(strings.TrimSuffix(opts.namespace, ".")), "*."))
+	}
+
 	// Get tunnel key from flag or env var
 	if tunnelKey == "" {
 		tunnelKey = cfg.WellKnownKey
@@ -1152,6 +1178,7 @@ func printServeUsage() {
 
 Options:
   --id, --name, --subdomain NAME  Tunnel name (blank generates one)
+  --namespace SUFFIX             Publish --name under a verified custom namespace
   --allow EMAILS                 Comma-separated email allow-list
   --bearer                       Enable endpoint tokens for HTTP and WebSockets
   --require-upstream-auth        Require application Authorization after tunn auth

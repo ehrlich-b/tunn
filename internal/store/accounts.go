@@ -431,6 +431,10 @@ func (s *AccountStore) ReserveSubdomain(accountID, subdomain string) error {
 		return err
 	}
 
+	if err := CheckNewSharedReservation(subdomain); err != nil {
+		return err
+	}
+
 	// Check current count
 	var count int
 	err = tx.QueryRow("SELECT COUNT(*) FROM reserved_subdomains WHERE account_id = ?", accountID).Scan(&count)

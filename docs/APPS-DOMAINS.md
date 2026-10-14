@@ -1,7 +1,7 @@
 # Operator and app contract
 
 `*.apps.ehrlich.dev` is a publisher-owned namespace. A single-label name maps to
-that publisher's identically named reserved tunnel; nested names and the bare
+that publisher's namespace-bound tunnel; nested names and the bare
 `apps.ehrlich.dev` are excluded. Existing concrete domain bindings keep their
 original contract. Verified exact/wildcard claims exclude overlapping claims.
 Unverified claims expire after 24 hours and do not establish exclusive ownership.
@@ -15,10 +15,48 @@ when their DNS lease fails; routing still fails closed until proof is restored.
 Every local
 or remotely routed request rechecks the tunnel account against the domain owner.
 Wildcard app ingress requires a verified tunn account browser session. The
-namespace/reserved-name owner UUID is authorized through GitHub, email magic
+namespace/app-name owner UUID is authorized through GitHub, email magic
 link, or optional Google login. Other accounts require explicit live person
 sharing or the legacy email allow-list. Public mode and bearer grants do not
 bypass this boundary. See [the account design](../DESIGN.md).
+
+## App-name capacity and migration
+
+`tunn domain add '*.apps.example.com' --tunnel grafana` registers a name within
+that claim; it creates no shared reservation. Publish it with
+`tunn serve --namespace apps.example.com --name grafana http://127.0.0.1:3000`.
+The owner API and `tunn domain list` return `app_names` (label, publisher ID,
+legacy flag) and `app_name_limit` (50 for Pro). The 51st new name returns HTTP
+429 / ResourceExhausted with the namespace and plan limit. Repeating an existing
+name remains idempotent at capacity. Equal labels in different namespaces use
+separate internal publisher IDs unless they reuse the same owner's pre-existing
+global reservation. The `ns-` plus 48 lowercase hexadecimal-digit syntax is reserved to internal
+publishers; all shared-reservation writers and SQL inserts/renames reject new
+names in that syntax. Existing historical global rows are preserved. Deleted
+namespace IDs fail publisher reconnect rather than becoming shared reservations.
+The read-only `POST /api/domains/publisher` lookup resolves one verified app under
+its owning account. It accepts a live durable publisher device or an existing
+owner JWT; durable tokens still cannot list, add, verify or delete domain claims.
+Terminating edges forward durable lookup to the login node for device revocation
+and account checks. This endpoint does not create any name or claim.
+
+At authority startup, one transaction creates the namespace-name table and
+claim cleanup triggers, backfills historical wildcard bindings, and records
+`domain_settings['namespace-app-names-v1'] = '1'`. The previous wildcard contract
+exposed every owner-reserved label; the migration retains those names and their
+publisher IDs, encrypted certificates, issuance ledger and global reservations.
+Historical bindings keep live global-reservation checks. Newly added names have
+an independent 50-name namespace budget; no reservation is automatically released
+because old rows did not record their intended use. No manual data rewrite is
+required. Account merges move ownership through the parent claim.
+
+Deleting/expiring/replacing a claim removes its names, stored app certificates,
+encrypted app keys and challenges, while preserving shared reservations and
+issuance attempt history. Names are removed together with the namespace; there
+is no individual app-name deletion command in this increment. Back up the live
+database on volume before enabling this head. Rollback preserves the forward
+schema and data and sets custom domains off; the previous image cannot route
+new namespace-only IDs. Re-enable only after restoring the reviewed image.
 
 ## Before deployment
 
@@ -50,10 +88,10 @@ apps/relay nodes. Local test CA success does not constitute production issuance.
 
 The established [`golang.org/x/crypto/acme`](https://pkg.go.dev/golang.org/x/crypto/acme)
 client performs HTTP-01; no ACME protocol or DNS automation is reimplemented.
-Only verified namespaces and owner-reserved app names may order certificates.
+Only verified namespaces and app names registered by their owner may order certificates.
 A generic edge CNAME is not ownership proof: the unique TXT or unique ownership
 CNAME must verify. Proof leases last two hours and refresh hourly. Losing DNS
-proof, account entitlement, reservation ownership, or the claim denies new
+proof, account entitlement, app-name binding authority, or the claim denies new
 routing/certificate requests. Deleting the parent deletes its stored app keys.
 
 The login node serializes orders and stores each hostname's certificate and
@@ -68,8 +106,9 @@ the issuer and scheduled renewals. Processing responses without a Location heade
 the original order through the ACME library; no JWS/HTTP protocol is hand-coded. The login node renews existing app certificates within 30 days of
 expiry during its hourly refresh. Persisted limits count failed attempts:
 10 orders per owner/hour, 100 globally/hour, and a one-minute retry delay per
-hostname. Existing ten Pro reserved-name slots bound each publisher's hostname
-fan-out. A valid old certificate remains usable after renewal failure while DNS
+hostname. Pro permits 50 registered app names per namespace, independently of
+the ten Pro reserved `*.tunn.to` names per account; other plans cannot claim custom
+domains. The four-domain and ten-concurrent-Pro-tunnel limits still apply. A valid old certificate remains usable after renewal failure while DNS
 proof holds. Authority outage fails closed. Run one active login-node authority;
 multiple independent databases would defeat deduplication/rate limits. Replicated
 HA authority and edge-side caching are future operational work.
@@ -161,7 +200,7 @@ neither handoff token nor tunn cookies to the app. Authority failures fail close
 Unrelated accounts complete login then receive 403 unless explicitly shared.
 New requests and idle streaming/WebSocket connections recheck live account and
 sharing authority. Removing a person, suspending an account, removing a mailbox,
-or losing namespace/reservation authority closes idle connections within the
+or losing namespace/app-name authority closes idle connections within the
 designed five-second bound. Platform logout does not invalidate other app cookies;
 they expire after one hour, or revoke through live authority/key changes. Existing
 EdDSA assertions can remain valid for their two-minute lifetime.

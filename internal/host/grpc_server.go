@@ -707,7 +707,13 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 	// Recheck durable ownership while holding the same lock used by host
 	// reservation. This closes the race between ephemeral admission and reserve.
 	if s.accounts != nil && !s.cfg.PublicMode {
-		owner, err := s.accounts.GetSubdomainOwner(tunnelID)
+		owner, scoped, err := s.accounts.NamespaceTunnelOwner(stream.Context(), tunnelID, s.currentTime())
+		if err == nil && !scoped {
+			owner, err = s.accounts.GetSubdomainOwner(tunnelID)
+		}
+		if scoped && owner == "" {
+			err = fmt.Errorf("namespace authority unavailable")
+		}
 		if err != nil || (owner != "" && owner != accountID) {
 			s.mu.Unlock()
 			if registeredWithStorage {

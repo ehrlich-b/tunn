@@ -340,8 +340,15 @@ func TestReviewDeviceCredentialRejectedByManagementRoutes(t *testing.T) {
 				}
 				t.Run(route.method+" "+route.path, func(t *testing.T) {
 					w := f.routeRequest(t, route, principal, "tunn.test")
-					if w.Code != route.want[0] {
-						t.Fatalf("device credential status %d; anonymous status %d; route %s %s", w.Code, route.want[0], route.method, route.path)
+					want := route.want[0]
+					// This newly introduced route performs one read-only publisher lookup.
+					// Every pre-existing account/domain management route keeps its original
+					// anonymous response for device bearers, and device cookies never qualify.
+					if route.pattern == "/api/domains/publisher" && route.method == "POST" && principal == "device-bearer" {
+						want = 200
+					}
+					if w.Code != want {
+						t.Fatalf("device credential status %d; want %d; route %s %s", w.Code, want, route.method, route.path)
 					}
 				})
 			}

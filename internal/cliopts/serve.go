@@ -13,7 +13,7 @@ import (
 )
 
 type Serve struct {
-	Target, Name, TunnelKey, Secret                                                   string
+	Target, Name, Namespace, TunnelKey, Secret                                        string
 	AllowedEmails                                                                     []string
 	SkipLocalTLSVerify, Inspect, InspectBody, Bearer, RequireUpstreamAuth, Public, QR bool
 	Expire                                                                            time.Duration
@@ -132,6 +132,9 @@ func parseServe(args []string, requireTarget bool, kind string) (*Serve, error) 
 	fs.SetOutput(io.Discard)
 	o := new(Serve)
 	ServeFlags(fs, o)
+	if requireTarget {
+		fs.StringVar(&o.Namespace, "namespace", "", "verified custom namespace (for example apps.example.com); requires --name")
+	}
 	if kind == "mcp" {
 		fs.BoolVar(&o.Stdio, "stdio", false, "bridge JSON-RPC on SSH stdin/stdout")
 		MCPToolFlag(fs, &o.Tools)

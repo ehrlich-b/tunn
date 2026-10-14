@@ -1,0 +1,286 @@
+package host
+
+import (
+	"context"
+	"crypto/tls"
+	"database/sql"
+	"encoding/json"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/ehrlich-b/tunn/internal/client"
+	"github.com/ehrlich-b/tunn/internal/store"
+	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
+	"google.golang.org/grpc"
+)
+
+// persistRelay is an in-process relay that can restart on the same address
+// while keeping its SQLite login state, like a deploy of the login node.
+type persistRelay struct {
+	t       *testing.T
+	db      *sql.DB
+	clock   func() time.Time
+	mu      sync.Mutex
+	p       *ProxyServer
+	gs      *grpc.Server
+	server  *httptest.Server
+	addr    atomic.Value // string
+	pending atomic.Value // string: last token received in a RegisterClient
+	applied atomic.Value // string: last token the relay finished processing
+	refresh atomic.Int64
+	// failRefresh makes the next N refresh calls fail without reaching the relay.
+	failRefresh atomic.Int64
+	// asleep stalls refresh calls until closed, then fails them.
+	asleep atomic.Pointer[chan struct{}]
+}
+
+func (r *persistRelay) start() {
+	r.t.Helper()
+	f := newMCPOAuthFixtureWithDB(r.t, r.db)
+	p := f.p
+	p.now = r.clock
+	p.tunnelServer.now = r.clock
+	gs := grpc.NewServer(grpc.StreamInterceptor(func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		return handler(srv, &persistWatchedStream{ServerStream: ss, relay: r})
+	}))
+	pb.RegisterTunnelServiceServer(gs, p.tunnelServer)
+	p.grpcServer = gs
+	routes := p.createHandler()
+	server := httptest.NewUnstartedServer(p.createHTTP2Router(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.URL.Path == "/api/device/refresh" {
+			if wake := r.asleep.Load(); wake != nil {
+				select {
+				case <-*wake:
+				case <-req.Context().Done():
+				}
+				http.Error(w, "network unavailable after sleep", http.StatusServiceUnavailable)
+				return
+			}
+			if r.failRefresh.Load() > 0 {
+				r.failRefresh.Add(-1)
+				http.Error(w, "login node restarting", http.StatusServiceUnavailable)
+				return
+			}
+			r.refresh.Add(1)
+		}
+		routes.ServeHTTP(w, req)
+	})))
+	server.EnableHTTP2 = true
+	server.StartTLS()
+	r.mu.Lock()
+	r.p, r.gs, r.server = p, gs, server
+	r.mu.Unlock()
+	r.addr.Store(server.Listener.Addr().String())
+}
+
+func (r *persistRelay) stop() {
+	r.mu.Lock()
+	gs, server := r.gs, r.server
+	r.mu.Unlock()
+	r.addr.Store("")
+	gs.Stop()
+	server.Close()
+}
+
+func (r *persistRelay) proxy() *ProxyServer {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.p
+}
+
+func (r *persistRelay) dial(ctx context.Context, network, _ string) (net.Conn, error) {
+	addr, _ := r.addr.Load().(string)
+	if addr == "" {
+		return nil, &net.OpError{Op: "dial", Net: network, Err: os.ErrDeadlineExceeded}
+	}
+	var d net.Dialer
+	return d.DialContext(ctx, network, addr)
+}
+
+type persistWatchedStream struct {
+	grpc.ServerStream
+	relay *persistRelay
+}
+
+// The relay applies a RegisterClient before it asks for the next message, so
+// the next RecvMsg marks the previous token as applied.
+func (s *persistWatchedStream) RecvMsg(m any) error {
+	if token, _ := s.relay.pending.Load().(string); token != "" {
+		s.relay.applied.Store(token)
+	}
+	err := s.ServerStream.RecvMsg(m)
+	if msg, ok := m.(*pb.TunnelMessage); err == nil && ok && msg.GetRegisterClient() != nil {
+		s.relay.pending.Store(msg.GetRegisterClient().AuthToken)
+	}
+	return err
+}
+
+type persistSavedLogin struct {
+	Access  string    `json:"access_token"`
+	Refresh string    `json:"refresh_token"`
+	Expires time.Time `json:"expires_at"`
+	Pending string    `json:"pending_request_id"`
+}
+
+func readPersistLogin(t *testing.T, dir string) persistSavedLogin {
+	t.Helper()
+	var saved persistSavedLogin
+	data, err := os.ReadFile(filepath.Join(dir, "credentials.json"))
+	if err == nil {
+		err = json.Unmarshal(data, &saved)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return saved
+}
+
+// A publisher logged in once stays registered for 7 simulated days through a
+// relay restart, a login-node outage during reauthentication and a host sleep
+// past expiry. Only a terminal refresh rejection stops it.
+func TestDogfoodPublisherPersistsSevenDays(t *testing.T) {
+	db, err := store.InitForTest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var seconds atomic.Int64
+	seconds.Store(time.Now().Unix())
+	clock := func() time.Time { return time.Unix(seconds.Load(), 0) }
+	relay := &persistRelay{t: t, db: db, clock: clock}
+	relay.start()
+	login := durableLogin(t, relay.proxy())
+	firstRefresh := login.Refresh
+
+	dir := t.TempDir()
+	t.Setenv("TUNN_CONFIG_DIR", dir)
+	saved := map[string]any{"server": "https://tunn.test", "access_token": login.Access, "refresh_token": login.Refresh, "device_id": login.Device, "expires_at": clock().Add(time.Duration(login.Expires) * time.Second)}
+	data, _ := json.Marshal(saved)
+	if err := os.WriteFile(filepath.Join(dir, "credentials.json"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	token, manager, err := client.LoadTunnelToken(context.Background(), "tunn.test", true)
+	if err != nil || manager == nil || token != login.Access {
+		t.Fatal("saved device login did not load", err)
+	}
+	manager.Now = clock
+	manager.HTTPClient = &http.Client{Transport: &http.Transport{DialContext: relay.dial, TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}}
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("forge")) }))
+	defer origin.Close()
+
+	var registrations atomic.Int64
+	publisher := &client.ServeClient{
+		TunnelID: "forge-ssh", TargetURL: origin.URL, ServerAddr: "tunn.test:443", AuthToken: token, Credentials: manager,
+		TunnelKey: relay.proxy().config.WellKnownKey, AllowedEmails: []string{"owner@example.com"}, Insecure: true, Quiet: true,
+		DialContext: relay.dial, InitialDelay: 5 * time.Millisecond, MaxReconnectDelay: 50 * time.Millisecond, RenewInterval: time.Millisecond,
+		OnRegistered: func(string) { registrations.Add(1) },
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- publisher.Run(ctx) }()
+	defer func() { cancel(); relay.stop() }()
+
+	// settle waits until the relay holds the publisher's current login and the
+	// login is not yet due for renewal.
+	var current persistSavedLogin
+	settle := func(stage string) {
+		t.Helper()
+		deadline := time.Now().Add(10 * time.Second)
+		for first := true; ; first = false {
+			select {
+			case err := <-done:
+				t.Fatalf("%s: publisher stopped: %v", stage, err)
+			default:
+			}
+			if !first || !current.Expires.After(clock().Add(time.Minute)) {
+				current = readPersistLogin(t, dir)
+			}
+			applied, _ := relay.applied.Load().(string)
+			_, registered := relay.proxy().tunnelServer.GetTunnel("forge-ssh")
+			if registered && current.Pending == "" && applied == current.Access && current.Expires.After(clock().Add(time.Minute)) {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("%s: publisher not registered with a current login (registered=%t)", stage, registered)
+			}
+			time.Sleep(200 * time.Microsecond)
+		}
+	}
+	settle("initial registration")
+
+	start := clock()
+	const step = 30 * time.Second
+	restarted, slept := false, false
+	for clock().Sub(start) < 7*24*time.Hour+time.Hour {
+		seconds.Add(int64(step / time.Second))
+		elapsed := clock().Sub(start)
+		switch {
+		case !restarted && elapsed >= 3*24*time.Hour:
+			restarted = true
+			relay.stop()
+			relay.start()
+		case !slept && elapsed >= 5*24*time.Hour:
+			// The host sleeps for 3 hours: it cannot renew, so the relay drops
+			// the expired lease. On wake its first refreshes fail twice more.
+			slept = true
+			wake := make(chan struct{})
+			relay.asleep.Store(&wake)
+			seconds.Add(int64(3 * time.Hour / time.Second))
+			deadline := time.Now().Add(10 * time.Second)
+			for _, registered := relay.proxy().tunnelServer.GetTunnel("forge-ssh"); registered; _, registered = relay.proxy().tunnelServer.GetTunnel("forge-ssh") {
+				if time.Now().After(deadline) {
+					t.Fatal("relay kept an expired lease")
+				}
+				time.Sleep(time.Millisecond)
+			}
+			relay.failRefresh.Store(2)
+			relay.asleep.Store(nil)
+			close(wake)
+		}
+		settle(elapsed.String())
+	}
+	if !restarted || !slept || registrations.Load() != 3 {
+		t.Fatalf("restart=%t sleep=%t registrations=%d, want one per disruption", restarted, slept, registrations.Load())
+	}
+	if relay.refresh.Load() < 7*24*60/5 {
+		t.Fatalf("only %d refreshes in 7 days of 5-minute logins", relay.refresh.Load())
+	}
+	var revoked int64
+	if err := db.QueryRow(`SELECT revoked FROM durable_devices WHERE id=?`, login.Device).Scan(&revoked); err != nil || revoked != 0 {
+		t.Fatal("device revoked during normal renewal", err, revoked)
+	}
+
+	// Replaying the first, long-consumed refresh token revokes the device. The
+	// publisher's next renewal is rejected and it stops once with a login error.
+	rec, _ := durableRefresh(relay.proxy(), firstRefresh, strings.Repeat("r", 43))
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatal("consumed refresh token accepted", rec.Code)
+	}
+	if rec, _ = durableRefresh(relay.proxy(), readPersistLogin(t, dir).Refresh, strings.Repeat("s", 43)); rec.Code != http.StatusUnauthorized {
+		t.Fatal("reuse did not revoke the device family", rec.Code)
+	}
+	before := relay.refresh.Load()
+	// Renewal is due but the relay lease is still live, so the publisher's own
+	// renewal is the request that meets the rejection.
+	seconds.Store(readPersistLogin(t, dir).Expires.Add(-30 * time.Second).Unix())
+	select {
+	case err := <-done:
+		if !client.LoginRequired(err) || !strings.Contains(err.Error(), "tunn login") {
+			t.Fatal("terminal rejection did not ask for login", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("publisher kept running after its login was revoked")
+	}
+	time.Sleep(100 * time.Millisecond)
+	if attempts := relay.refresh.Load() - before; attempts != 1 {
+		t.Fatalf("publisher sent %d refreshes after revocation, want 1", attempts)
+	}
+}

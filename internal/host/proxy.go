@@ -31,6 +31,7 @@ import (
 	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/ehrlich-b/tunn/internal/config"
 	"github.com/ehrlich-b/tunn/internal/domains"
+	"github.com/ehrlich-b/tunn/internal/downloads"
 	"github.com/ehrlich-b/tunn/internal/identity"
 	"github.com/ehrlich-b/tunn/internal/metering"
 	"github.com/ehrlich-b/tunn/internal/mockoidc"
@@ -884,6 +885,7 @@ func (p *ProxyServer) createHandler() http.Handler {
 
 	// Install script endpoint
 	mux.HandleFunc("/install.sh", p.handleInstallScript)
+	mux.Handle("/dl/", downloads.Handler())
 
 	// Auth endpoints (no auth required on these)
 	mux.HandleFunc("/auth/domain", p.handleDomainLogin)
@@ -1001,75 +1003,7 @@ func (p *ProxyServer) handleInstallScript(w http.ResponseWriter, r *http.Request
 	_, _ = fmt.Fprint(w, installScript)
 }
 
-// installScript is the embedded install.sh content
-const installScript = `#!/bin/sh
-# tunn installer
-# Usage: curl -fsSL https://tunn.to/install.sh | sh
-
-set -e
-
-# Detect OS and architecture
-OS=$(uname -s | tr '[:upper:]' '[:lower:]')
-ARCH=$(uname -m)
-
-case "$ARCH" in
-    x86_64) ARCH="amd64" ;;
-    aarch64|arm64) ARCH="arm64" ;;
-    *) echo "Unsupported architecture: $ARCH"; exit 1 ;;
-esac
-
-case "$OS" in
-    darwin|linux) ;;
-    *) echo "Unsupported OS: $OS"; exit 1 ;;
-esac
-
-# Get latest release version
-LATEST=$(curl -fsSL https://api.github.com/repos/ehrlich-b/tunn/releases/latest | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
-if [ -z "$LATEST" ]; then
-    echo "Failed to get latest release version"
-    exit 1
-fi
-
-BINARY="tunn-${OS}-${ARCH}"
-URL="https://github.com/ehrlich-b/tunn/releases/download/${LATEST}/${BINARY}"
-
-# Determine install location
-if [ -w /usr/local/bin ]; then
-    INSTALL_DIR="/usr/local/bin"
-elif [ -d "$HOME/.local/bin" ]; then
-    INSTALL_DIR="$HOME/.local/bin"
-else
-    INSTALL_DIR="$HOME/.local/bin"
-    mkdir -p "$INSTALL_DIR"
-fi
-
-echo "Downloading tunn ${LATEST} for ${OS}/${ARCH}..."
-curl -fsSL "$URL" -o "$INSTALL_DIR/tunn"
-chmod +x "$INSTALL_DIR/tunn"
-
-echo ""
-echo "tunn installed to $INSTALL_DIR/tunn"
-
-# Check if install dir is in PATH
-case ":$PATH:" in
-    *":$INSTALL_DIR:"*)
-        echo "Run 'tunn --help' to get started"
-        ;;
-    *)
-        echo "To add tunn to your PATH, run:"
-        echo ""
-        if [ "$OS" = "darwin" ]; then
-            echo "  echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.zshrc && source ~/.zshrc"
-        elif [ -n "$BASH_VERSION" ] || [ "$(basename "$SHELL")" = "bash" ]; then
-            echo "  echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.bashrc && source ~/.bashrc"
-        else
-            echo "  echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.profile"
-        fi
-        echo ""
-        echo "Then run 'tunn --help' to get started"
-        ;;
-esac
-`
+var installScript = downloads.Installer()
 
 func createInternalTLSConfig(cfg *config.Config) (*tls.Config, error) {
 	// Reuse the public cert for internal gRPC server

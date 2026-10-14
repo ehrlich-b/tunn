@@ -1,0 +1,13 @@
+.git
+bin
+.scratch
+*.test
+.env
+.env.*
+certs
+*.pem
+*.key
+*.crt
+*.db
+*.db-*
+__pycache__

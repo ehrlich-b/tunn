@@ -15,6 +15,8 @@ FROM --platform=linux/amd64 alpine:3.20
 WORKDIR /app
 RUN apk add --no-cache ca-certificates sqlite libqrencode-tools
 COPY --from=builder /tunn .
+COPY downloads/ /app/downloads/
+ENV TUNN_DOWNLOAD_DIR=/app/downloads
 
 # Validate certificate secrets before launch and forward signals to the host.
 COPY scripts/docker-entrypoint.sh /app/start.sh

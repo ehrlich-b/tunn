@@ -728,3 +728,6 @@ test-forwarded-permission:
 .PHONY: test-stream-lifetime
 test-stream-lifetime:
 	go test -race -v -count=1 -parallel=2 -timeout=120s -run '^Test(ForwardedAdmission|PublisherStream)' ./internal/host
+.PHONY: generate-installer
+generate-installer:
+	python3 scripts/generate-installer.py

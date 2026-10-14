@@ -45,3 +45,6 @@ fly.toml
 bin/
 .scratch/
 image.png
+
+/downloads/*
+!/downloads/.gitkeep

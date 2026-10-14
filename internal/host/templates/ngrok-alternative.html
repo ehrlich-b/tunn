@@ -11,8 +11,7 @@
 <meta property="og:title" content="tunn vs ngrok">
 <meta property="og:description" content="Email-gated access in one flag, a $5 paid plan, and a hard stop at the limit.">
 <meta property="og:url" content="https://tunn.to/ngrok-alternative">
-<meta name="theme-color" content="#D8D4CB">
-<link rel="preload" href="/assets/archivo-latin-wdth-normal.woff2" as="font" type="font/woff2" crossorigin>
+<meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)"><meta name="theme-color" content="#0F1115" media="(prefers-color-scheme: dark)">
 <link rel="stylesheet" href="/guides.css">
 <script defer src="/assets/ui.js"></script>
 </head>
@@ -27,16 +26,16 @@
   <div class="diff-head" role="row"><span role="columnheader"><span class="sr-only">Task</span></span><span class="lbl sig" role="columnheader">+ tunn</span><span class="lbl" role="columnheader">− ngrok</span></div>
   <div class="diff-row" role="row"><span class="lbl" role="rowheader">Only Alex gets in</span>
    <div class="cell glass" role="cell" data-who="+ tunn"><code>tunn 3000 <span class="f">--allow=alex@example.com</span></code></div>
-   <div class="cell them" role="cell" data-who="− ngrok"><s>Traffic Policy: oauth action + email expression + deny rule</s></div></div>
+   <div class="cell them" role="cell" data-who="− ngrok"><span>Traffic Policy: oauth action + email expression + deny rule</span></div></div>
   <div class="diff-row" role="row"><span class="lbl" role="rowheader">Paid plan / month</span>
    <div class="cell glass" role="cell" data-who="+ tunn"><span class="big">${{.MonthlyUSD}}</span><span class="bar"><i style="width:50%"></i></span></div>
-   <div class="cell them" role="cell" data-who="− ngrok"><s class="big">$10</s><span class="bar"><i style="width:100%"></i></span></div></div>
+   <div class="cell them" role="cell" data-who="− ngrok"><span class="big">$10</span><span class="bar"><i style="width:100%"></i></span></div></div>
   <div class="diff-row" role="row"><span class="lbl" role="rowheader">Free each month</span>
    <div class="cell glass" role="cell" data-who="+ tunn"><span>{{.FreeBytesShort}} · {{.FreeRequestsShort}} requests</span><span class="bar"><i style="width:100%"></i></span></div>
-   <div class="cell them" role="cell" data-who="− ngrok"><s>1 GB · 20,000 requests</s><span class="bar"><i style="width:10%"></i></span></div></div>
+   <div class="cell them" role="cell" data-who="− ngrok"><span>1 GB · 20,000 requests</span><span class="bar"><i style="width:10%"></i></span></div></div>
   <div class="diff-row" role="row"><span class="lbl" role="rowheader">At the limit</span>
    <div class="cell glass" role="cell" data-who="+ tunn"><span>Hard stop. No overage bill.</span></div>
-   <div class="cell them" role="cell" data-who="− ngrok"><s>Hobbyist covers extra usage with credit</s></div></div>
+   <div class="cell them" role="cell" data-who="− ngrok"><span>Hobbyist covers extra usage with credit</span></div></div>
  </div>
  <p class="fine" style="margin-top:14px">ngrok figures from <a href="https://ngrok.com/pricing">ngrok.com/pricing</a> and <a href="https://ngrok.com/docs/pricing-limits/">pricing limits</a>, accessed 2026-10-12. Yearly: tunn Pro ${{.YearlyUSD}}, ngrok Hobbyist $96. Visitor sign-in on ngrok: <a href="https://ngrok.com/docs/gateway/traffic-policy/actions/oauth#restricting-access-by-email">OAuth action docs</a>.</p>
 </section>

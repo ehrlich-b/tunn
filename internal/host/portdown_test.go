@@ -41,7 +41,7 @@ func TestLocalAppDownPage(t *testing.T) {
 	if w.Code != 502 || !strings.HasPrefix(w.Header().Get("Content-Type"), "text/html") || w.Header().Get("Cache-Control") != "no-store" {
 		t.Fatal(w.Code, w.Header())
 	}
-	for _, want := range []string{"Local app not answering", "k7m2.tunn.to", "GET /checkout", "[x] not answering", "url(https://tunn.to/assets/"} {
+	for _, want := range []string{"Local app not answering", "k7m2.tunn.to", "GET /checkout", "[x] not answering"} {
 		if !strings.Contains(body, want) {
 			t.Error("missing", want)
 		}

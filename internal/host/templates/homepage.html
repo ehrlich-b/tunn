@@ -11,8 +11,7 @@
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://tunn.to/">
 <meta property="og:site_name" content="tunn">
-<meta name="theme-color" content="#D8D4CB">
-<link rel="preload" href="/assets/archivo-latin-wdth-normal.woff2" as="font" type="font/woff2" crossorigin>
+<meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)"><meta name="theme-color" content="#0F1115" media="(prefers-color-scheme: dark)">
 <link rel="stylesheet" href="/assets/system.css">
 <script defer src="/assets/ui.js"></script>
 </head>
@@ -30,14 +29,8 @@
   <div class="ctas"><a class="btn sig" href="#install">Install tunn</a><span class="lbl">curl -fsSL tunn.to/install.sh | sh</span></div>
  </div>
  <figure class="panel unit" aria-label="Example: requests to k7m2.tunn.to reaching localhost:3000, shared with alex@example.com">
-  <i class="screw tl"></i><i class="screw tr"></i><i class="screw bl"></i><i class="screw br"></i>
-  <div class="unit-top"><span class="lbl">CH1 · Requests in</span><span class="lbl"><i class="led on"></i>&nbsp; Example</span></div>
-  <div class="glass grid scope">
-   <div class="hud"><span class="wide">200 ms/div</span><span>GET /dashboard · 200 · 41 ms</span></div>
-   <svg viewBox="0 0 700 300" preserveAspectRatio="none" aria-hidden="true"><path d="M0 210 H700" stroke="#3A3D37" stroke-dasharray="3 5" fill="none"/><path class="trace draw" d="M0 210 H70 L78 210 L84 92 L92 238 L98 196 L104 210 H230 L236 210 L242 60 L250 248 L256 200 L262 210 H300 L306 150 L312 222 L318 210 H470 L476 210 L482 74 L490 244 L496 198 L502 210 H600 L606 128 L612 230 L618 210 H700"/></svg>
-   <span class="sweep" aria-hidden="true"></span>
-   <span class="ex">Example traffic</span>
-  </div>
+  
+  <div class="unit-top"><span class="lbl">Example tunnel</span><span class="lbl"><i class="led on"></i>&nbsp; Connected</span></div>
   <div class="glass readout"><span class="led on"></span><span class="url">k7m2.tunn.to</span><span class="arr" aria-hidden="true">→</span><span class="lh">localhost:3000</span></div>
   <div class="controls">
    <div class="ctl"><span class="sw on" aria-hidden="true"><span class="slot"><b></b></span></span><span class="meta"><span class="lbl">--allow</span><span class="val">alex@example.com</span></span></div>
@@ -56,7 +49,7 @@
 
 <section class="section" aria-labelledby="ladder-title" style="padding-top:0">
  <div class="section-head"><h2 id="ladder-title">Pick who gets in.</h2><span class="lbl">One flag each</span></div>
- <div class="panel ladder"><i class="screw tl"></i><i class="screw tr"></i><i class="screw bl"></i><i class="screw br"></i>
+ <div class="panel ladder">
   <div class="rung"><span class="who"><span class="sw" aria-hidden="true"><span class="slot"><b></b></span></span><span class="lbl sig">Only you</span></span><code class="glass">tunn 3000</code><p>The default. You sign in once to open it.</p></div>
   <div class="rung"><span class="who"><span class="sw on" aria-hidden="true"><span class="slot"><b></b></span></span><span class="lbl sig">One person</span></span><code class="glass">tunn 3000 <span class="f">--allow=alex@example.com</span></code><p>Alex signs in with GitHub or an email link.</p></div>
   <div class="rung"><span class="who"><span class="sw on" aria-hidden="true"><span class="slot"><b></b></span></span><span class="lbl sig">A whole domain</span></span><code class="glass">tunn 3000 <span class="f">--allow=@example.com</span></code><p>Anyone with an example.com address.</p></div>

@@ -3,55 +3,55 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#D8D4CB">
+<meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)"><meta name="theme-color" content="#0F1115" media="(prefers-color-scheme: dark)">
 <title>Account - tunn</title>
 <link rel="stylesheet" href="/assets/system.css">
 <style>
 .acct{padding-top:22px;padding-bottom:40px}
-.acct h1{font-size:52px;margin:0}
+.acct h1{font-size:28px;margin:0}
 .acct-top{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:16px}
-.who{display:flex;align-items:center;gap:14px;padding:12px 16px;font:500 14px/1.3 var(--mono);min-width:0}
+.who{display:flex;align-items:center;gap:12px;padding:10px 14px;font:400 14px/1.3 var(--sans);min-width:0}
 .who .mail{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.plan-badge{font:700 11px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;padding:6px 8px;border-radius:5px;border:2px solid currentColor}
-.plan-pro{color:var(--sig-ink)}.plan-free{color:var(--engrave)}
+.plan-badge{font:500 12px/1 var(--sans);padding:4px 8px;border-radius:4px;border:1px solid var(--plate-lo);background:var(--plate-hi)}
+.plan-pro{color:var(--ink)}.plan-free{color:var(--engrave)}
 .acct-grid{display:grid;grid-template-columns:1.25fr 1fr;gap:16px;align-items:start}
 .meters{padding:22px 24px}
-.meters .card-title,.card-title{font:500 11px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--engrave);margin-bottom:14px}
+.meters .card-title,.card-title{font:600 14px/1.3 var(--sans);color:var(--ink);margin-bottom:12px}
 .meters-top{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-bottom:14px}
 .meters-top .card-title{margin:0}
 .gauges{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.gauge{padding:18px 18px 16px;display:flex;flex-direction:column;gap:10px}
-.gauge .g-hud{display:flex;justify-content:space-between;font:500 10px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--dim)}
-.gauge .g-hud .pct{color:var(--sig)}
-.gauge .read{font:700 30px/1 var(--mono);color:#F3F0E8;letter-spacing:-.02em}
-.gauge .read small{font:500 13px/1 var(--mono);color:var(--dim);letter-spacing:0;margin-left:6px}
-.usage-bar{height:8px;border-radius:4px;background:#2E2F2B;overflow:hidden}
-.usage-fill{height:100%;background:var(--sig);box-shadow:0 0 8px var(--sig-glow);min-width:2px}
-.usage-fill.warning{background:#FFB020}
+.gauge{padding:14px 16px;display:flex;flex-direction:column;gap:10px}
+.gauge .g-hud{display:flex;justify-content:space-between;font:400 13px/1.2 var(--sans);color:var(--engrave)}
+.gauge .g-hud .pct{color:var(--ink2)}
+.gauge .read{font:600 22px/1.1 var(--sans);color:var(--ink)}
+.gauge .read small{font:400 13px/1 var(--sans);color:var(--engrave);margin-left:6px}
+.usage-bar{height:6px;border-radius:3px;background:var(--plate-lo);overflow:hidden}
+.usage-fill{height:100%;background:var(--engrave);min-width:2px}
+.usage-fill.warning{background:var(--warn)}
 .gauge.off .read{color:var(--dim)}.gauge.off .usage-fill{display:none}
 .acct .readings{display:grid;grid-template-columns:repeat(3,1fr);margin:16px 0 4px}
-.acct .readings div{display:flex;flex-direction:column;gap:8px;padding:0 14px;box-shadow:-1px 0 0 var(--plate-lo)}
-.acct .readings div:first-child{padding-left:2px;box-shadow:none}
-.acct .readings b{font:700 18px/1.1 var(--mono);color:var(--ink)}
+.acct .readings div{display:flex;flex-direction:column;gap:8px;padding:0 14px;border-left:1px solid var(--plate-lo)}
+.acct .readings div:first-child{padding-left:2px;border-left:0}
+.acct .readings b{font:600 16px/1.2 var(--sans);color:var(--ink)}
 .by-tunnel{margin-top:16px;padding:6px 0}
-.by-tunnel .row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr) 76px 68px;gap:14px;align-items:center;padding:10px 18px;font:500 14px/1.3 var(--mono);color:#F3F0E8}
-.by-tunnel .row+.row{border-top:1px solid #262824}
-.by-tunnel .row.head{font:500 10px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--dim);padding-top:12px;padding-bottom:8px}
+.by-tunnel .row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr) 76px 68px;gap:14px;align-items:center;padding:10px 18px;font:400 14px/1.3 var(--sans);color:var(--ink)}
+.by-tunnel .row+.row{border-top:1px solid var(--plate-lo)}
+.by-tunnel .row.head{font:500 13px/1 var(--sans);color:var(--engrave);padding-top:12px;padding-bottom:8px}
 .by-tunnel .name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .by-tunnel .num{text-align:right;color:var(--phos)}
 .by-tunnel .usage-bar{height:6px}
-.empty{padding:22px 18px;font:500 14px/1.6 var(--mono);color:var(--phos)}
-.empty b{display:block;color:#F3F0E8;font-weight:700;margin-bottom:6px}
-.empty code{color:var(--sig)}
+.empty{padding:20px 16px;font:400 14px/1.6 var(--sans);color:var(--ink2)}
+.empty b{display:block;color:var(--ink);font-weight:600;margin-bottom:6px}
+.empty code{color:var(--ink)}
 .tools{display:grid;gap:12px}
-.acct .card{padding:20px 22px;border-radius:14px;background:linear-gradient(180deg,var(--plate-hi),var(--plate))}
+.acct .card{padding:18px 20px}
 .acct .card p{font:400 14px/1.55 var(--sans);color:var(--ink2);margin-bottom:10px}
-.acct .card>a:not(.btn){font:700 12px/1.4 var(--mono);letter-spacing:.06em;color:var(--sig-ink)}
+.acct .card>a:not(.btn){font:500 14px/1.4 var(--sans);color:var(--sig-ink)}
 .upgrade-btn-white{display:inline-flex;margin:4px 10px 8px 0}
 .upgrade-card .fine{margin:6px 0 14px}
 .billing{grid-column:1;display:grid;gap:12px}.tools{grid-column:2;grid-row:1/span 2}
 @media(max-width:760px){.gauges{grid-template-columns:1fr}.gauge .read{font-size:26px}.by-tunnel .row{grid-template-columns:minmax(0,1fr) 72px 60px;padding:10px 14px}.by-tunnel .row .usage-bar,.by-tunnel .row.head .bar-h{display:none}.meters{padding:18px 14px}.acct .readings div{padding:0 10px}}
-@media(max-width:900px){.acct-grid{grid-template-columns:1fr}.tools,.billing{grid-column:1;grid-row:auto}.acct h1{font-size:40px}.who{width:100%}}
+@media(max-width:900px){.acct-grid{grid-template-columns:1fr}.tools,.billing{grid-column:1;grid-row:auto}.acct h1{font-size:24px}.who{width:100%}}
 </style>
 </head>
 <body>

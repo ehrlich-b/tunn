@@ -39,7 +39,7 @@ func writePageStart(w io.Writer, title string) {
 }
 
 func writePageStartAt(w io.Writer, title, current string) {
-	_, _ = fmt.Fprintf(w, `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#D8D4CB"><title>%s</title><style>%s</style></head><body>`, title, baseCSS)
+	_, _ = fmt.Fprintf(w, `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#FFFFFF"><title>%s</title><style>%s</style></head><body>`, title, baseCSS)
 	_, _ = fmt.Fprint(w, siteHeader(current), `<main id="main" class="page-container">`)
 }
 

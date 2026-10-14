@@ -97,7 +97,7 @@ verify: fmt test
 	@echo "Verification complete!"
 
 # Comprehensive check: format, tidy, test with race detection
-check: fmt tidy test-race
+check: test-deploy-guard fmt tidy test-race
 	@echo "All checks passed!"
 
 vet:
@@ -383,7 +383,7 @@ fly-secrets:
 fly-certs:
 	@$(MAKE) cert-renew
 
-fly-deploy:
+fly-deploy: check-downloads
 	@echo "Deploying to Fly.io..."
 	fly deploy
 
@@ -731,3 +731,10 @@ test-stream-lifetime:
 .PHONY: generate-installer
 generate-installer:
 	python3 scripts/generate-installer.py
+
+.PHONY: check-downloads test-deploy-guard
+check-downloads:
+	nice -n 10 go run -p 2 ./cmd/check-downloads downloads
+
+test-deploy-guard:
+	nice -n 10 go test -p 2 ./internal/downloads ./cmd/check-downloads -run "Staged|DeployGuard" -count=1

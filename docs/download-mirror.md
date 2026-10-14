@@ -22,3 +22,12 @@ existing install. Both sources unavailable produce one plain sentence. The
 installer uses a temporary file and atomic rename and accepts a writable
 `TUNN_INSTALL_DIR` (default `$HOME/.local/bin`), without automatically using sudo.
 There is no tunn self-update command; rerun the installer to update.
+
+Production `make fly-deploy` refuses before Fly runs unless `downloads/` has a
+stable `latest.json`, four nonempty binaries per staged tag, matching SHA256SUMS
+and its identical `checksums.txt` alias. Stage with
+`cp -R /path/to/verified/downloads/. downloads/` and run `make check-downloads`.
+Tags come from the staged tree; new CLI releases require no validator change.
+Production Fly configuration must set `[build.args] REQUIRE_DOWNLOADS = "1"`
+to enforce the same check on direct `fly deploy`. A plain Docker build and the
+self-host `fly.toml.dist` leave this argument off.

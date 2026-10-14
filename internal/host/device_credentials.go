@@ -112,9 +112,8 @@ func (s *deviceCredentialStore) rotate(secret, request string, key []byte, now t
 	err = tx.QueryRow(`SELECT id,email,name,created,last_used,revoked FROM durable_devices WHERE digest=? AND purpose='publisher'`, digest[:]).Scan(&d.ID, &d.Email, &d.Name, &d.Created, &d.LastUsed, &d.Revoked)
 	if errors.Is(err, sql.ErrNoRows) {
 		var oldRequest string
-		var used int64
 		var replacement, current []byte
-		err = tx.QueryRow(`SELECT u.device,u.request,u.used,u.replacement,d.digest,d.email,d.revoked FROM durable_device_used u JOIN durable_devices d ON d.id=u.device WHERE u.digest=? AND d.purpose='publisher'`, digest[:]).Scan(&d.ID, &oldRequest, &used, &replacement, &current, &d.Email, &d.Revoked)
+		err = tx.QueryRow(`SELECT u.device,u.request,u.replacement,d.digest,d.email,d.revoked FROM durable_device_used u JOIN durable_devices d ON d.id=u.device WHERE u.digest=? AND d.purpose='publisher'`, digest[:]).Scan(&d.ID, &oldRequest, &replacement, &current, &d.Email, &d.Revoked)
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, "", errDeviceCredential
 		}
@@ -125,8 +124,14 @@ func (s *deviceCredentialStore) rotate(secret, request string, key []byte, now t
 		if d.Revoked != 0 {
 			return nil, "", errDeviceCredential
 		}
-		if oldRequest == request && now.Unix() >= used && now.Unix()-used < 60 && hmac.Equal(replacement, current) {
-			d.LastUsed = used
+		// A lost response is recoverable with the same request ID for as long
+		// as its replacement has never been redeemed, however long the client
+		// slept or retried. Once the replacement rotates, any reuse revokes.
+		if oldRequest == request && hmac.Equal(replacement, current) {
+			if _, err = tx.Exec(`UPDATE durable_devices SET last_used=? WHERE id=?`, now.Unix(), d.ID); err != nil {
+				return nil, "", err
+			}
+			d.LastUsed = now.Unix()
 			return &d, deriveDeviceRefresh(key, d.ID, request), tx.Commit()
 		}
 		if _, err = tx.Exec(`UPDATE durable_devices SET revoked=? WHERE id=?`, now.Unix(), d.ID); err != nil {
@@ -196,8 +201,8 @@ func (p *ProxyServer) writeDurableToken(w http.ResponseWriter, r *http.Request, 
 		oauthProblem(w, 403, "access_denied", "Account unavailable or suspended; contact the account owner")
 		return
 	}
-	// Anchor access expiry to the committed rotation, including retries. An
-	// in-flight response after revocation cannot extend its original lease.
+	// Anchor access expiry to the committed rotation or recovery, each of which
+	// checked revocation. An in-flight response cannot extend its own lease.
 	now := time.Unix(d.LastUsed, 0)
 	remaining := int(now.Add(deviceAccessLifetime).Sub(p.currentTime()).Seconds())
 	if remaining <= 0 {

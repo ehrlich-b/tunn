@@ -116,7 +116,11 @@ func TestDurableRotationReuseRevocation(t *testing.T) {
 		t.Fatal("additive migration not idempotent", err)
 	}
 }
-func TestDurableRetryWindowAndRestart(t *testing.T) {
+
+// A committed rotation whose response was lost stays recoverable with the same
+// request ID across a relay restart, a long sleep and a backward relay clock,
+// until its replacement is redeemed. Reuse after that revokes the device.
+func TestDurableLostResponseRecoveryAndRestart(t *testing.T) {
 	p := durableFixture(t)
 	token := durableLogin(t, p)
 	now := time.Now()
@@ -130,14 +134,42 @@ func TestDurableRetryWindowAndRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	p.devices = registry
-	now = now.Add(60 * time.Second)
-	rec, _ = durableRefresh(p, token.Refresh, strings.Repeat("a", 43))
+	for _, gap := range []time.Duration{3 * 24 * time.Hour, -2 * time.Hour} {
+		now = now.Add(gap)
+		rec, recovered := durableRefresh(p, token.Refresh, strings.Repeat("a", 43))
+		if rec.Code != 200 || recovered.Refresh != next.Refresh || recovered.Expires < 240 {
+			t.Fatalf("lost response after %s not recovered: %d %s", gap, rec.Code, rec.Body.String())
+		}
+		if _, _, _, err = parseDeviceToken(recovered.Access, p.getJWTSigningKey(), now); err != nil {
+			t.Fatal("recovered access token not usable", err)
+		}
+	}
+	rec, _ = durableRefresh(p, token.Refresh, strings.Repeat("z", 43))
 	if rec.Code != 401 {
-		t.Fatal("retry past window accepted")
+		t.Fatal("consumed secret accepted with another request ID")
 	}
 	rec, _ = durableRefresh(p, next.Refresh, strings.Repeat("b", 43))
 	if rec.Code != 401 {
-		t.Fatal("expired recovery did not revoke")
+		t.Fatal("revoked device still rotates")
+	}
+}
+func TestDurableRecoveryEndsOnceReplacementRotates(t *testing.T) {
+	p := durableFixture(t)
+	token := durableLogin(t, p)
+	rec, next := durableRefresh(p, token.Refresh, strings.Repeat("a", 43))
+	if rec.Code != 200 {
+		t.Fatal(rec.Body.String())
+	}
+	if rec, _ = durableRefresh(p, next.Refresh, strings.Repeat("b", 43)); rec.Code != 200 {
+		t.Fatal(rec.Body.String())
+	}
+	rec, _ = durableRefresh(p, token.Refresh, strings.Repeat("a", 43))
+	if rec.Code != 401 {
+		t.Fatal("old generation recovered after its replacement rotated")
+	}
+	var revoked int64
+	if err := p.devices.db.QueryRow(`SELECT revoked FROM durable_devices WHERE id=?`, token.Device).Scan(&revoked); err != nil || revoked == 0 {
+		t.Fatal("old generation replay did not revoke", err, revoked)
 	}
 }
 func TestDurableScopeExpiryAndLegacy(t *testing.T) {

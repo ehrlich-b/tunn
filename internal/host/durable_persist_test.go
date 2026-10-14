@@ -40,6 +40,10 @@ type persistRelay struct {
 	failRefresh atomic.Int64
 	// asleep stalls refresh calls until closed, then fails them.
 	asleep atomic.Pointer[chan struct{}]
+	// loseResponse commits the next refresh, then runs midRequest (the host
+	// sleeping) and drops the connection before the client sees the response.
+	loseResponse atomic.Int64
+	midRequest   func()
 }
 
 func (r *persistRelay) start() {
@@ -70,6 +74,12 @@ func (r *persistRelay) start() {
 				return
 			}
 			r.refresh.Add(1)
+			if r.loseResponse.Load() > 0 {
+				r.loseResponse.Add(-1)
+				routes.ServeHTTP(httptest.NewRecorder(), req)
+				r.midRequest()
+				panic(http.ErrAbortHandler)
+			}
 		}
 		routes.ServeHTTP(w, req)
 	})))
@@ -144,8 +154,9 @@ func readPersistLogin(t *testing.T, dir string) persistSavedLogin {
 }
 
 // A publisher logged in once stays registered for 7 simulated days through a
-// relay restart, a login-node outage during reauthentication and a host sleep
-// past expiry. Only a terminal refresh rejection stops it.
+// relay restart, the host clock stepping back, a login-node outage during
+// reauthentication, a host sleep past expiry and a host sleep that loses a
+// committed rotation's response. Only a terminal refresh rejection stops it.
 func TestDogfoodPublisherPersistsSevenDays(t *testing.T) {
 	db, err := store.InitForTest()
 	if err != nil {
@@ -154,7 +165,9 @@ func TestDogfoodPublisherPersistsSevenDays(t *testing.T) {
 	var seconds atomic.Int64
 	seconds.Store(time.Now().Unix())
 	clock := func() time.Time { return time.Unix(seconds.Load(), 0) }
-	relay := &persistRelay{t: t, db: db, clock: clock}
+	var skew atomic.Int64 // client clock offset from the relay, in seconds
+	clientClock := func() time.Time { return clock().Add(time.Duration(skew.Load()) * time.Second) }
+	relay := &persistRelay{t: t, db: db, clock: clock, midRequest: func() { seconds.Add(int64(2 * time.Hour / time.Second)) }}
 	relay.start()
 	login := durableLogin(t, relay.proxy())
 	firstRefresh := login.Refresh
@@ -170,7 +183,7 @@ func TestDogfoodPublisherPersistsSevenDays(t *testing.T) {
 	if err != nil || manager == nil || token != login.Access {
 		t.Fatal("saved device login did not load", err)
 	}
-	manager.Now = clock
+	manager.Now = clientClock
 	manager.HTTPClient = &http.Client{Transport: &http.Transport{DialContext: relay.dial, TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}}
 	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("forge")) }))
 	defer origin.Close()
@@ -200,12 +213,12 @@ func TestDogfoodPublisherPersistsSevenDays(t *testing.T) {
 				t.Fatalf("%s: publisher stopped: %v", stage, err)
 			default:
 			}
-			if !first || !current.Expires.After(clock().Add(time.Minute)) {
+			if !first || !current.Expires.After(clientClock().Add(time.Minute)) {
 				current = readPersistLogin(t, dir)
 			}
 			applied, _ := relay.applied.Load().(string)
 			_, registered := relay.proxy().tunnelServer.GetTunnel("forge-ssh")
-			if registered && current.Pending == "" && applied == current.Access && current.Expires.After(clock().Add(time.Minute)) {
+			if registered && current.Pending == "" && applied == current.Access && current.Expires.After(clientClock().Add(time.Minute)) {
 				return
 			}
 			if time.Now().After(deadline) {
@@ -218,7 +231,7 @@ func TestDogfoodPublisherPersistsSevenDays(t *testing.T) {
 
 	start := clock()
 	const step = 30 * time.Second
-	restarted, slept := false, false
+	restarted, steppedBack, slept, lost := false, false, false, false
 	for clock().Sub(start) < 7*24*time.Hour+time.Hour {
 		seconds.Add(int64(step / time.Second))
 		elapsed := clock().Sub(start)
@@ -227,6 +240,11 @@ func TestDogfoodPublisherPersistsSevenDays(t *testing.T) {
 			restarted = true
 			relay.stop()
 			relay.start()
+		case !steppedBack && elapsed >= 4*24*time.Hour:
+			// The host clock steps back 2 hours, so the client believes its
+			// login is valid after the relay has expired it.
+			steppedBack = true
+			skew.Store(-int64(2 * time.Hour / time.Second))
 		case !slept && elapsed >= 5*24*time.Hour:
 			// The host sleeps for 3 hours: it cannot renew, so the relay drops
 			// the expired lease. On wake its first refreshes fail twice more.
@@ -244,11 +262,17 @@ func TestDogfoodPublisherPersistsSevenDays(t *testing.T) {
 			relay.failRefresh.Store(2)
 			relay.asleep.Store(nil)
 			close(wake)
+		case !lost && elapsed >= 6*24*time.Hour:
+			// The relay commits the next rotation, the host sleeps 2 hours
+			// before reading the response, and the connection drops. The
+			// client retries with the same request ID long after the commit.
+			lost = true
+			relay.loseResponse.Store(1)
 		}
 		settle(elapsed.String())
 	}
-	if !restarted || !slept || registrations.Load() != 3 {
-		t.Fatalf("restart=%t sleep=%t registrations=%d, want one per disruption", restarted, slept, registrations.Load())
+	if !restarted || !steppedBack || !slept || !lost || relay.loseResponse.Load() != 0 || registrations.Load() != 5 {
+		t.Fatalf("restart=%t clock=%t sleep=%t lost=%t registrations=%d, want one per disruption", restarted, steppedBack, slept, lost, registrations.Load())
 	}
 	if relay.refresh.Load() < 7*24*60/5 {
 		t.Fatalf("only %d refreshes in 7 days of 5-minute logins", relay.refresh.Load())
@@ -270,7 +294,7 @@ func TestDogfoodPublisherPersistsSevenDays(t *testing.T) {
 	before := relay.refresh.Load()
 	// Renewal is due but the relay lease is still live, so the publisher's own
 	// renewal is the request that meets the rejection.
-	seconds.Store(readPersistLogin(t, dir).Expires.Add(-30 * time.Second).Unix())
+	seconds.Store(readPersistLogin(t, dir).Expires.Add(-30*time.Second).Unix() - skew.Load())
 	select {
 	case err := <-done:
 		if !client.LoginRequired(err) || !strings.Contains(err.Error(), "tunn login") {

@@ -292,8 +292,9 @@ func runMCP(args []string) {
 	if opts.clientSecret != "" {
 		token = opts.clientSecret
 	} else if !cfg.PublicMode {
-		token, credentials, err = client.LoadTunnelToken(context.Background(), cfg.ServerAddr, cfg.Insecure || *insecure)
+		token, credentials, err = loadPublisherToken(context.Background(), cfg.ServerAddr, cfg.Insecure || *insecure)
 		if err != nil {
+			exitIfLoginRequired(err)
 			common.LogError("not logged in - run 'tunn login' first", "error", err)
 			os.Exit(1)
 		}
@@ -433,9 +434,10 @@ func runMCP(args []string) {
 	}
 
 	if runErr != nil && !errors.Is(runErr, context.Canceled) {
-		common.LogError("MCP tunnel stopped", "error", runErr)
 		cancel()
 		cleanupBridge()
+		exitIfLoginRequired(runErr)
+		common.LogError("MCP tunnel stopped", "error", runErr)
 		os.Exit(1)
 	}
 }
@@ -622,8 +624,9 @@ func runRawPublisher(opts *tcpCommandOptions, targetNetwork, endpointProtocol st
 	var credentials *client.CredentialManager
 	token := opts.clientSecret
 	if token == "" && !cfg.PublicMode {
-		token, credentials, err = client.LoadTunnelToken(context.Background(), cfg.ServerAddr, cfg.Insecure || *insecure)
+		token, credentials, err = loadPublisherToken(context.Background(), cfg.ServerAddr, cfg.Insecure || *insecure)
 		if err != nil {
+			exitIfLoginRequired(err)
 			common.LogError("not logged in - run 'tunn login' first", "error", err)
 			os.Exit(1)
 		}
@@ -698,6 +701,7 @@ func runRawPublisher(opts *tcpCommandOptions, targetNetwork, endpointProtocol st
 		Insecure:          cfg.Insecure || *insecure,
 	}
 	if err := serveClient.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+		exitIfLoginRequired(err)
 		common.LogError("raw endpoint failed", "error", err)
 		os.Exit(1)
 	}
@@ -1025,8 +1029,9 @@ func runServe(args []string) {
 		token = clientSecret
 	} else if !cfg.PublicMode {
 		login := &client.LoginClient{ServerAddr: cfg.ServerAddr, Insecure: cfg.Insecure || *insecure}
-		token, credentials, err = loadOrEnrollWebPublisher(context.Background(), cfg.ServerAddr, cfg.Insecure || *insecure, client.LoadTunnelToken, login.Run)
+		token, credentials, err = loadOrEnrollWebPublisher(context.Background(), cfg.ServerAddr, cfg.Insecure || *insecure, stdinIsTerminal(), loadPublisherToken, login.Run)
 		if err != nil {
+			exitIfLoginRequired(err)
 			common.LogError("publisher enrollment failed", "error", err)
 			os.Exit(1)
 		}
@@ -1135,6 +1140,7 @@ func runServe(args []string) {
 	}()
 
 	if err := serveClient.Run(ctx); err != nil && err != context.Canceled && err != context.DeadlineExceeded {
+		exitIfLoginRequired(err)
 		common.LogError("tunnel error", "error", err)
 		os.Exit(1)
 	}

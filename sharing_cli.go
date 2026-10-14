@@ -111,16 +111,51 @@ func runSharing(command string, args []string) {
 	}
 }
 
-// Enrollment returns to the same publish command after saving device credentials.
-func loadOrEnrollWebPublisher(ctx context.Context, server string, insecure bool,
+// Enrollment returns to the same publish command after saving device
+// credentials. Without a terminal there is nobody to authorize a device code,
+// so a service reports the missing login instead of waiting on one.
+func loadOrEnrollWebPublisher(ctx context.Context, server string, insecure, interactive bool,
 	load func(context.Context, string, bool) (string, *client.CredentialManager, error),
 	enroll func(context.Context) error) (string, *client.CredentialManager, error) {
 	token, credentials, err := load(ctx, server, insecure)
-	if err == nil {
-		return token, credentials, nil
+	if err == nil || !interactive {
+		return token, credentials, err
 	}
 	if err = enroll(ctx); err != nil {
 		return "", nil, err
 	}
 	return load(ctx, server, insecure)
+}
+
+// loadPublisherToken waits out an unreachable login server, so a service that
+// starts before its network does not exit. It returns only a missing or
+// rejected login, which needs a person.
+func loadPublisherToken(ctx context.Context, server string, insecure bool) (string, *client.CredentialManager, error) {
+	for attempt := 0; ; attempt++ {
+		token, credentials, err := client.LoadTunnelToken(ctx, server, insecure)
+		if err == nil || credentials == nil || client.LoginRequired(err) || ctx.Err() != nil {
+			return token, credentials, err
+		}
+		delay := client.ReconnectDelay(time.Second, 30*time.Second, attempt)
+		_, _ = fmt.Fprintf(os.Stderr, "tunn: login renewal unavailable (%v); retrying in %s\n", err, delay.Round(time.Second))
+		select {
+		case <-ctx.Done():
+			return "", nil, ctx.Err()
+		case <-time.After(delay):
+		}
+	}
+}
+
+// exitIfLoginRequired stops a publisher whose login cannot renew with one
+// plain line and a status its service unit does not restart.
+func exitIfLoginRequired(err error) {
+	if client.LoginRequired(err) {
+		_, _ = fmt.Fprintln(os.Stderr, client.LoginRequiredMessage())
+		os.Exit(client.ExitLoginRequired)
+	}
+}
+
+func stdinIsTerminal() bool {
+	info, err := os.Stdin.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
 }

@@ -73,7 +73,7 @@ func TestWebPublisherEnrollmentContinuesOriginalCommand(t *testing.T) {
 			}
 			return nil
 		}
-		token, _, err := loadOrEnrollWebPublisher(context.Background(), "relay.example:443", false, load, enroll)
+		token, _, err := loadOrEnrollWebPublisher(context.Background(), "relay.example:443", false, true, load, enroll)
 		switch scenario {
 		case "saved":
 			if err != nil || loads != 1 || enrollments != 0 {

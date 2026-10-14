@@ -171,7 +171,7 @@ func serviceUnit(platform, label string, process []string) string {
 			arg = strings.ReplaceAll(arg, "\t", "\\t")
 			quoted = append(quoted, "\""+arg+"\"")
 		}
-		return "[Unit]\nDescription=Tunn SSH endpoint\nAfter=network.target\n\n[Service]\nExecStart=" + strings.Join(quoted, " ") + "\nRestart=always\nRestartSec=5\n\n[Install]\nWantedBy=default.target"
+		return "[Unit]\nDescription=Tunn SSH endpoint\nAfter=network.target\n\n[Service]\nExecStart=" + strings.Join(quoted, " ") + "\nRestart=always\nRestartSec=5\nRestartPreventExitStatus=78\n\n[Install]\nWantedBy=default.target"
 	case "darwin":
 		var b strings.Builder
 		b.WriteString(`<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>Label</key><string>com.tunn.ssh.` + strings.TrimPrefix(label, "tunn-ssh-") + `</string><key>ProgramArguments</key><array>`)

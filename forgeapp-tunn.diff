@@ -45,7 +45,7 @@
 +
 +def tunn_unit(name,c,binary,credentials):
 + app='forgeapp-'+name+'.service'
-+ return '\n'.join(['[Unit]',f'Description=Forge tunn route: {name}.apps.ehrlich.dev','After=network-online.target '+app,'Requires='+app,'BindsTo='+app,'PartOf='+app,'StartLimitIntervalSec=60','StartLimitBurst=5','','[Service]','Type=simple','ExecStart='+' '.join(quote(x) for x in (binary,'serve','--name',name,'http://127.0.0.1:'+str(c['port']))),'Environment='+quote('TUNN_CONFIG_DIR='+str(credentials)),'Environment='+quote('TUNN_SERVER_ADDR=tunn.to:443'),'UMask=0077','NoNewPrivileges=yes','PrivateTmp=yes','ProtectSystem=strict','ProtectHome=read-only','ReadWritePaths='+quote(str(credentials)),'Restart=always','RestartSec=5','TimeoutStopSec=10','','[Install]','WantedBy='+app,''])
++ return '\n'.join(['[Unit]',f'Description=Forge tunn route: {name}.apps.ehrlich.dev','After=network-online.target '+app,'Requires='+app,'BindsTo='+app,'PartOf='+app,'StartLimitIntervalSec=60','StartLimitBurst=5','','[Service]','Type=simple','ExecStart='+' '.join(quote(x) for x in (binary,'serve','--name',name,'http://127.0.0.1:'+str(c['port']))),'Environment='+quote('TUNN_CONFIG_DIR='+str(credentials)),'Environment='+quote('TUNN_SERVER_ADDR=tunn.to:443'),'UMask=0077','NoNewPrivileges=yes','PrivateTmp=yes','ProtectSystem=strict','ProtectHome=read-only','ReadWritePaths='+quote(str(credentials)),'Restart=always','RestartSec=5','RestartPreventExitStatus=78','TimeoutStopSec=10','','[Install]','WantedBy='+app,''])
 +
 +def write_unit(path,content):
 + if not path.exists() or path.read_text()!=content:

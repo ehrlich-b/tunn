@@ -45,10 +45,16 @@ safely share the same login. Credentials are bound to their original HTTPS
 relay; use separate config directories for different relays. On Windows the
 user must also protect the directory with a private user ACL.
 
-Temporary refresh errors explain how to check connectivity and retry. A revoked
-or reused credential reports `run tunn login on this device`; reauthorize on
-that machine. A lost refresh response can recover the same rotation for 60
-seconds. A crash or outage past that recovery window requires a fresh login.
+Temporary refresh errors are logged and retried with backoff, including after
+a relay restart, a login-server outage or a host sleep past expiry; the
+publisher re-registers once refresh succeeds. Only a refresh the relay rejects
+(revoked, reused or unknown credential, or a missing login) needs a person:
+the publisher logs one line naming `TUNN_CONFIG_DIR=... tunn login` and exits
+with status 78. Service units should set `RestartPreventExitStatus=78` so a
+rejected login does not restart in a loop. A lost refresh response can recover
+the same rotation for 60 seconds; the publisher retries a failed refresh within
+about a second, but a crash or outage past that recovery window requires a
+fresh login.
 An always-on publisher needs outbound HTTPS access to its login relay in
 addition to the tunnel control connection. Update the relay before its clients;
 new clients retain legacy access-token behavior when an old relay returns no

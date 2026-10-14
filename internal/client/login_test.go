@@ -34,6 +34,7 @@ func TestSaveAndLoadToken(t *testing.T) {
 
 	// Restore the test process environment automatically.
 	t.Setenv("HOME", tmpDir)
+	t.Setenv("TUNN_CONFIG_DIR", filepath.Join(tmpDir, ".tunn"))
 
 	// Test saving token
 	client := &LoginClient{}
@@ -71,6 +72,7 @@ func TestLoadTokenNotFound(t *testing.T) {
 
 	// Restore the test process environment automatically.
 	t.Setenv("HOME", tmpDir)
+	t.Setenv("TUNN_CONFIG_DIR", filepath.Join(tmpDir, ".tunn"))
 
 	// Try to load token from empty home
 	_, err = LoadToken()
@@ -89,6 +91,7 @@ func TestSaveTokenCreatesDirectory(t *testing.T) {
 
 	// Restore the test process environment automatically.
 	t.Setenv("HOME", tmpDir)
+	t.Setenv("TUNN_CONFIG_DIR", filepath.Join(tmpDir, ".tunn"))
 
 	// .tunn directory shouldn't exist yet
 	tunnDir := filepath.Join(tmpDir, ".tunn")

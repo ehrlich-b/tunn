@@ -50,8 +50,6 @@ func newAppDeviceFixture(t *testing.T) *appDeviceFixture {
 	p.config.GitHubClientID = "fixture-id"
 	tunnel, _ := p.tunnelServer.GetTunnel("api")
 	delete(p.tunnelServer.tunnels, "api")
-	tunnel.TunnelID = "wing"
-	p.tunnelServer.tunnels["wing"] = tunnel
 	tunnel.AllowedEmails = nil
 	tunnel.EndpointProtocol = "http"
 	d, err := registry.Add(context.Background(), &domainpb.Domain{Name: "*.apps.test", Tunnel: "wing", Owner: tunnel.AccountID})
@@ -62,6 +60,9 @@ func newAppDeviceFixture(t *testing.T) *appDeviceFixture {
 	if _, err = registry.Verify(context.Background(), d); err != nil {
 		t.Fatal(err)
 	}
+	// Namespace app labels map to the publisher ID returned by the registry.
+	tunnel.TunnelID = d.AppNames[0].Tunnel
+	p.tunnelServer.tunnels[tunnel.TunnelID] = tunnel
 	// Cancellation may retire a SQLite connection. A file-backed fixture
 	// preserves account authority across reconnects, as the relay does.
 	db, err := store.OpenLocal(filepath.Join(t.TempDir(), "app-authority.sqlite"))

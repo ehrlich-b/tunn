@@ -20,6 +20,7 @@ func TestNamespacePublisherActualDurableTokenAndRevocation(t *testing.T) {
 	for _, legacy := range []bool{false, true} {
 		t.Run(fmt.Sprint(legacy), func(t *testing.T) {
 			p := durableFixture(t)
+			p.config.NodeSecret = "fixture-cluster"
 			token := durableLogin(t, p)
 			account, err := p.storage.GetAccountByEmail(context.Background(), "owner@example.com")
 			if err != nil {
@@ -59,6 +60,8 @@ func TestNamespacePublisherActualDurableTokenAndRevocation(t *testing.T) {
 			authority := httptest.NewTLSServer(handler)
 			defer authority.Close()
 			edge := securityProxy(p.storage)
+			edge.config.NodeSecret = p.config.NodeSecret
+			edge.config.JWTSecret = p.config.JWTSecret
 			edge.domains = registry
 			edge.config.Insecure = true // local fixture CA only
 			edge.loginNodeHTTPAddr = strings.TrimPrefix(authority.URL, "https://")

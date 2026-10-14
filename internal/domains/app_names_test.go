@@ -21,7 +21,7 @@ func TestNamespaceCapacityIndependentOfSharedReservations(t *testing.T) {
 	r, dns, db := domainFixture(t, nil)
 	ctx := context.Background()
 	accounts := store.NewAccountStore(db)
-	for i := 0; i < 4; i++ {
+	for i := 0; i < 10; i++ {
 		if err := accounts.ReserveSubdomain("one", fmt.Sprintf("existing-%d", i)); err != nil {
 			t.Fatal(err)
 		}
@@ -58,10 +58,10 @@ func TestNamespaceCapacityIndependentOfSharedReservations(t *testing.T) {
 		t.Fatalf("idempotent at capacity: %v", err)
 	}
 	names, err := accounts.GetReservedSubdomains("one")
-	if err != nil || len(names) != 4 {
+	if err != nil || len(names) != 10 {
 		t.Fatalf("shared reservations changed: %d %v", len(names), err)
 	}
-	if err := accounts.ReserveSubdomain("one", "fifth-shared"); err == nil {
+	if err := accounts.ReserveSubdomain("one", "eleventh-shared"); err == nil {
 		t.Fatal("shared reservation cap weakened")
 	}
 }

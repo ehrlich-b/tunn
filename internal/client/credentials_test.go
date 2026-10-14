@@ -353,10 +353,10 @@ func TestDurablePublisherRetriesFailedRenewalWithinReplayWindow(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("renewal not retried")
 	}
-	// With the production interval the retry still lands inside the relay's
-	// 60-second replay window: one request timeout plus at most one second.
-	if delay := ReconnectDelay(time.Second, 30*time.Second, 0); delay > time.Second || refreshRequestTimeout+delay >= 60*time.Second {
-		t.Fatal("retry can miss the replay window", delay)
+	// With the production interval the retry still lands inside the one-minute
+	// renewal margin: one request timeout plus at most one second.
+	if delay := ReconnectDelay(time.Second, 30*time.Second, 0); delay > time.Second || refreshRequestTimeout+delay >= time.Minute {
+		t.Fatal("retry can miss the renewal margin", delay)
 	}
 	if time.Since(started) > 5*time.Second {
 		t.Fatal("retry waited too long")

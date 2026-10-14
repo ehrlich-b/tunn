@@ -40,8 +40,8 @@ type CredentialManager struct {
 	last       string
 }
 
-// A lost refresh response must be retried inside the relay's 60-second replay
-// window, so one attempt never outlives a quarter of it.
+// Renewal starts a minute before expiry, so one attempt and its retry fit
+// inside that margin and a lost response does not cost the relay lease.
 const refreshRequestTimeout = 15 * time.Second
 
 type credentialRefreshError struct {

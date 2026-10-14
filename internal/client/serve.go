@@ -923,7 +923,7 @@ func (s *ServeClient) maintainDeviceLease(ctx context.Context, sender messageSen
 					return err
 				}
 				s.log(slog.LevelError, "publisher credential refresh failed", "error", err)
-				// Retry a pending rotation well inside the relay's replay window.
+				// Retry a pending rotation well before the relay lease expires.
 				timer.Reset(ReconnectDelay(time.Second, interval, failures))
 				failures++
 				continue

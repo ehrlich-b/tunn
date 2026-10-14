@@ -20,7 +20,7 @@ chmod +x tunn
 
 Or build from source:
 ```bash
-git clone https://github.com/ehrlich-b/tunn.git
+git clone https://gitlab.com/ehrlich-b/tunn.git
 cd tunn
 make build
 ```

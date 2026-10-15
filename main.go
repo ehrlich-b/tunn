@@ -35,9 +35,10 @@ import (
 
 // Global flags (parsed before subcommand)
 var (
-	verbosity = flag.String("verbosity", "request", "log level: none, error, request, trace")
-	insecure  = flag.Bool("insecure", false, "skip TLS verification for proxy gRPC connection (insecure)")
-	dev       = flag.Bool("dev", false, "use development configuration (or set TUNN_ENV=dev)")
+	verbosity   = flag.String("verbosity", "request", "log level: none, error, request, trace")
+	insecure    = flag.Bool("insecure", false, "skip TLS verification for proxy gRPC connection (insecure)")
+	dev         = flag.Bool("dev", false, "use development configuration (or set TUNN_ENV=dev)")
+	showVersion = flag.Bool("version", false, "print the build version and exit")
 
 	// Hidden flag for server operators
 	mode = flag.String("mode", "", "internal: host mode for server operators")
@@ -49,9 +50,6 @@ var (
 )
 
 func main() {
-	// Load .env file if present (silently ignored if not found)
-	_ = godotenv.Load()
-
 	// Custom usage message
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, `tunn - expose localhost to the internet
@@ -65,6 +63,7 @@ Usage:
   tunn openclaw [options]         Preview OpenClaw phone setup (needs WebSockets)
   tunn keys add|list|remove       Manage account SSH public keys
   tunn login                     Authenticate with GitHub
+  tunn version                   Print the build version
   tunn serve [options] <target>  Explicit serve mode (same as default)
   tunn http [options] <target>   Shortcut for ngrok-style HTTP usage
   tunn mcp [options] <command…>   Connect a local MCP server to an AI agent
@@ -103,6 +102,17 @@ Options:
 	// Parse global flags first, but stop at first non-flag
 	flag.Parse()
 	args := flag.Args()
+	if *showVersion || (len(args) > 0 && args[0] == "version") {
+		if (*showVersion && len(args) != 0) || (!*showVersion && len(args) != 1) {
+			fmt.Fprintln(os.Stderr, "Usage: tunn --version | tunn version")
+			os.Exit(2)
+		}
+		fmt.Println("tunn", version)
+		return
+	}
+
+	// Version queries need neither configuration nor credentials.
+	_ = godotenv.Load()
 	if *dev {
 		_ = os.Setenv("TUNN_ENV", "dev")
 	}

@@ -732,6 +732,11 @@ test-stream-lifetime:
 generate-installer:
 	python3 scripts/generate-installer.py
 
+# Build and install a checksummed release using only local fixture files.
+.PHONY: test-installer-offline
+test-installer-offline:
+	nice -n 10 python3 scripts/integration-tests/installer-offline.py
+
 .PHONY: check-downloads test-deploy-guard
 check-downloads:
 	nice -n 10 go run -p 2 ./cmd/check-downloads downloads

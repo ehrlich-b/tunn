@@ -133,3 +133,55 @@ func (r *cliQuotaStatusRelay) EstablishTunnel(s pb.TunnelService_EstablishTunnel
 	}
 	return status.Error(codes.ResourceExhausted, "limit reached")
 }
+
+// The relay can discover expiry before the client's cached deadline. Its
+// retry-renewal registration response must force rotation before reconnecting.
+func TestDurableRegistrationRetryForcesRenewal(t *testing.T) {
+	manager, _ := credentialFixture(t)
+	var refreshes atomic.Int32
+	manager.HTTPClient = &http.Client{Transport: loginRoundTripper(func(r *http.Request) (*http.Response, error) {
+		refreshes.Add(1)
+		return refreshFixtureResponse(r, "renewed-access", "renewed-refresh"), nil
+	})}
+	rejections := &cliRetryRenewalRelay{t: t}
+	g := grpc.NewServer()
+	pb.RegisterTunnelServiceServer(g, rejections)
+	relay := httptest.NewUnstartedServer(g)
+	relay.EnableHTTP2 = true
+	relay.StartTLS()
+	defer relay.Close()
+	defer g.Stop()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	s := &ServeClient{ServerAddr: strings.TrimPrefix(relay.URL, "https://"), Insecure: true, Quiet: true, Credentials: manager,
+		InitialDelay: time.Millisecond, MaxReconnectDelay: time.Millisecond, OnRegistered: func(string) { cancel() },
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	err := s.Run(ctx)
+	if !errors.Is(err, context.Canceled) || refreshes.Load() != 1 || rejections.calls.Load() != 2 {
+		t.Fatal("registration recovery failed", err, refreshes.Load(), rejections.calls.Load())
+	}
+}
+
+type cliRetryRenewalRelay struct {
+	pb.UnimplementedTunnelServiceServer
+	t     *testing.T
+	calls atomic.Int32
+}
+
+func (r *cliRetryRenewalRelay) EstablishTunnel(s pb.TunnelService_EstablishTunnelServer) error {
+	msg, err := s.Recv()
+	if err != nil {
+		return err
+	}
+	if r.calls.Add(1) == 1 {
+		return s.Send(&pb.TunnelMessage{Message: &pb.TunnelMessage_RegisterResponse{RegisterResponse: &pb.RegisterResponse{ErrorMessage: "Device token expired during registration; retry renewal."}}})
+	}
+	if got := msg.GetRegisterClient().AuthToken; got != "renewed-access" {
+		r.t.Errorf("retried registration with %q instead of the renewed access token", got)
+	}
+	if err := s.Send(&pb.TunnelMessage{Message: &pb.TunnelMessage_RegisterResponse{RegisterResponse: &pb.RegisterResponse{Success: true, PublicUrl: "https://renewed.invalid", Capabilities: []string{deviceReauthCapability}}}}); err != nil {
+		return err
+	}
+	<-s.Context().Done()
+	return s.Context().Err()
+}

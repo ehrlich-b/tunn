@@ -1038,6 +1038,7 @@ func runServe(args []string) {
 		login := &client.LoginClient{ServerAddr: cfg.ServerAddr, Insecure: cfg.Insecure || *insecure}
 		token, credentials, err = loadOrEnrollWebPublisher(ctx, cfg.ServerAddr, cfg.Insecure || *insecure, stdinIsTerminal(), loadPublisherToken, login.Run)
 		if err != nil {
+			exitIfLoginRequired(err)
 			if ctx.Err() != nil {
 				output.State("stopped", "Canceled", "", "", 0)
 				return
@@ -1047,7 +1048,6 @@ func runServe(args []string) {
 			} else {
 				output.State("auth_expired", "Sign in to start a tunnel", "", "tunn login", 0)
 			}
-			exitIfLoginRequired(err)
 			os.Exit(1)
 		}
 
@@ -1155,8 +1155,8 @@ func runServe(args []string) {
 	attachCLI(ctx, serveClient, output, opts.inspect)
 	runErr := serveClient.Run(ctx)
 	if !stoppedNormally(runErr) {
-		showTunnelError(output, runErr, cfg.ServerAddr)
 		exitIfLoginRequired(runErr)
+		showTunnelError(output, runErr, cfg.ServerAddr)
 		os.Exit(1)
 	}
 	output.State("stopped", "Tunnel stopped", "", "", 0)

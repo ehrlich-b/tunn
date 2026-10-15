@@ -14,7 +14,7 @@ The terminal prints aligned `url`, `to`, `allowed` and `others` readings. `allow
 
 `Online` follows a local HEAD check. A reachable relay with an unreachable app shows `Local app unreachable`, then a route check with one aligned row per hop (browser, edge, tunn on laptop, local target) and the check command for the requested target last. Readiness repeats every 15 seconds while the relay is connected; forwarded requests can update it between checks. Each state transition has a timestamp. Ctrl+C stops the tunnel.
 
-Request rows show start time, method, redacted path, HTTP result and elapsed time. Below 70 columns the time column is dropped and its cells go to the path. Long paths collapse the query first, then the middle, so the last segment stays readable; every request fits one row at 40 columns, and a narrow 413 row adds the cap on an indented line. Help and hint text wraps at spaces. Bytes remain in the stop summary and JSON. A 413 row names the 100 MiB edge cap as a reference: an application can reject a body at a different size. Uploads rejected at the edge do not reach the forwarded-request table; the edge's HTTP response names the actual limit. Headers and bodies stay out of terminal output. `--inspect-body` retains bodies only with explicit `--inspect`.
+Human request rows show completion time, method, redacted path, HTTP result and elapsed time. JSON keeps the request start time in `at`. Below 70 columns the time column is dropped and its cells go to the path. Long paths collapse the query first, then the middle, so the last segment stays readable; every request fits one row at 40 columns, and a narrow 413 row adds the cap on an indented line. Help and hint text wraps at spaces. Bytes remain in the stop summary and JSON. A 413 row names the 100 MiB edge cap as a reference: an application can reject a body at a different size. Uploads rejected at the edge do not reach the forwarded-request table; the edge's HTTP response names the actual limit. Headers and bodies stay out of terminal output. `--inspect-body` retains bodies only with explicit `--inspect`.
 
 ```sh
 tunn hosts
@@ -42,4 +42,8 @@ tunn 3000 --json
 | `request_bytes`, `response_bytes` | Body bytes observed by the publisher |
 | `active_streams` | Other streams still open when this request completed |
 
-`NO_COLOR`, `TERM=dumb` and redirected stdout disable colors. Redirected human output uses a fixed width; hints, state transitions and summaries go to stderr. Terminal colors follow the terminal palette; the orange URL accent uses truecolor only with a reported light or dark background. Completed rows remain after reconnects; the local inspector's bounded history starts again.
+`NO_COLOR`, `TERM=dumb` and redirected stdout disable colors. Redirected human output uses a fixed width; hints, state transitions and summaries go to stderr. Terminal colors follow the terminal palette, with cyan links, bold titles and dim timestamps. Completed rows remain after reconnects; the local inspector's bounded history starts again.
+
+`tunn --version` and `tunn version` print the embedded build version without loading configuration or signing in. Invalid flags still fail. Release builds set the tag with `-ldflags "-X main.version=<tag>"`.
+
+Run `make test-installer-offline` to build a local release fixture, install it through the verified `/dl` layout, check both version commands and confirm that a bad checksum leaves existing installations intact. The fixture transport reads only local files and makes no network requests.

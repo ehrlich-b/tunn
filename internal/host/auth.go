@@ -368,6 +368,10 @@ func (p *ProxyServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 <div id="message"></div>`)
 	}
 
+	if !hasGitHub {
+		_, _ = fmt.Fprint(w, `<p>Signed up with GitHub? Continue with email using the same address and your account carries over.</p>`)
+	}
+
 	p.writeOrgLoginButtons(w, oauthParams)
 	if hasGoogle {
 		_, _ = fmt.Fprintf(w, `<a href="/auth/google?%s" class="btn btn-secondary">Continue with Google</a>`, oauthParams)

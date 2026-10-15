@@ -17,7 +17,7 @@ var pageTemplate = template.Must(template.New("status").Parse(pageHTML))
 func Headers(w http.ResponseWriter) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; font-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'sha256-Hu/wntVn+Hljn/ZV0lHwPR8Mk8nnRQUHxQleRx6zgFs='; style-src 'unsafe-inline'; font-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 }
 func Render(w http.ResponseWriter, r *http.Request, v Snapshot, code int) {

@@ -317,7 +317,7 @@ func (p *ProxyServer) handleDevices(w http.ResponseWriter, r *http.Request) {
 				return true
 			}
 		}
-		return owner == common.NormalizeEmail(account.PrimaryEmail)
+		return false
 	}
 	if r.Method == http.MethodPost {
 		if !p.requireCSRFToken(w, r, "/account/devices") {

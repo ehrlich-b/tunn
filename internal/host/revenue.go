@@ -144,7 +144,15 @@ func (p *ProxyServer) revenueAccount(w http.ResponseWriter, r *http.Request) *st
 		http.Error(w, "Account service unavailable. Please retry.", 503)
 		return nil
 	}
-	a, err := p.storage.GetAccountByEmail(r.Context(), email)
+	// Modern sessions are pinned to their signed account UUID. Removing an
+	// alias and later assigning it elsewhere must not rebind an old browser.
+	var a *storage.Account
+	var err error
+	if claims, ok := p.accountSession(r); ok {
+		a, err = p.sessionAccount(r, claims)
+	} else {
+		a, err = p.storage.GetAccountByEmail(r.Context(), email)
+	}
 	if err != nil || a == nil {
 		http.Error(w, "Account service unavailable. Please retry.", 503)
 		return nil

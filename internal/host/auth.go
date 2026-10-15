@@ -16,6 +16,7 @@ import (
 
 	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/ehrlich-b/tunn/internal/metering"
+	"github.com/ehrlich-b/tunn/internal/storage"
 	meterpb "github.com/ehrlich-b/tunn/pkg/proto/meteringv1"
 	"github.com/golang-jwt/jwt/v4"
 )
@@ -109,6 +110,17 @@ func (p *ProxyServer) getAuthFromCookie(r *http.Request) (string, bool) {
 	email, err := identityEmail(claims)
 	if err != nil {
 		return "", false
+	}
+	// A removed alias may later belong to another account. Every legacy
+	// email-based account route must still honor a modern cookie's UUID.
+	if _, bound := claims["account_id"]; bound {
+		if !validAccountClaims(claims) {
+			return "", false
+		}
+		account, err := p.sessionAccount(r, claims)
+		if err != nil || account == nil {
+			return "", false
+		}
 	}
 
 	return email, true
@@ -939,6 +951,9 @@ func (p *ProxyServer) handleLogout(w http.ResponseWriter, r *http.Request) {
 
 // AccountPageData holds data for the account page template
 type AccountPageData struct {
+	Emails    []storage.AccountEmail
+	EmailCSRF string
+	EmailSent bool
 	revenuePageData
 	BillingNotice            string
 	BillingReturn            bool
@@ -1045,6 +1060,21 @@ func (p *ProxyServer) handleAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	if org, ok := p.getOrgSession(r); ok {
 		data.Email = org.Email
+	} else if claims, ok := p.accountSession(r); ok {
+		live, err := p.sessionAccount(r, claims)
+		if err != nil {
+			http.Error(w, "Account service unavailable", 503)
+			return
+		}
+		if live != nil && live.ID == account.ID {
+			data.Emails = live.Emails
+			data.EmailCSRF, err = p.createCSRFToken(r, accountEmailsPath)
+			if err != nil {
+				http.Error(w, "Email forms unavailable", 500)
+				return
+			}
+			data.EmailSent = r.URL.Query().Get("email_sent") == "1"
+		}
 	}
 
 	// Render template

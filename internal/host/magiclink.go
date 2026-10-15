@@ -187,6 +187,11 @@ func (p *ProxyServer) generateMagicLinkToken(email string) (string, error) {
 }
 
 func (p *ProxyServer) generateMagicLinkTokenForReturnTo(email, returnTo string) (string, error) {
+	return p.generateMailboxToken(email, returnTo, "")
+}
+
+// generateMailboxToken shares signing, expiry and replay IDs with login links.
+func (p *ProxyServer) generateMailboxToken(email, returnTo, accountID string) (string, error) {
 	// Generate unique token ID to prevent replay attacks
 	jtiBytes := make([]byte, 16)
 	if _, err := rand.Read(jtiBytes); err != nil {
@@ -201,6 +206,10 @@ func (p *ProxyServer) generateMagicLinkTokenForReturnTo(email, returnTo string) 
 		"iat":   time.Now().Unix(),
 		"exp":   time.Now().Add(5 * time.Minute).Unix(),
 	}
+	if accountID != "" {
+		claims["type"] = "account_email_link"
+		claims["account_id"] = accountID
+	}
 	if returnTo != "" {
 		claims["return_to"] = p.sanitizeReturnTo(returnTo)
 	}
@@ -212,6 +221,10 @@ func (p *ProxyServer) generateMagicLinkTokenForReturnTo(email, returnTo string) 
 // verifyMagicLinkToken verifies a magic link JWT and returns the email
 // Each token can only be used once (replay protection via JTI tracking on login node)
 func (p *ProxyServer) verifyMagicLinkToken(ctx context.Context, tokenString string) (string, error) {
+	return p.verifyMailboxToken(ctx, tokenString, "magic_link")
+}
+
+func (p *ProxyServer) verifyMailboxToken(ctx context.Context, tokenString, purpose string) (string, error) {
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 		// Validate signing method
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
@@ -231,7 +244,7 @@ func (p *ProxyServer) verifyMagicLinkToken(ctx context.Context, tokenString stri
 
 	// Verify token type
 	tokenType, ok := claims["type"].(string)
-	if !ok || tokenType != "magic_link" {
+	if !ok || tokenType != purpose {
 		return "", fmt.Errorf("invalid token type")
 	}
 

@@ -453,3 +453,23 @@ func (s *ProxyStorage) CheckManagementDevice(ctx context.Context, id, email, acc
 	}
 	return out.Valid, nil
 }
+
+func (s *ProxyStorage) MutateAccountEmail(ctx context.Context, id, email, action string) (*Account, error) {
+	client := s.getClient()
+	if client == nil {
+		return nil, ErrNotAvailable
+	}
+	resp, err := client.MutateAccountEmail(ctx, &internalv1.MutateAccountEmailRequest{AccountId: id, Email: email, Action: action})
+	if err != nil {
+		switch status.Code(err) {
+		case codes.AlreadyExists:
+			return nil, store.ErrEmailOwned
+		case codes.FailedPrecondition:
+			return nil, store.ErrPrimaryEmail
+		case codes.NotFound:
+			return nil, store.ErrEmailNotLinked
+		}
+		return nil, err
+	}
+	return protoAccountToStorage(resp), nil
+}

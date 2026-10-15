@@ -537,11 +537,9 @@ func (p *ProxyServer) handleSSHKeys(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Account service unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	emails := []string{account.PrimaryEmail}
+	emails := make([]string, 0, len(account.Emails))
 	for _, e := range account.Emails {
-		if e.Email != account.PrimaryEmail {
-			emails = append(emails, e.Email)
-		}
+		emails = append(emails, e.Email)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	switch r.Method {
@@ -567,7 +565,9 @@ func (p *ProxyServer) handleSSHKeys(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		ownerEmail := account.PrimaryEmail
+		// Key ownership uses the authenticated verified alias, independent of
+		// which contact address the account currently marks primary.
+		ownerEmail := common.NormalizeEmail(email)
 		previousOwner, err := p.sshKeys.Owner(r.Context(), key.Fingerprint)
 		if err != nil {
 			http.Error(w, "Key service unavailable", http.StatusServiceUnavailable)

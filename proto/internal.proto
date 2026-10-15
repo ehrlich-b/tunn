@@ -27,6 +27,7 @@ service LoginNodeDB {
   rpc GetAccount(GetAccountRequest) returns (AccountResponse);
   rpc GetAccountByEmail(GetAccountByEmailRequest) returns (AccountResponse);
   rpc FindOrCreateByEmails(FindOrCreateByEmailsRequest) returns (AccountResponse);
+  rpc MutateAccountEmail(MutateAccountEmailRequest) returns (AccountResponse);
   rpc GetEmailBucket(GetEmailBucketRequest) returns (GetEmailBucketResponse);
   rpc UpdatePlan(UpdatePlanRequest) returns (UpdatePlanResponse);
 
@@ -251,3 +252,10 @@ message ForwardedPermissionRequest {
  bool admission = 8;
 }
 message ForwardedPermissionResponse { bool allowed = 1; int32 status = 2; string location = 3; repeated string challenges = 4; uint32 version = 5; string request_id = 6; }
+
+// Explicit mailbox management never merges accounts.
+message MutateAccountEmailRequest {
+  string account_id = 1;
+  string email = 2;
+  string action = 3; // link, primary, remove
+}

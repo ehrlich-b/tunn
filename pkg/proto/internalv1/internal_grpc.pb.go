@@ -206,6 +206,7 @@ const (
 	LoginNodeDB_GetAccount_FullMethodName              = "/internal.LoginNodeDB/GetAccount"
 	LoginNodeDB_GetAccountByEmail_FullMethodName       = "/internal.LoginNodeDB/GetAccountByEmail"
 	LoginNodeDB_FindOrCreateByEmails_FullMethodName    = "/internal.LoginNodeDB/FindOrCreateByEmails"
+	LoginNodeDB_MutateAccountEmail_FullMethodName      = "/internal.LoginNodeDB/MutateAccountEmail"
 	LoginNodeDB_GetEmailBucket_FullMethodName          = "/internal.LoginNodeDB/GetEmailBucket"
 	LoginNodeDB_UpdatePlan_FullMethodName              = "/internal.LoginNodeDB/UpdatePlan"
 	LoginNodeDB_RegisterTunnel_FullMethodName          = "/internal.LoginNodeDB/RegisterTunnel"
@@ -238,6 +239,7 @@ type LoginNodeDBClient interface {
 	GetAccount(ctx context.Context, in *GetAccountRequest, opts ...grpc.CallOption) (*AccountResponse, error)
 	GetAccountByEmail(ctx context.Context, in *GetAccountByEmailRequest, opts ...grpc.CallOption) (*AccountResponse, error)
 	FindOrCreateByEmails(ctx context.Context, in *FindOrCreateByEmailsRequest, opts ...grpc.CallOption) (*AccountResponse, error)
+	MutateAccountEmail(ctx context.Context, in *MutateAccountEmailRequest, opts ...grpc.CallOption) (*AccountResponse, error)
 	GetEmailBucket(ctx context.Context, in *GetEmailBucketRequest, opts ...grpc.CallOption) (*GetEmailBucketResponse, error)
 	UpdatePlan(ctx context.Context, in *UpdatePlanRequest, opts ...grpc.CallOption) (*UpdatePlanResponse, error)
 	// Active tunnel tracking (cross-node)
@@ -348,6 +350,16 @@ func (c *loginNodeDBClient) FindOrCreateByEmails(ctx context.Context, in *FindOr
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(AccountResponse)
 	err := c.cc.Invoke(ctx, LoginNodeDB_FindOrCreateByEmails_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *loginNodeDBClient) MutateAccountEmail(ctx context.Context, in *MutateAccountEmailRequest, opts ...grpc.CallOption) (*AccountResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AccountResponse)
+	err := c.cc.Invoke(ctx, LoginNodeDB_MutateAccountEmail_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -483,6 +495,7 @@ type LoginNodeDBServer interface {
 	GetAccount(context.Context, *GetAccountRequest) (*AccountResponse, error)
 	GetAccountByEmail(context.Context, *GetAccountByEmailRequest) (*AccountResponse, error)
 	FindOrCreateByEmails(context.Context, *FindOrCreateByEmailsRequest) (*AccountResponse, error)
+	MutateAccountEmail(context.Context, *MutateAccountEmailRequest) (*AccountResponse, error)
 	GetEmailBucket(context.Context, *GetEmailBucketRequest) (*GetEmailBucketResponse, error)
 	UpdatePlan(context.Context, *UpdatePlanRequest) (*UpdatePlanResponse, error)
 	// Active tunnel tracking (cross-node)
@@ -535,6 +548,9 @@ func (UnimplementedLoginNodeDBServer) GetAccountByEmail(context.Context, *GetAcc
 }
 func (UnimplementedLoginNodeDBServer) FindOrCreateByEmails(context.Context, *FindOrCreateByEmailsRequest) (*AccountResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method FindOrCreateByEmails not implemented")
+}
+func (UnimplementedLoginNodeDBServer) MutateAccountEmail(context.Context, *MutateAccountEmailRequest) (*AccountResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method MutateAccountEmail not implemented")
 }
 func (UnimplementedLoginNodeDBServer) GetEmailBucket(context.Context, *GetEmailBucketRequest) (*GetEmailBucketResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetEmailBucket not implemented")
@@ -748,6 +764,24 @@ func _LoginNodeDB_FindOrCreateByEmails_Handler(srv interface{}, ctx context.Cont
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(LoginNodeDBServer).FindOrCreateByEmails(ctx, req.(*FindOrCreateByEmailsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LoginNodeDB_MutateAccountEmail_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MutateAccountEmailRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LoginNodeDBServer).MutateAccountEmail(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LoginNodeDB_MutateAccountEmail_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LoginNodeDBServer).MutateAccountEmail(ctx, req.(*MutateAccountEmailRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -992,6 +1026,10 @@ var LoginNodeDB_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "FindOrCreateByEmails",
 			Handler:    _LoginNodeDB_FindOrCreateByEmails_Handler,
+		},
+		{
+			MethodName: "MutateAccountEmail",
+			Handler:    _LoginNodeDB_MutateAccountEmail_Handler,
 		},
 		{
 			MethodName: "GetEmailBucket",

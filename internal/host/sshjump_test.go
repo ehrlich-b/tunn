@@ -173,7 +173,7 @@ func TestLoopbackNativeSSHJump(t *testing.T) {
 	}()
 	stopPublisher := jumpPublish(t, p, origin.Addr().String(), []string{"alice@example.com"})
 	relayKey := sshSigner(t)
-	front, err := sshfront.New(sshfront.Config{HostKey: relayKey, Resolve: p.sshKeys.Owner, Establish: p.establishSSH, Command: p.sshCommand, Connect: p.sshConnect})
+	front, err := sshfront.New(sshfront.Config{HostKey: relayKey, Resolve: p.sshKeys.Owner, ResolveAccount: p.sshKeys.AccountID, CanonicalAccount: p.sshKeys.CanonicalAccountID, Establish: p.establishSSH, Command: p.sshCommand, Connect: p.sshConnect})
 	if err != nil {
 		t.Fatal(err)
 	}

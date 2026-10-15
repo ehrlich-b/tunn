@@ -13,6 +13,7 @@ import (
 
 	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/ehrlich-b/tunn/internal/store"
+	"github.com/google/uuid"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -80,6 +81,39 @@ func (r *Registry) OwnerAccount(ctx context.Context, fingerprint string) (*store
 	return store.NewAccountStore(r.db).GetByIDContext(ctx, id)
 }
 
+// CanonicalAccountID follows the same authoritative merge aliases as account lookup.
+func (r *Registry) CanonicalAccountID(ctx context.Context, accountID string) (string, error) {
+	id, err := uuid.Parse(accountID)
+	if err != nil {
+		return "", err
+	}
+	account, err := store.NewAccountStore(r.db).GetByIDContext(ctx, id.String())
+	if err != nil {
+		return "", err
+	}
+	return account.ID, nil
+}
+
+// Resolve both sides within the challenge transaction so a merge cannot turn an
+// authenticated account or pending proof into a different account's credential.
+func sameChallengeAccount(ctx context.Context, tx *sql.Tx, a, b string) bool {
+	resolve := func(raw string) (uuid.UUID, error) {
+		id, err := uuid.Parse(raw)
+		if err != nil {
+			return uuid.Nil, err
+		}
+		var canonical string
+		err = tx.QueryRowContext(ctx, "SELECT id FROM accounts WHERE id=COALESCE((SELECT account_id FROM account_merges WHERE old_id=?),?)", id.String(), id.String()).Scan(&canonical)
+		if err != nil {
+			return uuid.Nil, err
+		}
+		return uuid.Parse(canonical)
+	}
+	first, firstErr := resolve(a)
+	second, secondErr := resolve(b)
+	return firstErr == nil && secondErr == nil && first == second
+}
+
 func (r *Registry) Owner(ctx context.Context, fingerprint string) (string, error) {
 	account, err := r.OwnerAccount(ctx, fingerprint)
 	if err != nil || account == nil {
@@ -120,11 +154,16 @@ func (r *Registry) Add(ctx context.Context, email, publicKey string) (Key, error
 // ConfirmSessionKey can confirm an already linked authenticating key, but never
 // insert it. A concurrent removal must not be undone by an older SSH session.
 func (r *Registry) ConfirmSessionKey(ctx context.Context, accountID, publicKey string) (Key, error) {
+	id, err := uuid.Parse(accountID)
+	if err != nil {
+		return Key{}, err
+	}
+	accountID = id.String()
 	k, err := ParseKey(publicKey)
 	if err != nil {
 		return Key{}, err
 	}
-	result, err := r.db.ExecContext(ctx, `UPDATE ssh_keys SET public_key=? WHERE fingerprint=? AND (SELECT COALESCE((SELECT account_id FROM account_merges WHERE old_id=o.account_id),o.account_id) FROM ssh_key_owners o WHERE o.fingerprint=ssh_keys.fingerprint)=?`, k.PublicKey, k.Fingerprint, accountID)
+	result, err := r.db.ExecContext(ctx, `UPDATE ssh_keys SET public_key=? WHERE fingerprint=? AND (SELECT COALESCE((SELECT account_id FROM account_merges WHERE old_id=o.account_id),o.account_id) FROM ssh_key_owners o WHERE o.fingerprint=ssh_keys.fingerprint)=COALESCE((SELECT account_id FROM account_merges WHERE old_id=?),?)`, k.PublicKey, k.Fingerprint, accountID, accountID)
 	if err != nil {
 		return Key{}, err
 	}
@@ -139,8 +178,13 @@ func (r *Registry) ConfirmSessionKey(ctx context.Context, accountID, publicKey s
 }
 
 func (r *Registry) List(ctx context.Context, accountID string) ([]Key, error) {
+	id, err := uuid.Parse(accountID)
+	if err != nil {
+		return nil, err
+	}
+	accountID = id.String()
 	keys := []Key{}
-	rows, err := r.db.QueryContext(ctx, `SELECT fingerprint,public_key,(SELECT account_id FROM ssh_key_owners WHERE fingerprint=ssh_keys.fingerprint) FROM ssh_keys WHERE (SELECT COALESCE((SELECT account_id FROM account_merges WHERE old_id=o.account_id),o.account_id) FROM ssh_key_owners o WHERE o.fingerprint=ssh_keys.fingerprint)=? ORDER BY fingerprint`, accountID)
+	rows, err := r.db.QueryContext(ctx, `SELECT fingerprint,public_key,(SELECT account_id FROM ssh_key_owners WHERE fingerprint=ssh_keys.fingerprint) FROM ssh_keys WHERE (SELECT COALESCE((SELECT account_id FROM account_merges WHERE old_id=o.account_id),o.account_id) FROM ssh_key_owners o WHERE o.fingerprint=ssh_keys.fingerprint)=COALESCE((SELECT account_id FROM account_merges WHERE old_id=?),?) ORDER BY fingerprint`, accountID, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -156,12 +200,17 @@ func (r *Registry) List(ctx context.Context, accountID string) ([]Key, error) {
 }
 
 func (r *Registry) Remove(ctx context.Context, accountID, fingerprint string) error {
+	id, err := uuid.Parse(accountID)
+	if err != nil {
+		return err
+	}
+	accountID = id.String()
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	result, err := tx.ExecContext(ctx, `DELETE FROM ssh_keys WHERE (SELECT COALESCE((SELECT account_id FROM account_merges WHERE old_id=o.account_id),o.account_id) FROM ssh_key_owners o WHERE o.fingerprint=ssh_keys.fingerprint)=? AND fingerprint=?`, accountID, fingerprint)
+	result, err := tx.ExecContext(ctx, `DELETE FROM ssh_keys WHERE (SELECT COALESCE((SELECT account_id FROM account_merges WHERE old_id=o.account_id),o.account_id) FROM ssh_key_owners o WHERE o.fingerprint=ssh_keys.fingerprint)=COALESCE((SELECT account_id FROM account_merges WHERE old_id=?),?) AND fingerprint=?`, accountID, accountID, fingerprint)
 	if err != nil {
 		return err
 	}
@@ -220,7 +269,7 @@ func (r *Registry) beginChallenge(ctx context.Context, table, publicKey, email, 
 	defer tx.Rollback()
 	if table == "ssh_key_proofs" {
 		var current string
-		if err := tx.QueryRowContext(ctx, "SELECT account_id FROM account_emails WHERE email=?", common.NormalizeEmail(email)).Scan(&current); err != nil || current != accountID {
+		if err := tx.QueryRowContext(ctx, "SELECT account_id FROM account_emails WHERE email=?", common.NormalizeEmail(email)).Scan(&current); err != nil || !sameChallengeAccount(ctx, tx, current, accountID) {
 			return "", fmt.Errorf("SSH proof account changed")
 		}
 	}
@@ -278,14 +327,13 @@ func (r *Registry) completeChallenge(ctx context.Context, table, token, expected
 		return Key{}, fmt.Errorf("verified account required")
 	}
 	if bound != "" {
-		var resolved string
-		if err := tx.QueryRowContext(ctx, "SELECT COALESCE((SELECT account_id FROM account_merges WHERE old_id=?),?)", bound, bound).Scan(&resolved); err != nil || resolved != current {
+		if !sameChallengeAccount(ctx, tx, bound, current) {
 			return Key{}, fmt.Errorf("SSH challenge account changed")
 		}
 	}
 	k.AccountID = current
 	if table == "ssh_key_proofs" {
-		if bound == "" || current != expectedAccountID {
+		if bound == "" || !sameChallengeAccount(ctx, tx, current, expectedAccountID) {
 			return Key{}, fmt.Errorf("SSH proof account changed")
 		}
 		submitted, err := ParseKey(publicKey)

@@ -73,7 +73,7 @@ func sshRelay(t *testing.T, known bool) (*ProxyServer, *ssh.Client, func() *ssh.
 	}
 	p := &ProxyServer{Domain: cfg.Domain, config: cfg, tunnelServer: s, storage: st, meter: ledger, sshKeys: keys, quotaCache: NewQuotaCache(time.Minute), usageBuffer: NewUsageBuffer(), tunnelCache: map[string]string{}}
 	hostKey := sshSigner(t)
-	server, err := sshfront.New(sshfront.Config{HostKey: hostKey, Resolve: keys.Owner, ResolveAccount: keys.AccountID, Establish: p.establishSSH, Command: p.sshCommand, RotateToken: p.rotateSSHToken, Connect: p.sshConnect})
+	server, err := sshfront.New(sshfront.Config{HostKey: hostKey, Resolve: keys.Owner, ResolveAccount: keys.AccountID, CanonicalAccount: keys.CanonicalAccountID, Establish: p.establishSSH, Command: p.sshCommand, RotateToken: p.rotateSSHToken, Connect: p.sshConnect})
 	if err != nil {
 		t.Fatal(err)
 	}

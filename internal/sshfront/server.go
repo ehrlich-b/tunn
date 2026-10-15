@@ -35,8 +35,11 @@ type Identity struct{ Fingerprint, PublicKey, Email, IP, AccountID string }
 type Config struct {
 	HostKey ssh.Signer
 	Resolve func(context.Context, string) (string, error)
-	// Account resolves a verified email to its canonical account for shared budgets.
+	// ResolveAccount resolves an authenticating fingerprint to its account UUID.
 	ResolveAccount func(context.Context, string) (string, error)
+	// CanonicalAccount resolves cached UUIDs through authoritative merge aliases.
+	CanonicalAccount func(context.Context, string) (string, error)
+	// Account resolves a verified email to its account UUID for legacy callers.
 	Account        func(context.Context, string) (string, error)
 	Establish      func(context.Context, Identity, *Stream) error
 	Command        func(context.Context, Identity, []string, io.Reader, io.Writer) error
@@ -504,17 +507,38 @@ func (c *connection) checkOwner() error {
 	if err != nil {
 		return err
 	}
-	if c.server.cfg.ResolveAccount != nil && c.id.AccountID != "" {
-		current, err := c.server.cfg.ResolveAccount(c.ctx, c.id.Fingerprint)
-		if err != nil {
-			return err
-		}
-		before, beforeErr := uuid.Parse(c.id.AccountID)
-		after, afterErr := uuid.Parse(current)
-		if beforeErr != nil || afterErr != nil || before != after {
-			return fmt.Errorf("SSH key ownership changed; reconnect")
-		}
-	} else if email != c.id.Email {
+	if c.id.AccountID == "" && c.id.Email == "" && email == "" {
+		return nil // An anonymous key must remain unlinked until reconnecting.
+	}
+	current := ""
+	if c.server.cfg.ResolveAccount != nil {
+		current, err = c.server.cfg.ResolveAccount(c.ctx, c.id.Fingerprint)
+	} else if c.server.cfg.Account != nil && email != "" {
+		current, err = c.server.cfg.Account(c.ctx, email)
+	}
+	if err != nil {
+		return err
+	}
+	before, beforeErr := uuid.Parse(c.id.AccountID)
+	after, afterErr := uuid.Parse(current)
+	if beforeErr != nil || afterErr != nil {
+		return fmt.Errorf("SSH key ownership changed; reconnect")
+	}
+	resolve := c.server.cfg.CanonicalAccount
+	if resolve == nil {
+		return fmt.Errorf("SSH account resolver unavailable")
+	}
+	canonicalBefore, err := resolve(c.ctx, before.String())
+	if err != nil {
+		return err
+	}
+	canonicalAfter, err := resolve(c.ctx, after.String())
+	if err != nil {
+		return err
+	}
+	before, beforeErr = uuid.Parse(canonicalBefore)
+	after, afterErr = uuid.Parse(canonicalAfter)
+	if beforeErr != nil || afterErr != nil || before != after {
 		return fmt.Errorf("SSH key ownership changed; reconnect")
 	}
 	return nil

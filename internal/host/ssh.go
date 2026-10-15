@@ -60,7 +60,7 @@ func (p *ProxyServer) enableSSH(db *sql.DB) error {
 	if err != nil {
 		return err
 	}
-	p.sshServer, err = sshfront.New(sshfront.Config{HostKey: signer, Resolve: p.sshKeys.Owner, ResolveAccount: p.sshKeys.AccountID, Establish: p.establishSSH, Command: p.sshCommand, RotateToken: p.rotateSSHToken, Connect: p.sshConnect, RenderQR: func(ctx context.Context, u string, w io.Writer) error { return hostmode.RenderQR(ctx, u, w, "") }})
+	p.sshServer, err = sshfront.New(sshfront.Config{HostKey: signer, Resolve: p.sshKeys.Owner, ResolveAccount: p.sshKeys.AccountID, CanonicalAccount: p.sshKeys.CanonicalAccountID, Establish: p.establishSSH, Command: p.sshCommand, RotateToken: p.rotateSSHToken, Connect: p.sshConnect, RenderQR: func(ctx context.Context, u string, w io.Writer) error { return hostmode.RenderQR(ctx, u, w, "") }})
 	return err
 }
 
@@ -75,18 +75,11 @@ func (p *ProxyServer) establishSSH(ctx context.Context, id sshfront.Identity, st
 	}
 	// Re-resolve the key at admission. A removed key never authenticates a new
 	// forward through an SSH connection that was established before removal.
-	cachedID := id.AccountID
-	// Older in-process callers may only supply the authenticated mailbox.
-	if cachedID == "" && id.Email != "" && p.storage != nil {
-		cached, err := p.storage.GetAccountByEmail(ctx, id.Email)
-		if err != nil {
-			return err
+	if keyAccount == nil {
+		if id.AccountID != "" || id.Email != "" {
+			return fmt.Errorf("SSH key ownership changed; reconnect")
 		}
-		if cached != nil {
-			cachedID = cached.ID
-		}
-	}
-	if (keyAccount == nil && (cachedID != "" || id.Email != "")) || (keyAccount != nil && !sameAccountID(keyAccount.ID, cachedID)) {
+	} else if !p.sshSameOwner(ctx, id, keyAccount.ID) {
 		return fmt.Errorf("SSH key ownership changed; reconnect")
 	}
 	anonymous := email == ""
@@ -113,12 +106,26 @@ func (p *ProxyServer) establishSSH(ctx context.Context, id sshfront.Identity, st
 
 type sshSessionKey struct{}
 
+// Legacy in-process callers may supply only a verified mailbox. Resolve it to
+// an account before comparing ownership, just like a UUID cached by the transport.
+func (p *ProxyServer) sshSameOwner(ctx context.Context, id sshfront.Identity, currentID string) bool {
+	cachedID := id.AccountID
+	if cachedID == "" && id.Email != "" && p.storage != nil {
+		cached, err := p.storage.GetAccountByEmail(ctx, id.Email)
+		if err != nil || cached == nil {
+			return false
+		}
+		cachedID = cached.ID
+	}
+	return sameResolvedAccount(ctx, p.storage, cachedID, currentID)
+}
+
 func (p *ProxyServer) sshOwnerAccount(ctx context.Context, id sshfront.Identity) (*store.Account, error) {
 	account, err := p.sshKeys.OwnerAccount(ctx, id.Fingerprint)
 	if err != nil {
 		return nil, err
 	}
-	if account == nil || (id.AccountID != "" && account.ID != id.AccountID) || (id.AccountID == "" && account.PrimaryEmail != id.Email) {
+	if account == nil || !p.sshSameOwner(ctx, id, account.ID) {
 		return nil, fmt.Errorf("link an SSH key first: login --email you@example.com")
 	}
 	return account, nil
@@ -269,7 +276,7 @@ func (p *ProxyServer) rotateSSHToken(ctx context.Context, id sshfront.Identity, 
 		return fmt.Errorf("endpoint offline")
 	}
 	account, err := p.currentTunnelAccount(ctx, tunnel)
-	if err != nil || account == nil || account.ID != owner.ID {
+	if err != nil || account == nil || !sameResolvedAccount(ctx, p.storage, account.ID, owner.ID) {
 		return fmt.Errorf("only the endpoint owner can manage its token")
 	}
 	if digest != nil {
@@ -289,8 +296,8 @@ func (p *ProxyServer) sshConnect(ctx context.Context, id sshfront.Identity, name
 	}
 	// Resolve identity before looking up a private target, so unlinked keys
 	// receive the same denial for every name.
-	email, err := p.sshKeys.Owner(ctx, id.Fingerprint)
-	if err != nil || email == "" || email != id.Email {
+	_, err := p.sshOwnerAccount(ctx, id)
+	if err != nil {
 		return nil, fmt.Errorf("SSH endpoint access denied")
 	}
 	tunnel, ok := p.tunnelServer.GetTunnel(name)
@@ -371,8 +378,8 @@ func (p *ProxyServer) sshConnectIdentity(ctx context.Context, id sshfront.Identi
 	if !ok || current != tunnel || current.EndpointProtocol != "tcp" {
 		return "", fmt.Errorf("SSH endpoint offline or replaced")
 	}
-	email, err := p.sshKeys.Owner(ctx, id.Fingerprint)
-	if err != nil || email == "" || email != id.Email {
+	keyAccount, err := p.sshOwnerAccount(ctx, id)
+	if err != nil {
 		return "", fmt.Errorf("linked key required for SSH connect; reconnect after linking")
 	}
 	if p.storage == nil || !p.storage.Available() {
@@ -381,10 +388,6 @@ func (p *ProxyServer) sshConnectIdentity(ctx context.Context, id sshfront.Identi
 	owner, err := p.currentTunnelAccount(ctx, tunnel)
 	if err != nil || owner == nil || owner.OperationalState != "active" {
 		return "", fmt.Errorf("SSH endpoint owner unavailable")
-	}
-	keyAccount, err := p.sshOwnerAccount(ctx, id)
-	if err != nil {
-		return "", fmt.Errorf("SSH identity unavailable")
 	}
 	bucket := make([]string, 0, len(keyAccount.Emails))
 	for _, alias := range keyAccount.Emails {
@@ -397,7 +400,7 @@ func (p *ProxyServer) sshConnectIdentity(ctx context.Context, id sshfront.Identi
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	return email, nil
+	return keyAccount.PrimaryEmail, nil
 }
 
 type sshConnectConn struct {
@@ -557,10 +560,6 @@ func (p *ProxyServer) handleSSHKeys(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Account service unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	emails := make([]string, 0, len(account.Emails))
-	for _, e := range account.Emails {
-		emails = append(emails, e.Email)
-	}
 	w.Header().Set("Content-Type", "application/json")
 	switch r.Method {
 	case http.MethodGet:
@@ -585,21 +584,16 @@ func (p *ProxyServer) handleSSHKeys(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		// Key ownership uses the authenticated verified alias, independent of
-		// which contact address the account currently marks primary.
 		ownerEmail := common.NormalizeEmail(email)
-		previousOwner, err := p.sshKeys.Owner(r.Context(), key.Fingerprint)
+		session, sessionVerified := r.Context().Value(sshSessionKey{}).(sshfront.Identity)
+		previousOwner, err := p.sshKeys.OwnerAccount(r.Context(), key.Fingerprint)
 		if err != nil {
 			http.Error(w, "Key service unavailable", http.StatusServiceUnavailable)
 			return
 		}
-		for _, email := range emails {
-			if email == previousOwner {
-				ownerEmail = email
-			}
-		}
-		session, sessionVerified := r.Context().Value(sshSessionKey{}).(sshfront.Identity)
-		if sessionVerified && session.Fingerprint == key.Fingerprint && session.Email == previousOwner && previousOwner == ownerEmail {
+		if sessionVerified && session.Fingerprint == key.Fingerprint && previousOwner != nil &&
+			p.sshSameOwner(r.Context(), session, previousOwner.ID) &&
+			sameResolvedAccount(r.Context(), p.storage, previousOwner.ID, account.ID) {
 			key, err = p.sshKeys.ConfirmSessionKey(r.Context(), account.ID, req.PublicKey)
 		} else if req.Signature == nil && req.Challenge == "" {
 			challenge, err := p.sshKeys.BeginProof(r.Context(), req.PublicKey, ownerEmail, account.ID)

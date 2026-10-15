@@ -35,14 +35,13 @@ tunn 3000 --public</pre>
   <div class="cmdline"><span class="p">~/code/shop $</span> <span class="w">tunn 3000</span> <span class="f">--allow=alex@example.com</span></div>
   <div class="blk"><span class="d">url</span><span class="url">https://k7m2.tunn.to</span><span class="d">to</span><span>localhost:3000</span><span class="d">allowed</span><span><span class="w">alex@example.com</span> <span class="d">and you</span></span><span class="d">others</span><span>403 at the edge</span></div>
   <div class="sess-scope" aria-hidden="true"><svg viewBox="0 0 1240 70" preserveAspectRatio="none"><path class="trace" d="M0 50 H160 L166 50 L171 10 L178 62 L184 50 H210 L215 22 L221 58 L226 50 H420 L426 50 L431 14 L438 62 L444 50 H700 L706 30 L712 60 L718 50 H910 L915 6 L922 64 L928 50 H1240"/></svg></div>
-  <table class="log"><thead><tr><th scope="col" class="t">Time</th><th scope="col">Method</th><th scope="col">Path</th><th scope="col">Code</th><th scope="col">ms</th><th scope="col" class="who">Who</th></tr></thead><tbody>
-   <tr><td class="t">15:41:07</td><td>GET</td><td class="w">/</td><td class="c4">200</td><td>38</td><td class="who">alex@example.com</td></tr>
-   <tr><td class="t">15:41:07</td><td>GET</td><td class="w">/assets/app.js</td><td class="c4">200</td><td>12</td><td class="who">alex@example.com</td></tr>
-   <tr><td class="t">15:41:11</td><td>POST</td><td class="w">/api/cart/items</td><td class="c4">201</td><td>64</td><td class="who">alex@example.com</td></tr>
-   <tr><td class="t">15:41:19</td><td>GET</td><td class="w">/checkout</td><td class="c4">200</td><td>41</td><td class="who">alex@example.com</td></tr>
-   <tr class="denied"><td class="t">15:41:26</td><td>GET</td><td class="w">/</td><td class="d">403</td><td>edge</td><td class="who d">sam@example.net · not on list</td></tr>
-   <tr><td class="t">15:41:34</td><td>GET</td><td class="w">/api/cart</td><td class="c4">200</td><td>18</td><td class="who">alex@example.com</td></tr>
-   <tr><td class="t">15:41:38</td><td>POST</td><td class="w">/api/checkout</td><td class="c4">303</td><td>112</td><td class="who">alex@example.com</td></tr>
+  <table class="log"><thead><tr><th scope="col" class="t">AT</th><th scope="col">METHOD</th><th scope="col">PATH</th><th scope="col">RESULT</th><th scope="col">ELAPSED</th></tr></thead><tbody>
+   <tr><td class="t">15:41:07</td><td>GET</td><td class="w">/</td><td class="c4">[+] 200</td><td>38ms</td></tr>
+   <tr><td class="t">15:41:07</td><td>GET</td><td class="w">/assets/app.js</td><td class="c4">[+] 200</td><td>12ms</td></tr>
+   <tr><td class="t">15:41:11</td><td>POST</td><td class="w">/api/cart/items</td><td class="c4">[+] 201</td><td>64ms</td></tr>
+   <tr><td class="t">15:41:19</td><td>GET</td><td class="w">/checkout</td><td class="c4">[+] 200</td><td>41ms</td></tr>
+   <tr><td class="t">15:41:34</td><td>GET</td><td class="w">/api/cart</td><td class="c4">[+] 200</td><td>18ms</td></tr>
+   <tr><td class="t">15:41:38</td><td>POST</td><td class="w">/api/checkout</td><td>[i] 303</td><td>112ms</td></tr>
   </tbody></table>
   <span class="cur" aria-hidden="true"></span>
  </div>

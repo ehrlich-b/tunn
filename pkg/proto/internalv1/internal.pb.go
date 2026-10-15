@@ -2475,12 +2475,14 @@ func (x *ForwardedPermissionResponse) GetRequestId() string {
 
 // Explicit mailbox management never merges accounts.
 type MutateAccountEmailRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	AccountId     string                 `protobuf:"bytes,1,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
-	Email         string                 `protobuf:"bytes,2,opt,name=email,proto3" json:"email,omitempty"`
-	Action        string                 `protobuf:"bytes,3,opt,name=action,proto3" json:"action,omitempty"` // link, primary, remove
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	AccountId      string                 `protobuf:"bytes,1,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	Email          string                 `protobuf:"bytes,2,opt,name=email,proto3" json:"email,omitempty"`
+	Action         string                 `protobuf:"bytes,3,opt,name=action,proto3" json:"action,omitempty"` // link, primary
+	TokenJti       string                 `protobuf:"bytes,4,opt,name=token_jti,json=tokenJti,proto3" json:"token_jti,omitempty"`
+	TokenExpiresAt int64                  `protobuf:"varint,5,opt,name=token_expires_at,json=tokenExpiresAt,proto3" json:"token_expires_at,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *MutateAccountEmailRequest) Reset() {
@@ -2532,6 +2534,20 @@ func (x *MutateAccountEmailRequest) GetAction() string {
 		return x.Action
 	}
 	return ""
+}
+
+func (x *MutateAccountEmailRequest) GetTokenJti() string {
+	if x != nil {
+		return x.TokenJti
+	}
+	return ""
+}
+
+func (x *MutateAccountEmailRequest) GetTokenExpiresAt() int64 {
+	if x != nil {
+		return x.TokenExpiresAt
+	}
+	return 0
 }
 
 var File_proto_internal_proto protoreflect.FileDescriptor
@@ -2721,12 +2737,14 @@ const file_proto_internal_proto_rawDesc = "" +
 	"challenges\x12\x18\n" +
 	"\aversion\x18\x05 \x01(\rR\aversion\x12\x1d\n" +
 	"\n" +
-	"request_id\x18\x06 \x01(\tR\trequestId\"h\n" +
+	"request_id\x18\x06 \x01(\tR\trequestId\"\xaf\x01\n" +
 	"\x19MutateAccountEmailRequest\x12\x1d\n" +
 	"\n" +
 	"account_id\x18\x01 \x01(\tR\taccountId\x12\x14\n" +
 	"\x05email\x18\x02 \x01(\tR\x05email\x12\x16\n" +
-	"\x06action\x18\x03 \x01(\tR\x06action2\x89\x02\n" +
+	"\x06action\x18\x03 \x01(\tR\x06action\x12\x1b\n" +
+	"\ttoken_jti\x18\x04 \x01(\tR\btokenJti\x12(\n" +
+	"\x10token_expires_at\x18\x05 \x01(\x03R\x0etokenExpiresAt2\x89\x02\n" +
 	"\x0fInternalService\x12g\n" +
 	"\x18CheckForwardedPermission\x12$.internal.ForwardedPermissionRequest\x1a%.internal.ForwardedPermissionResponse\x12G\n" +
 	"\n" +

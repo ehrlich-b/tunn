@@ -519,3 +519,11 @@ func (s *LocalStorage) MutateAccountEmail(ctx context.Context, id, email, action
 	}
 	return storeAccountToStorage(a), nil
 }
+
+func (s *LocalStorage) LinkAccountEmail(ctx context.Context, id, email, jti string, expiry time.Time) (*Account, error) {
+	a, err := s.accounts.LinkAccountEmail(ctx, id, email, jti, expiry)
+	if err != nil {
+		return nil, err
+	}
+	return storeAccountToStorage(a), nil
+}

@@ -308,9 +308,17 @@ func (s *LoginNodeDBServer) MutateAccountEmail(ctx context.Context, r *internalv
 	if !validGoogleEmail(r.Email) {
 		return nil, status.Error(codes.InvalidArgument, "Invalid email")
 	}
-	a, err := s.storage.MutateAccountEmail(ctx, r.AccountId, r.Email, r.Action)
+	var a *storage.Account
+	var err error
+	if r.Action == "link" && r.TokenJti != "" {
+		a, err = s.storage.LinkAccountEmail(ctx, r.AccountId, r.Email, r.TokenJti, time.Unix(r.TokenExpiresAt, 0))
+	} else {
+		a, err = s.storage.MutateAccountEmail(ctx, r.AccountId, r.Email, r.Action)
+	}
 	if err != nil {
 		switch {
+		case errors.Is(err, store.ErrEmailTokenUsed):
+			return nil, status.Error(codes.InvalidArgument, err.Error())
 		case errors.Is(err, store.ErrEmailOwned):
 			return nil, status.Error(codes.AlreadyExists, err.Error())
 		case errors.Is(err, store.ErrEmailNotLinked):

@@ -2,6 +2,7 @@ package host
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -301,5 +302,53 @@ func TestAccountEmailsCapture(t *testing.T) {
 		if err = os.WriteFile(filepath.Join(dir, name), w.Body.Bytes(), 0644); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+func TestAccountEmailLinkWriteFailureCanRetry(t *testing.T) {
+	for _, remote := range []bool{false, true} {
+		t.Run(fmt.Sprint("RPC=", remote), func(t *testing.T) {
+			f := newMCPOAuthFixture(t)
+			p := f.p
+			local := p.storage.(*storage.LocalStorage)
+			if remote {
+				p.storage = securityReplicaStorage(t, local)
+			}
+			account, err := local.GetAccountByEmail(context.Background(), "owner@example.com")
+			if err != nil {
+				t.Fatal(err)
+			}
+			cookie := emailSession(t, p, account.PrimaryEmail)
+			raw, err := p.generateMailboxToken("retry@example.com", "", account.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := p.devices.db.Exec(`CREATE TRIGGER fail_email_link BEFORE INSERT ON account_emails WHEN NEW.email='retry@example.com' BEGIN SELECT RAISE(ABORT,'injected write failure'); END`); err != nil {
+				t.Fatal(err)
+			}
+			if w := emailAction(t, f, cookie, url.Values{"token": {raw}}); w.Code != 503 {
+				t.Fatal(w.Code, w.Body)
+			}
+			proof, _ := p.parseDomainToken(raw, "account_email_link")
+			var used int
+			if err := p.devices.db.QueryRow("SELECT count(*) FROM used_magic_tokens WHERE jti=?", proof["jti"]).Scan(&used); err != nil || used != 0 {
+				t.Fatal("failed link consumed proof", used, err)
+			}
+			if a, err := local.GetAccountByEmail(context.Background(), "retry@example.com"); err != nil || a != nil {
+				t.Fatal("failed link committed", a, err)
+			}
+			if _, err := p.devices.db.Exec("DROP TRIGGER fail_email_link"); err != nil {
+				t.Fatal(err)
+			}
+			if w := emailAction(t, f, cookie, url.Values{"token": {raw}}); w.Code != 303 {
+				t.Fatal("retry failed", w.Code, w.Body)
+			}
+			if a, err := local.GetAccountByEmail(context.Background(), "retry@example.com"); err != nil || a == nil || a.ID != account.ID {
+				t.Fatal(a, err)
+			}
+			if w := emailAction(t, f, cookie, url.Values{"token": {raw}}); w.Code != 400 {
+				t.Fatal("proof replay accepted", w.Code, w.Body)
+			}
+		})
 	}
 }

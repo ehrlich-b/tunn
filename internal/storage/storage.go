@@ -122,5 +122,6 @@ type ScopedDeviceStorage interface {
 
 // AccountEmailStorage is implemented locally and through the login node.
 type AccountEmailStorage interface {
+	LinkAccountEmail(context.Context, string, string, string, time.Time) (*Account, error)
 	MutateAccountEmail(context.Context, string, string, string) (*Account, error)
 }

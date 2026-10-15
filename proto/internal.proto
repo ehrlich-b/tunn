@@ -257,5 +257,7 @@ message ForwardedPermissionResponse { bool allowed = 1; int32 status = 2; string
 message MutateAccountEmailRequest {
   string account_id = 1;
   string email = 2;
-  string action = 3; // link, primary, remove
+  string action = 3; // link, primary
+  string token_jti = 4;
+  int64 token_expires_at = 5;
 }

@@ -7,6 +7,7 @@ import (
 	"net/mail"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/ehrlich-b/tunn/internal/storage"
@@ -63,7 +64,8 @@ func (p *ProxyServer) handleAccountEmails(w http.ResponseWriter, r *http.Request
 		proof, valid := p.parseDomainToken(raw, "account_email_link")
 		email, _ := proof["email"].(string)
 		jti, _ := proof["jti"].(string)
-		if !valid || proof["account_id"] != account.ID || !validGoogleEmail(email) || jti == "" {
+		exp, _ := proof["exp"].(float64)
+		if !valid || proof["account_id"] != account.ID || !validGoogleEmail(email) || jti == "" || exp == 0 {
 			http.Error(w, "Invalid or expired link. Open it while signed in to the account that requested it.", 400)
 			return
 		}
@@ -80,11 +82,7 @@ func (p *ProxyServer) handleAccountEmails(w http.ResponseWriter, r *http.Request
 			writePageEnd(w)
 			return
 		}
-		if _, err = p.verifyMailboxToken(r.Context(), raw, "account_email_link"); err != nil {
-			http.Error(w, "Invalid or expired link", 400)
-			return
-		}
-		_, err = authority.MutateAccountEmail(r.Context(), account.ID, email, "link")
+		_, err = authority.LinkAccountEmail(r.Context(), account.ID, email, jti, time.Unix(int64(exp), 0))
 	} else {
 		if r.Method != http.MethodPost {
 			http.Redirect(w, r, "/account#emails", 303)
@@ -149,6 +147,10 @@ func (p *ProxyServer) handleAccountEmails(w http.ResponseWriter, r *http.Request
 		}
 	}
 	if err != nil {
+		if errors.Is(err, store.ErrEmailTokenUsed) {
+			http.Error(w, "Invalid or expired link", 400)
+			return
+		}
 		if errors.Is(err, store.ErrEmailOwned) || errors.Is(err, store.ErrEmailNotLinked) {
 			http.Error(w, err.Error(), 409)
 			return

@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/ehrlich-b/tunn/internal/common"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
@@ -407,29 +406,10 @@ func (s *ServeClient) handleStreamingHTTPRequest(ctx context.Context, sender mes
 	}
 	request.ContentLength = head.ContentLength
 
-	timeout := s.HTTPTimeout
-	if timeout == 0 {
-		timeout = 30 * time.Second
-	}
-	transport := &http.Transport{
-		TLSClientConfig:       s.localTLSConfig(),
-		ForceAttemptHTTP2:     true,
-		ResponseHeaderTimeout: timeout,
-	}
-	transport.DialContext = s.localDialContext()
-	if s.TargetNetwork == "unix" {
-		dialAddress := s.DialAddress
-		transport.DialContext = func(ctx context.Context, _, _ string) (net.Conn, error) {
-			return (&net.Dialer{}).DialContext(ctx, "unix", dialAddress)
-		}
-	}
-	defer transport.CloseIdleConnections()
-	var roundTripper http.RoundTripper = transport
-	if s.HTTPTransport != nil {
-		roundTripper = s.HTTPTransport
-	}
+	transport, closePool := s.originHTTPTransport(ctx)
+	defer closePool()
 	httpClient := &http.Client{
-		Transport:     roundTripper,
+		Transport:     transport,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
 	response, err := httpClient.Do(request)

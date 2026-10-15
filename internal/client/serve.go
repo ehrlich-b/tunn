@@ -125,6 +125,9 @@ type ServeClient struct {
 // Run establishes a gRPC tunnel with automatic reconnection on failure.
 // It will retry with exponential backoff until the context is canceled.
 func (s *ServeClient) Run(ctx context.Context) error {
+	ctx, closePool := s.withOriginPool(ctx)
+	defer closePool()
+
 	// Set defaults for reconnection settings
 	if s.InitialDelay == 0 {
 		s.InitialDelay = 1 * time.Second
@@ -576,6 +579,8 @@ func (s *ServeClient) processMessages(ctx context.Context, stream MessageStream,
 }
 
 func (s *ServeClient) processMessagesOwned(ctx context.Context, stream MessageStream, sender messageSender, cancelStream context.CancelFunc) error {
+	ctx, closePool := s.withOriginPool(ctx)
+	defer closePool()
 	ctx, cancel := context.WithCancel(ctx)
 	var workers sync.WaitGroup
 	// Semaphore to limit concurrent HTTP request handlers
@@ -709,27 +714,11 @@ func (s *ServeClient) handleHTTPRequestContext(ctx context.Context, sender messa
 	if timeout == 0 {
 		timeout = 30 * time.Second
 	}
-	transport := &http.Transport{
-		DialContext:     s.localDialContext(),
-		TLSClientConfig: s.localTLSConfig(),
-		// Custom TLSClientConfig disables HTTP/2 by default; re-enable it
-		// so we can talk to local HTTPS servers that require HTTP/2 via ALPN.
-		ForceAttemptHTTP2: true,
-	}
-	if s.TargetNetwork == "unix" {
-		dialAddress := s.DialAddress
-		transport.DialContext = func(ctx context.Context, _, _ string) (net.Conn, error) {
-			return (&net.Dialer{}).DialContext(ctx, "unix", dialAddress)
-		}
-	}
-	defer transport.CloseIdleConnections()
-	var roundTripper http.RoundTripper = transport
-	if s.HTTPTransport != nil {
-		roundTripper = s.HTTPTransport
-	}
+	transport, closePool := s.originHTTPTransport(ctx)
+	defer closePool()
 	client := &http.Client{
 		Timeout:       timeout,
-		Transport:     roundTripper,
+		Transport:     transport,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
 

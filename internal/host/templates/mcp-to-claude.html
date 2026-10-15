@@ -18,20 +18,20 @@
 <!--site-header:docs-->
 <main id="main" class="guide-content" tabindex="-1"><h1>Connect MCP to Claude.ai and ChatGPT</h1>
 <p class="lead">Publish a private endpoint, check its OAuth flow, then connect your tools.</p>
-<p><a href="/docs#s1">Install tunn</a> and have a local MCP server ready. Start with the repository's harmless <a href="https://gitlab.com/ehrlich-b/tunn/-/blob/main/examples/mcp/echo.py">echo example</a>; it returns your message without file or network access.</p>
+<p><a href="/docs#s1">Install tunn</a> and Python 3. Save the <a href="https://gitlab.com/ehrlich-b/tunn/-/raw/main/examples/mcp/echo.py">echo example</a> as echo.py in your working directory; it returns your message without file or network access.</p>
 <p class="note">Experimental: connections to Claude.ai and ChatGPT have not yet been verified end to end. You need an account that supports custom MCP connectors.</p>
 <h2>1. Publish</h2>
 <pre><code>tunn login
-# From the repository checkout:
-tunn mcp --tools echo -- python3 examples/mcp/echo.py</code></pre>
+tunn mcp --tools echo -- python3 ./echo.py</code></pre>
 <p>Keep this terminal running. Copy its exact <strong>Connector URL</strong>, including <code>/mcp</code>. MCP is private by default. Use <code>--name work-tools</code> to request a stable name and <code>--allow colleague@example.com</code> to let that verified user approve access. Name protection and quotas depend on your plan; see <a href="/pricing">current pricing</a> and <code>tunn usage</code>.</p>
-<p>For your own stdio server, list its exact tool names:</p>
+<p>Alternative to the echo command: for your own stdio server, list its exact tool names:</p>
 <pre><code>tunn mcp --tools status,search -- ./my-mcp-server</code></pre>
-<p>For an existing Streamable HTTP server:</p>
+<p>Alternative to the echo command: for an existing Streamable HTTP server:</p>
 <pre><code>tunn mcp http://127.0.0.1:3000/custom-mcp-path</code></pre>
 <p>tunn remaps public <code>/mcp</code> to the supplied HTTP path. <code>--tools</code> filters stdio tools only; HTTP upstreams enforce their own tool permissions.</p>
 <h2>2. Check</h2>
-<p>Replace <code>https://your-name.tunn.to/mcp</code> with the printed URL. The default check verifies HTTPS, the private challenge, the exact resource, OAuth metadata and public-client S256 PKCE without registering a client.</p>
+<p>Open a second terminal on the same machine. Leave the publishing command running in the first terminal.</p>
+<p>Replace <code>https://your-name.tunn.to/mcp</code> in both checks with the printed Connector URL, including <code>/mcp</code>. The default check verifies HTTPS, the private challenge, the exact resource, OAuth metadata and public-client S256 PKCE without registering a client.</p>
 <pre><code>tunn connector-check https://your-name.tunn.to/mcp</code></pre>
 <p>For the echo example, verify consent, initialization, the exact tool list, an allowed call and a denied call:</p>
 <pre><code>tunn connector-check --oauth --expect-tools echo \

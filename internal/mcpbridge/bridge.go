@@ -12,10 +12,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -279,8 +281,8 @@ func (b *Bridge) readChild(stdout io.Reader) {
 }
 
 // ServeHTTP translates Streamable HTTP POSTs into newline-delimited stdio
-// JSON-RPC. It buffers only a single finite response because tunn's current
-// HTTP transport is request/response based.
+// JSON-RPC. Legacy clients that accept SSE receive notifications as they arrive;
+// other clients receive a single finite response.
 func (b *Bridge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache, no-transform")
 	// A browser Origin has no reason to reach this loopback bridge. Reject it
@@ -428,19 +430,64 @@ func (b *Bridge) handlePOST(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Initialization must retain its notifications until the session header is
+	// available. Modern requests retain their existing finite response contract.
+	acceptsSSE := acceptsEventStream(r)
+	streamLegacy := !modern && incoming.Method != "initialize" && acceptsSSE
+	streaming := false
+	controller := http.NewResponseController(w)
+	var stopWrite func()
+	defer func() {
+		if stopWrite != nil {
+			stopWrite()
+		}
+	}()
+	stream := func(message []byte) error {
+		if !streaming {
+			// A slow or disconnected consumer must not retain the serialized
+			// child request past its deadline, including during a blocked Write.
+			deadline, _ := ctx.Deadline()
+			_ = controller.SetWriteDeadline(deadline)
+			canceled := make(chan struct{})
+			stop := context.AfterFunc(ctx, func() {
+				_ = controller.SetWriteDeadline(time.Now())
+				close(canceled)
+			})
+			stopWrite = func() {
+				if !stop() {
+					<-canceled
+				}
+				_ = controller.SetWriteDeadline(time.Time{})
+			}
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(http.StatusOK)
+			streaming = true
+		}
+		if _, err := fmt.Fprintf(w, "event: message\ndata: %s\n\n", message); err != nil {
+			return err
+		}
+		return controller.Flush()
+	}
+	writeError := func(status int, message string) {
+		if streaming {
+			_ = stream(bridgeErrorMessage(incoming.ID, message))
+			return
+		}
+		writeBridgeError(w, status, incoming.ID, message)
+	}
 	var events [][]byte
 	eventBytes := 0
 	for {
 		select {
 		case output := <-b.outputs:
 			if output.err != nil {
-				writeBridgeError(w, http.StatusBadGateway, incoming.ID, "local MCP process exited")
+				writeError(http.StatusBadGateway, "local MCP process exited")
 				return
 			}
 
 			var outgoing envelope
 			if !json.Valid(output.message) || json.Unmarshal(output.message, &outgoing) != nil {
-				writeBridgeError(w, http.StatusBadGateway, incoming.ID, "local MCP process wrote invalid JSON-RPC")
+				writeError(http.StatusBadGateway, "local MCP process wrote invalid JSON-RPC")
 				return
 			}
 
@@ -463,7 +510,11 @@ func (b *Bridge) handlePOST(w http.ResponseWriter, r *http.Request) {
 					_, _ = w.Write(response)
 					return
 				}
-				b.writeMCPResponse(w, r, events, response)
+				if streaming {
+					_ = stream(response)
+				} else {
+					b.writeMCPResponse(w, r, events, response)
+				}
 				return
 			}
 
@@ -480,14 +531,24 @@ func (b *Bridge) handlePOST(w http.ResponseWriter, r *http.Request) {
 			if outgoing.Method != "" {
 				eventBytes += len(output.message)
 				if eventBytes > MaxMessageSize {
-					writeBridgeError(w, http.StatusBadGateway, incoming.ID, "local MCP notifications are too large")
+					writeError(http.StatusBadGateway, "local MCP notifications are too large")
 					return
 				}
-				events = append(events, output.message)
+				if streamLegacy {
+					if err := stream(output.message); err != nil {
+						return
+					}
+				} else if acceptsSSE {
+					events = append(events, output.message)
+				}
 			}
 
 		case <-ctx.Done():
-			writeRequestError(w, incoming.ID, ctx.Err(), "local MCP request failed")
+			if !streaming {
+				writeRequestError(w, incoming.ID, ctx.Err(), "local MCP request failed")
+			} else if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				writeError(http.StatusGatewayTimeout, "local MCP request timed out")
+			}
 			return
 		}
 	}
@@ -575,7 +636,7 @@ func (b *Bridge) filterToolsList(message []byte) []byte {
 }
 
 func (b *Bridge) writeMCPResponse(w http.ResponseWriter, r *http.Request, events [][]byte, response []byte) {
-	if len(events) > 0 && strings.Contains(strings.ToLower(r.Header.Get("Accept")), "text/event-stream") {
+	if len(events) > 0 && acceptsEventStream(r) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
 		for _, event := range append(events, response) {
@@ -587,6 +648,26 @@ func (b *Bridge) writeMCPResponse(w http.ResponseWriter, r *http.Request, events
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(response)
+}
+
+// Only an explicit, nonzero SSE media range enables progress streaming.
+func acceptsEventStream(r *http.Request) bool {
+	for _, value := range r.Header.Values("Accept") {
+		for _, part := range strings.Split(value, ",") {
+			mediaType, params, err := mime.ParseMediaType(part)
+			if err != nil || mediaType != "text/event-stream" {
+				continue
+			}
+			if q, ok := params["q"]; ok {
+				quality, err := strconv.ParseFloat(q, 64)
+				if err != nil || !(quality > 0 && quality <= 1) {
+					continue
+				}
+			}
+			return true
+		}
+	}
+	return false
 }
 
 func (b *Bridge) acquireRequest(ctx context.Context) error {
@@ -731,7 +812,11 @@ func sameID(left, right json.RawMessage) bool {
 func writeBridgeError(w http.ResponseWriter, status int, id json.RawMessage, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	_, _ = w.Write(append(bridgeErrorMessage(id, message), '\n'))
+}
+
+func bridgeErrorMessage(id json.RawMessage, message string) []byte {
+	encoded, _ := json.Marshal(map[string]any{
 		"jsonrpc": "2.0",
 		"id":      id,
 		"error": map[string]any{
@@ -739,6 +824,7 @@ func writeBridgeError(w http.ResponseWriter, status int, id json.RawMessage, mes
 			"message": message,
 		},
 	})
+	return encoded
 }
 
 func writeRequestError(w http.ResponseWriter, id json.RawMessage, err error, message string) {

@@ -1,6 +1,7 @@
 import asyncio
 import os
 from pathlib import Path
+import socket
 import sys
 import tempfile
 import unittest
@@ -135,6 +136,81 @@ class LifespanTests(unittest.IsolatedAsyncioTestCase):
                         if not startup.done():
                             startup.cancel()
                             await asyncio.gather(startup, return_exceptions=True)
+
+    async def test_failed_startup_cleanup_survives_cancellation(self):
+        for mode in ('task', 'event', 'deadline', 'startup-timeout'):
+            with self.subTest(mode=mode):
+                cleaning = asyncio.Event()
+                release = asyncio.Event()
+                server_exited = asyncio.Event()
+                event = asyncio.Event()
+                resource = socket.socket()
+                self.addCleanup(resource.close)
+                resource.bind(('127.0.0.1', 0))
+                application_tasks = []
+                servers = []
+
+                async def app(scope, receive, send):
+                    application_tasks.append(asyncio.current_task())
+                    try:
+                        self.assertEqual((await receive())['type'], 'lifespan.startup')
+                        await send({'type': 'lifespan.startup.failed'})
+                    finally:
+                        cleaning.set()
+                        await release.wait()
+                        resource.close()
+
+                original = uvicorn.Server.serve
+
+                async def serve(server, sockets=None):
+                    servers.append((server, sockets[0]))
+                    try:
+                        await original(server, sockets=sockets)
+                    finally:
+                        # OwnedLifespan.close starts immediately after this,
+                        # before the waiting test can resume.
+                        server_exited.set()
+
+                kwargs = {'cancel_event': event} if mode == 'event' else {}
+                if mode == 'deadline':
+                    kwargs['lifetime_timeout'] = .5
+                with patch.object(uvicorn.Server, 'serve', serve):
+                    began = asyncio.get_running_loop().time()
+                    startup = asyncio.create_task(self.publish(app, **kwargs))
+                    try:
+                        await asyncio.wait_for(cleaning.wait(), 2)
+                        await asyncio.wait_for(server_exited.wait(), 2)
+                        if mode == 'task':
+                            startup.cancel()
+                        elif mode == 'event':
+                            event.set()
+                        # Allow the real deadline/timeout to cancel publication
+                        # while application cleanup remains deliberately blocked.
+                        delay = {'startup-timeout': 5.1, 'deadline': .6}.get(mode)
+                        remaining = .1 if delay is None else max(0, began + delay - asyncio.get_running_loop().time())
+                        await asyncio.sleep(remaining)
+                        self.assertFalse(startup.done(), 'publication returned before cleanup finished')
+                        self.assertFalse(application_tasks[0].done(), 'application cleanup was interrupted')
+                        self.assertGreaterEqual(resource.fileno(), 0)
+                        self.assertFalse(self.helper.with_name('pid').exists())
+                        release.set()
+                        with self.assertRaises((asyncio.CancelledError, TunnelError)) as caught:
+                            await asyncio.wait_for(startup, 2)
+                        if mode == 'task':
+                            self.assertIsInstance(caught.exception, asyncio.CancelledError)
+                        else:
+                            self.assertEqual(caught.exception.code, {
+                                'event': 'cancelled', 'deadline': 'deadline_exceeded',
+                                'startup-timeout': 'handler_failed'}[mode])
+                        self.assertTrue(application_tasks[0].done())
+                        self.assertEqual(resource.fileno(), -1)
+                        self.assertEqual(servers[0][1].fileno(), -1)
+                        self.assertFalse(self.helper.with_name('pid').exists())
+                    finally:
+                        release.set()
+                        if not startup.done():
+                            startup.cancel()
+                        await asyncio.gather(startup, return_exceptions=True)
 
     async def test_cancellation_after_startup_before_listener_sends_shutdown(self):
         app = Application()

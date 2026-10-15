@@ -369,7 +369,9 @@ async def _open_handler(handler, options, interface, helper, lifespan="off"):
             finally:
                 if not self.startup_event.is_set():
                     self.task.cancel()
-                await asyncio.gather(self.task, return_exceptions=True)
+                # Failure acknowledgement may precede asynchronous application
+                # cleanup; cancellation must not interrupt that cleanup join.
+                await _joined(asyncio.gather(self.task, return_exceptions=True))
 
     class Config(uvicorn.Config):
         def load(self):

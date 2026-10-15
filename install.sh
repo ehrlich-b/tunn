@@ -1,7 +1,6 @@
 #!/bin/sh
 set -eu
 DOWNLOAD_BASE="${TUNN_DOWNLOAD_BASE:-https://tunn.to/dl}"
-REPO="ehrlich-b/tunn"
 INSTALL_DIR="${TUNN_INSTALL_DIR:-$HOME/.local/bin}"
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
 ARCH="$(uname -m)"
@@ -15,28 +14,19 @@ trap cleanup EXIT
 fetch() {
     curl -fsSL --proto '=https' --proto-redir '=https' --connect-timeout 10 --max-time 60 --retry 2 --max-filesize 268435456 -o "$2" "$1" 2>/dev/null
 }
-try_source() {
-    SOURCE=$1
-    if [ "$SOURCE" = mirror ]; then
-        META="${DOWNLOAD_BASE%/}/latest.json"
-    else
-        META="https://api.github.com/repos/${REPO}/releases/latest"
-    fi
+download_release() {
+    META="${DOWNLOAD_BASE%/}/latest.json"
     fetch "$META" "$WORK/meta" || return 1
     [ "$(wc -c < "$WORK/meta" | tr -d ' ')" -le 1048576 ] || return 1
-    # GitHub and the mirror share the release tag field. Only path-safe stable
+    # The release feed supplies the tag. Only path-safe stable
     # tags are accepted; an installer never selects a preview or draft.
     TAG=$(sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$WORK/meta" | head -1)
     printf '%s\n' "$TAG" | LC_ALL=C grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || return 1
     if grep -Eq '"(draft|prerelease)"[[:space:]]*:[[:space:]]*true' "$WORK/meta"; then return 1; fi
-    if [ "$SOURCE" = mirror ]; then
-        ASSET_BASE="${DOWNLOAD_BASE%/}/${TAG}"
-    else
-        ASSET_BASE="https://github.com/${REPO}/releases/download/${TAG}"
-    fi
+    ASSET_BASE="${DOWNLOAD_BASE%/}/${TAG}"
     fetch "$ASSET_BASE/$BINARY" "$WORK/binary" || return 1
     [ "$(wc -c < "$WORK/binary" | tr -d ' ')" -le 268435456 ] || return 1
-    fetch "$ASSET_BASE/checksums.txt" "$WORK/sums" || return 1
+    fetch "$ASSET_BASE/SHA256SUMS" "$WORK/sums" || return 1
     [ "$(wc -c < "$WORK/sums" | tr -d ' ')" -le 1048576 ] || return 1
     MATCHES=$(awk -v binary="$BINARY" '$2 == binary || $2 == "*" binary { print $1 }' "$WORK/sums")
     [ "$(printf '%s\n' "$MATCHES" | awk 'NF { n++ } END { print n+0 }')" -eq 1 ] || return 1
@@ -52,7 +42,7 @@ try_source() {
     return 0
 
 }
-if ! try_source mirror && ! try_source github; then
+if ! download_release; then
     echo "Unable to download a verified tunn release; please try again later." >&2
     exit 1
 fi

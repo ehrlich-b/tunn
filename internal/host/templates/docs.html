@@ -4,7 +4,7 @@
 <h2>1. Install and sign in</h2>
 <pre>curl -fsSL https://tunn.to/install.sh | sh
 tunn login</pre>
-<p>macOS/Linux on Intel or ARM. The downloader follows the latest GitHub release; for checked source builds and recovery, use the <a href="https://github.com/ehrlich-b/tunn/blob/main/docs/install-recovery.md">install and recovery guide</a>. If tunn is not found, add <code>$HOME/.local/bin</code> to PATH.</p>
+<p>macOS/Linux on Intel or ARM. The downloader verifies the latest release from <code>https://tunn.to/dl</code>; manual downloads are on <a href="https://gitlab.com/ehrlich-b/tunn/-/releases">GitLab releases</a>; for checked source builds and recovery, use the <a href="https://github.com/ehrlich-b/tunn/blob/main/docs/install-recovery.md">install and recovery guide</a>. If tunn is not found, add <code>$HOME/.local/bin</code> to PATH.</p>
 <p>See <a href="/docs/docker">Docker client setup</a> and <a href="/docs/status">status measurements</a>.</p>
 <h2>2. Expose a port</h2><pre>tunn http 8080</pre>
 <p>Web tunnels are owner-only by default. Add <code>--allow=alice@example.com</code> to invite someone by email. For anonymous access or webhooks, run <code>tunn http 8080 --public</code> and <a href="/docs/webhook-verification">configure edge signature verification</a>. Keep your application's signature verification enabled.</p>

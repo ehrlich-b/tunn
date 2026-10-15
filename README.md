@@ -44,6 +44,8 @@ not retain that path's checked artifact history or recovery journal.
 curl -fsSL https://tunn.to/install.sh | sh
 ```
 
+Manual downloads: [GitLab releases](https://gitlab.com/ehrlich-b/tunn/-/releases).
+
 Or build from source: `make build`
 
 Source and release builds use production configuration and verify relay TLS

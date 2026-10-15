@@ -16,11 +16,11 @@ renders the same template. `TUNN_DOWNLOAD_BASE` can override the absolute HTTPS
 base on the relay or installer invocation; credentials, query strings and shell
 metacharacters are not accepted in the server's base.
 
-The installer tries a verified mirror bundle, then a complete GitHub bundle.
+The installer uses only `https://tunn.to/dl` by default and verifies SHA256SUMS.
 Failed downloads, missing manifests and checksum mismatches cannot overwrite an
-existing install. Both sources unavailable produce one plain sentence. The
-installer uses a temporary file and atomic rename and accepts a writable
-`TUNN_INSTALL_DIR` (default `$HOME/.local/bin`), without automatically using sudo.
+existing install. There is no forge fallback. The installer uses a temporary
+file and atomic rename and accepts a writable `TUNN_INSTALL_DIR`
+(default `$HOME/.local/bin`), without automatically using sudo.
 There is no tunn self-update command; rerun the installer to update.
 
 Production `make fly-deploy` refuses before Fly runs unless `downloads/` has a
@@ -31,3 +31,5 @@ Tags come from the staged tree; new CLI releases require no validator change.
 Production Fly configuration must set `[build.args] REQUIRE_DOWNLOADS = "1"`
 to enforce the same check on direct `fly deploy`. A plain Docker build and the
 self-host `fly.toml.dist` leave this argument off.
+
+For manual downloads, see [GitLab releases](https://gitlab.com/ehrlich-b/tunn/-/releases).

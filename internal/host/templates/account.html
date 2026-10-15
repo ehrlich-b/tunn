@@ -43,6 +43,9 @@
 .empty{padding:20px 16px;font:400 14px/1.6 var(--sans);color:var(--ink2)}
 .empty b{display:block;color:var(--ink);font-weight:600;margin-bottom:6px}
 .empty code{color:var(--ink)}
+.start-tunnel{padding:0 0 18px;margin-bottom:18px;border-bottom:1px solid var(--plate-lo)}
+.start-tunnel h3{margin:14px 0 8px}
+.start-tunnel p{margin:10px 0 0}
 .tools{display:grid;gap:12px}
 .acct .card{padding:18px 20px}
 .acct .card p{font:400 14px/1.55 var(--sans);color:var(--ink2);margin-bottom:10px}
@@ -62,6 +65,16 @@
   <div class="acct-grid">
   <section class="panel meters" aria-labelledby="usage-title"><i class="screw tl"></i><i class="screw tr"></i><i class="screw bl"></i><i class="screw br"></i>
     <div class="meters-top"><h2 class="card-title" id="usage-title">This month</h2><span class="lbl">Resets {{.ResetsOn}} · UTC</span></div>
+    {{if and .UsageAvailable (not .Tunnels)}}
+    <div class="empty start-tunnel">
+      <b>No traffic yet this month.</b>
+      <h3>Start a private tunnel</h3>
+      <p style="margin:0 0 10px">Have your local app running on port 3000. Only you can access this tunnel by default.</p>
+      <div class="glass cmd"><code class="kbd" tabindex="0">tunn 3000</code><button class="btn sm copy" data-copy="tunn 3000" aria-describedby="start-tunnel-copy">Copy</button></div>
+      <div class="copy-status" id="start-tunnel-copy" role="status"></div>
+      <p><a href="/docs#s1">Install and sign in</a> if you haven't already. Keep your app and tunn running, then open the printed HTTPS URL to generate traffic.</p>
+    </div>
+    {{end}}
     <div class="gauges">
       <div class="glass gauge{{if not .UsageAvailable}} off{{end}}"><div class="g-hud"><span>Transfer</span>{{if .UsageAvailable}}<span class="pct">{{.UsagePercent}}%</span>{{end}}</div>
         <div class="read">{{if .UsageAvailable}}{{.UsageFormatted}}{{else}}--{{end}}<small>of {{.QuotaFormatted}}</small></div>
@@ -71,13 +84,14 @@
         <div class="usage-bar"><div class="usage-fill {{if gt .RequestsPercent 90}}warning{{end}}" style="width: {{.RequestsPercent}}%;"></div></div></div>
     </div>
     <div class="readings"><div><span class="lbl">Tunnels at once</span><b>{{.TunnelLimit}}</b></div><div><span class="lbl">Reserved names</span><b>{{.NameLimit}}</b></div><div><span class="lbl">Over the limit</span><b>Stops</b></div></div>
+    {{if or (not .UsageAvailable) .Tunnels}}
     <div class="glass by-tunnel" aria-label="Usage by tunnel">
       {{if not .UsageAvailable}}<div class="empty"><b>Can't load usage right now.</b>Your limits still apply. Reload in a minute, or run <code>tunn usage</code>.</div>
-      {{else if not .Tunnels}}<div class="empty"><b>No traffic yet this month.</b>Run <code>tunn 3000</code> and each tunnel shows up here with its requests and transfer.</div>
       {{else}}<div class="row head"><span>Tunnel</span><span class="bar-h"></span><span class="num">Requests</span><span class="num">Transfer</span></div>
       {{range .Tunnels}}<div class="row"><span class="name">{{.Name}}</span><div class="usage-bar"><div class="usage-fill" style="width: {{.Percent}}%;"></div></div><span class="num">{{.Requests}}</span><span class="num">{{.Transfer}}</span></div>
       {{end}}{{end}}
     </div>
+    {{end}}
     <p class="fine" style="margin-top:12px">At a limit, tunn stops until the month resets. No overage charges.</p>
   </section>
   <div class="tools">

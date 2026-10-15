@@ -59,9 +59,23 @@
 
 <section class="section" id="install" aria-labelledby="install-title" style="padding-top:0">
  <div class="section-head"><h2 id="install-title">Install tunn</h2><span class="lbl">macOS · Linux</span></div>
- <div class="glass cmd" style="max-width:760px"><code class="kbd" tabindex="0"><span class="p" aria-hidden="true">$ </span>curl -fsSL https://tunn.to/install.sh | sh</code><button class="btn sm copy" data-copy="curl -fsSL https://tunn.to/install.sh | sh" aria-describedby="install-copy">Copy</button></div>
- <div class="copy-status" id="install-copy" role="status"></div>
- <p class="fine"><a href="https://gitlab.com/ehrlich-b/tunn/-/releases">GitLab releases</a> · Then run <code>tunn login</code> and <code>tunn 3000</code>. Free: {{.FreeTunnels}} tunnels, {{.FreeRequestsShort}} requests and {{.FreeBytesShort}} a month. Pro is ${{.MonthlyUSD}} a month. At a limit, tunn stops. <a href="/pricing">Pricing</a> · <a href="/docs">Quickstart</a> · <a href="/ngrok-alternative">tunn vs ngrok</a> · <a href="/mcp-to-claude">Local MCP</a> · <a href="/share-dev-server-oauth">OAuth sharing</a></p>
+ <ol class="install-sequence">
+  <li><h3>Install</h3>
+   <div class="glass cmd"><code class="kbd" tabindex="0">curl -fsSL https://tunn.to/install.sh | sh</code><button class="btn sm copy" data-copy="curl -fsSL https://tunn.to/install.sh | sh" aria-describedby="install-copy">Copy</button></div>
+   <div class="copy-status" id="install-copy" role="status"></div>
+  </li>
+  <li><h3>Sign in</h3>
+   <div class="glass cmd"><code class="kbd" tabindex="0">tunn login</code><button class="btn sm copy" data-copy="tunn login" aria-describedby="install-login-copy">Copy</button></div>
+   <div class="copy-status" id="install-login-copy" role="status"></div>
+  </li>
+  <li><h3>Share port 3000</h3>
+   <p>Have your local app running on port 3000. Replace the email below with the person you want to invite.</p>
+   <div class="glass cmd"><code class="kbd" tabindex="0">tunn 3000 <span class="f">--allow=alex@example.com</span></code><button class="btn sm copy" data-copy="tunn 3000 --allow=alex@example.com" aria-describedby="install-share-copy">Copy</button></div>
+   <div class="copy-status" id="install-share-copy" role="status"></div>
+   <p>Send the printed HTTPS URL to your invited person. Keep your app and tunn running.</p>
+  </li>
+ </ol>
+ <p class="fine"><a href="https://gitlab.com/ehrlich-b/tunn/-/releases">GitLab releases</a> · Free: {{.FreeTunnels}} tunnels, {{.FreeRequestsShort}} requests and {{.FreeBytesShort}} a month. Pro is ${{.MonthlyUSD}} a month. At a limit, tunn stops. <a href="/pricing">Pricing</a> · <a href="/docs">Quickstart</a> · <a href="/ngrok-alternative">tunn vs ngrok</a> · <a href="/mcp-to-claude">Local MCP</a> · <a href="/share-dev-server-oauth">OAuth sharing</a></p>
 </section>
 </div>
 </main>

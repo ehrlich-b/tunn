@@ -391,3 +391,10 @@ table.log .c4{color:var(--ink);font-weight:700}
 .recipient-outcomes{margin:12px 0}
 .recipient-outcomes .verdict{padding:12px 0;gap:12px;align-items:flex-start}
 .recipient-outcomes .verdict+.verdict{border-top:1px solid var(--plate-lo)}
+
+/* Homepage install sequence. */
+.install-sequence{max-width:760px;list-style:none;counter-reset:install;display:grid;gap:20px;margin-bottom:24px}
+.install-sequence li{counter-increment:install;min-width:0}
+.install-sequence h3{margin-bottom:10px}
+.install-sequence h3::before{content:counter(install,decimal-leading-zero) " ";font:500 13px/1 var(--mono);color:var(--engrave);margin-right:8px}
+.install-sequence p{color:var(--ink2);margin:10px 0}

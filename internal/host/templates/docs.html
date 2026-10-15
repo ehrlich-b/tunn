@@ -50,8 +50,11 @@ tunn 3000 --public</pre>
 </section>
 
 <section class="step" aria-labelledby="s3"><span class="n">03</span><div><h2 id="s3">Watch requests and usage</h2>
-<pre class="glass term">tunn 3000 --public --inspect
-tunn usage</pre>
+<p>Optional: restart tunn with inspection enabled. Press Ctrl-C in the terminal running the previous tunn process, and keep your local app running. Reuse the invited person's email below.</p>
+<pre class="glass term">tunn 3000 --allow=alex@example.com --inspect</pre>
+<p style="margin-top:12px">Use the newly printed HTTPS URL, and keep this tunn process running.</p>
+<p>In another terminal:</p>
+<pre class="glass term">tunn usage</pre>
 <p style="margin-top:12px">The local inspector stores headers, not bodies, unless you add <code>--inspect-body</code>. Your account also has a <a href="/account/inspect">request inspector</a>. Quotas cover all your endpoints and reset monthly in UTC. At a limit, tunn stops; there are no overage charges. <a href="/pricing">Plans and units</a></p></div></section>
 
 <section class="step" aria-labelledby="s4"><span class="n">04</span><div><h2 id="s4">Connect a local MCP server</h2>

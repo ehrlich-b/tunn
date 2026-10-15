@@ -101,7 +101,7 @@ func main() {
 	case "login":
 		if len(args) > 1 {
 			if len(args) == 2 && (args[1] == "--help" || args[1] == "-h") {
-				fmt.Fprintln(os.Stdout, "Usage: tunn login\n\nOpen your browser to sign in, then run\ntunn http 3000")
+				fmt.Fprintln(os.Stdout, "Usage: tunn login\n\nOpen your browser to sign in, then run\ntunn 3000")
 				return
 			}
 			reportCLIError("Invalid sign-in command", "Login takes no options", "tunn login", false)

@@ -118,15 +118,21 @@ func TestFortyColumnRequestsUseOneRow(t *testing.T) {
 		o.Request(Event{At: "2026-10-13T13:42:15Z", Method: "POST", Path: "/upload", Status: code, DurationMS: 18, ActiveStreams: 1})
 	}
 	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
-	if len(lines) != 6 {
-		t.Fatalf("want heading plus 5 rows: %s", out.String())
+	if len(lines) != 7 || strings.TrimSpace(lines[5]) != "edge cap 100 MiB" {
+		t.Fatalf("want heading, 5 rows and the 413 limit: %s", out.String())
+	}
+	column := strings.Index(lines[0], "RESULT")
+	for _, line := range append(lines[1:5], lines[6]) {
+		if strings.Index(line, "[") != column {
+			t.Fatalf("row out of its columns: %s", out.String())
+		}
 	}
 	for _, line := range lines {
 		if cells(line) > 40 {
 			t.Fatalf("overflow: %s", line)
 		}
 	}
-	if !strings.Contains(out.String(), "413; edge cap 100 MiB") || strings.Contains(out.String(), "open") {
+	if !strings.Contains(out.String(), "[x] 413") || strings.Contains(out.String(), "open") {
 		t.Fatal(out.String())
 	}
 }
@@ -144,5 +150,32 @@ func TestWideUnicodeAndLimitRowsStayWithinTerminal(t *testing.T) {
 				t.Fatalf("width %d overflow: %s", width, line)
 			}
 		}
+	}
+}
+
+func TestFortyColumnPathsStayDistinct(t *testing.T) {
+	var out, errout bytes.Buffer
+	o := New(&out, &errout, false)
+	o.Width = 40
+	for _, path := range []string{"/api/items/7?token=[redacted]", "/api/items/11?token=[redacted]", "/api/organizations/acme/projects/42/builds/1001"} {
+		o.Request(Event{At: "2026-10-13T13:42:15Z", Method: "GET", Path: path, Status: 200})
+	}
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	for _, want := range []string{"/api/items/7?…", "/api/items/11?…", "…/builds/1001"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("missing %q: %s", want, out.String())
+		}
+	}
+	for _, line := range lines {
+		if cells(line) > 40 {
+			t.Fatalf("overflow: %s", line)
+		}
+	}
+}
+
+func TestWrapKeepsWordsWhole(t *testing.T) {
+	lines := Wrap("Private by default; visitors use tunn connect.", 39, 2)
+	if len(lines) != 2 || lines[0] != "Private by default; visitors use tunn" || lines[1] != "  connect." {
+		t.Fatal(lines)
 	}
 }

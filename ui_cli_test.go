@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -51,11 +52,11 @@ func TestCLIHealthOverridesRelayAndRecovers(t *testing.T) {
 	session.mu.Lock()
 	session.probeLocked(ctx)
 	session.mu.Unlock()
-	if strings.Count(errout.String(), "browser [o]") != 1 {
+	if strings.Count(errout.String(), "browser") != 1 || strings.Count(errout.String(), "connection refused") != 1 {
 		t.Fatal("repeated failure route", errout.String())
 	}
 	s.Inspector.OnEvent(client.InspectionEvent{At: time.Now(), Method: "GET", Path: "/health", Status: 200, TerminalReason: "complete"}, client.InspectionMetrics{})
-	if !strings.Contains(out.String(), "[ok] Online") || !strings.Contains(out.String(), "Public · Anyone with the link") {
+	if !strings.Contains(out.String(), "[ok] Online") || !strings.Contains(out.String(), "allowed  anyone with the link") {
 		t.Fatal(out.String())
 	}
 	s.OnLifecycle(client.LifecycleEvent{State: client.StateReconnecting, RetryDelay: time.Second})
@@ -113,10 +114,10 @@ func TestCLIUsesTheRequestedTargetAndPrivateInvitation(t *testing.T) {
 	o.TTY = true
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	s := &client.ServeClient{TargetURL: "http://localhost:3000", HTTPTransport: cliProbeTransport{}}
+	s := &client.ServeClient{TunnelID: "shop", TargetURL: "http://localhost:3000", HTTPTransport: cliProbeTransport{}}
 	attachCLI(ctx, s, o)
 	s.OnLifecycle(client.LifecycleEvent{State: client.StateReady, PublicURL: "https://app.example"})
-	for _, text := range []string{"to   localhost:3000", "--allow=alex@example.com"} {
+	for _, text := range []string{"to       localhost:3000", "allowed  only you", "tunn share shop alex@example.com"} {
 		if !strings.Contains(out.String(), text) {
 			t.Fatal(out.String())
 		}
@@ -149,6 +150,65 @@ func TestCLIInvitationDoesNotEchoLocalCredentials(t *testing.T) {
 		}
 		if !strings.Contains(text, "tunn share my-app alex@example.com") {
 			t.Fatal(text)
+		}
+	}
+}
+
+func TestCLIAllowListAgreesWithAccessAndHints(t *testing.T) {
+	for _, allowed := range [][]string{{"alex@example.com"}, {"@example.com"}} {
+		var out, errout bytes.Buffer
+		o := terminal.New(&out, &errout, false)
+		o.TTY = true
+		ctx, cancel := context.WithCancel(context.Background())
+		s := &client.ServeClient{TunnelID: "shop", TargetURL: "http://localhost:3000", AllowedEmails: allowed, HTTPTransport: cliProbeTransport{}}
+		attachCLI(ctx, s, o)
+		s.OnLifecycle(client.LifecycleEvent{State: client.StateReady, PublicURL: "https://shop.example"})
+		cancel()
+		text := out.String() + errout.String()
+		if !strings.Contains(text, "allowed  "+allowed[0]+" and you") || !strings.Contains(text, "others   403 at the edge") {
+			t.Fatal(text)
+		}
+		for _, stale := range []string{"tunn access", "tunn share", "--allow", "requested", "tunn localhost"} {
+			if strings.Contains(text, stale) {
+				t.Fatalf("%q in %s", stale, text)
+			}
+		}
+	}
+}
+
+func TestCLIRouteCheckAlignsMarkersAndEndsWithCommand(t *testing.T) {
+	var out, errout bytes.Buffer
+	o := terminal.New(&out, &errout, false)
+	o.TTY = true
+	c := &cliSession{out: o, target: "localhost:3000", check: "curl -I http://localhost:3000"}
+	c.unreachable(errors.New("dial tcp: connection refused"))
+	lines := strings.Split(strings.TrimSpace(errout.String()), "\n")
+	if len(lines) != 6 || lines[5] != "curl -I http://localhost:3000" {
+		t.Fatal(errout.String())
+	}
+	column := strings.Index(lines[1], "[")
+	for _, line := range lines[1:5] {
+		if strings.Index(line, "[") != column {
+			t.Fatalf("ragged route check:\n%s", errout.String())
+		}
+	}
+}
+
+func TestFortyColumnHelpWrapsAtWords(t *testing.T) {
+	defer func(previous func(io.Writer) int) { helpWidth = previous }(helpWidth)
+	helpWidth = func(io.Writer) int { return 40 }
+	var out bytes.Buffer
+	firstRun(&out)
+	printRawHelp(&out, "tcp")
+	printRawHelp(&out, "unix")
+	for _, line := range strings.Split(out.String(), "\n") {
+		if len([]rune(line)) > 40 {
+			t.Fatalf("overflow: %q", line)
+		}
+	}
+	for _, text := range []string{"Choose who gets in to port 3000\n", "Visitors run tunn connect.\n"} {
+		if !strings.Contains(out.String(), text) {
+			t.Fatalf("missing %q in %s", text, out.String())
 		}
 	}
 }

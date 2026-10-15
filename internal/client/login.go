@@ -126,7 +126,7 @@ func (l *LoginClient) Run(ctx context.Context) error {
 	if l.PolicyOwner {
 		_, _ = fmt.Fprintln(output, "\ntunn policy --help")
 	} else {
-		_, _ = fmt.Fprintln(output, "\ntunn http 3000")
+		_, _ = fmt.Fprintln(output, "\ntunn 3000")
 	}
 
 	if !l.PolicyOwner && token.RefreshToken == "" {

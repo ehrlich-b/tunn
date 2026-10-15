@@ -44,11 +44,11 @@ Back up the authoritative SQLite database consistently, including committed WAL 
 
 | Setting | Required use |
 | --- | --- |
-| `TUNN_ENV=prod`, `TUNN_DOMAIN`, `TUNN_PUBLIC_ADDR` | Preserve platform authority; callback/issuer match exact configured host and port, currently template `tunn.to:443`. |
+| `TUNN_ENV=prod`, `TUNN_DOMAIN`, `TUNN_PUBLIC_ADDR` | Preserve platform authority; callback/issuer match exact configured host and port, currently template `tunn.to:443`; consumer Google callbacks omit the default HTTPS port. |
 | `TUNN_LOGIN_NODE`, `TUNN_DB_PATH`, persistent `/data` volume | Preserve inventoried roles/database; exactly one login writer. |
 | `TUNN_JWT_SECRET`, `TUNN_NODE_SECRET`, optional `TUNN_CA_CERT` | Existing session/device signatures and authenticated internal TLS/RPC; keep stable and keep port 50051 private. |
 | `TUNN_CERT_FILE`, `TUNN_KEY_FILE` or existing paired base64 `TUNN_CERT_DATA`/`TUNN_KEY_DATA` | Platform TLS remains mandatory; ACME app certificates do not replace it. |
-| `TUNN_GOOGLE_CLIENT_ID`, `TUNN_GOOGLE_CLIENT_SECRET` | Login-authority Google OAuth; register exact `https://tunn.to:443/auth/google/callback` if preserving that public authority. Authorize intended users and verify Bryan's primary email. |
+| `TUNN_GOOGLE_CLIENT_ID`, `TUNN_GOOGLE_CLIENT_SECRET` | Login-authority Google OAuth; register exact `https://tunn.to/auth/google/callback` for the template `tunn.to:443` authority; omit the default HTTPS port 443 and retain custom ports. Authorize intended users and verify Bryan's primary email. |
 | `TUNN_CUSTOM_DOMAINS=true`, `TUNN_HTTP01_ADDR=0.0.0.0:80` | Every edge: raw TCP 80 HTTP-01 and raw TCP 443 TLS; retain UDP 443 HTTP/3. DNS-only wildcard CNAME plus unique ownership TXT. |
 | `TUNN_DOMAIN_KEY_SECRET`, `TUNN_ACME_EMAIL`, `TUNN_ACME_DIRECTORY` | Login authority: base64 32-byte AES key and contact; staging before production CA. Encrypted app keys and ACME account state persist in SQLite. |
 | `TUNN_IDENTITY_KEYS_FILE` | Every custom-domain relay: private Ed25519 JWK ring, mode 0600; matching active seed/public key and common key IDs/JWKS. Rotate atomically, retain old public key for at least three minutes. |

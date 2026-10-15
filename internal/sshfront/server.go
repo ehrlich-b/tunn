@@ -23,6 +23,7 @@ import (
 	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/ehrlich-b/tunn/internal/mcpbridge"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
+	"github.com/google/uuid"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/time/rate"
 )
@@ -496,6 +497,29 @@ func (c *connection) session(ch ssh.Channel, requests <-chan *ssh.Request) {
 	}
 }
 
+// checkOwner rechecks revocation without treating a primary mailbox change
+// as a transfer of the authenticated key to another account.
+func (c *connection) checkOwner() error {
+	email, err := c.server.cfg.Resolve(c.ctx, c.id.Fingerprint)
+	if err != nil {
+		return err
+	}
+	if c.server.cfg.ResolveAccount != nil && c.id.AccountID != "" {
+		current, err := c.server.cfg.ResolveAccount(c.ctx, c.id.Fingerprint)
+		if err != nil {
+			return err
+		}
+		before, beforeErr := uuid.Parse(c.id.AccountID)
+		after, afterErr := uuid.Parse(current)
+		if beforeErr != nil || afterErr != nil || before != after {
+			return fmt.Errorf("SSH key ownership changed; reconnect")
+		}
+	} else if email != c.id.Email {
+		return fmt.Errorf("SSH key ownership changed; reconnect")
+	}
+	return nil
+}
+
 func (c *connection) run(args []string, in ssh.Channel) error {
 	for len(args) > 0 && args[0] == "--" {
 		args = args[1:]
@@ -509,12 +533,8 @@ func (c *connection) run(args []string, in ssh.Channel) error {
 		}
 		return nil
 	}
-	email, err := c.server.cfg.Resolve(c.ctx, c.id.Fingerprint)
-	if err != nil {
+	if err := c.checkOwner(); err != nil {
 		return err
-	}
-	if email != c.id.Email {
-		return fmt.Errorf("SSH key ownership changed; reconnect")
 	}
 	protocol := "http"
 	kind := "serve"
@@ -643,12 +663,8 @@ func (c *connection) run(args []string, in ssh.Channel) error {
 }
 
 func (c *connection) start(f *forward) error {
-	email, err := c.server.cfg.Resolve(c.ctx, c.id.Fingerprint)
-	if err != nil {
+	if err := c.checkOwner(); err != nil {
 		return err
-	}
-	if email != c.id.Email {
-		return fmt.Errorf("SSH key ownership changed; reconnect")
 	}
 	id := c.id
 	o := *c.options

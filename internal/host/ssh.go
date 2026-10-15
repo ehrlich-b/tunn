@@ -75,7 +75,18 @@ func (p *ProxyServer) establishSSH(ctx context.Context, id sshfront.Identity, st
 	}
 	// Re-resolve the key at admission. A removed key never authenticates a new
 	// forward through an SSH connection that was established before removal.
-	if email != id.Email {
+	cachedID := id.AccountID
+	// Older in-process callers may only supply the authenticated mailbox.
+	if cachedID == "" && id.Email != "" && p.storage != nil {
+		cached, err := p.storage.GetAccountByEmail(ctx, id.Email)
+		if err != nil {
+			return err
+		}
+		if cached != nil {
+			cachedID = cached.ID
+		}
+	}
+	if (keyAccount == nil && (cachedID != "" || id.Email != "")) || (keyAccount != nil && !sameAccountID(keyAccount.ID, cachedID)) {
 		return fmt.Errorf("SSH key ownership changed; reconnect")
 	}
 	anonymous := email == ""

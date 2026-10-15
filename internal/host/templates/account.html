@@ -2,274 +2,91 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)"><meta name="theme-color" content="#0F1115" media="(prefers-color-scheme: dark)">
 <title>Account - tunn</title>
+<link rel="stylesheet" href="/assets/system.css">
 <style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
-body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-  background: #f6f8fa;
-  color: #1f2328;
-  line-height: 1.6;
-}
-a { color: #0969da; text-decoration: none; }
-a:hover { text-decoration: underline; }
-
-.header {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  background: rgba(255,255,255,0.95);
-  backdrop-filter: blur(8px);
-  border-bottom: 1px solid #e5e7eb;
-  z-index: 100;
-  padding: 0 24px;
-}
-.header-inner {
-  max-width: 900px;
-  margin: 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  height: 56px;
-}
-.header-logo {
-  font-size: 22px;
-  font-weight: 700;
-  color: #0969da;
-  text-decoration: none;
-}
-.header-user {
-  font-size: 14px;
-  color: #57606a;
-}
-.header-user a { margin-left: 16px; }
-
-.container {
-  max-width: 700px;
-  margin: 0 auto;
-  padding: 100px 24px 64px;
-}
-h1 {
-  font-size: 28px;
-  font-weight: 700;
-  margin-bottom: 24px;
-}
-
-.card {
-  background: white;
-  border: 1px solid #e5e7eb;
-  border-radius: 12px;
-  padding: 24px;
-  margin-bottom: 24px;
-}
-.card-title {
-  font-size: 16px;
-  font-weight: 600;
-  margin-bottom: 16px;
-  color: #1f2328;
-}
-.card-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 12px 0;
-  border-bottom: 1px solid #f0f0f0;
-}
-.card-row:last-child { border-bottom: none; }
-.card-label { color: #57606a; font-size: 14px; }
-.card-value { font-weight: 500; font-size: 14px; }
-
-.plan-badge {
-  display: inline-block;
-  padding: 4px 12px;
-  border-radius: 20px;
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-}
-.plan-free { background: #f0f0f0; color: #57606a; }
-.plan-pro { background: #ddf4ff; color: #0550ae; }
-
-.usage-bar {
-  width: 100%;
-  height: 8px;
-  background: #f0f0f0;
-  border-radius: 4px;
-  overflow: hidden;
-  margin: 8px 0;
-}
-.usage-fill {
-  height: 100%;
-  background: #0969da;
-  border-radius: 4px;
-  transition: width 0.3s;
-}
-.usage-fill.warning { background: #d1242f; }
-.usage-text {
-  font-size: 13px;
-  color: #57606a;
-}
-
-.upgrade-btn {
-  display: inline-block;
-  background: #0969da;
-  color: white;
-  padding: 12px 24px;
-  border-radius: 8px;
-  font-weight: 600;
-  font-size: 14px;
-  text-decoration: none;
-}
-.upgrade-btn:hover { background: #0550ae; text-decoration: none; }
-
-.upgrade-card {
-  background: linear-gradient(135deg, #0969da 0%, #0550ae 100%);
-  color: white;
-  text-align: center;
-}
-.upgrade-card .card-title { color: white; }
-.upgrade-card p { color: rgba(255,255,255,0.9); margin-bottom: 20px; font-size: 15px; }
-.upgrade-btn-white {
-  display: inline-block;
-  background: white;
-  color: #0969da;
-  padding: 12px 24px;
-  border-radius: 8px;
-  font-weight: 600;
-  font-size: 14px;
-  text-decoration: none;
-}
-.upgrade-btn-white:hover { background: #f6f8fa; text-decoration: none; }
-
-.billing-toggle {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  margin-bottom: 16px;
-}
-.toggle-label {
-  font-size: 14px;
-  color: rgba(255,255,255,0.7);
-  transition: color 0.2s;
-}
-.toggle-label.active { color: white; font-weight: 600; }
-.save-badge {
-  background: rgba(255,255,255,0.2);
-  padding: 2px 8px;
-  border-radius: 10px;
-  font-size: 11px;
-  font-weight: 600;
-}
-.toggle-switch {
-  position: relative;
-  width: 44px;
-  height: 24px;
-}
-.toggle-switch input { opacity: 0; width: 0; height: 0; }
-.toggle-slider {
-  position: absolute;
-  cursor: pointer;
-  top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(255,255,255,0.3);
-  border-radius: 24px;
-  transition: 0.2s;
-}
-.toggle-slider:before {
-  position: absolute;
-  content: "";
-  height: 18px;
-  width: 18px;
-  left: 3px;
-  bottom: 3px;
-  background: white;
-  border-radius: 50%;
-  transition: 0.2s;
-}
-.toggle-switch input:checked + .toggle-slider:before {
-  transform: translateX(20px);
-}
-.price-display {
-  margin-bottom: 20px;
-}
-.price {
-  font-size: 32px;
-  font-weight: 700;
-}
-.price-period {
-  font-size: 16px;
-  font-weight: 400;
-  opacity: 0.9;
-}
-.billed-yearly {
-  display: block;
-  font-size: 13px;
-  font-weight: 400;
-  opacity: 0.8;
-  margin-top: 4px;
-}
-
-.footer {
-  background: #f6f8fa;
-  border-top: 1px solid #e5e7eb;
-  padding: 32px 24px;
-  text-align: center;
-  font-size: 14px;
-  color: #57606a;
-}
-.footer a { margin: 0 12px; }
+.acct{padding-top:22px;padding-bottom:40px}
+.acct h1{font-size:28px;margin:0}
+.acct-top{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:16px}
+.who{display:flex;align-items:center;gap:12px;padding:10px 14px;font:400 14px/1.3 var(--sans);min-width:0}
+.who .mail{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.plan-badge{font:500 12px/1 var(--sans);padding:4px 8px;border-radius:4px;border:1px solid var(--plate-lo);background:var(--plate-hi)}
+.plan-pro{color:var(--ink)}.plan-free{color:var(--engrave)}
+.acct-grid{display:grid;grid-template-columns:1.25fr 1fr;gap:16px;align-items:start}
+.meters{padding:22px 24px}
+.meters .card-title,.card-title{font:600 14px/1.3 var(--sans);color:var(--ink);margin-bottom:12px}
+.meters-top{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-bottom:14px}
+.meters-top .card-title{margin:0}
+.gauges{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.gauge{padding:14px 16px;display:flex;flex-direction:column;gap:10px}
+.gauge .g-hud{display:flex;justify-content:space-between;font:400 13px/1.2 var(--sans);color:var(--engrave)}
+.gauge .g-hud .pct{color:var(--ink2)}
+.gauge .read{font:600 22px/1.1 var(--sans);color:var(--ink)}
+.gauge .read small{font:400 13px/1 var(--sans);color:var(--engrave);margin-left:6px}
+.usage-bar{height:6px;border-radius:3px;background:var(--plate-lo);overflow:hidden}
+.usage-fill{height:100%;background:var(--engrave);min-width:2px}
+.usage-fill.warning{background:var(--warn)}
+.gauge.off .read{color:var(--dim)}.gauge.off .usage-fill{display:none}
+.acct .readings{display:grid;grid-template-columns:repeat(3,1fr);margin:16px 0 4px}
+.acct .readings div{display:flex;flex-direction:column;gap:8px;padding:0 14px;border-left:1px solid var(--plate-lo)}
+.acct .readings div:first-child{padding-left:2px;border-left:0}
+.acct .readings b{font:600 16px/1.2 var(--sans);color:var(--ink)}
+.by-tunnel{margin-top:16px;padding:6px 0}
+.by-tunnel .row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr) 76px 68px;gap:14px;align-items:center;padding:10px 18px;font:400 14px/1.3 var(--sans);color:var(--ink)}
+.by-tunnel .row+.row{border-top:1px solid var(--plate-lo)}
+.by-tunnel .row.head{font:500 13px/1 var(--sans);color:var(--engrave);padding-top:12px;padding-bottom:8px}
+.by-tunnel .name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.by-tunnel .num{text-align:right;color:var(--phos)}
+.by-tunnel .usage-bar{height:6px}
+.empty{padding:20px 16px;font:400 14px/1.6 var(--sans);color:var(--ink2)}
+.empty b{display:block;color:var(--ink);font-weight:600;margin-bottom:6px}
+.empty code{color:var(--ink)}
+.tools{display:grid;gap:12px}
+.acct .card{padding:18px 20px}
+.acct .card p{font:400 14px/1.55 var(--sans);color:var(--ink2);margin-bottom:10px}
+.acct .card>a:not(.btn){font:500 14px/1.4 var(--sans);color:var(--sig-ink)}
+.upgrade-btn-white{display:inline-flex;margin:4px 10px 8px 0}
+.upgrade-card .fine{margin:6px 0 14px}
+.billing{grid-column:1;display:grid;gap:12px}.tools{grid-column:2;grid-row:1/span 2}
+@media(max-width:760px){.gauges{grid-template-columns:1fr}.gauge .read{font-size:26px}.by-tunnel .row{grid-template-columns:minmax(0,1fr) 72px 60px;padding:10px 14px}.by-tunnel .row .usage-bar,.by-tunnel .row.head .bar-h{display:none}.meters{padding:18px 14px}.acct .readings div{padding:0 10px}}
+@media(max-width:900px){.acct-grid{grid-template-columns:1fr}.tools,.billing{grid-column:1;grid-row:auto}.acct h1{font-size:24px}.who{width:100%}}
 </style>
 </head>
 <body>
-
-<header class="header">
-  <div class="header-inner">
-    <a href="/" class="header-logo">tunn</a>
-    <div class="header-user">
-      {{.Email}}
-      <a href="/auth/logout">Logout</a>
+<a class="skip-link" href="#main">Skip to content</a><header class="site-header"><div class="container"><a class="logo" href="/" aria-label="tunn home"><span class="logo-mark" aria-hidden="true"></span>tunn</a><nav class="site-nav" aria-label="Account navigation"><a href="/account/inspect">Requests</a><a href="/account/sharing">Sharing</a><a href="/account" aria-current="page">Account</a><a href="/auth/logout">Sign out</a></nav><details class="menu"><summary aria-label="Menu"><i aria-hidden="true"></i>Menu</summary><nav aria-label="Account navigation"><a href="/account/inspect">Requests</a><a href="/account/sharing">Sharing</a><a href="/account" aria-current="page">Account</a><a href="/docs">Docs</a><a href="/auth/logout">Sign out</a></nav></details></div></header>
+<main id="main" class="wrap acct">
+  <div class="acct-top"><div><span class="lbl">Signed in</span><h1 style="margin-top:10px">Account</h1></div>
+    <div class="panel who"><span class="led on"></span><span class="mail">{{.Email}}</span><span class="plan-badge {{if eq .Plan "pro"}}plan-pro{{else}}plan-free{{end}}">{{.Plan}}</span></div></div>
+  <div class="acct-grid">
+  <section class="panel meters" aria-labelledby="usage-title"><i class="screw tl"></i><i class="screw tr"></i><i class="screw bl"></i><i class="screw br"></i>
+    <div class="meters-top"><h2 class="card-title" id="usage-title">This month</h2><span class="lbl">Resets {{.ResetsOn}} · UTC</span></div>
+    <div class="gauges">
+      <div class="glass gauge{{if not .UsageAvailable}} off{{end}}"><div class="g-hud"><span>Transfer</span>{{if .UsageAvailable}}<span class="pct">{{.UsagePercent}}%</span>{{end}}</div>
+        <div class="read">{{if .UsageAvailable}}{{.UsageFormatted}}{{else}}--{{end}}<small>of {{.QuotaFormatted}}</small></div>
+        <div class="usage-bar"><div class="usage-fill {{if gt .UsagePercent 90}}warning{{end}}" style="width: {{.UsagePercent}}%;"></div></div></div>
+      <div class="glass gauge{{if not .UsageAvailable}} off{{end}}"><div class="g-hud"><span>Requests</span>{{if .UsageAvailable}}<span class="pct">{{.RequestsPercent}}%</span>{{end}}</div>
+        <div class="read">{{if .UsageAvailable}}{{.RequestsUsedFormatted}}{{else}}--{{end}}<small>of {{.RequestsLimitFormatted}}</small></div>
+        <div class="usage-bar"><div class="usage-fill {{if gt .RequestsPercent 90}}warning{{end}}" style="width: {{.RequestsPercent}}%;"></div></div></div>
     </div>
-  </div>
-</header>
-
-<div class="container">
-  <h1>Account</h1>
-  <div class="card"><div class="card-title">IP restrictions</div><a href="/account/ip-policy">Set account defaults and endpoint IP allow/deny lists</a></div>
-  <div class="card"><div class="card-title">Web resources</div><a href="/account/sharing">Share access and see who can open your resources</a></div>
-  <div class="card"><div class="card-title">App devices</div><a href="/account/app-devices">Connect devices to an app hostname and revoke their access</a></div>
-
-  <div class="card">
-    <div class="card-title">Profile</div>
-    <div class="card-row">
-      <span class="card-label">Email</span>
-      <span class="card-value">{{.Email}}</span>
+    <div class="readings"><div><span class="lbl">Tunnels at once</span><b>{{.TunnelLimit}}</b></div><div><span class="lbl">Reserved names</span><b>{{.NameLimit}}</b></div><div><span class="lbl">Over the limit</span><b>Stops</b></div></div>
+    <div class="glass by-tunnel" aria-label="Usage by tunnel">
+      {{if not .UsageAvailable}}<div class="empty"><b>Can't load usage right now.</b>Your limits still apply. Reload in a minute, or run <code>tunn usage</code>.</div>
+      {{else if not .Tunnels}}<div class="empty"><b>No traffic yet this month.</b>Run <code>tunn 3000</code> and each tunnel shows up here with its requests and transfer.</div>
+      {{else}}<div class="row head"><span>Tunnel</span><span class="bar-h"></span><span class="num">Requests</span><span class="num">Transfer</span></div>
+      {{range .Tunnels}}<div class="row"><span class="name">{{.Name}}</span><div class="usage-bar"><div class="usage-fill" style="width: {{.Percent}}%;"></div></div><span class="num">{{.Requests}}</span><span class="num">{{.Transfer}}</span></div>
+      {{end}}{{end}}
     </div>
-    <div class="card-row">
-      <span class="card-label">Plan</span>
-      <span class="plan-badge {{if eq .Plan "pro"}}plan-pro{{else}}plan-free{{end}}">{{.Plan}}</span>
-    </div>
+    <p class="fine" style="margin-top:12px">At a limit, tunn stops until the month resets. No overage charges.</p>
+  </section>
+  <div class="tools">
+  <div class="card"><div class="card-title">Request inspector</div><p>See recent requests to your tunnels with passwords and tokens hidden. Replay one when you need to.</p><a href="/account/inspect">Open request inspector →</a></div>
+  <div class="card"><div class="card-title">Sharing</div><a href="/account/sharing">Choose who can open each tunnel</a></div>
+  <div class="card"><div class="card-title">IP restrictions</div><a href="/account/ip-policy">Choose which IP addresses can reach your tunnels</a></div>
+  <div class="card"><div class="card-title">App devices</div><a href="/account/app-devices">Let a phone or laptop into an app, or remove it</a></div>
   </div>
-
-  <div class="card">
-    <div class="card-title">Usage This Month (UTC)</div>
-    <div class="card-row" style="display: block;">
-      <div class="usage-bar">
-        <div class="usage-fill {{if gt .UsagePercent 90}}warning{{end}}" style="width: {{.UsagePercent}}%;"></div>
-      </div>
-      {{if .UsageAvailable}}<div class="usage-text">{{.UsageFormatted}} of {{.QuotaFormatted}} used across all tunnels, including active connections.</div>
-      <div class="usage-text">{{.RequestsUsed}} of {{.RequestsLimit}} requests admitted.</div>
-      {{else}}<div class="usage-text">Usage temporarily unavailable.</div>{{end}}
-    </div>
-  </div>
-
-  <div class="card">
-    <div class="card-title">Request inspector</div>
-    <p>View recent requests for your endpoints, inspect redacted metadata, and deliberately replay a request to its origin.</p>
-    <a href="/account/inspect">Open request inspector →</a>
-  </div>
-
+  <div class="billing">
   {{if .BillingNotice}}
   <div class="card" role="status" aria-live="polite">
     <div class="card-title">Payment review</div>
@@ -280,8 +97,8 @@ h1 {
   {{if .BillingReturn}}
   <div class="card" role="status" aria-live="polite">
     <div class="card-title">Subscription status</div>
-    <p id="billing-status">{{if eq .Plan "pro"}}Pro is active on this account.{{else}}Pro activation is pending. The payment return alone does not confirm your subscription.{{end}}</p>
-    <p>During the launch beta, activation is reviewed by an operator. If you have paid, do not pay again. <a href="mailto:support@tunn.to">Contact support</a> if your plan remains Free.</p>
+    <p id="billing-status">{{if eq .Plan "pro"}}Pro is on.{{else}}Pro activation is pending.{{end}}</p>
+    <p>During the beta, we turn Pro on by hand after each payment, so it isn't instant. This page checks every few seconds. If you've paid and it still says Free, <a href="mailto:support@tunn.to">email support</a>. Don't pay twice.</p>
     <a href="/account?billing=return">Check again</a>
   </div>
   <script>
@@ -293,11 +110,11 @@ h1 {
         const response = await fetch('/api/billing/status', {cache: 'no-store'});
         if (!response.ok || response.redirected) throw new Error('unavailable');
         const status = await response.json();
-        if (status.notice) { message.textContent = status.notice === 'duplicate_payment_refund_needed' ? 'An additional payment needs review for cancellation and refund. Do not pay again; contact support.' : 'Your payment needs review. Do not pay again; contact support for activation or refund.'; return; }
-        if (status.state === 'active') { message.textContent = 'Pro is active on this account. Refresh the account page to see your new limits.'; return; }
-        if (status.state === 'suspended') { message.textContent = 'Your account is suspended. Contact support before making a payment.'; return; }
-        message.textContent = 'Pro activation is pending. If you have paid, do not pay again. Contact support if your plan remains Free.';
-      } catch (_) { message.textContent = 'Subscription status is temporarily unavailable. Use Check again or contact support; do not pay again.'; }
+        if (status.notice) { message.textContent = status.notice === 'duplicate_payment_refund_needed' ? 'A second payment came through. We will review it for a refund; there is no need to pay again.' : 'We need to look at this payment by hand. Email support and we will sort it out.'; return; }
+        if (status.state === 'active') { message.textContent = 'Pro is on. Reload to see your new limits.'; return; }
+        if (status.state === 'suspended') { message.textContent = 'This account is suspended. Email support before paying.'; return; }
+        message.textContent = 'Pro activation is pending. If you have paid, there is no need to pay again.';
+      } catch (_) { message.textContent = 'Can\'t check your plan right now. Try Check again in a minute.'; }
       if (++attempts < 12) setTimeout(check, 5000);
     }
     check();
@@ -317,28 +134,26 @@ h1 {
   {{else if eq .Plan "free"}}
   <div class="card upgrade-card">
     <div class="card-title">Upgrade to Pro</div>
-    <p>{{.ProBytes}} and {{.ProRequests}} admissions/month, {{.ProTunnels}} concurrent tunnels and {{.Reservations}} reserved names. Limits reset each UTC calendar month. No overage charges.</p>
-    {{if .MonthlyAvailable}}<a href="{{.StripeCheckoutURLMonthly}}" class="upgrade-btn-white">Pro — ${{.MonthlyUSD}}/month</a>{{end}}
-    {{if .YearlyAvailable}}<a href="{{.StripeCheckoutURLYearly}}" class="upgrade-btn-white">Pro — ${{.YearlyUSD}}/year</a>{{end}}
+    <p>{{.ProBytesShort}} and {{.ProRequestsShort}} requests a month, {{.ProTunnels}} tunnels at once and {{.Reservations}} reserved names. No overage charges.</p>
+    {{if .MonthlyAvailable}}<a href="{{.StripeCheckoutURLMonthly}}" class="btn sig upgrade-btn-white">Pro — ${{.MonthlyUSD}}/month</a>{{end}}
+    {{if .YearlyAvailable}}<a href="{{.StripeCheckoutURLYearly}}" class="btn sig upgrade-btn-white">Pro — ${{.YearlyUSD}}/year</a>{{end}}
     {{if not .MonthlyAvailable}}{{if not .YearlyAvailable}}<p>Checkout is not available yet. Free tunnels still work.</p>{{end}}{{end}}
-    <p>Launch beta: an operator reviews activation after payment.</p>
-    <a href="/pricing" class="upgrade-btn-white">Compare plans</a>
+    <p class="fine">Beta: Pro is turned on by hand after you pay, so it isn't instant.</p>
+    <a href="/pricing" class="btn upgrade-btn-white">Compare plans</a>
   </div>
   {{else}}
   <div class="card">
     <div class="card-title">Subscription</div>
     <p>You're on the Pro plan.</p>
-    {{if .StripeBillingPortalURL}}<a href="{{.StripeBillingPortalURL}}" class="btn btn-primary">Manage Subscription</a>
+    {{if .StripeBillingPortalURL}}<a href="{{.StripeBillingPortalURL}}" class="btn sig">Manage subscription</a>
     {{else}}<p>For subscription changes, <a href="mailto:support@tunn.to">contact support</a>.</p>{{end}}
   </div>
   {{end}}
-</div>
-
-<footer class="footer">
-  <a href="/privacy">Privacy</a>
-  <a href="/terms">Terms</a>
-  <a href="mailto:support@tunn.to">Support</a>
-</footer>
+  </div>
+  </div>
+</main>
+<footer class="site-footer"><div class="container"><a href="/docs">Docs</a><a href="/pricing">Pricing</a><a href="/status">Status</a><span class="spacer"></span><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="mailto:support@tunn.to">Support</a></div></footer>
+<script defer src="/assets/ui.js"></script>
 
 </body>
 </html>

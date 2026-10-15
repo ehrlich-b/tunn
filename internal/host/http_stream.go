@@ -127,7 +127,7 @@ func (p *ProxyServer) proxyStreamingHTTPOverGRPC(w http.ResponseWriter, r *http.
 				return fmt.Errorf("streamed HTTP response data arrived before response metadata")
 			}
 			if !event.accept.Success {
-				return fmt.Errorf("local target rejected connection: %s", event.accept.ErrorMessage)
+				return &localTargetRejectedError{message: event.accept.ErrorMessage}
 			}
 			if event.accept.HttpResponse == nil {
 				return fmt.Errorf("streamed HTTP response has no metadata")

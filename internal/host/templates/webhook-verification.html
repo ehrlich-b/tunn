@@ -32,7 +32,7 @@ tunn 8080 --name=orders --public --verify-webhook=hmac-sha256 \
   --webhook-secret-file="$HOME/.tunn/endpoints/orders.key" \
   --webhook-tolerance=5m</pre>
 <p><code>--public</code> lets the sender reach your endpoint; signature verification still applies. Omit it to require tunn's private access too. Every request path needs a signature. Use a separate endpoint for browser pages.</p>
-<p>Private access, account status and quota admission are checked before the body is read. Those checks keep their existing responses, including 403 for denied access and 429 for exhausted allowances. Body reads count toward usage once, including invalid signatures; rejected requests never reach your app.</p>
+<p>Private access, account status and quota are checked before the body is read. Those checks keep their existing responses, including 403 for denied access and 429 for exhausted allowances. Body reads count toward usage once, including invalid signatures; rejected requests never reach your app.</p>
 <h2>3. Test generic HMAC</h2>
 <p>The generic format uses <code>X-Webhook-Timestamp</code> in Unix seconds and <code>X-Webhook-Signature: sha256=&lt;hex&gt;</code>. Sign the timestamp, a period and the exact body with HMAC-SHA256.</p>
 <pre>export WEBHOOK_URL='https://&lt;printed-name&gt;.tunn.to/webhook'
@@ -64,4 +64,4 @@ curl -i -X POST "$WEBHOOK_URL" --data-binary '{"event":"unsigned"}'</pre>
 <p>Stop and restart the command to change the policy or signing secret. Reconnects reload the stored key. Disconnecting removes the active policy; specify the flags on each new publication. The CLI fails before ready if the relay lacks verification support. HTTP CLI publications support this policy; SSH, TCP and MCP do not.</p>
 <p>Raw bodies are preserved exactly. Verification accepts bodies up to 1 MiB, up to 100 simultaneous verifications per endpoint and a 10-second body-read deadline. Exceeding these bounds or requesting CONNECT/an upgrade returns 401. Existing tunn access and quota checks still apply.</p>
 <p>Provider references: <a href="https://docs.stripe.com/events/manage-webhook-endpoints#signature-errors">Stripe</a> · <a href="https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries">GitHub</a> · <a href="https://docs.slack.dev/authentication/verifying-requests-from-slack/">Slack</a> · <a href="https://shopify.dev/docs/apps/build/webhooks/verify-deliveries">Shopify</a></p>
-<p><a href="https://github.com/ehrlich-b/tunn/blob/main/docs/webhook-verification.md">Complete command and signature reference</a></p>
+<p><a href="https://gitlab.com/ehrlich-b/tunn/-/blob/main/docs/webhook-verification.md">Complete command and signature reference</a></p>

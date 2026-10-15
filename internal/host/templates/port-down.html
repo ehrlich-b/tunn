@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)"><meta name="theme-color" content="#0F1115" media="(prefers-color-scheme: dark)">
+<meta name="robots" content="noindex">
+<title>Local app not answering · {{.Host}}</title>
+<style>{{.CSS}}</style>
+</head>
+<body>
+<header class="site-header"><div class="container"><span class="logo"><span class="logo-mark" aria-hidden="true"></span>tunn</span><span class="lbl" style="margin-left:auto">{{.Host}}</span></div></header>
+<main id="main" class="wrap">
+<div class="fault">
+ <section>
+  <span class="lbl sig"><i class="led bad"></i>&nbsp; Local app not answering</span>
+  <h1>Nothing on the <span class="sig-t">local port.</span></h1>
+  <p class="sub">{{.Host}} is up, but the app behind it isn't running. Visitors get a 502 until it's back.</p>
+  <div class="glass term" style="margin-top:26px;max-width:560px"><span class="c"># on the machine running tunn: start the app, then reload</span></div>
+  <div class="ctas"><a class="btn sig" href="">Reload</a><span class="lbl">HTTP 502</span></div>
+ </section>
+ <section class="panel unit" aria-label="Route check for {{.Host}}">
+  <div class="chain">
+   <div class="glass node"><span class="lbl dk">Visitor</span><b>you</b></div>
+   <span class="wire" aria-hidden="true"></span>
+   <div class="glass node"><span class="lbl dk">URL</span><b>{{.Host}}</b></div>
+   <span class="wire cut" aria-hidden="true"></span>
+   <div class="node bad"><span class="lbl sig">Local app</span><b>&#x2715;</b></div>
+  </div>
+  <div class="glass route-check" style="margin-top:14px">
+   <div><span>browser</span><span class="k">[ok]</span></div>
+   <div><span>edge · {{.Host}}</span><span class="k">[ok]</span></div>
+   <div><span>tunn on the owner's machine</span><span class="k">[ok]</span></div>
+   <div><span>local app</span><span class="x">[x] not answering</span></div>
+  </div>
+  <p class="fine" style="margin:12px 4px 0">{{.Time}} UTC · GET {{.Path}} · 502</p>
+ </section>
+</div>
+</main>
+</body>
+</html>

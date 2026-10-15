@@ -13,7 +13,7 @@
 <meta property="og:url" content="https://tunn.to/share-dev-server-oauth">
 <link rel="stylesheet" href="/guides.css">
 </head>
-<body>
+<body class="guide">
 <header class="header"><div class="header-inner"><a class="header-logo" href="/">tunn</a><nav aria-label="Guides"><a href="/ngrok-alternative">ngrok alternative</a><a href="/mcp-to-claude">MCP to Claude</a><a href="/share-dev-server-oauth">OAuth sharing</a></nav></div></header>
 <main><h1>Share a dev server with OAuth in one command</h1>
 <p class="lead">Choose who can open your local app with an email allow-list.</p>
@@ -35,6 +35,6 @@ tunn 3000 --allow=@example.com</code></pre>
 <p>Try the URL in a signed-out browser: it should ask you to log in. An authenticated account outside the allow-list should receive an access denial. An allowed account should reach your app.</p>
 <p class="note">Updated CLI web tunnels are owner-only by default. Use <code>--allow</code> to initialize sharing, or manage live person access at <a href="/account/sharing">Share access</a>. Use <code>--public</code> only when anonymous access is intended. Stop the tunn process when the sharing session is over. Keep your application's own authentication if it needs additional permissions.</p>
 <p>Looking for another workflow? Read the <a href="/ngrok-alternative">ngrok comparison</a> or <a href="/mcp-to-claude">publish a local MCP server for a remote connector</a>.</p></main>
-<footer><a href="https://github.com/ehrlich-b/tunn">Source and documentation</a> · <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></footer>
+<footer><a href="https://gitlab.com/ehrlich-b/tunn">Source and documentation</a> · <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></footer>
 </body>
 </html>

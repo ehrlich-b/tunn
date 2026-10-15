@@ -190,3 +190,18 @@ func TestStatusIncidentResponseBound(t *testing.T) {
 		t.Fatal("incident page exceeds relay response cap", w.Body.Len())
 	}
 }
+
+func TestStatusUptimeWords(t *testing.T) {
+	for _, c := range []struct {
+		part, whole int
+		want        string
+	}{{0, 0, "--"}, {10, 10, "100%"}, {9999, 10000, "99.99%"}, {99999, 100000, "99.99%"}, {1, 2, "50%"}, {1, 3, "33.33%"}, {199, 200, "99.5%"}} {
+		if got := percent(c.part, c.whole); got != c.want {
+			t.Errorf("percent(%d,%d) = %q, want %q", c.part, c.whole, got, c.want)
+		}
+	}
+	s := Snapshot{Days: []Day{{Date: "2026-10-01"}, {Date: "2026-10-02", Observed: 5, Healthy: 5, Expected: 10}}, Observed: 5, Healthy: 5}
+	if s.Since() != "2 Oct 2026" || s.Uptime() != "100%" || s.Days[1].Checked() != "50%" {
+		t.Fatal(s.Since(), s.Uptime())
+	}
+}

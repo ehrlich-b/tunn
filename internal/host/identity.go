@@ -11,6 +11,7 @@ import (
 	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/ehrlich-b/tunn/internal/storage"
 	"github.com/golang-jwt/jwt/v4"
+	"github.com/google/uuid"
 )
 
 // identityEmail excludes one-time login and CSRF tokens from every account
@@ -165,4 +166,32 @@ func isDeviceAccessToken(raw string) bool {
 	}
 	claims, ok := token.Claims.(jwt.MapClaims)
 	return ok && claims["type"] == "device_access"
+}
+
+// Compare UUID values independently of their textual case and format.
+func sameAccountID(a, b string) bool {
+	first, err := uuid.Parse(a)
+	if err != nil {
+		return false
+	}
+	second, err := uuid.Parse(b)
+	return err == nil && first == second
+}
+
+// Resolve obsolete UUIDs through the authoritative merge aliases before comparison.
+func sameResolvedAccount(ctx context.Context, authority storage.Storage, a, b string) bool {
+	if sameAccountID(a, b) {
+		return true
+	}
+	firstID, firstErr := uuid.Parse(a)
+	secondID, secondErr := uuid.Parse(b)
+	if firstErr != nil || secondErr != nil || authority == nil || !authority.Available() {
+		return false
+	}
+	first, err := authority.GetAccount(ctx, firstID.String())
+	if err != nil || first == nil {
+		return false
+	}
+	second, err := authority.GetAccount(ctx, secondID.String())
+	return err == nil && second != nil && sameAccountID(first.ID, second.ID)
 }

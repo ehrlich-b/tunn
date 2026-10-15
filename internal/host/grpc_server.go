@@ -570,7 +570,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		if !conn.Supports(deviceReauthCapability) {
 			return rejectTunnelRegistration(stream, "device renewal capability required; update tunn")
 		}
-		lease = &publisherDeviceLease{accountID: signedAccountID(regClient.AuthToken), device: device, expiry: expiry}
+		lease = &publisherDeviceLease{authority: s.storage, accountID: signedAccountID(regClient.AuthToken), device: device, expiry: expiry}
 	} else if isDeviceAccessToken(regClient.AuthToken) {
 		return rejectTunnelRegistration(stream, "Device token expired during registration; retry renewal.")
 	}
@@ -1022,6 +1022,7 @@ func (s *TunnelServer) validatePublisherToken(raw string) (string, error) {
 }
 
 type publisherDeviceLease struct {
+	authority         storage.Storage
 	mu                sync.RWMutex
 	accountID, device string
 	expiry            time.Time
@@ -1031,7 +1032,7 @@ func (l *publisherDeviceLease) renew(raw string, key []byte, now time.Time) erro
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	_, device, expiry, err := parseDeviceToken(raw, key, now)
-	if err != nil || l.accountID == "" || signedAccountID(raw) != l.accountID || device != l.device || !now.Before(l.expiry) {
+	if err != nil || l.accountID == "" || !sameResolvedAccount(context.Background(), l.authority, signedAccountID(raw), l.accountID) || device != l.device || !now.Before(l.expiry) {
 		return fmt.Errorf("invalid device lease renewal")
 	}
 	l.expiry = expiry

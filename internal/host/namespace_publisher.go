@@ -44,7 +44,7 @@ func (p *ProxyServer) handleNamespacePublisher(w http.ResponseWriter, r *http.Re
 		}
 		var deviceOwner string
 		err := p.devices.db.QueryRowContext(r.Context(), `SELECT account_id FROM durable_devices WHERE id=? AND revoked=0`, device).Scan(&deviceOwner)
-		if err != nil || deviceOwner != boundID {
+		if err != nil || !sameResolvedAccount(r.Context(), p.storage, deviceOwner, boundID) {
 			http.Error(w, "Publisher device revoked or unavailable", 401)
 			return
 		}

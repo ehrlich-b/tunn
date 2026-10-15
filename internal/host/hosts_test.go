@@ -3,6 +3,7 @@ package host
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/ehrlich-b/tunn/internal/storage"
 	"github.com/ehrlich-b/tunn/internal/store"
+	meterpb "github.com/ehrlich-b/tunn/pkg/proto/meteringv1"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
 	"google.golang.org/grpc/metadata"
 )
@@ -86,7 +88,7 @@ func TestHostAPIInventoryAndAuth(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &machines); err != nil {
 		t.Fatal(err)
 	}
-	if len(machines) != 1 || !machines[0].Online || !machines[0].Tunnels[0].Online || machines[0].Tunnels[0].LastSeen.IsZero() || machines[0].Tunnels[1].URL != "https://gpu-mcp.host.test/mcp" {
+	if len(machines) != 1 || !machines[0].Online || !machines[0].Tunnels[0].Online || machines[0].LastSeen.IsZero() || machines[0].Tunnels[0].LastSeen.IsZero() || machines[0].Tunnels[1].URL != "https://gpu-mcp.host.test/mcp" {
 		t.Fatalf("inventory = %#v", machines)
 	}
 	delete(s.tunnels, "gpu-http")
@@ -268,4 +270,54 @@ func TestHostStreamCrossNodeReservationGuard(t *testing.T) {
 	if err != nil || !result.Allowed {
 		t.Fatalf("owner denied: %v %v", result, err)
 	}
+}
+
+func TestHostAPIScopeUsesCurrentResource(t *testing.T) {
+	s := hostFixture(t)
+	token := createTestJWT("owner@example.com", s.cfg.JWTSecret)
+	if w := hostRequest(t, s, http.MethodPost, token, freeFixtureManifest); w.Code != 200 {
+		t.Fatal(w.Body.String())
+	}
+	account, err := s.hostAccount(token, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority := &hostScopeAuthority{}
+	s.sharing = authority
+	s.tunnels["gpu-http"] = &TunnelConnection{TunnelID: "gpu-http", AccountID: account.ID, HostID: "gpu-box", ResourceID: "current", ExposureMode: "public", AccessTokenSHA256: []byte("synthetic-digest")}
+	for _, test := range []struct {
+		resource, mode, want string
+		failed               bool
+	}{
+		{"current", "private", "private", false},
+		{"current", "public", "public", false},
+		{"old", "public", "unknown", false},
+		{"current", "public", "unknown", true},
+	} {
+		authority.resource, authority.mode, authority.failed = test.resource, test.mode, test.failed
+		w := hostRequest(t, s, http.MethodGet, token, "")
+		var machines []common.Machine
+		if err := json.Unmarshal(w.Body.Bytes(), &machines); err != nil {
+			t.Fatal(err)
+		}
+		endpoint := machines[0].Tunnels[0]
+		if endpoint.Access != test.want || !endpoint.EndpointToken || !machines[0].Online || machines[0].LastSeen.IsZero() {
+			t.Fatalf("%+v: %+v", test, machines)
+		}
+	}
+}
+
+type hostScopeAuthority struct {
+	resource, mode string
+	failed         bool
+}
+
+func (a *hostScopeAuthority) Sharing(ctx context.Context, in *meterpb.SharingRequest) (*meterpb.SharingResponse, error) {
+	if in.Operation != "list" || in.Owner == "" {
+		return nil, fmt.Errorf("unexpected authority query")
+	}
+	if a.failed {
+		return nil, fmt.Errorf("unavailable")
+	}
+	return &meterpb.SharingResponse{Resources: []*meterpb.WebResource{{Id: a.resource, Mode: a.mode}}}, nil
 }

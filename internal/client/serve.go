@@ -161,7 +161,7 @@ func (s *ServeClient) Run(ctx context.Context) error {
 		}
 		var permanent *permanentTunnelError
 		isPermanent := errors.As(err, &permanent)
-		if s.Credentials != nil && !authRetried && (status.Code(err) == codes.Unauthenticated || isPermanent && permanent.kind == FailureRegistration) {
+		if s.Credentials != nil && !authRetried && (AuthenticationFailure(err) || isPermanent && transientRegistration(permanent)) {
 			token, refreshErr := s.Credentials.Token(ctx, true)
 			if refreshErr == nil {
 				s.AuthToken = token
@@ -174,6 +174,9 @@ func (s *ServeClient) Run(ctx context.Context) error {
 			// Only the relay's rejection needs a human; retry an unreachable
 			// login server with the reconnect backoff.
 			err, isPermanent = refreshErr, false
+		}
+		if s.Credentials == nil && AuthenticationFailure(err) || status.Code(err) == codes.ResourceExhausted || status.Code(err) == codes.PermissionDenied {
+			return err
 		}
 		if isPermanent && !transientRegistration(permanent) {
 			return err
@@ -665,7 +668,12 @@ func (s *ServeClient) handleHTTPRequestContext(ctx context.Context, sender messa
 	}
 	status, responseBytes, reason := http.StatusBadGateway, int64(0), "target_error"
 	if capture != nil {
-		defer func() { capture.finishReason(status, responseBytes, reason) }()
+		defer func() {
+			if ctx.Err() != nil {
+				reason = "canceled"
+			}
+			capture.finishReason(status, responseBytes, reason)
+		}()
 	}
 	s.log(slog.LevelDebug, "http request received",
 		"connection_id", httpReq.ConnectionId,

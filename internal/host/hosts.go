@@ -1,6 +1,7 @@
 package host
 
 import (
+	"context"
 	"crypto/subtle"
 	"database/sql"
 	"encoding/json"
@@ -13,6 +14,7 @@ import (
 	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/ehrlich-b/tunn/internal/hostmode"
 	"github.com/ehrlich-b/tunn/internal/store"
+	pb "github.com/ehrlich-b/tunn/pkg/proto/meteringv1"
 )
 
 func (s *TunnelServer) EnableHostMode(db *sql.DB) error {
@@ -93,18 +95,43 @@ func (s *TunnelServer) HandleHosts(w http.ResponseWriter, r *http.Request) {
 			for _, email := range a.Emails {
 				identities[common.NormalizeEmail(email.Email)] = true
 			}
+			resources := map[string]*pb.WebResource{}
+			if s.sharing != nil {
+				ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+				result, err := s.sharing.Sharing(ctx, &pb.SharingRequest{Operation: "list", Owner: a.ID})
+				cancel()
+				if err == nil && result != nil {
+					for _, resource := range result.Resources {
+						resources[resource.Id] = resource
+					}
+				}
+			}
 			s.mu.RLock()
 			for i := range machines {
 				m := &machines[i]
 				for j := range m.Tunnels {
 					e := &m.Tunnels[j]
+					e.Access = "unknown"
 					e.URL = "https://" + e.Name + "." + s.cfg.Domain
 					if e.Kind == "mcp" {
 						e.URL += "/mcp"
 					}
 					if conn := s.tunnels[e.Name]; conn != nil && (conn.AccountID == a.ID || identities[common.NormalizeEmail(conn.CreatorEmail)]) && conn.HostID == m.Name {
 						e.Online = true
+						e.EndpointToken = len(conn.accessTokenDigest()) > 0
 						m.Online = true
+						e.LastSeen = time.Now().UTC()
+						if e.LastSeen.After(m.LastSeen) {
+							m.LastSeen = e.LastSeen
+						}
+						if resource := resources[conn.ResourceID]; resource != nil {
+							e.Access = resource.Mode
+						} else if conn.ResourceID == "" {
+							e.Access = "public"
+							if conn.ExposureMode == "private" || len(conn.AllowedEmails) > 0 || len(conn.accessTokenDigest()) > 0 || e.Kind == "mcp" {
+								e.Access = "private"
+							}
+						}
 					}
 				}
 			}

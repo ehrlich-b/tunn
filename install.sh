@@ -1,5 +1,11 @@
 #!/bin/sh
 set -eu
+INFO='[i]'
+OK='[ok]'
+if [ -t 1 ] && [ -z "${NO_COLOR+x}" ] && [ "${TERM:-dumb}" != dumb ]; then
+    INFO=$(printf '\033[2m[i]\033[0m')
+    OK=$(printf '\033[32m[ok]\033[0m')
+fi
 DOWNLOAD_BASE="${TUNN_DOWNLOAD_BASE:-https://tunn.to/dl}"
 INSTALL_DIR="${TUNN_INSTALL_DIR:-$HOME/.local/bin}"
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
@@ -58,6 +64,15 @@ cp "$WORK/binary" "$INSTALL_TMP"
 chmod 0755 "$INSTALL_TMP"
 mv "$INSTALL_TMP" "${INSTALL_DIR}/tunn"
 INSTALL_TMP=""
-echo "installed tunn ${TAG} to ${INSTALL_DIR}/tunn"
-case ":$PATH:" in *":${INSTALL_DIR}:"*) ;; *) echo "add to your PATH: export PATH=\"${INSTALL_DIR}:\$PATH\"" ;; esac
-echo "Run 'tunn --help' to get started."
+COLS="${COLUMNS:-80}"
+if [ "$COLS" -lt 50 ] 2>/dev/null; then
+    printf '%s Verified tunn %s\n    for %s/%s\n' "$INFO" "$TAG" "$OS" "$ARCH"
+else
+    printf '%s Verified tunn %s (%s/%s)\n' "$INFO" "$TAG" "$OS" "$ARCH"
+fi
+printf '\n%s Installed tunn %s\n' "$OK" "$TAG"
+case ":$PATH:" in
+    *":${INSTALL_DIR}:"*) ;;
+    *) printf '\nAdd tunn to PATH\nexport PATH="%s:$PATH"\n' "$INSTALL_DIR" ;;
+esac
+printf '\nSign in\ntunn login\n\nRun your app on port 3000, then\ntunn 3000\n'

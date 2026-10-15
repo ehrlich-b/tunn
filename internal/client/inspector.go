@@ -51,6 +51,8 @@ type replayAction struct {
 // Inspector retains at most 50 terminal events and one replay action per event.
 // Its target is a configuration snapshot, independent of later client changes.
 type Inspector struct {
+	// OnEvent observes terminal metadata. Set before serving; callbacks may run concurrently.
+	OnEvent      func(InspectionEvent, InspectionMetrics)
 	mu           sync.RWMutex
 	events       []InspectionEvent
 	nextID       uint64
@@ -296,7 +298,7 @@ func cloneInspectionEvent(event InspectionEvent, body bool) InspectionEvent {
 }
 func (i *Inspector) add(event InspectionEvent) InspectionEvent {
 	i.mu.Lock()
-	defer i.mu.Unlock()
+
 	i.nextID++
 	event.ID = i.nextID
 	i.metrics.Completed++
@@ -309,7 +311,13 @@ func (i *Inspector) add(event InspectionEvent) InspectionEvent {
 	} else {
 		i.events = append(i.events, event)
 	}
-	return cloneInspectionEvent(event, true)
+	result := cloneInspectionEvent(event, true)
+	metrics := i.metrics
+	i.mu.Unlock()
+	if i.OnEvent != nil {
+		i.OnEvent(cloneInspectionEvent(result, false), metrics)
+	}
+	return result
 }
 func (i *Inspector) list() []InspectionEvent {
 	i.mu.RLock()

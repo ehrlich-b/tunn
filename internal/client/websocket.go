@@ -70,13 +70,10 @@ func (c webSocketUpstream) Close() error {
 }
 
 func sendHTTPConnectionHead(sender messageSender, id string, status int, headers http.Header) error {
-	values := make(map[string]string, len(headers))
-	for key, value := range headers {
-		values[key] = strings.Join(value, ", ")
-	}
+	values, fields := common.EncodeHTTPResponseHeaders(headers)
 	return sender.Send(&pb.TunnelMessage{Message: &pb.TunnelMessage_ConnectionAccept{
 		ConnectionAccept: &pb.ConnectionAccept{ConnectionId: id, Success: true,
-			HttpResponse: &pb.HttpResponseHead{StatusCode: int32(status), Headers: values}},
+			HttpResponse: &pb.HttpResponseHead{StatusCode: int32(status), Headers: values, HeaderFields: fields}},
 	}})
 }
 

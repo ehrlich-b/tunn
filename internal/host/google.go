@@ -21,7 +21,8 @@ const googleUserInfoURL = "https://openidconnect.googleapis.com/v1/userinfo"
 const googleStateCookie = "__Host-tunn_google"
 
 func (p *ProxyServer) googleCallbackURL() string {
-	return "https://" + p.config.PublicAddr + "/auth/google/callback"
+	// Match the registered redirect URI while keeping PublicAddr a valid host:port.
+	return "https://" + strings.TrimSuffix(p.config.PublicAddr, ":443") + "/auth/google/callback"
 }
 func (p *ProxyServer) handleGoogleLogin(w http.ResponseWriter, r *http.Request) {
 	if org := r.URL.Query().Get("org"); org != "" {

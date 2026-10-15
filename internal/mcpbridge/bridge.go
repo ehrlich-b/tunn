@@ -81,6 +81,7 @@ type legacyRequest struct {
 	sessionID string
 	remoteID  json.RawMessage
 	childID   json.RawMessage
+	ctx       context.Context
 }
 
 type envelope struct {
@@ -410,11 +411,14 @@ func (b *Bridge) handlePOST(w http.ResponseWriter, r *http.Request) {
 	// cancellation, so a notification cannot overtake its child request.
 	b.cancellationMu.Lock()
 	if !modern && incoming.Method != "initialize" {
-		b.cancellableRequest = &legacyRequest{r.Header.Get("Mcp-Session-Id"), incoming.ID, childID}
+		b.cancellableRequest = &legacyRequest{r.Header.Get("Mcp-Session-Id"), incoming.ID, childID, ctx}
 	}
 	err = b.writeChild(ctx, body)
 	b.cancellationMu.Unlock()
 	defer func() {
+		// Stop any cancellation write before waiting for its lock, including
+		// when the child completes while that write is backpressured.
+		cancel()
 		b.cancellationMu.Lock()
 		b.cancellableRequest = nil
 		b.cancellationMu.Unlock()
@@ -499,7 +503,7 @@ func (b *Bridge) cancelLegacyRequest(ctx context.Context, sessionID string, body
 	b.cancellationMu.Lock()
 	defer b.cancellationMu.Unlock()
 	request := b.cancellableRequest
-	if request == nil || request.sessionID != sessionID || !sameID(request.remoteID, notification.Params["requestId"]) {
+	if request == nil || request.ctx.Err() != nil || request.sessionID != sessionID || !sameID(request.remoteID, notification.Params["requestId"]) {
 		return nil
 	}
 	// Keep the mapping locked through the write. A late cancellation must not
@@ -509,7 +513,17 @@ func (b *Bridge) cancelLegacyRequest(ctx context.Context, sessionID string, body
 	_ = json.Unmarshal(body, &message)
 	message["params"], _ = json.Marshal(notification.Params)
 	encoded, _ := json.Marshal(message)
-	return b.writeChild(ctx, encoded)
+	// The write belongs to both HTTP handlers. Ending the target request must
+	// interrupt a blocked pipe write before its cleanup can release requestGate.
+	writeCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stop := context.AfterFunc(request.ctx, cancel)
+	defer stop()
+	err := b.writeChild(writeCtx, encoded)
+	if request.ctx.Err() != nil && ctx.Err() == nil {
+		return nil
+	}
+	return err
 }
 
 func (b *Bridge) toolCallAllowed(message []byte) bool {
@@ -706,7 +720,12 @@ func hasID(id json.RawMessage) bool {
 }
 
 func sameID(left, right json.RawMessage) bool {
-	return bytes.Equal(bytes.TrimSpace(left), bytes.TrimSpace(right))
+	left, right = bytes.TrimSpace(left), bytes.TrimSpace(right)
+	if len(left) > 0 && len(right) > 0 && left[0] == '"' && right[0] == '"' {
+		var leftString, rightString string
+		return json.Unmarshal(left, &leftString) == nil && json.Unmarshal(right, &rightString) == nil && leftString == rightString
+	}
+	return bytes.Equal(left, right)
 }
 
 func writeBridgeError(w http.ResponseWriter, status int, id json.RawMessage, message string) {

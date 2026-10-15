@@ -9,6 +9,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -121,8 +123,16 @@ func (f *cancellationFixture) session(t *testing.T, first bool) string {
 }
 
 func TestBridgeLegacyCancellationPrompt(t *testing.T) {
-	for _, remoteID := range []string{`7`, `"call-7"`} {
-		t.Run(remoteID, func(t *testing.T) {
+	for _, ids := range []struct{ call, cancellation string }{
+		{`7`, `7`},
+		{`"call-7"`, `"call-7"`},
+		{`"call-\u0037"`, `"call-7"`},
+		{`"call-7"`, `"call-\u0037"`},
+		{`"a\/b"`, `"a/b"`},
+		{`"\u00e9"`, `"é"`},
+	} {
+		t.Run(ids.call+"/"+ids.cancellation, func(t *testing.T) {
+			remoteID := ids.call
 			f := newCancellationFixture(t)
 			session := f.session(t, true)
 			call := f.post(f.ctx, session, `{"jsonrpc":"2.0","id":`+remoteID+`,"method":"tools/call","params":{"name":"blocked"}}`)
@@ -130,7 +140,7 @@ func TestBridgeLegacyCancellationPrompt(t *testing.T) {
 			if sameID(childID, json.RawMessage(remoteID)) {
 				t.Fatal("child call ID was not rewritten")
 			}
-			cancel := f.post(f.ctx, session, `{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":`+remoteID+`,"reason":"stop this call"}}`)
+			cancel := f.post(f.ctx, session, `{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":`+ids.cancellation+`,"reason":"stop this call"}}`)
 			cancellationResponse(t, cancel, http.StatusAccepted)
 			var notification struct {
 				Method string `json:"method"`
@@ -151,6 +161,99 @@ func TestBridgeLegacyCancellationPrompt(t *testing.T) {
 			if !sameID(cancellationID(t, w.Body.Bytes()), json.RawMessage(remoteID)) {
 				t.Fatalf("call response lost its remote ID: %s", w.Body)
 			}
+		})
+	}
+}
+
+// Observe entry into an actual pipe write while leaving its read end idle.
+type cancellationObservedPipe struct {
+	*os.File
+	started chan struct{}
+}
+
+func (p *cancellationObservedPipe) Write(message []byte) (int, error) {
+	if len(message) >= 1024*1024 {
+		close(p.started)
+	}
+	return p.File.Write(message)
+}
+
+func TestBridgeLegacyCancellationBackpressureReleasesGate(t *testing.T) {
+	for _, finish := range []string{"cancel", "timeout", "response"} {
+		t.Run(finish, func(t *testing.T) {
+			reader, writer, err := os.Pipe()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer reader.Close()
+			defer writer.Close()
+			pipe := &cancellationObservedPipe{File: writer, started: make(chan struct{})}
+			f := &cancellationFixture{
+				bridge: &Bridge{stdin: pipe, outputs: make(chan childOutput, 1), requestTimeout: 5 * time.Second},
+				ctx:    context.Background(),
+			}
+			ctx, cancel := context.WithCancel(f.ctx)
+			if finish == "timeout" {
+				cancel()
+				ctx, cancel = context.WithTimeout(f.ctx, time.Second)
+			}
+			defer cancel()
+			call := f.post(ctx, "", `{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"blocked"}}`)
+			if err := reader.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+				t.Fatal(err)
+			}
+			message, err := bufio.NewReader(reader).ReadBytes('\n')
+			if err != nil {
+				t.Fatal(err)
+			}
+			childID := cancellationID(t, message)
+			// Stop reading child stdin. The notification exceeds pipe capacity.
+			notificationCtx, stopNotification := context.WithTimeout(f.ctx, 4*time.Second)
+			defer stopNotification()
+			notification := f.post(notificationCtx, "", `{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":7,"reason":"`+strings.Repeat("x", 1024*1024)+`"}}`)
+			defer func() {
+				_ = reader.Close()
+				cancel()
+				stopNotification()
+				select {
+				case <-notification:
+				case <-time.After(time.Second):
+					t.Error("cancellation handler did not finish during cleanup")
+				}
+			}()
+			select {
+			case <-pipe.started:
+			case <-time.After(time.Second):
+				t.Fatal("cancellation did not start its pipe write")
+			}
+			switch finish {
+			case "cancel":
+				cancel()
+			case "response":
+				f.bridge.outputs <- childOutput{message: []byte(`{"jsonrpc":"2.0","id":` + string(childID) + `,"result":{}}`)}
+			}
+			finishTimeout := 200 * time.Millisecond
+			if finish == "timeout" {
+				finishTimeout = 1500 * time.Millisecond
+			}
+			select {
+			case w := <-call:
+				want := http.StatusOK
+				if finish == "timeout" {
+					want = http.StatusGatewayTimeout
+				}
+				if w.Code != want {
+					t.Fatalf("original call status = %d: %s", w.Code, w.Body)
+				}
+			case <-time.After(finishTimeout):
+				t.Fatal("original handler retained requestGate behind the cancellation write")
+			}
+			gateCtx, stopGate := context.WithTimeout(f.ctx, 100*time.Millisecond)
+			defer stopGate()
+			if err := f.bridge.acquireRequest(gateCtx); err != nil {
+				t.Fatalf("next request could not acquire the gate: %v", err)
+			}
+			<-f.bridge.requestGate
 		})
 	}
 }

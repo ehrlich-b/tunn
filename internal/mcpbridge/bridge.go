@@ -29,6 +29,7 @@ const (
 	MaxMessageSize = 4 * 1024 * 1024
 
 	defaultRequestTimeout = 25 * time.Second
+	streamWriteGrace      = time.Second
 )
 
 // Bridge owns one stdio MCP child process and one loopback HTTP listener.
@@ -444,13 +445,18 @@ func (b *Bridge) handlePOST(w http.ResponseWriter, r *http.Request) {
 	}()
 	stream := func(message []byte) error {
 		if !streaming {
-			// A slow or disconnected consumer must not retain the serialized
-			// child request past its deadline, including during a blocked Write.
+			// Reserve a bounded window after the child request deadline for a
+			// terminal timeout event. Expiring the writer at the request deadline
+			// would prevent even a connected consumer from receiving that error.
 			deadline, _ := ctx.Deadline()
-			_ = controller.SetWriteDeadline(deadline)
+			_ = controller.SetWriteDeadline(deadline.Add(streamWriteGrace))
 			canceled := make(chan struct{})
 			stop := context.AfterFunc(ctx, func() {
-				_ = controller.SetWriteDeadline(time.Now())
+				// Disconnects still interrupt blocked writes immediately; a
+				// timeout keeps the write deadline above for its terminal event.
+				if !errors.Is(ctx.Err(), context.DeadlineExceeded) {
+					_ = controller.SetWriteDeadline(time.Now())
+				}
 				close(canceled)
 			})
 			stopWrite = func() {

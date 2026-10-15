@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -225,6 +226,132 @@ func TestBridgeLegacyProgressTimeout(t *testing.T) {
 			t.Fatalf("timeout after progress = %q", errorEvent)
 		}
 	})
+}
+
+func TestBridgeLegacyProgressTimeoutHTTP(t *testing.T) {
+	f := newCancellationFixture(t)
+	session := f.session(t, true)
+	f.bridge.requestTimeout = 100 * time.Millisecond
+	handlerDone := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		f.bridge.ServeHTTP(w, r)
+		close(handlerDone)
+	}))
+	defer server.Close()
+	ctx, cancel := context.WithTimeout(f.ctx, 2*time.Second)
+	defer cancel()
+	r, err := http.NewRequestWithContext(ctx, http.MethodPost, server.URL, strings.NewReader(
+		`{"jsonrpc":"2.0","id":"call","method":"tools/call","params":{"name":"blocked"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("Accept", "text/event-stream")
+	r.Header.Set("Mcp-Protocol-Version", "2025-11-25")
+	r.Header.Set("Mcp-Session-Id", session)
+	childDone := make(chan struct{})
+	go func() {
+		defer close(childDone)
+		select {
+		case <-f.messages:
+			_, _ = fmt.Fprintln(f.stdout, progressNotification)
+		case <-ctx.Done():
+		}
+	}()
+	response, err := server.Client().Do(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	reader := bufio.NewReader(response.Body)
+	if event, err := readProgressEvent(reader); err != nil || event != "event: message\ndata: "+progressNotification+"\n\n" {
+		t.Fatalf("first progress = %q, %v", event, err)
+	}
+	// The client stays connected while the child withholds its result.
+	event, err := readProgressEvent(reader)
+	if err != nil || !strings.HasPrefix(event, "event: message\ndata: {") || !strings.Contains(event, `"id":"call"`) || !strings.Contains(event, "local MCP request timed out") {
+		t.Fatalf("terminal timeout event = %q, %v", event, err)
+	}
+	if rest, err := io.ReadAll(reader); err != nil || len(rest) != 0 {
+		t.Fatalf("stream did not end cleanly after timeout: %q, %v", rest, err)
+	}
+	progressDone(t, childDone)
+	progressDone(t, handlerDone)
+	f.bridge.cancellationMu.Lock()
+	active := f.bridge.cancellableRequest
+	f.bridge.cancellationMu.Unlock()
+	if active != nil {
+		t.Fatal("timed out request retained its cancellation mapping")
+	}
+	gateCtx, stopGate := context.WithTimeout(f.ctx, time.Second)
+	defer stopGate()
+	if err := f.bridge.acquireRequest(gateCtx); err != nil {
+		t.Fatalf("timed out request retained its request gate: %v", err)
+	}
+	<-f.bridge.requestGate
+}
+
+// Use real connection deadlines while withholding the peer's reads, including
+// when progress was delivered but the terminal timeout write becomes blocked.
+type progressDeadlineWriter struct {
+	*progressEventWriter
+	conn    net.Conn
+	blockAt int
+	writes  int
+	started chan struct{}
+}
+
+func (w *progressDeadlineWriter) Write(message []byte) (int, error) {
+	w.writes++
+	if w.writes == w.blockAt {
+		close(w.started)
+		return w.conn.Write(message)
+	}
+	return w.progressEventWriter.Write(message)
+}
+
+func (w *progressDeadlineWriter) SetWriteDeadline(deadline time.Time) error {
+	return w.conn.SetWriteDeadline(deadline)
+}
+
+func TestBridgeLegacyProgressTimeoutBlockedWriter(t *testing.T) {
+	for _, phase := range []string{"progress", "terminal error"} {
+		t.Run(phase, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				f := newCancellationFixture(t)
+				f.bridge.requestTimeout = 100 * time.Millisecond
+				writer, peer := net.Pipe()
+				defer writer.Close()
+				defer peer.Close()
+				w := &progressDeadlineWriter{progressEventWriter: newProgressEventWriter(), conn: writer, blockAt: 1, started: make(chan struct{})}
+				if phase == "terminal error" {
+					w.blockAt = 2
+				}
+				start := time.Now()
+				done := progressPost(f, f.ctx, "", "text/event-stream", w)
+				_ = f.message(t)
+				_, _ = fmt.Fprintln(f.stdout, progressNotification)
+				if phase == "terminal error" {
+					_ = w.event(t)
+				}
+				progressDone(t, w.started)
+				select {
+				case <-done:
+				case <-time.After(2 * time.Second):
+					t.Fatal("blocked writer outlived the timeout delivery window")
+				}
+				if elapsed := time.Since(start); elapsed <= f.bridge.requestTimeout || elapsed > 2*time.Second {
+					t.Fatalf("blocked writer cleanup took %s", elapsed)
+				}
+				gateCtx, cancel := context.WithTimeout(f.ctx, time.Second)
+				defer cancel()
+				if err := f.bridge.acquireRequest(gateCtx); err != nil {
+					t.Fatalf("timed out writer retained the request gate: %v", err)
+				}
+				<-f.bridge.requestGate
+			})
+		})
+	}
 }
 
 func TestBridgeLegacyProgressDisconnect(t *testing.T) {

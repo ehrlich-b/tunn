@@ -14,12 +14,19 @@ import (
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
 )
 
+// Each stream buffers at most 512 KiB plus one chunk being drained. The
+// shared receiver must never wait for an origin to consume its upload.
+const inboundQueueChunks = 16
+
 type inboundConnection struct {
-	bodyWriter *io.PipeWriter
-	cancel     context.CancelFunc
-	closeOnce  sync.Once
-	input      chan []byte // Bounded WebSocket queue; a slow socket cannot stall the control receiver
-	done       <-chan struct{}
+	bodyWriter  *io.PipeWriter
+	cancel      context.CancelFunc
+	closeOnce   sync.Once
+	input       chan []byte
+	done        <-chan struct{}
+	inputError  chan error
+	inputMu     sync.Mutex
+	inputClosed bool
 }
 
 func (c *inboundConnection) stop(err error) {
@@ -79,29 +86,38 @@ func (m *inboundConnectionManager) open(ctx context.Context, client *ServeClient
 
 	bodyReader, bodyWriter := io.Pipe()
 	connectionCtx, cancel := context.WithCancel(ctx)
-	connection := &inboundConnection{bodyWriter: bodyWriter, cancel: cancel}
-	if open.Protocol == "websocket" {
-		connection.input = make(chan []byte, 16)
-		connection.done = connectionCtx.Done()
-		m.workers.Add(1)
-		go func() {
-			defer m.workers.Done()
-			for {
-				select {
-				case data := <-connection.input:
-					if data == nil {
-						_ = bodyWriter.Close()
-						return
-					}
-					if _, err := bodyWriter.Write(data); err != nil {
-						return
-					}
-				case <-connectionCtx.Done():
-					return
-				}
+	connection := &inboundConnection{
+		bodyWriter: bodyWriter, cancel: cancel,
+		input: make(chan []byte, inboundQueueChunks), done: connectionCtx.Done(),
+		inputError: make(chan error, 1),
+	}
+	m.workers.Add(1)
+	go func() {
+		defer m.workers.Done()
+		defer func() {
+			select {
+			case err := <-connection.inputError:
+				_ = sender.Send(&pb.TunnelMessage{Message: &pb.TunnelMessage_ConnectionClose{
+					ConnectionClose: &pb.ConnectionClose{ConnectionId: open.ConnectionId, ErrorMessage: err.Error()},
+				}})
+			default:
 			}
 		}()
-	}
+		for {
+			select {
+			case data, ok := <-connection.input:
+				if !ok {
+					_ = bodyWriter.Close()
+					return
+				}
+				if _, err := bodyWriter.Write(data); err != nil {
+					return
+				}
+			case <-connectionCtx.Done():
+				return
+			}
+		}
+	}()
 
 	m.mu.Lock()
 	if _, exists := m.connections[open.ConnectionId]; exists {
@@ -233,37 +249,54 @@ func (s *ServeClient) handleStreamingTCP(ctx context.Context, sender messageSend
 	}
 }
 
+// enqueue copies transport buffers before returning to the receiver. EOF and
+// writes share the lock so a concurrent half-close cannot send on a closed queue.
+func (c *inboundConnection) enqueue(data []byte) error {
+	c.inputMu.Lock()
+	defer c.inputMu.Unlock()
+	if c.inputClosed || len(data) == 0 {
+		return nil
+	}
+	select {
+	case <-c.done:
+		return nil
+	default:
+	}
+	if len(data) > common.StreamChunkSize {
+		return fmt.Errorf("oversized inbound transport chunk")
+	}
+	select {
+	case c.input <- append([]byte(nil), data...):
+		return nil
+	default:
+		return fmt.Errorf("inbound stream queue overflow")
+	}
+}
+
 func (m *inboundConnectionManager) write(connectionID string, data []byte) {
 	connection := m.get(connectionID)
 	if connection == nil {
 		return
 	}
-	if connection.input != nil {
-		if len(data) > common.StreamChunkSize {
-			connection.stop(fmt.Errorf("oversized WebSocket transport chunk"))
-			return
-		}
+	if err := connection.enqueue(data); err != nil {
+		// Report the close from the drain worker, never from the receiver.
 		select {
-		case connection.input <- data:
-		case <-connection.done:
+		case connection.inputError <- err:
+		default:
 		}
-		return
-	}
-	if _, err := connection.bodyWriter.Write(data); err != nil {
 		connection.stop(err)
+		m.remove(connectionID, connection)
 	}
 }
 
 func (m *inboundConnectionManager) halfClose(connectionID string) {
 	connection := m.get(connectionID)
 	if connection != nil {
-		if connection.input != nil {
-			select {
-			case connection.input <- nil:
-			case <-connection.done:
-			}
-		} else {
-			_ = connection.bodyWriter.Close()
+		connection.inputMu.Lock()
+		defer connection.inputMu.Unlock()
+		if !connection.inputClosed {
+			connection.inputClosed = true
+			close(connection.input)
 		}
 	}
 }

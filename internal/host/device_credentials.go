@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/ehrlich-b/tunn/internal/common"
+	"github.com/ehrlich-b/tunn/internal/storage"
 	"github.com/ehrlich-b/tunn/internal/store"
 	"github.com/golang-jwt/jwt/v4"
 )
@@ -51,6 +52,9 @@ func newDeviceCredentialStore(db *sql.DB) (*deviceCredentialStore, error) {
 	if err == nil {
 		err = migrateDurablePurpose(db)
 	}
+	if err == nil {
+		err = store.MigrateCredentialOwnership(db)
+	}
 	return &deviceCredentialStore{db: db}, err
 }
 
@@ -83,11 +87,21 @@ func (s *deviceCredentialStore) issueForPurpose(code, name, purpose string, now 
 	// Also covers authorized codes persisted before canonicalization was added.
 	email = common.NormalizeEmail(email)
 	var accountID string
-	if err = tx.QueryRow(`SELECT account_id FROM account_emails WHERE email=?`, email).Scan(&accountID); err != nil {
-		return nil, "", err
+	if bound != "" {
+		var primary string
+		err = tx.QueryRow(`SELECT id,primary_email FROM accounts WHERE id=COALESCE((SELECT account_id FROM account_merges WHERE old_id=?),?)`, bound, bound).Scan(&accountID, &primary)
+		if err == nil {
+			var member int
+			err = tx.QueryRow(`SELECT count(*) FROM account_emails WHERE email=? AND account_id=?`, email, accountID).Scan(&member)
+			if member == 0 {
+				email = primary
+			}
+		}
+	} else {
+		err = tx.QueryRow(`SELECT account_id FROM account_emails WHERE email=?`, email).Scan(&accountID)
 	}
-	if bound != "" && bound != accountID {
-		return nil, "", errDeviceCredential
+	if err != nil {
+		return nil, "", err
 	}
 	digest := sha256.Sum256([]byte(secret))
 	d := &durableDevice{ID: id, Email: email, Name: name, Purpose: purpose, AccountID: accountID, Created: now.Unix(), LastUsed: now.Unix()}
@@ -109,11 +123,11 @@ func (s *deviceCredentialStore) rotate(secret, request string, key []byte, now t
 	}
 	defer tx.Rollback()
 	var d durableDevice
-	err = tx.QueryRow(`SELECT id,email,name,created,last_used,revoked FROM durable_devices WHERE digest=? AND purpose='publisher'`, digest[:]).Scan(&d.ID, &d.Email, &d.Name, &d.Created, &d.LastUsed, &d.Revoked)
+	err = tx.QueryRow(`SELECT id,email,name,created,last_used,revoked,account_id FROM durable_devices WHERE digest=? AND purpose='publisher'`, digest[:]).Scan(&d.ID, &d.Email, &d.Name, &d.Created, &d.LastUsed, &d.Revoked, &d.AccountID)
 	if errors.Is(err, sql.ErrNoRows) {
 		var oldRequest string
 		var replacement, current []byte
-		err = tx.QueryRow(`SELECT u.device,u.request,u.replacement,d.digest,d.email,d.revoked FROM durable_device_used u JOIN durable_devices d ON d.id=u.device WHERE u.digest=? AND d.purpose='publisher'`, digest[:]).Scan(&d.ID, &oldRequest, &replacement, &current, &d.Email, &d.Revoked)
+		err = tx.QueryRow(`SELECT u.device,u.request,u.replacement,d.digest,d.email,d.revoked,d.account_id FROM durable_device_used u JOIN durable_devices d ON d.id=u.device WHERE u.digest=? AND d.purpose='publisher'`, digest[:]).Scan(&d.ID, &oldRequest, &replacement, &current, &d.Email, &d.Revoked, &d.AccountID)
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, "", errDeviceCredential
 		}
@@ -196,10 +210,20 @@ func (p *ProxyServer) forwardDeviceService(w http.ResponseWriter, r *http.Reques
 func (p *ProxyServer) writeDurableToken(w http.ResponseWriter, r *http.Request, d *durableDevice, secret string) {
 	d.Email = common.NormalizeEmail(d.Email)
 	// Suspension/account lookup errors fail closed before any token is returned.
-	a, err := p.storage.GetAccountByEmail(r.Context(), d.Email)
+	a, err := p.storage.GetAccount(r.Context(), d.AccountID)
 	if err != nil || a == nil || a.OperationalState != "active" {
 		oauthProblem(w, 403, "access_denied", "Account unavailable or suspended; contact the account owner")
 		return
+	}
+	linked := false
+	for _, alias := range a.Emails {
+		if common.NormalizeEmail(alias.Email) == d.Email {
+			linked = true
+			break
+		}
+	}
+	if !linked {
+		d.Email = a.PrimaryEmail
 	}
 	// Anchor access expiry to the committed rotation or recovery, each of which
 	// checked revocation. An in-flight response cannot extend its own lease.
@@ -209,7 +233,7 @@ func (p *ProxyServer) writeDurableToken(w http.ResponseWriter, r *http.Request, 
 		oauthProblem(w, 401, "invalid_grant", "Refresh response expired; run tunn login")
 		return
 	}
-	claims := jwt.MapClaims{"email": d.Email, "sub": d.Email, "type": "device_access", "iss": "tunn", "aud": "tunn-tunnels", "scope": "publish connect", "device": d.ID, "iat": now.Unix(), "exp": now.Add(deviceAccessLifetime).Unix()}
+	claims := jwt.MapClaims{"email": d.Email, "sub": d.Email, "type": "device_access", "iss": "tunn", "aud": "tunn-tunnels", "scope": "publish connect", "device": d.ID, "account_id": a.ID, "iat": now.Unix(), "exp": now.Add(deviceAccessLifetime).Unix()}
 	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(p.getJWTSigningKey())
 	if err != nil {
 		oauthProblem(w, 500, "server_error", "Could not issue access token")
@@ -298,26 +322,16 @@ func (p *ProxyServer) handleDevices(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login?return_to=/account/devices", 302)
 		return
 	}
-	account, err := p.storage.GetAccountByEmail(r.Context(), email)
+	var account *storage.Account
+	var err error
+	if claims, valid := p.accountSession(r); valid {
+		account, err = p.sessionAccount(r, claims)
+	} else {
+		account, err = p.storage.GetAccountByEmail(r.Context(), email)
+	}
 	if err != nil || account == nil {
 		http.Error(w, "Account unavailable", 503)
 		return
-	}
-	emails, err := p.storage.GetEmailBucket(r.Context(), email)
-	if err != nil {
-		http.Error(w, "Account unavailable", 503)
-		return
-	}
-	owned := func(owner string) bool {
-		// Compatibility for devices already issued with mixed-case owners. Use
-		// the account policy (including Unicode folding), without rewriting rows.
-		owner = common.NormalizeEmail(owner)
-		for _, e := range emails {
-			if common.NormalizeEmail(e) == owner {
-				return true
-			}
-		}
-		return false
 	}
 	if r.Method == http.MethodPost {
 		if !p.requireCSRFToken(w, r, "/account/devices") {
@@ -325,8 +339,13 @@ func (p *ProxyServer) handleDevices(w http.ResponseWriter, r *http.Request) {
 		}
 		var owner string
 		id := r.FormValue("device_id")
-		err = p.devices.db.QueryRowContext(r.Context(), `SELECT email FROM durable_devices WHERE id=?`, id).Scan(&owner)
-		if err != nil || !owned(owner) {
+		err = p.devices.db.QueryRowContext(r.Context(), `SELECT account_id FROM durable_devices WHERE id=?`, id).Scan(&owner)
+		if err != nil {
+			http.Error(w, "Device not found", 404)
+			return
+		}
+		deviceAccount, lookupErr := p.storage.GetAccount(r.Context(), owner)
+		if lookupErr != nil || deviceAccount == nil || deviceAccount.ID != account.ID {
 			http.Error(w, "Device not found", 404)
 			return
 		}
@@ -339,7 +358,7 @@ func (p *ProxyServer) handleDevices(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/account/devices", 303)
 		return
 	}
-	rows, err := p.devices.db.QueryContext(r.Context(), `SELECT id,email,name,created,last_used,revoked FROM durable_devices ORDER BY created DESC`)
+	rows, err := p.devices.db.QueryContext(r.Context(), `SELECT id,email,name,created,last_used,revoked,account_id FROM durable_devices ORDER BY created DESC`)
 	if err != nil {
 		http.Error(w, "Device service unavailable", 503)
 		return
@@ -347,12 +366,10 @@ func (p *ProxyServer) handleDevices(w http.ResponseWriter, r *http.Request) {
 	var list []durableDevice
 	for rows.Next() {
 		var d durableDevice
-		if err = rows.Scan(&d.ID, &d.Email, &d.Name, &d.Created, &d.LastUsed, &d.Revoked); err != nil {
+		if err = rows.Scan(&d.ID, &d.Email, &d.Name, &d.Created, &d.LastUsed, &d.Revoked, &d.AccountID); err != nil {
 			break
 		}
-		if owned(d.Email) {
-			list = append(list, d)
-		}
+		list = append(list, d)
 	}
 	scanErr := rows.Err()
 	_ = rows.Close()
@@ -369,6 +386,10 @@ func (p *ProxyServer) handleDevices(w http.ResponseWriter, r *http.Request) {
 	writePageStart(w, "tunn - Devices")
 	_, _ = fmt.Fprint(w, `<h1>Devices</h1><p>Publisher devices can publish and connect to tunnels; management devices administer the account. Revocation stops management access and renewal immediately; publisher leases expire within five minutes.</p>`)
 	for _, d := range list {
+		owner, lookupErr := p.storage.GetAccount(r.Context(), d.AccountID)
+		if lookupErr != nil || owner == nil || owner.ID != account.ID {
+			continue
+		}
 		_, _ = fmt.Fprintf(w, `<p><strong>%s</strong> <code>%s</code> Created: %s; last refresh: %s; revoked: %t</p>`, html.EscapeString(d.Name), html.EscapeString(d.ID), time.Unix(d.Created, 0).UTC().Format(time.RFC3339), time.Unix(d.LastUsed, 0).UTC().Format(time.RFC3339), d.Revoked != 0)
 		if d.Revoked == 0 {
 			_, _ = fmt.Fprintf(w, `<form method="post" action="/account/devices"><input type="hidden" name="csrf_token" value="%s"><input type="hidden" name="device_id" value="%s"><button>Revoke device</button></form>`, html.EscapeString(csrf), html.EscapeString(d.ID))

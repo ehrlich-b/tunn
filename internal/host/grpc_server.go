@@ -475,7 +475,20 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		if s.storage == nil || !s.storage.Available() {
 			return rejectTunnelRegistration(stream, "Account service temporarily unavailable.")
 		}
-		account, err := s.storage.GetAccountByEmail(stream.Context(), creatorEmail)
+		var account *storage.Account
+		var err error
+		boundID := ""
+		if !viaSSH && !configuredUser {
+			boundID = signedAccountID(regClient.AuthToken)
+		}
+		if viaSSH {
+			boundID = sshIdentity.accountID
+		}
+		if boundID != "" {
+			account, err = s.storage.GetAccount(stream.Context(), boundID)
+		} else {
+			account, err = s.storage.GetAccountByEmail(stream.Context(), creatorEmail)
+		}
 		if err == nil && account == nil && configuredUser {
 			account, err = s.storage.FindOrCreateByEmails(stream.Context(), []string{creatorEmail}, "configured-user")
 		}
@@ -553,11 +566,11 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 	}
 
 	var lease *publisherDeviceLease
-	if email, device, expiry, err := parseDeviceToken(regClient.AuthToken, []byte(s.cfg.JWTSecret), s.currentTime()); err == nil {
+	if _, device, expiry, err := parseDeviceToken(regClient.AuthToken, []byte(s.cfg.JWTSecret), s.currentTime()); err == nil {
 		if !conn.Supports(deviceReauthCapability) {
 			return rejectTunnelRegistration(stream, "device renewal capability required; update tunn")
 		}
-		lease = &publisherDeviceLease{email: email, device: device, expiry: expiry}
+		lease = &publisherDeviceLease{accountID: signedAccountID(regClient.AuthToken), device: device, expiry: expiry}
 	} else if isDeviceAccessToken(regClient.AuthToken) {
 		return rejectTunnelRegistration(stream, "Device token expired during registration; retry renewal.")
 	}
@@ -977,7 +990,7 @@ func (s *TunnelServer) validateJWTAndExtractEmail(tokenString string) (string, e
 	}
 
 	// Extract email
-	return identityEmail(claims)
+	return accountIdentityEmail(context.Background(), s.storage, claims)
 }
 
 // rejectTunnelRegistration sends a failed reply before terminating the stream.
@@ -995,23 +1008,30 @@ func (s *TunnelServer) currentTime() time.Time {
 	return time.Now()
 }
 func (s *TunnelServer) validatePublisherToken(raw string) (string, error) {
-	if email, _, _, err := parseDeviceToken(raw, []byte(s.cfg.JWTSecret), s.currentTime()); err == nil {
-		return email, nil
+	if _, _, _, err := parseDeviceToken(raw, []byte(s.cfg.JWTSecret), s.currentTime()); err == nil {
+		if s.storage == nil || !s.storage.Available() {
+			return "", storage.ErrNotAvailable
+		}
+		account, err := s.storage.GetAccount(context.Background(), signedAccountID(raw))
+		if err != nil || account == nil || account.OperationalState != "active" {
+			return "", fmt.Errorf("device account unavailable")
+		}
+		return account.PrimaryEmail, nil
 	}
 	return s.validateJWTAndExtractEmail(raw)
 }
 
 type publisherDeviceLease struct {
-	mu            sync.RWMutex
-	email, device string
-	expiry        time.Time
+	mu                sync.RWMutex
+	accountID, device string
+	expiry            time.Time
 }
 
 func (l *publisherDeviceLease) renew(raw string, key []byte, now time.Time) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	email, device, expiry, err := parseDeviceToken(raw, key, now)
-	if err != nil || email != l.email || device != l.device || !now.Before(l.expiry) {
+	_, device, expiry, err := parseDeviceToken(raw, key, now)
+	if err != nil || l.accountID == "" || signedAccountID(raw) != l.accountID || device != l.device || !now.Before(l.expiry) {
 		return fmt.Errorf("invalid device lease renewal")
 	}
 	l.expiry = expiry

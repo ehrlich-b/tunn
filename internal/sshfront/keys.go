@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ehrlich-b/tunn/internal/common"
+	"github.com/ehrlich-b/tunn/internal/store"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -21,7 +23,7 @@ type Key struct {
 }
 
 // Registry keeps ownership and one-time email challenges in the login database.
-// The owner is a verified email, so account bucket merges retain key ownership.
+// Ownership is a durable account UUID; mailboxes are only enrollment proof.
 type Registry struct{ db *sql.DB }
 
 func NewRegistry(db *sql.DB) (*Registry, error) {
@@ -49,6 +51,9 @@ func NewRegistry(db *sql.DB) (*Registry, error) {
 			return nil, err
 		}
 	}
+	if err := store.MigrateCredentialOwnership(db); err != nil {
+		return nil, err
+	}
 	return &Registry{db: db}, nil
 }
 
@@ -63,13 +68,32 @@ func ParseKey(value string) (Key, error) {
 	return Key{Fingerprint: ssh.FingerprintSHA256(public), PublicKey: strings.TrimSpace(string(ssh.MarshalAuthorizedKey(public)))}, nil
 }
 
-func (r *Registry) Owner(ctx context.Context, fingerprint string) (string, error) {
-	var email string
-	err := r.db.QueryRowContext(ctx, "SELECT owner_email FROM ssh_keys WHERE fingerprint=?", fingerprint).Scan(&email)
+func (r *Registry) OwnerAccount(ctx context.Context, fingerprint string) (*store.Account, error) {
+	var id string
+	err := r.db.QueryRowContext(ctx, "SELECT account_id FROM ssh_keys WHERE fingerprint=?", fingerprint).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", nil
+		return nil, nil
 	}
-	return email, err
+	if err != nil {
+		return nil, err
+	}
+	return store.NewAccountStore(r.db).GetByIDContext(ctx, id)
+}
+
+func (r *Registry) Owner(ctx context.Context, fingerprint string) (string, error) {
+	account, err := r.OwnerAccount(ctx, fingerprint)
+	if err != nil || account == nil {
+		return "", err
+	}
+	return account.PrimaryEmail, nil
+}
+
+func (r *Registry) AccountID(ctx context.Context, fingerprint string) (string, error) {
+	account, err := r.OwnerAccount(ctx, fingerprint)
+	if err != nil || account == nil {
+		return "", err
+	}
+	return account.ID, nil
 }
 
 // Add is for trusted callers that have already verified key possession and identity.
@@ -79,8 +103,10 @@ func (r *Registry) Add(ctx context.Context, email, publicKey string) (Key, error
 	if err != nil {
 		return Key{}, err
 	}
-	result, err := r.db.ExecContext(ctx, `INSERT INTO ssh_keys(fingerprint, public_key, owner_email) VALUES (?, ?, ?)
-	 ON CONFLICT(fingerprint) DO UPDATE SET public_key=excluded.public_key WHERE owner_email=excluded.owner_email`, k.Fingerprint, k.PublicKey, email)
+	result, err := r.db.ExecContext(ctx, `INSERT INTO ssh_keys(fingerprint, public_key, owner_email, account_id)
+     SELECT ?, ?, ?, account_id FROM account_emails WHERE email=?
+     ON CONFLICT(fingerprint) DO UPDATE SET public_key=excluded.public_key
+     WHERE COALESCE((SELECT account_id FROM account_merges WHERE old_id=ssh_keys.account_id),ssh_keys.account_id)=excluded.account_id`, k.Fingerprint, k.PublicKey, common.NormalizeEmail(email), common.NormalizeEmail(email))
 	if err != nil {
 		return Key{}, err
 	}
@@ -93,12 +119,12 @@ func (r *Registry) Add(ctx context.Context, email, publicKey string) (Key, error
 
 // ConfirmSessionKey can confirm an already linked authenticating key, but never
 // insert it. A concurrent removal must not be undone by an older SSH session.
-func (r *Registry) ConfirmSessionKey(ctx context.Context, email, publicKey string) (Key, error) {
+func (r *Registry) ConfirmSessionKey(ctx context.Context, accountID, publicKey string) (Key, error) {
 	k, err := ParseKey(publicKey)
 	if err != nil {
 		return Key{}, err
 	}
-	result, err := r.db.ExecContext(ctx, "UPDATE ssh_keys SET public_key=? WHERE fingerprint=? AND owner_email=?", k.PublicKey, k.Fingerprint, email)
+	result, err := r.db.ExecContext(ctx, `UPDATE ssh_keys SET public_key=? WHERE fingerprint=? AND COALESCE((SELECT account_id FROM account_merges WHERE old_id=ssh_keys.account_id),account_id)=?`, k.PublicKey, k.Fingerprint, accountID)
 	if err != nil {
 		return Key{}, err
 	}
@@ -112,60 +138,50 @@ func (r *Registry) ConfirmSessionKey(ctx context.Context, email, publicKey strin
 	return k, nil
 }
 
-func (r *Registry) List(ctx context.Context, emails []string) ([]Key, error) {
+func (r *Registry) List(ctx context.Context, accountID string) ([]Key, error) {
 	keys := []Key{}
-	for _, email := range emails {
-		rows, err := r.db.QueryContext(ctx, "SELECT fingerprint, public_key FROM ssh_keys WHERE owner_email=? ORDER BY fingerprint", email)
-		if err != nil {
-			return nil, err
-		}
-		for rows.Next() {
-			var k Key
-			if err := rows.Scan(&k.Fingerprint, &k.PublicKey); err != nil {
-				_ = rows.Close()
-				return nil, err
-			}
-			keys = append(keys, k)
-		}
-		err = rows.Err()
-		_ = rows.Close()
-		if err != nil {
-			return nil, err
-		}
+	rows, err := r.db.QueryContext(ctx, `SELECT fingerprint,public_key,account_id FROM ssh_keys WHERE COALESCE((SELECT account_id FROM account_merges WHERE old_id=ssh_keys.account_id),account_id)=? ORDER BY fingerprint`, accountID)
+	if err != nil {
+		return nil, err
 	}
-	return keys, nil
+	defer rows.Close()
+	for rows.Next() {
+		var k Key
+		if err := rows.Scan(&k.Fingerprint, &k.PublicKey, &k.AccountID); err != nil {
+			return nil, err
+		}
+		keys = append(keys, k)
+	}
+	return keys, rows.Err()
 }
 
-func (r *Registry) Remove(ctx context.Context, emails []string, fingerprint string) error {
+func (r *Registry) Remove(ctx context.Context, accountID, fingerprint string) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	for _, email := range emails {
-		result, err := tx.ExecContext(ctx, "DELETE FROM ssh_keys WHERE owner_email=? AND fingerprint=?", email, fingerprint)
-		if err != nil {
-			return err
-		}
-		n, err := result.RowsAffected()
-		if err != nil {
-			return err
-		}
-		if n == 0 {
-			continue
-		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO ssh_key_generations VALUES (?, 1)
-		 ON CONFLICT(fingerprint) DO UPDATE SET generation=generation+1`, fingerprint); err != nil {
-			return err
-		}
-		for _, table := range []string{"ssh_key_links", "ssh_key_proofs"} {
-			if _, err := tx.ExecContext(ctx, "DELETE FROM "+table+" WHERE fingerprint=?", fingerprint); err != nil {
-				return err
-			}
-		}
-		return tx.Commit()
+	result, err := tx.ExecContext(ctx, `DELETE FROM ssh_keys WHERE COALESCE((SELECT account_id FROM account_merges WHERE old_id=ssh_keys.account_id),account_id)=? AND fingerprint=?`, accountID, fingerprint)
+	if err != nil {
+		return err
 	}
-	return fmt.Errorf("key not found in this account")
+	n, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return fmt.Errorf("key not found in this account")
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO ssh_key_generations VALUES (?, 1)
+		 ON CONFLICT(fingerprint) DO UPDATE SET generation=generation+1`, fingerprint); err != nil {
+		return err
+	}
+	for _, table := range []string{"ssh_key_links", "ssh_key_proofs"} {
+		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table+" WHERE fingerprint=?", fingerprint); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func linkDigest(token string) string {
@@ -175,7 +191,7 @@ func linkDigest(token string) string {
 
 // BeginLink may only be called with the key verified by SSH authentication.
 func (r *Registry) BeginLink(ctx context.Context, publicKey, email string) (string, error) {
-	return r.beginChallenge(ctx, "ssh_key_links", publicKey, email)
+	return r.beginChallenge(ctx, "ssh_key_links", publicKey, email, "")
 }
 
 // ProofMessage binds the signature to this protocol, identity and random challenge.
@@ -183,11 +199,11 @@ func ProofMessage(email, challenge string) []byte {
 	return []byte("tunn SSH key enrollment v1\n" + email + "\n" + challenge)
 }
 
-func (r *Registry) BeginProof(ctx context.Context, publicKey, email string) (string, error) {
-	return r.beginChallenge(ctx, "ssh_key_proofs", publicKey, email)
+func (r *Registry) BeginProof(ctx context.Context, publicKey, email, accountID string) (string, error) {
+	return r.beginChallenge(ctx, "ssh_key_proofs", publicKey, email, accountID)
 }
 
-func (r *Registry) beginChallenge(ctx context.Context, table, publicKey, email string) (string, error) {
+func (r *Registry) beginChallenge(ctx context.Context, table, publicKey, email, accountID string) (string, error) {
 	k, err := ParseKey(publicKey)
 	if err != nil {
 		return "", err
@@ -202,10 +218,16 @@ func (r *Registry) beginChallenge(ctx context.Context, table, publicKey, email s
 		return "", err
 	}
 	defer tx.Rollback()
+	if table == "ssh_key_proofs" {
+		var current string
+		if err := tx.QueryRowContext(ctx, "SELECT account_id FROM account_emails WHERE email=?", common.NormalizeEmail(email)).Scan(&current); err != nil || current != accountID {
+			return "", fmt.Errorf("SSH proof account changed")
+		}
+	}
 	if _, err := tx.ExecContext(ctx, "DELETE FROM "+table+" WHERE expires<=?", time.Now().Unix()); err != nil {
 		return "", err
 	}
-	_, err = tx.ExecContext(ctx, "INSERT INTO "+table+" (digest, fingerprint, public_key, email, expires, generation) VALUES (?, ?, ?, ?, ?, COALESCE((SELECT generation FROM ssh_key_generations WHERE fingerprint=?), 0))", linkDigest(token), k.Fingerprint, k.PublicKey, email, time.Now().Add(5*time.Minute).Unix(), k.Fingerprint)
+	_, err = tx.ExecContext(ctx, "INSERT INTO "+table+" (digest, fingerprint, public_key, email, expires, generation, account_id) VALUES (?, ?, ?, ?, ?, COALESCE((SELECT generation FROM ssh_key_generations WHERE fingerprint=?), 0), COALESCE((SELECT account_id FROM account_emails WHERE email=?),''))", linkDigest(token), k.Fingerprint, k.PublicKey, common.NormalizeEmail(email), time.Now().Add(5*time.Minute).Unix(), k.Fingerprint, common.NormalizeEmail(email))
 	if err != nil {
 		return "", err
 	}
@@ -213,8 +235,8 @@ func (r *Registry) beginChallenge(ctx context.Context, table, publicKey, email s
 }
 
 // CompleteProof verifies possession before recording any exclusive ownership.
-func (r *Registry) CompleteProof(ctx context.Context, email, publicKey, token string, signature *ssh.Signature) (Key, error) {
-	return r.completeChallenge(ctx, "ssh_key_proofs", token, email, publicKey, signature)
+func (r *Registry) CompleteProof(ctx context.Context, accountID, email, publicKey, token string, signature *ssh.Signature) (Key, error) {
+	return r.completeChallenge(ctx, "ssh_key_proofs", token, accountID, email, publicKey, signature)
 }
 
 func (r *Registry) LinkEmail(ctx context.Context, token string) (string, error) {
@@ -235,23 +257,37 @@ func (r *Registry) LinkKey(ctx context.Context, token string) (Key, error) {
 }
 
 func (r *Registry) CompleteLink(ctx context.Context, token string) error {
-	_, err := r.completeChallenge(ctx, "ssh_key_links", token, "", "", nil)
+	_, err := r.completeChallenge(ctx, "ssh_key_links", token, "", "", "", nil)
 	return err
 }
 
-func (r *Registry) completeChallenge(ctx context.Context, table, token, expectedEmail, publicKey string, signature *ssh.Signature) (Key, error) {
+func (r *Registry) completeChallenge(ctx context.Context, table, token, expectedAccountID, expectedEmail, publicKey string, signature *ssh.Signature) (Key, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Key{}, err
 	}
 	defer tx.Rollback()
 	var k Key
-	var email string
-	err = tx.QueryRowContext(ctx, "SELECT fingerprint, public_key, email FROM "+table+" WHERE digest=? AND expires>? AND generation=COALESCE((SELECT generation FROM ssh_key_generations WHERE fingerprint="+table+".fingerprint), 0)", linkDigest(token), time.Now().Unix()).Scan(&k.Fingerprint, &k.PublicKey, &email)
+	var email, bound string
+	err = tx.QueryRowContext(ctx, "SELECT fingerprint, public_key, email, account_id FROM "+table+" WHERE digest=? AND expires>? AND generation=COALESCE((SELECT generation FROM ssh_key_generations WHERE fingerprint="+table+".fingerprint), 0)", linkDigest(token), time.Now().Unix()).Scan(&k.Fingerprint, &k.PublicKey, &email, &bound)
 	if err != nil {
 		return Key{}, fmt.Errorf("invalid, expired or used SSH key challenge")
 	}
+	var current string
+	if err := tx.QueryRowContext(ctx, "SELECT account_id FROM account_emails WHERE email=?", email).Scan(&current); err != nil {
+		return Key{}, fmt.Errorf("verified account required")
+	}
+	if bound != "" {
+		var resolved string
+		if err := tx.QueryRowContext(ctx, "SELECT COALESCE((SELECT account_id FROM account_merges WHERE old_id=?),?)", bound, bound).Scan(&resolved); err != nil || resolved != current {
+			return Key{}, fmt.Errorf("SSH challenge account changed")
+		}
+	}
+	k.AccountID = current
 	if table == "ssh_key_proofs" {
+		if bound == "" || current != expectedAccountID {
+			return Key{}, fmt.Errorf("SSH proof account changed")
+		}
 		submitted, err := ParseKey(publicKey)
 		if err != nil || submitted.Fingerprint != k.Fingerprint || email != expectedEmail || signature == nil {
 			return Key{}, fmt.Errorf("SSH key proof does not match identity or key")
@@ -264,7 +300,7 @@ func (r *Registry) completeChallenge(ctx context.Context, table, token, expected
 			return Key{}, fmt.Errorf("invalid SSH key possession proof")
 		}
 	}
-	result, err := tx.ExecContext(ctx, `INSERT INTO ssh_keys VALUES (?, ?, ?) ON CONFLICT(fingerprint) DO UPDATE SET public_key=excluded.public_key WHERE owner_email=excluded.owner_email`, k.Fingerprint, k.PublicKey, email)
+	result, err := tx.ExecContext(ctx, `INSERT INTO ssh_keys(fingerprint,public_key,owner_email,account_id) VALUES (?, ?, ?, ?) ON CONFLICT(fingerprint) DO UPDATE SET public_key=excluded.public_key WHERE COALESCE((SELECT account_id FROM account_merges WHERE old_id=ssh_keys.account_id),ssh_keys.account_id)=excluded.account_id`, k.Fingerprint, k.PublicKey, email, current)
 	if err != nil {
 		return Key{}, err
 	}

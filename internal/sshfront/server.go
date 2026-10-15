@@ -35,6 +35,7 @@ type Config struct {
 	HostKey ssh.Signer
 	Resolve func(context.Context, string) (string, error)
 	// Account resolves a verified email to its canonical account for shared budgets.
+	ResolveAccount func(context.Context, string) (string, error)
 	Account        func(context.Context, string) (string, error)
 	Establish      func(context.Context, Identity, *Stream) error
 	Command        func(context.Context, Identity, []string, io.Reader, io.Writer) error
@@ -213,7 +214,13 @@ func (s *Server) ServeConn(parent context.Context, raw net.Conn) {
 	id := Identity{Fingerprint: conn.Permissions.Extensions["fingerprint"], PublicKey: conn.Permissions.Extensions["public"], IP: ip}
 	resolveCtx, stopResolve := context.WithTimeout(ctx, 10*time.Second)
 	id.Email, err = s.cfg.Resolve(resolveCtx, id.Fingerprint)
-	if err == nil && id.Email != "" && s.cfg.Account != nil {
+	if err == nil && id.Email != "" && s.cfg.ResolveAccount != nil {
+		id.AccountID, err = s.cfg.ResolveAccount(resolveCtx, id.Fingerprint)
+		if id.AccountID == "" && err == nil {
+			err = fmt.Errorf("SSH account unavailable")
+		}
+	}
+	if err == nil && id.Email != "" && s.cfg.ResolveAccount == nil && s.cfg.Account != nil {
 		id.AccountID, err = s.cfg.Account(resolveCtx, id.Email)
 		if id.AccountID == "" && err == nil {
 			err = fmt.Errorf("SSH account unavailable")

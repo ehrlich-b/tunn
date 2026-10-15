@@ -379,11 +379,11 @@ func TestDurablePublisherSurvives48Hours(t *testing.T) {
 func TestDurableLeaseRejectsIdentitySwitch(t *testing.T) {
 	p := durableFixture(t)
 	token := durableLogin(t, p)
-	email, device, expiry, err := parseDeviceToken(token.Access, p.getJWTSigningKey(), time.Now())
+	_, device, expiry, err := parseDeviceToken(token.Access, p.getJWTSigningKey(), time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
-	lease := &publisherDeviceLease{email: email, device: device, expiry: expiry}
+	lease := &publisherDeviceLease{accountID: signedAccountID(token.Access), device: device, expiry: expiry}
 	other := durableLogin(t, p)
 	if lease.renew(other.Access, p.getJWTSigningKey(), time.Now()) == nil {
 		t.Fatal("device switch accepted")

@@ -1,12 +1,15 @@
 package host
 
 import (
+	"context"
 	"crypto/subtle"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
 	"github.com/ehrlich-b/tunn/internal/common"
+	"github.com/ehrlich-b/tunn/internal/storage"
 	"github.com/golang-jwt/jwt/v4"
 )
 
@@ -28,6 +31,66 @@ func identityEmail(claims jwt.MapClaims) (string, error) {
 		return "", fmt.Errorf("missing email claim")
 	}
 	return email, nil
+}
+
+// accountIdentityEmail applies the signed UUID and live mailbox check to every
+// presentation of an account session, including bearer and publisher JWTs.
+func accountIdentityEmail(ctx context.Context, authority storage.Storage, claims jwt.MapClaims) (string, error) {
+	email, err := identityEmail(claims)
+	if err != nil {
+		return "", err
+	}
+	if _, bound := claims["account_id"]; !bound {
+		return email, nil
+	}
+	if claims["type"] != "session" || !validAccountClaims(claims) || authority == nil || !authority.Available() {
+		return "", fmt.Errorf("invalid account session")
+	}
+	id, _ := claims["account_id"].(string)
+	account, err := authority.GetAccount(ctx, id)
+	if err != nil || account == nil {
+		return "", fmt.Errorf("account session unavailable")
+	}
+	for _, alias := range account.Emails {
+		if common.NormalizeEmail(alias.Email) == email {
+			return email, nil
+		}
+	}
+	return "", fmt.Errorf("session mailbox no longer belongs to account")
+}
+
+func deviceAccount(ctx context.Context, authority storage.Storage, claims jwt.MapClaims) (*storage.Account, error) {
+	id, _ := claims["account_id"].(string)
+	if id == "" || authority == nil || !authority.Available() {
+		return nil, fmt.Errorf("device account unavailable")
+	}
+	account, err := authority.GetAccount(ctx, id)
+	if err != nil || account == nil || account.OperationalState != "active" {
+		return nil, fmt.Errorf("device account unavailable or suspended")
+	}
+	return account, nil
+}
+
+// The bearer header has already passed the identity validator. Use its signed
+// UUID for authorization so a concurrent mailbox removal cannot change owners.
+func (p *ProxyServer) bearerAccount(r *http.Request, email, header string) (*storage.Account, error) {
+	parts := strings.Fields(r.Header.Get(header))
+	if len(parts) == 2 {
+		if id := signedAccountID(parts[1]); id != "" {
+			return p.storage.GetAccount(r.Context(), id)
+		}
+	}
+	return p.storage.GetAccountByEmail(r.Context(), common.NormalizeEmail(email))
+}
+
+// Read only after the caller has verified the token signature and purpose.
+func signedAccountID(raw string) string {
+	token, _, err := jwt.NewParser().ParseUnverified(raw, jwt.MapClaims{})
+	if err != nil {
+		return ""
+	}
+	id, _ := token.Claims.(jwt.MapClaims)["account_id"].(string)
+	return id
 }
 
 // isPlatformAuthorization recognizes relay credentials even when they have
@@ -73,9 +136,10 @@ func (p *ProxyServer) isPlatformAuthorization(value string) bool {
 func deviceIdentity(claims jwt.MapClaims, now time.Time) (string, string, time.Time, error) {
 	email, _ := claims["email"].(string)
 	device, _ := claims["device"].(string)
+	accountID, _ := claims["account_id"].(string)
 	exp, _ := claims["exp"].(float64)
 	iat, _ := claims["iat"].(float64)
-	if claims["type"] != "device_access" || claims["iss"] != "tunn" || claims["aud"] != "tunn-tunnels" || claims["scope"] != "publish connect" || email == "" || device == "" || exp <= float64(now.Unix()) || iat <= 0 || exp <= iat || exp-iat > deviceAccessLifetime.Seconds() || iat > float64(now.Add(time.Minute).Unix()) {
+	if claims["type"] != "device_access" || claims["iss"] != "tunn" || claims["aud"] != "tunn-tunnels" || claims["scope"] != "publish connect" || email == "" || device == "" || accountID == "" || exp <= float64(now.Unix()) || iat <= 0 || exp <= iat || exp-iat > deviceAccessLifetime.Seconds() || iat > float64(now.Add(time.Minute).Unix()) {
 		return "", "", time.Time{}, fmt.Errorf("invalid or expired device token; run tunn login if renewal fails")
 	}
 	return common.NormalizeEmail(email), device, time.Unix(int64(exp), 0), nil

@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"database/sql"
+	"github.com/ehrlich-b/tunn/internal/store"
 	"strings"
 	"testing"
 	"time"
@@ -26,12 +27,17 @@ func publicKey(t *testing.T) string {
 	return strings.TrimSpace(string(ssh.MarshalAuthorizedKey(pub)))
 }
 func TestKeyLinkOwnershipAndReplay(t *testing.T) {
-	db, err := sql.Open("sqlite", ":memory:")
+	db, err := store.InitForTest()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = db.Close() }()
 	db.SetMaxOpenConns(1)
+	for _, email := range []string{"alice@example.com", "mallory@example.com"} {
+		if _, err := store.NewAccountStore(db).FindOrCreateByEmails([]string{email}, "test"); err != nil {
+			t.Fatal(err)
+		}
+	}
 	r, err := NewRegistry(db)
 	if err != nil {
 		t.Fatal(err)
@@ -58,14 +64,14 @@ func TestKeyLinkOwnershipAndReplay(t *testing.T) {
 	if _, err := r.Add(ctx, "mallory@example.com", pub); err == nil {
 		t.Fatal("key stolen by other account")
 	}
-	if err := r.Remove(ctx, []string{"mallory@example.com"}, key.Fingerprint); err == nil {
+	if err := r.Remove(ctx, keyTestAccountID(t, db, "mallory@example.com"), key.Fingerprint); err == nil {
 		t.Fatal("other account removed key")
 	}
-	keys, err := r.List(ctx, []string{"alice@example.com"})
+	keys, err := r.List(ctx, keyTestAccountID(t, db, "alice@example.com"))
 	if err != nil || len(keys) != 1 {
 		t.Fatalf("keys=%v err=%v", keys, err)
 	}
-	if err := r.Remove(ctx, []string{"alice@example.com"}, key.Fingerprint); err != nil {
+	if err := r.Remove(ctx, keyTestAccountID(t, db, "alice@example.com"), key.Fingerprint); err != nil {
 		t.Fatal(err)
 	}
 	token, err = r.BeginLink(ctx, pub, "alice@example.com")
@@ -117,4 +123,13 @@ func TestOptionsGrammarAndAnonymousAdmission(t *testing.T) {
 	if _, err := s.acquire(Identity{Fingerprint: "two", IP: id.IP}); err == nil {
 		t.Fatal("new key reset IP budget")
 	}
+}
+
+func keyTestAccountID(t *testing.T, db *sql.DB, email string) string {
+	t.Helper()
+	a, err := store.NewAccountStore(db).GetByEmail(email)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return a.ID
 }

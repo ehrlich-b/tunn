@@ -51,6 +51,22 @@ func (s *AccountStore) MutateAccountEmail(ctx context.Context, accountID, email,
 		if owner != accountID {
 			return nil, ErrEmailNotLinked
 		}
+		if err = bindCredentialOwners(ctx, tx); err != nil {
+			return nil, err
+		}
+		// Mailbox consent issued before removal cannot enroll a key after the
+		// address is reused, even if the key was not linked yet.
+		for _, table := range []string{"ssh_key_links", "ssh_key_proofs"} {
+			var exists int
+			if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&exists); err != nil {
+				return nil, err
+			}
+			if exists != 0 {
+				if _, err = tx.ExecContext(ctx, "DELETE FROM "+table+" WHERE email=?", email); err != nil {
+					return nil, err
+				}
+			}
+		}
 		_, err = tx.ExecContext(ctx, "DELETE FROM account_emails WHERE account_id=? AND email=?", accountID, email)
 	default:
 		return nil, ErrEmailNotLinked

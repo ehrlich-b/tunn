@@ -73,7 +73,7 @@ func sshRelay(t *testing.T, known bool) (*ProxyServer, *ssh.Client, func() *ssh.
 	}
 	p := &ProxyServer{Domain: cfg.Domain, config: cfg, tunnelServer: s, storage: st, meter: ledger, sshKeys: keys, quotaCache: NewQuotaCache(time.Minute), usageBuffer: NewUsageBuffer(), tunnelCache: map[string]string{}}
 	hostKey := sshSigner(t)
-	server, err := sshfront.New(sshfront.Config{HostKey: hostKey, Resolve: keys.Owner, Establish: p.establishSSH, Command: p.sshCommand, RotateToken: p.rotateSSHToken, Connect: p.sshConnect})
+	server, err := sshfront.New(sshfront.Config{HostKey: hostKey, Resolve: keys.Owner, ResolveAccount: keys.AccountID, Establish: p.establishSSH, Command: p.sshCommand, RotateToken: p.rotateSSHToken, Connect: p.sshConnect})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -706,11 +706,11 @@ func TestSSHNamedForwardCancellationAndAccountNameOwnership(t *testing.T) {
 	if err := p.tunnelServer.accounts.ReserveSubdomain(owner.ID, "reserved-demo"); err != nil {
 		t.Fatal(err)
 	}
-	keys, err := p.sshKeys.List(context.Background(), []string{owner.PrimaryEmail})
+	keys, err := p.sshKeys.List(context.Background(), sshTestAccountID(t, p, owner.PrimaryEmail))
 	if err != nil || len(keys) != 1 {
 		t.Fatalf("keys=%v %v", keys, err)
 	}
-	if err := p.sshKeys.Remove(context.Background(), []string{owner.PrimaryEmail}, keys[0].Fingerprint); err != nil {
+	if err := p.sshKeys.Remove(context.Background(), sshTestAccountID(t, p, owner.PrimaryEmail), keys[0].Fingerprint); err != nil {
 		t.Fatal(err)
 	}
 	anonymous := dial()

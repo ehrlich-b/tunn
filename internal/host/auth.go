@@ -70,8 +70,11 @@ func (p *ProxyServer) setAuthCookie(w http.ResponseWriter, email string) error {
 func (p *ProxyServer) getAuthFromCookie(r *http.Request) (string, bool) {
 	if _, err := r.Cookie(appCookie); err == nil && p.customerHost(r.Host) {
 		claims, ok := p.accountSession(r)
-		email, _ := claims["email"].(string)
-		return email, ok
+		if !ok {
+			return "", false
+		}
+		email, err := accountIdentityEmail(r.Context(), p.storage, claims)
+		return email, err == nil
 	}
 	if !p.visitorJWTConfigured() {
 		return "", false
@@ -107,20 +110,9 @@ func (p *ProxyServer) getAuthFromCookie(r *http.Request) (string, bool) {
 		return "", false
 	}
 
-	email, err := identityEmail(claims)
+	email, err := accountIdentityEmail(r.Context(), p.storage, claims)
 	if err != nil {
 		return "", false
-	}
-	// A removed alias may later belong to another account. Every legacy
-	// email-based account route must still honor a modern cookie's UUID.
-	if _, bound := claims["account_id"]; bound {
-		if !validAccountClaims(claims) {
-			return "", false
-		}
-		account, err := p.sessionAccount(r, claims)
-		if err != nil || account == nil {
-			return "", false
-		}
 	}
 
 	return email, true
@@ -262,7 +254,7 @@ func (p *ProxyServer) getAuthFromTunnelBearer(r *http.Request, tunnel *TunnelCon
 		if !validClaims {
 			continue
 		}
-		email, err := identityEmail(claims)
+		email, err := accountIdentityEmail(r.Context(), p.storage, claims)
 		if claims["type"] == "management_access" && token.Method.Alg() == "HS256" && tunnel.TunnelID == "" {
 			email, err = p.managementIdentity(r, claims)
 		}
@@ -271,6 +263,13 @@ func (p *ProxyServer) getAuthFromTunnelBearer(r *http.Request, tunnel *TunnelCon
 				continue
 			}
 			email, _, _, err = deviceIdentity(claims, p.currentTime())
+			if err == nil {
+				var account *storage.Account
+				account, err = deviceAccount(r.Context(), p.storage, claims)
+				if err == nil {
+					email = account.PrimaryEmail
+				}
+			}
 		}
 		if claims["type"] != "device_access" && claims.Valid() != nil {
 			continue
@@ -880,7 +879,7 @@ func (p *ProxyServer) CheckJWT(next http.Handler) http.Handler {
 		}
 
 		// Extract user email from claims
-		email, err := identityEmail(claims)
+		email, err := accountIdentityEmail(r.Context(), p.storage, claims)
 		if claims["type"] == "management_access" && token.Method.Alg() == "HS256" {
 			email, err = p.managementIdentity(r, claims)
 		}

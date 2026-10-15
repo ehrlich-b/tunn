@@ -2,19 +2,24 @@ package sshfront
 
 import (
 	"context"
-	"database/sql"
+	"github.com/ehrlich-b/tunn/internal/store"
 	"sync"
 	"testing"
 	"time"
 )
 
 func TestSSHKeyLegacyChallengesInvalidated(t *testing.T) {
-	db, err := sql.Open("sqlite", ":memory:")
+	db, err := store.InitForTest()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
 	db.SetMaxOpenConns(1)
+	for _, email := range []string{"alice@example.com", "mallory@example.com"} {
+		if _, err := store.NewAccountStore(db).FindOrCreateByEmails([]string{email}, "test"); err != nil {
+			t.Fatal(err)
+		}
+	}
 	_, err = db.Exec(`CREATE TABLE ssh_keys(fingerprint TEXT PRIMARY KEY,public_key TEXT NOT NULL,owner_email TEXT NOT NULL);
  CREATE TABLE ssh_key_links(digest TEXT PRIMARY KEY,fingerprint TEXT NOT NULL,public_key TEXT NOT NULL,email TEXT NOT NULL,expires INTEGER NOT NULL);`)
 	if err != nil {
@@ -58,12 +63,17 @@ func TestSSHKeyLegacyChallengesInvalidated(t *testing.T) {
 }
 
 func TestSSHKeyConcurrentCompletionAndRemoval(t *testing.T) {
-	db, err := sql.Open("sqlite", ":memory:")
+	db, err := store.InitForTest()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
 	db.SetMaxOpenConns(1)
+	for _, email := range []string{"alice@example.com", "mallory@example.com"} {
+		if _, err := store.NewAccountStore(db).FindOrCreateByEmails([]string{email}, "test"); err != nil {
+			t.Fatal(err)
+		}
+	}
 	r, err := NewRegistry(db)
 	if err != nil {
 		t.Fatal(err)
@@ -86,7 +96,7 @@ func TestSSHKeyConcurrentCompletionAndRemoval(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			removed <- r.Remove(ctx, []string{"alice@example.com"}, key.Fingerprint)
+			removed <- r.Remove(ctx, keyTestAccountID(t, db, "alice@example.com"), key.Fingerprint)
 		}()
 		go func() { defer wg.Done(); <-start; _ = r.CompleteLink(ctx, token) }()
 		close(start)
@@ -104,12 +114,17 @@ func TestSSHKeyConcurrentCompletionAndRemoval(t *testing.T) {
 }
 
 func TestSSHOldSessionCannotReinsertRemovedKey(t *testing.T) {
-	db, err := sql.Open("sqlite", ":memory:")
+	db, err := store.InitForTest()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
 	db.SetMaxOpenConns(1)
+	for _, email := range []string{"alice@example.com", "mallory@example.com"} {
+		if _, err := store.NewAccountStore(db).FindOrCreateByEmails([]string{email}, "test"); err != nil {
+			t.Fatal(err)
+		}
+	}
 	r, err := NewRegistry(db)
 	if err != nil {
 		t.Fatal(err)
@@ -120,13 +135,13 @@ func TestSSHOldSessionCannotReinsertRemovedKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.ConfirmSessionKey(ctx, "alice@example.com", pub); err != nil {
+	if _, err := r.ConfirmSessionKey(ctx, keyTestAccountID(t, db, "alice@example.com"), pub); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.Remove(ctx, []string{"alice@example.com"}, key.Fingerprint); err != nil {
+	if err := r.Remove(ctx, keyTestAccountID(t, db, "alice@example.com"), key.Fingerprint); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.ConfirmSessionKey(ctx, "alice@example.com", pub); err == nil {
+	if _, err := r.ConfirmSessionKey(ctx, keyTestAccountID(t, db, "alice@example.com"), pub); err == nil {
 		t.Fatal("old session undid revocation")
 	}
 	if owner, err := r.Owner(ctx, key.Fingerprint); err != nil || owner != "" {

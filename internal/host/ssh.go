@@ -27,6 +27,8 @@ import (
 	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/ehrlich-b/tunn/internal/hostmode"
 	"github.com/ehrlich-b/tunn/internal/sshfront"
+	"github.com/ehrlich-b/tunn/internal/store"
+	"github.com/golang-jwt/jwt/v4"
 	"golang.org/x/crypto/ssh"
 	"time"
 )
@@ -35,6 +37,7 @@ type sshPublisherContextKey struct{}
 type sshConnectTunnelKey struct{}
 type sshPublisher struct {
 	email     string
+	accountID string
 	anonymous bool
 }
 type sshHostStream struct {
@@ -57,25 +60,18 @@ func (p *ProxyServer) enableSSH(db *sql.DB) error {
 	if err != nil {
 		return err
 	}
-	p.sshServer, err = sshfront.New(sshfront.Config{HostKey: signer, Resolve: p.sshKeys.Owner, Account: p.sshAccountBudget, Establish: p.establishSSH, Command: p.sshCommand, RotateToken: p.rotateSSHToken, Connect: p.sshConnect, RenderQR: func(ctx context.Context, u string, w io.Writer) error { return hostmode.RenderQR(ctx, u, w, "") }})
+	p.sshServer, err = sshfront.New(sshfront.Config{HostKey: signer, Resolve: p.sshKeys.Owner, ResolveAccount: p.sshKeys.AccountID, Establish: p.establishSSH, Command: p.sshCommand, RotateToken: p.rotateSSHToken, Connect: p.sshConnect, RenderQR: func(ctx context.Context, u string, w io.Writer) error { return hostmode.RenderQR(ctx, u, w, "") }})
 	return err
 }
 
-func (p *ProxyServer) sshAccountBudget(ctx context.Context, email string) (string, error) {
-	account, err := p.storage.GetAccountByEmail(ctx, email)
-	if err != nil {
-		return "", err
-	}
-	if account == nil {
-		return "", fmt.Errorf("SSH account unavailable")
-	}
-	return account.ID, nil
-}
-
 func (p *ProxyServer) establishSSH(ctx context.Context, id sshfront.Identity, stream *sshfront.Stream) error {
-	email, err := p.sshKeys.Owner(ctx, id.Fingerprint)
+	keyAccount, err := p.sshKeys.OwnerAccount(ctx, id.Fingerprint)
 	if err != nil {
 		return err
+	}
+	email := ""
+	if keyAccount != nil {
+		email = keyAccount.PrimaryEmail
 	}
 	// Re-resolve the key at admission. A removed key never authenticates a new
 	// forward through an SSH connection that was established before removal.
@@ -90,26 +86,43 @@ func (p *ProxyServer) establishSSH(ctx context.Context, id sshfront.Identity, st
 	if p.storage == nil || !p.storage.Available() {
 		return fmt.Errorf("account service unavailable")
 	}
+	accountID := ""
 	if anonymous {
-		if _, err = p.storage.FindOrCreateByEmails(ctx, []string{email}, "ssh_anonymous"); err != nil {
-			return err
+		account, err := p.storage.FindOrCreateByEmails(ctx, []string{email}, "ssh_anonymous")
+		if err != nil || account == nil {
+			return fmt.Errorf("SSH account unavailable")
 		}
+		accountID = account.ID
+	} else {
+		accountID = keyAccount.ID
 	}
-	trusted := context.WithValue(ctx, sshPublisherContextKey{}, sshPublisher{email: email, anonymous: anonymous})
+	trusted := context.WithValue(ctx, sshPublisherContextKey{}, sshPublisher{email: email, accountID: accountID, anonymous: anonymous})
 	return p.tunnelServer.EstablishTunnel(sshHostStream{stream, trusted})
 }
 
 type sshSessionKey struct{}
 
-func (p *ProxyServer) sshOwnerRequest(ctx context.Context, id sshfront.Identity, method, path string, body io.Reader) (*httptest.ResponseRecorder, error) {
-	email, err := p.sshKeys.Owner(ctx, id.Fingerprint)
+func (p *ProxyServer) sshOwnerAccount(ctx context.Context, id sshfront.Identity) (*store.Account, error) {
+	account, err := p.sshKeys.OwnerAccount(ctx, id.Fingerprint)
 	if err != nil {
 		return nil, err
 	}
-	if email == "" || email != id.Email {
+	if account == nil || (id.AccountID != "" && account.ID != id.AccountID) || (id.AccountID == "" && account.PrimaryEmail != id.Email) {
 		return nil, fmt.Errorf("link an SSH key first: login --email you@example.com")
 	}
-	token, err := p.generateJWT(email)
+	return account, nil
+}
+func (p *ProxyServer) sshOwnerToken(ctx context.Context, id sshfront.Identity) (string, error) {
+	account, err := p.sshOwnerAccount(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	claims := jwt.MapClaims{"type": "session", "account_id": account.ID, "email": account.PrimaryEmail, "email_verified": true, "provider": "magic_link", "iat": p.currentTime().Unix(), "exp": p.currentTime().Add(authCookieLifetime).Unix()}
+	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(p.getJWTSigningKey())
+}
+
+func (p *ProxyServer) sshOwnerRequest(ctx context.Context, id sshfront.Identity, method, path string, body io.Reader) (*httptest.ResponseRecorder, error) {
+	token, err := p.sshOwnerToken(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -223,11 +236,7 @@ func (p *ProxyServer) sshCommand(ctx context.Context, id sshfront.Identity, args
 		if opts.Server != "" || opts.OwnerFile != "" || opts.Insecure {
 			return fmt.Errorf("SSH owner commands use this relay and the authenticated key")
 		}
-		email, err := p.sshKeys.Owner(ctx, id.Fingerprint)
-		if err != nil || email == "" {
-			return fmt.Errorf("link an SSH key first")
-		}
-		token, err := p.generateJWT(email)
+		token, err := p.sshOwnerToken(ctx, id)
 		if err != nil {
 			return err
 		}
@@ -240,13 +249,9 @@ func (p *ProxyServer) sshCommand(ctx context.Context, id sshfront.Identity, args
 }
 
 func (p *ProxyServer) rotateSSHToken(ctx context.Context, id sshfront.Identity, name string, digest []byte) error {
-	email, err := p.sshKeys.Owner(ctx, id.Fingerprint)
-	if err != nil || email == "" {
-		return fmt.Errorf("linked key required")
-	}
-	owner, err := p.storage.GetAccountByEmail(ctx, email)
-	if err != nil || owner == nil {
-		return fmt.Errorf("account unavailable")
+	owner, err := p.sshOwnerAccount(ctx, id)
+	if err != nil {
+		return err
 	}
 	tunnel, ok := p.tunnelServer.GetTunnel(name)
 	if !ok {
@@ -281,12 +286,12 @@ func (p *ProxyServer) sshConnect(ctx context.Context, id sshfront.Identity, name
 	if !ok || tunnel.EndpointProtocol != "tcp" {
 		return nil, fmt.Errorf("SSH endpoint access denied")
 	}
-	email, err = p.sshConnectIdentity(ctx, id, tunnel)
+	_, err = p.sshConnectIdentity(ctx, id, tunnel)
 	if err != nil {
 		slog.Debug("SSH connect admission denied", "fingerprint", id.Fingerprint, "target", name, "reason", err)
 		return nil, fmt.Errorf("SSH endpoint access denied")
 	}
-	token, err := p.generateJWT(email)
+	token, err := p.sshOwnerToken(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -366,9 +371,13 @@ func (p *ProxyServer) sshConnectIdentity(ctx context.Context, id sshfront.Identi
 	if err != nil || owner == nil || owner.OperationalState != "active" {
 		return "", fmt.Errorf("SSH endpoint owner unavailable")
 	}
-	bucket, err := p.storage.GetEmailBucket(ctx, email)
+	keyAccount, err := p.sshOwnerAccount(ctx, id)
 	if err != nil {
 		return "", fmt.Errorf("SSH identity unavailable")
+	}
+	bucket := make([]string, 0, len(keyAccount.Emails))
+	for _, alias := range keyAccount.Emails {
+		bucket = append(bucket, alias.Email)
 	}
 	allowed := append(append([]string(nil), tunnel.AllowedEmails...), tunnel.CreatorEmail)
 	if !isEmailBucketAllowed(bucket, allowed) {
@@ -527,12 +536,12 @@ func (p *ProxyServer) handleSSHKeys(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "SSH API disabled on this node", http.StatusNotFound)
 		return
 	}
-	email, _, capability, ok := p.getAuthFromTunnelBearer(r, &TunnelConnection{})
+	email, header, capability, ok := p.getAuthFromTunnelBearer(r, &TunnelConnection{})
 	if !ok || capability {
 		http.Error(w, "Owner authentication required", http.StatusUnauthorized)
 		return
 	}
-	account, err := p.storage.GetAccountByEmail(r.Context(), common.NormalizeEmail(email))
+	account, err := p.bearerAccount(r, email, header)
 	if err != nil || account == nil {
 		http.Error(w, "Account service unavailable", http.StatusServiceUnavailable)
 		return
@@ -544,7 +553,7 @@ func (p *ProxyServer) handleSSHKeys(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	switch r.Method {
 	case http.MethodGet:
-		keys, err := p.sshKeys.List(r.Context(), emails)
+		keys, err := p.sshKeys.List(r.Context(), account.ID)
 		if err != nil {
 			http.Error(w, "Could not list SSH keys", http.StatusServiceUnavailable)
 			return
@@ -580,9 +589,9 @@ func (p *ProxyServer) handleSSHKeys(w http.ResponseWriter, r *http.Request) {
 		}
 		session, sessionVerified := r.Context().Value(sshSessionKey{}).(sshfront.Identity)
 		if sessionVerified && session.Fingerprint == key.Fingerprint && session.Email == previousOwner && previousOwner == ownerEmail {
-			key, err = p.sshKeys.ConfirmSessionKey(r.Context(), ownerEmail, req.PublicKey)
+			key, err = p.sshKeys.ConfirmSessionKey(r.Context(), account.ID, req.PublicKey)
 		} else if req.Signature == nil && req.Challenge == "" {
-			challenge, err := p.sshKeys.BeginProof(r.Context(), req.PublicKey, ownerEmail)
+			challenge, err := p.sshKeys.BeginProof(r.Context(), req.PublicKey, ownerEmail, account.ID)
 			if err != nil {
 				http.Error(w, "Key service unavailable", http.StatusServiceUnavailable)
 				return
@@ -591,7 +600,7 @@ func (p *ProxyServer) handleSSHKeys(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewEncoder(w).Encode(map[string]string{"challenge": challenge, "email": ownerEmail, "message": string(sshfront.ProofMessage(ownerEmail, challenge)), "fingerprint": key.Fingerprint})
 			return
 		} else {
-			key, err = p.sshKeys.CompleteProof(r.Context(), ownerEmail, req.PublicKey, req.Challenge, req.Signature)
+			key, err = p.sshKeys.CompleteProof(r.Context(), account.ID, ownerEmail, req.PublicKey, req.Challenge, req.Signature)
 		}
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)
@@ -599,7 +608,7 @@ func (p *ProxyServer) handleSSHKeys(w http.ResponseWriter, r *http.Request) {
 		}
 		_ = json.NewEncoder(w).Encode(key)
 	case http.MethodDelete:
-		if err := p.sshKeys.Remove(r.Context(), emails, r.URL.Query().Get("fingerprint")); err != nil {
+		if err := p.sshKeys.Remove(r.Context(), account.ID, r.URL.Query().Get("fingerprint")); err != nil {
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}

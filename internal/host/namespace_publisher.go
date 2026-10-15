@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/ehrlich-b/tunn/internal/domains"
+	"github.com/ehrlich-b/tunn/internal/storage"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/domainv1"
 )
 
@@ -32,29 +32,41 @@ func (p *ProxyServer) handleNamespacePublisher(w http.ResponseWriter, r *http.Re
 		http.Error(w, "Publisher authentication required", 401)
 		return
 	}
-	email, device, _, deviceErr := parseDeviceToken(parts[1], p.getJWTSigningKey(), p.currentTime())
+	_, device, _, deviceErr := parseDeviceToken(parts[1], p.getJWTSigningKey(), p.currentTime())
+	var email string
+	boundID := ""
 	if deviceErr == nil {
+		boundID = signedAccountID(parts[1])
 		// Only the login authority holds the live device registry. Existing device
 		// forwarding uses the node transport and a bounded one-hop forwarding marker.
 		if p.forwardDeviceService(w, r) {
 			return
 		}
-		var deviceEmail string
-		err := p.devices.db.QueryRowContext(r.Context(), `SELECT email FROM durable_devices WHERE id=? AND revoked=0`, device).Scan(&deviceEmail)
-		if err != nil || common.NormalizeEmail(deviceEmail) != email {
+		var deviceOwner string
+		err := p.devices.db.QueryRowContext(r.Context(), `SELECT account_id FROM durable_devices WHERE id=? AND revoked=0`, device).Scan(&deviceOwner)
+		if err != nil || deviceOwner != boundID {
 			http.Error(w, "Publisher device revoked or unavailable", 401)
 			return
 		}
 	} else {
 		// Preserve the existing owner-JWT management validator unchanged.
 		var capability, ok bool
-		email, _, capability, ok = p.getAuthFromTunnelBearer(r, &TunnelConnection{})
+		var header string
+		email, header, capability, ok = p.getAuthFromTunnelBearer(r, &TunnelConnection{})
 		if !ok || capability {
 			http.Error(w, "Publisher authentication required", 401)
 			return
 		}
+		validated := strings.Fields(r.Header.Get(header))
+		boundID = signedAccountID(validated[1])
 	}
-	account, err := p.storage.GetAccountByEmail(r.Context(), email)
+	var account *storage.Account
+	var err error
+	if boundID != "" {
+		account, err = p.storage.GetAccount(r.Context(), boundID)
+	} else {
+		account, err = p.storage.GetAccountByEmail(r.Context(), email)
+	}
 	if err != nil {
 		http.Error(w, "Account authority unavailable", 503)
 		return

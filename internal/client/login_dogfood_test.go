@@ -38,12 +38,12 @@ func TestDogfoodLoginRenewsExpiredCode(t *testing.T) {
 						t.Errorf("code request method = %s", r.Method)
 					}
 					codes++
-					code := DeviceCodeResponse{DeviceCode: "first", UserCode: "ABC-123", VerificationURIComplete: "https://relay.invalid/login?code=ABC-123", ExpiresIn: 600, Interval: 1, ExpiresAt: expiry.Unix()}
+					code := DeviceCodeResponse{DeviceCode: "first", UserCode: "ABC-123", VerificationURIComplete: "https://relay.invalid/login?code=ABC-123&device_code=private-device-secret", ExpiresIn: 600, Interval: 1, ExpiresAt: expiry.Unix()}
 					if codes == 1 && localExpiry {
 						code.ExpiresAt = time.Now().Add(-time.Second).Unix()
 					}
 					if codes == 2 {
-						code.DeviceCode, code.UserCode, code.VerificationURIComplete = "second", "DEF-456", "https://relay.invalid/login?code=DEF-456"
+						code.DeviceCode, code.UserCode, code.VerificationURIComplete = "second", "DEF-456", "https://relay.invalid/login?code=DEF-456&device_code=private-device-secret"
 					}
 					return loginJSON(code), nil
 				}
@@ -69,12 +69,12 @@ func TestDogfoodLoginRenewsExpiredCode(t *testing.T) {
 			if err != nil || string(data) != "private-fixture-token" {
 				t.Fatalf("saved token = %q, %v", data, err)
 			}
-			for _, text := range []string{"ABC-123", "DEF-456", "Expires at: " + expiry.Local().Format("15:04:05 MST"), "Requesting a new code", "Logged in successfully!"} {
+			for _, text := range []string{"ABC-123", "DEF-456", "Expires at: " + expiry.Local().Format("15:04:05 MST"), "Requesting a new code", "Signed in", "tunn http 3000"} {
 				if !strings.Contains(output.String(), text) {
 					t.Errorf("output omitted %q: %s", text, output.String())
 				}
 			}
-			if strings.Contains(output.String(), "private-fixture-token") {
+			if strings.Contains(output.String(), "private-fixture-token") || strings.Contains(output.String(), "private-device-secret") || strings.Contains(output.String(), "token_file") {
 				t.Fatal("printed token")
 			}
 		})

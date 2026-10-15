@@ -28,6 +28,7 @@ import (
 	"github.com/ehrlich-b/tunn/internal/hostmode"
 	"github.com/ehrlich-b/tunn/internal/mcpbridge"
 	"github.com/ehrlich-b/tunn/internal/relaytransport"
+	"github.com/ehrlich-b/tunn/internal/terminal"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/joho/godotenv"
@@ -51,53 +52,7 @@ var (
 
 func main() {
 	// Custom usage message
-	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, `tunn - expose localhost to the internet
-
-Usage:
-  tunn <port>                    Tunnel localhost:<port> to a public URL
-  tunn <host:port>               Tunnel host:port to a public URL
-  tunn <url>                     Tunnel any URL to a public URL
-  tunn service install|uninstall|restart|status|check  Manage persistent machine endpoints
-  tunn hosts [--json]             List your machines and their tunnels
-  tunn openclaw [options]         Preview OpenClaw phone setup (needs WebSockets)
-  tunn keys add|list|remove       Manage account SSH public keys
-  tunn login                     Authenticate with GitHub
-  tunn version                   Print the build version
-  tunn serve [options] <target>  Explicit serve mode (same as default)
-  tunn http [options] <target>   Shortcut for ngrok-style HTTP usage
-  tunn mcp [options] <command…>   Connect a local MCP server to an AI agent
-  tunn connector-check [options] <url>  Diagnose a private MCP connector
-  tunn tcp [options] <host:port>  Publish a private raw TCP endpoint
-  tunn unix [options] <path>      Publish a private Unix socket
-  tunn connect [options] <name>   Open a remote TCP endpoint locally
-  tunn token [--rotate] <name>   Print or rotate an endpoint access token
-  tunn ip-policy <action>        Manage endpoint or account IP restrictions
-  tunn usage <name>              Export caller usage and audit decisions
-  tunn share <name> <recipient>  Share web access: email or group:ORG:GROUP
-  tunn unshare <name> <recipient> Revoke web access and active streams
-  tunn access <name>             Show who has access
-  tunn grant create <name>       Issue a metered, expiring consumer token
-  tunn grant revoke <name> <id>  Revoke one consumer grant
-  tunn policy login|get|set|clear Configure request headers and rate limits
-  tunn domain add|verify|list|delete  Manage Pro custom domains
-  tunn status serve|incident|resolve  Relay probe history and local incident notes
-  tunn admin --help             Local authenticated account and billing controls
-
-Examples:
-  tunn 8080                              # https://abc123.tunn.to -> localhost:8080
-  tunn 8080 --allow=alice@gmail.com      # Share with specific people
-  tunn localhost:3000                    # Tunnel localhost:3000
-  tunn http://api.local:9000             # Tunnel any URL
-  tunn mcp -- npx -y @modelcontextprotocol/server-filesystem .
-  tunn tcp --name database localhost:5432
-  tunn unix --name docker /var/run/docker.sock
-  tunn connect --listen 127.0.0.1:15432 database
-
-Options:
-`)
-		flag.PrintDefaults()
-	}
+	flag.Usage = func() { printHelp(os.Stderr) }
 
 	// Parse global flags first, but stop at first non-flag
 	flag.Parse()
@@ -129,8 +84,8 @@ Options:
 
 	// No args? Show help
 	if len(args) == 0 {
-		flag.Usage()
-		os.Exit(0)
+		firstRun(os.Stdout)
+		return
 	}
 
 	// Route to subcommand or default serve behavior
@@ -144,6 +99,14 @@ Options:
 	case "keys":
 		runKeys(args[1:])
 	case "login":
+		if len(args) > 1 {
+			if len(args) == 2 && (args[1] == "--help" || args[1] == "-h") {
+				fmt.Fprintln(os.Stdout, "Usage: tunn login\n\nSign in in your browser, then run\ntunn http 3000")
+				return
+			}
+			reportCLIError("Invalid sign-in command", "Login takes no options", "tunn login", false)
+			os.Exit(1)
+		}
 		runLogin()
 	case "serve", "http":
 		runServe(args[1:])
@@ -606,6 +569,10 @@ func normalizeUnixTarget(target string) (string, error) {
 func runTCP(args []string) {
 	opts, err := parseTCPFlags(args)
 	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			fmt.Fprintln(os.Stderr, "Usage: tunn tcp [--name NAME] [--allow EMAILS|--public] <host:port>")
+			return
+		}
 		common.LogError("invalid TCP endpoint", "error", err)
 		fmt.Fprintln(os.Stderr, "Usage: tunn tcp [--name NAME] [--allow EMAILS|--public] <host:port>")
 		os.Exit(1)
@@ -616,8 +583,12 @@ func runTCP(args []string) {
 func runUnix(args []string) {
 	opts, err := parseUnixFlags(args)
 	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			fmt.Fprintln(os.Stderr, "Usage: tunn unix [--name NAME] [--allow EMAILS|--public] PATH")
+			return
+		}
 		common.LogError("invalid Unix endpoint", "error", err)
-		fmt.Fprintln(os.Stderr, "Usage: tunn unix [--name NAME] [--allow EMAILS|--public] </absolute/socket/path>")
+		fmt.Fprintln(os.Stderr, "Usage: tunn unix [--name NAME] [--allow EMAILS|--public] PATH")
 		os.Exit(1)
 	}
 	endpointProtocol := "tcp"
@@ -769,6 +740,10 @@ func parseConnectFlags(args []string) (*connectCommandOptions, error) {
 func runConnect(args []string) {
 	opts, err := parseConnectFlags(args)
 	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			fmt.Fprintln(os.Stderr, "Usage: tunn connect [--listen 127.0.0.1:PORT] [--token-file FILE] <endpoint>")
+			return
+		}
 		common.LogError("invalid connect command", "error", err)
 		fmt.Fprintln(os.Stderr, "Usage: tunn connect [--listen 127.0.0.1:PORT] [--token-file FILE] <endpoint>")
 		os.Exit(1)
@@ -908,7 +883,7 @@ type serveCommandOptions struct {
 	webhookProvider, webhookSecretFile string
 	webhookTolerance                   time.Duration
 	expire                             time.Duration
-	qr, public                         bool
+	qr, public, jsonOutput             bool
 	target                             string
 	tunnelID                           string
 	namespace                          string
@@ -939,10 +914,13 @@ func parseServeFlags(args []string) (*serveCommandOptions, error) {
 	if o.Secret == "" {
 		o.Secret = os.Getenv("TUNN_SECRET")
 	}
-	return &serveCommandOptions{webhookProvider: o.WebhookProvider, webhookSecretFile: o.WebhookSecretFile, webhookTolerance: o.WebhookTolerance, target: o.Target, tunnelID: o.Name, namespace: o.Namespace, allowedEmails: o.AllowedEmails, tunnelKey: o.TunnelKey, clientSecret: o.Secret, skipLocalTLSVerify: o.SkipLocalTLSVerify, inspect: o.Inspect, inspectBody: o.InspectBody, bearer: o.Bearer, requireUpstreamAuth: o.RequireUpstreamAuth, webSocket: o.WebSocket, expire: o.Expire, qr: o.QR, public: o.Public}, nil
+	return &serveCommandOptions{webhookProvider: o.WebhookProvider, webhookSecretFile: o.WebhookSecretFile, webhookTolerance: o.WebhookTolerance, target: o.Target, tunnelID: o.Name, namespace: o.Namespace, allowedEmails: o.AllowedEmails, tunnelKey: o.TunnelKey, clientSecret: o.Secret, skipLocalTLSVerify: o.SkipLocalTLSVerify, inspect: o.Inspect, inspectBody: o.InspectBody, bearer: o.Bearer, requireUpstreamAuth: o.RequireUpstreamAuth, webSocket: o.WebSocket, expire: o.Expire, qr: o.QR, public: o.Public, jsonOutput: o.JSON}, nil
 }
 
 func runLogin() {
+	if !commonTrace() {
+		common.SetLogLevel(common.LogLevelError)
+	}
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		common.LogError("failed to load config", "error", err)
@@ -965,8 +943,8 @@ func runLogin() {
 		cancel()
 	}()
 
-	if err := loginClient.Run(ctx); err != nil && err != context.Canceled {
-		common.LogError("login failed", "error", err)
+	if err := loginClient.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+		reportCLIError("Sign-in failed", "Check connectivity, then retry", "tunn login", false)
 		os.Exit(1)
 	}
 }
@@ -1023,8 +1001,7 @@ func runServe(args []string) {
 			printServeUsage()
 			return
 		}
-		common.LogError("invalid serve command", "error", err)
-		printServeUsage()
+		reportCLIError("Invalid HTTP command", terminal.Safe(err.Error()), "tunn http --help", jsonRequested(args))
 		os.Exit(1)
 	}
 	var webhookSecret []byte
@@ -1036,6 +1013,14 @@ func runServe(args []string) {
 		}
 	}
 	target, tunnelID, allowedEmails, tunnelKey, clientSecret := opts.target, opts.tunnelID, opts.allowedEmails, opts.tunnelKey, opts.clientSecret
+	normalizedTarget, err := normalizeTargetURL(target)
+	if err != nil {
+		reportCLIError("Invalid local app address", "Use a port, host:port or HTTP URL", "tunn http --help", opts.jsonOutput)
+		os.Exit(1)
+	}
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	output := terminal.New(os.Stdout, os.Stderr, opts.jsonOutput)
 
 	cfg, err := config.LoadConfig()
 	if err != nil {
@@ -1053,8 +1038,15 @@ func runServe(args []string) {
 		login := &client.LoginClient{ServerAddr: cfg.ServerAddr, Insecure: cfg.Insecure || *insecure}
 		token, credentials, err = loadOrEnrollWebPublisher(context.Background(), cfg.ServerAddr, cfg.Insecure || *insecure, stdinIsTerminal(), loadPublisherToken, login.Run)
 		if err != nil {
-			exitIfLoginRequired(err)
-			common.LogError("publisher enrollment failed", "error", err)
+			if ctx.Err() != nil {
+				output.State("stopped", "Canceled", "", "", 0)
+				return
+			}
+			if client.RetryableCredentialError(err) {
+				output.State("offline", "Cannot reach tunn", "Sign-in renewal failed. Check your network.", "tunn hosts --json", 0)
+			} else {
+				output.State("auth_expired", "Sign in to start a tunnel", "", "tunn login", 0)
+			}
 			os.Exit(1)
 		}
 
@@ -1088,17 +1080,11 @@ func runServe(args []string) {
 		tunnelID = common.RandID(7)
 	}
 
-	// Normalize target URL
-	normalizedTarget, err := normalizeTargetURL(target)
-	if err != nil {
-		common.LogError("invalid target", "error", err)
-		os.Exit(1)
-	}
-
 	serveClient := &client.ServeClient{
-		TunnelID:  tunnelID,
-		TargetURL: normalizedTarget,
-		Public:    opts.public, RequireSharing: true,
+		ValidatePublicURL: validateCLIURL,
+		TunnelID:          tunnelID,
+		TargetURL:         normalizedTarget,
+		Public:            opts.public, RequireSharing: true,
 		ServerAddr:          cfg.ServerAddr,
 		AuthToken:           token,
 		Credentials:         credentials,
@@ -1142,8 +1128,6 @@ func runServe(args []string) {
 		serveClient.EndpointTokenPath = path
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	if opts.expire > 0 {
 		var stop context.CancelFunc
 		ctx, stop = context.WithTimeout(ctx, opts.expire)
@@ -1167,26 +1151,25 @@ func runServe(args []string) {
 		fmt.Fprintf(os.Stderr, "Local inspector: %s\n", viewerURL)
 	}
 
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-	go func() {
-		<-sigChan
-		common.LogInfo("received shutdown signal")
-		cancel()
-	}()
-
-	if err := serveClient.Run(ctx); err != nil && err != context.Canceled && err != context.DeadlineExceeded {
-		exitIfLoginRequired(err)
-		common.LogError("tunnel error", "error", err)
+	attachCLI(ctx, serveClient, output, opts.inspect)
+	runErr := serveClient.Run(ctx)
+	if !stoppedNormally(runErr) {
+		showTunnelError(output, runErr, cfg.ServerAddr)
 		os.Exit(1)
 	}
+	output.State("stopped", "Tunnel stopped", "", "", 0)
+	output.Summary()
 }
 
 func printServeUsage() {
 	fmt.Fprintln(os.Stderr, `Usage: tunn serve [options] <port|host:port|url>
        tunn <target> [options]
 
+Private by default. Use --public to let anyone with the link open it.
+
 Options:
+  --public                       Anyone with the link
+  --json                         Request events as JSON lines
   --id, --name, --subdomain NAME  Tunnel name (blank generates one)
   --namespace SUFFIX             Publish --name under a verified custom namespace
   --allow EMAILS                 Comma-separated email allow-list
@@ -1212,26 +1195,28 @@ func normalizeTargetURL(input string) (string, error) {
 	if input == "" {
 		return "", fmt.Errorf("empty target")
 	}
-
-	// If it's already a full URL, validate and return
-	if strings.HasPrefix(input, "http://") || strings.HasPrefix(input, "https://") {
-		return input, nil
-	}
-
-	// Check if it's "host:port" format
-	if strings.Contains(input, ":") {
-		return "http://" + input, nil
-	}
-
-	// Check if it's just a port number
-	for _, char := range input {
-		if char < '0' || char > '9' {
-			return "", fmt.Errorf("invalid format: %s (expected port, host:port, or full URL)", input)
+	candidate := input
+	if !strings.HasPrefix(input, "http://") && !strings.HasPrefix(input, "https://") {
+		if strings.Contains(input, ":") {
+			candidate = "http://" + input
+		} else {
+			if _, err := strconv.ParseUint(input, 10, 16); err != nil {
+				return "", fmt.Errorf("use a port, host:port or HTTP URL")
+			}
+			candidate = "http://localhost:" + input
 		}
 	}
-
-	// It's just a port number
-	return "http://localhost:" + input, nil
+	u, err := url.Parse(candidate)
+	if err != nil || u.Hostname() == "" || u.Fragment != "" || (u.Scheme != "http" && u.Scheme != "https") {
+		return "", fmt.Errorf("invalid HTTP address")
+	}
+	if port := u.Port(); port != "" {
+		n, err := strconv.ParseUint(port, 10, 16)
+		if err != nil || n == 0 {
+			return "", fmt.Errorf("port must be between 1 and 65535")
+		}
+	}
+	return candidate, nil
 }
 
 func runMagicLink(args []string) {

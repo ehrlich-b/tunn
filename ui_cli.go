@@ -47,31 +47,30 @@ func printHelp(out io.Writer) {
 Inspect
   tunn 3000 --inspect               Local request inspector
   tunn 3000 --json                  Request events as JSON lines
-  tunn hosts --json                 Machine and tunnel inventory
+  tunn hosts --json                 List machines and tunnels as JSON
 
 Access
   tunn share NAME EMAIL             Invite to a running tunnel
   tunn unshare NAME EMAIL           Remove access
   tunn access NAME                  List access
-  tunn keys --help                  Account SSH keys
-  tunn token NAME                   Endpoint token
-  tunn ip-policy --help             IP rules
-  tunn usage NAME                   Usage and decisions
-  tunn grant --help                 Consumer tokens
+  tunn keys --help                  Manage your SSH keys
+  tunn token NAME                   Show a tunnel's access token
+  tunn ip-policy --help             Allow or block IP addresses
+  tunn usage NAME                   See traffic used this month
+  tunn grant --help                 Give someone a time-limited token
   tunn policy --help                Headers and rate limits
 
 More
   tunn http --help                  HTTP options
   tunn hosts                        List machines and tunnels
-  tunn service --help               Persistent endpoints
+  tunn service --help               Run tunnels in the background
   tunn service status               Check the local service
-  tunn mcp --help                   Local MCP server
+  tunn mcp --help                   Run a local MCP server
   tunn connector-check --help       Check an MCP connector
-  tunn tcp --help                   Raw TCP endpoint
-  tunn unix --help                  Unix socket endpoint
+  tunn tcp --help                   Share a TCP port
+  tunn unix --help                  Share a Unix socket
   tunn connect --help               Connect to a remote endpoint
   tunn domain --help                Custom domains
-  tunn openclaw --help              Phone setup
 
 Compare · diff tunn ngrok
   Choose visitor emails with --allow

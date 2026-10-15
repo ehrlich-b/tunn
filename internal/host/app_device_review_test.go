@@ -66,6 +66,9 @@ func TestAppDeviceRejectsMixedPlatformCredentials(t *testing.T) {
 
 func TestAppDeviceVerifiedMergeKeepsManagementAssertionAndRateScope(t *testing.T) {
 	f := newAppDeviceFixture(t)
+	// Keep enrollment attempts in one rate window regardless of scheduling.
+	now := time.Now()
+	f.p.appDevices.now = func() time.Time { return now }
 	cookieA := appDeviceShareGuest(t, f, "merge-a@example.com")
 	cookieB := appDeviceShareGuest(t, f, "merge-b@example.com")
 	dA, token := f.enroll(t, cookieA)

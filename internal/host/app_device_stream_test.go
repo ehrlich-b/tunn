@@ -307,6 +307,10 @@ func TestAppDeviceAuthorityRPCRequiresNodeSecret(t *testing.T) {
 
 func TestAppDeviceAccountHostFailureLimitUsesTrustedSource(t *testing.T) {
 	f := newAppDeviceFixture(t)
+	// Advance the rate clock explicitly instead of crossing a wall-clock minute.
+	var millis atomic.Int64
+	millis.Store(time.Now().UnixMilli())
+	f.p.appDevices.now = func() time.Time { return time.UnixMilli(millis.Load()) }
 	_, token := f.enroll(t, nil)
 	if _, err := f.db.Exec(`DELETE FROM account_emails WHERE email=?`, appDeviceTestEmail); err != nil {
 		t.Fatal(err)
@@ -329,5 +333,11 @@ func TestAppDeviceAccountHostFailureLimitUsesTrustedSource(t *testing.T) {
 	f.p.createHandler().ServeHTTP(w, r)
 	if w.Code != 429 {
 		t.Fatal("account/hostname failure limit missing")
+	}
+	millis.Add(time.Minute.Milliseconds())
+	next := httptest.NewRecorder()
+	f.p.createHandler().ServeHTTP(next, r.Clone(context.Background()))
+	if next.Code != 403 {
+		t.Fatal("failure limit did not reset in the next minute", next.Code)
 	}
 }

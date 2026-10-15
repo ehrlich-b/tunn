@@ -95,7 +95,7 @@ func (l *LoginClient) Run(ctx context.Context) error {
 		} else {
 			link = ""
 		}
-		_, _ = fmt.Fprintf(output, "\nSign in in your browser\n%s\n\nCode: %s\nExpires at: %s\nMatch this code, then authorize.\nWaiting for sign-in…\n", terminal.Safe(link), terminal.Safe(deviceResp.UserCode), deviceResp.expiresAt.Local().Format("15:04:05 MST"))
+		_, _ = fmt.Fprintf(output, "\nOpen your browser to sign in\n%s\n\nCode: %s\nExpires at: %s\nMatch this code, then authorize.\nWaiting for sign-in…\n", terminal.Safe(link), terminal.Safe(deviceResp.UserCode), deviceResp.expiresAt.Local().Format("15:04:05 MST"))
 		if l.OpenBrowser != nil {
 			l.OpenBrowser(deviceResp.VerificationURIComplete)
 		} else {

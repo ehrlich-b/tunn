@@ -14,11 +14,13 @@ type HostManifest struct {
 }
 
 type HostEndpoint struct {
-	Name     string    `json:"name"`
-	Kind     string    `json:"kind"`
-	URL      string    `json:"url"`
-	Online   bool      `json:"online"`
-	LastSeen time.Time `json:"last_seen"`
+	Name          string    `json:"name"`
+	Kind          string    `json:"kind"`
+	URL           string    `json:"url"`
+	Online        bool      `json:"online"`
+	LastSeen      time.Time `json:"last_seen"`
+	Access        string    `json:"access,omitempty"`
+	EndpointToken bool      `json:"endpoint_token,omitempty"`
 }
 
 type Machine struct {

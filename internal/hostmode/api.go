@@ -72,6 +72,14 @@ func (a API) request(ctx context.Context, method string, manifest *common.HostMa
 	if machines == nil {
 		machines = []common.Machine{}
 	}
+	for i := range machines {
+		for _, endpoint := range machines[i].Tunnels {
+			machines[i].Online = machines[i].Online || endpoint.Online
+			if endpoint.LastSeen.After(machines[i].LastSeen) {
+				machines[i].LastSeen = endpoint.LastSeen
+			}
+		}
+	}
 	return machines, nil
 }
 

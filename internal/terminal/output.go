@@ -19,49 +19,48 @@ import (
 // Event is one JSON line. Existing inventory JSON has its own unchanged schema.
 // Durations use milliseconds; traffic counts use bytes.
 type Event struct {
-	Type          string `json:"type"`
-	URL           string `json:"url,omitempty"`
-	Target        string `json:"target,omitempty"`
-	Access        string `json:"access,omitempty"`
-	State         string `json:"state,omitempty"`
-	At            string `json:"at,omitempty"`
-	Method        string `json:"method,omitempty"`
-	Path          string `json:"path,omitempty"`
-	Status        int    `json:"status,omitempty"`
-	DurationMS    int64  `json:"duration_ms,omitempty"`
-	RequestBytes  int64  `json:"request_bytes,omitempty"`
-	ResponseBytes int64  `json:"response_bytes,omitempty"`
-	ActiveStreams int64  `json:"active_streams,omitempty"`
-	RetryDelayMS  int64  `json:"retry_delay_ms,omitempty"`
-	Detail        string `json:"detail,omitempty"`
-	Message       string `json:"message,omitempty"`
-	Command       string `json:"command,omitempty"`
+	Type          string   `json:"type"`
+	URL           string   `json:"url,omitempty"`
+	Target        string   `json:"target,omitempty"`
+	Access        string   `json:"access,omitempty"`
+	EndpointToken bool     `json:"endpoint_token,omitempty"`
+	AllowedEmails []string `json:"requested_emails,omitempty"`
+	State         string   `json:"state,omitempty"`
+	At            string   `json:"at,omitempty"`
+	Method        string   `json:"method,omitempty"`
+	Path          string   `json:"path,omitempty"`
+	Status        int      `json:"status"`
+	DurationMS    int64    `json:"duration_ms"`
+	RequestBytes  int64    `json:"request_bytes"`
+	ResponseBytes int64    `json:"response_bytes"`
+	ActiveStreams int64    `json:"active_streams"`
+	RetryDelayMS  int64    `json:"retry_delay_ms,omitempty"`
+	Detail        string   `json:"detail,omitempty"`
+	Message       string   `json:"message,omitempty"`
+	Command       string   `json:"command,omitempty"`
 }
 
 type Output struct {
 	mu                          sync.Mutex
 	Out, Err                    io.Writer
-	JSON, Color                 bool
+	JSON, Color, TTY            bool
 	Width                       int
 	lastState                   string
 	rows                        bool
 	requestBytes, responseBytes int64
 	requestCount                uint64
-	active                      int64
 }
 
 func New(out, errout io.Writer, jsonOutput bool) *Output {
 	width := 100
-	if n, err := strconv.Atoi(os.Getenv("COLUMNS")); err == nil && n > 0 {
-		width = n
-	}
-	color := false
+	color, tty := false, false
 	if f, ok := out.(*os.File); ok && isatty.IsTerminal(f.Fd()) {
+		tty = true
 		width = terminalWidth(f)
 		_, noColor := os.LookupEnv("NO_COLOR")
 		color = !noColor && os.Getenv("TERM") != "dumb"
 	}
-	return &Output{Out: out, Err: errout, JSON: jsonOutput, Color: color, Width: width}
+	return &Output{Out: out, Err: errout, JSON: jsonOutput, Color: color, TTY: tty, Width: width}
 }
 
 // Safe prevents terminal control sequences in remote or application data.
@@ -80,7 +79,23 @@ func (o *Output) paint(code, value string) string {
 	return value
 }
 func (o *Output) line(w io.Writer, value string) { fmt.Fprintln(w, value) }
-func (o *Output) event(e Event)                  { _ = json.NewEncoder(o.Out).Encode(e) }
+func (e Event) MarshalJSON() ([]byte, error) {
+	type plain Event
+	data, err := json.Marshal(plain(e))
+	if err != nil || e.Type == "request" {
+		return data, err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return nil, err
+	}
+	for _, key := range []string{"status", "duration_ms", "request_bytes", "response_bytes", "active_streams"} {
+		delete(fields, key)
+	}
+	return json.Marshal(fields)
+}
+func (o *Output) event(e Event) { _ = json.NewEncoder(o.Out).Encode(e) }
+
 func (o *Output) marker(state string) string {
 	switch state {
 	case "online":
@@ -95,17 +110,28 @@ func (o *Output) marker(state string) string {
 		return o.paint("34", "[i]")
 	}
 }
-func (o *Output) Route(url, target, access string) {
+func (o *Output) Route(url, target, access string, endpointToken bool, allowed ...string) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	url, target, access = Safe(url), Safe(target), Safe(access)
 	if o.JSON {
-		o.event(Event{Type: "route", URL: url, Target: target, Access: access})
+		o.event(Event{Type: "route", URL: url, Target: target, Access: access, EndpointToken: endpointToken, AllowedEmails: allowed})
 		return
 	}
-	o.line(o.Out, o.paint("36", url))
-	o.line(o.Out, "  -> "+target)
-	o.line(o.Out, access)
+	o.line(o.Out, "url  "+o.accent(url))
+	o.line(o.Out, "to   "+target)
+	if access == "public" {
+		o.line(o.Out, "Public · Anyone with the link")
+	} else {
+		if endpointToken {
+			o.line(o.Out, "Private · Sign in or use an endpoint token")
+		} else {
+			o.line(o.Out, "Private · Only you and invited people")
+		}
+		if len(allowed) > 0 {
+			o.line(o.Out, "requested  "+Safe(strings.Join(allowed, ", "))+" and you")
+		}
+	}
 	o.rows = false
 }
 func (o *Output) State(state, title, detail, command string, delay time.Duration) {
@@ -127,6 +153,9 @@ func (o *Output) State(state, title, detail, command string, delay time.Duration
 		return
 	}
 	w := o.Out
+	if !o.TTY {
+		w = o.Err
+	}
 	if state == "error" || state == "offline" || state == "unreachable" || state == "auth_expired" || state == "limit" {
 		w = o.Err
 	}
@@ -148,7 +177,11 @@ func (o *Output) Hint(text string) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	if !o.JSON {
-		o.line(o.Out, Safe(text))
+		w := o.Out
+		if !o.TTY {
+			w = o.Err
+		}
+		o.line(w, Safe(text))
 	}
 }
 func runeCells(r rune) int {
@@ -188,25 +221,22 @@ func clip(value string, budget int) string {
 	}
 	return result.String() + "~"
 }
+
 func column(value string, budget int) string {
 	return value + strings.Repeat(" ", max(0, budget-cells(value)))
 }
-func byteReading(n int64) string {
-	if n < 1000 {
-		return fmt.Sprintf("%dB", n)
-	}
-	value := float64(n)
-	units := []string{"KB", "MB", "GB", "TB", "PB", "EB"}
-	for _, unit := range units {
-		value /= 1000
-		if value < 999.5 {
-			if value >= 9.95 {
-				return fmt.Sprintf("%.0f%s", value, unit)
-			}
-			return fmt.Sprintf("%.1f%s", value, unit)
+func (o *Output) accent(value string) string {
+	// Use truecolor only when the terminal reports a background; otherwise
+	// preserve its native palette.
+	if os.Getenv("COLORTERM") == "truecolor" {
+		switch os.Getenv("COLORFGBG") {
+		case "15;0":
+			return o.paint("1;38;2;255;79;18", value)
+		case "0;15":
+			return o.paint("1;38;2;173;48;0", value)
 		}
 	}
-	return fmt.Sprintf("%.0fEB", value)
+	return o.paint("1;33", value)
 }
 
 func (o *Output) Request(e Event) {
@@ -215,7 +245,6 @@ func (o *Output) Request(e Event) {
 	e.Type = "request"
 	e.Method, e.Path = Safe(e.Method), Safe(e.Path)
 	o.requestCount++
-	o.active = e.ActiveStreams
 	o.requestBytes += e.RequestBytes
 	o.responseBytes += e.ResponseBytes
 	if o.JSON {
@@ -231,10 +260,6 @@ func (o *Output) Request(e Event) {
 	} else if (e.Status >= 100 && e.Status < 200) || e.Status >= 300 {
 		state = "info"
 	}
-	mark := o.marker(state)
-	if state != "online" {
-		mark += " "
-	}
 	stamp := Safe(e.At)
 	if at, err := time.Parse(time.RFC3339Nano, e.At); err == nil {
 		stamp = at.Local().Format("15:04:05")
@@ -246,40 +271,50 @@ func (o *Output) Request(e Event) {
 	if e.DurationMS == 0 {
 		duration = "<1ms"
 	}
-	width := o.Width
-	if width < 40 {
-		width = 40
+	width := max(40, o.Width)
+	methodWidth, pathWidth := 7, width-65
+	if width < 70 {
+		methodWidth, pathWidth = 4, width-33
 	}
 	if !o.rows {
-
 		o.line(o.Out, "")
-		if width < 90 {
-			o.line(o.Out, "METHOD  PATH")
-			o.line(o.Out, "TIME      RESULT      TIME")
-		} else {
-			o.line(o.Out, fmt.Sprintf("%-8s  %-7s  %-*s  %-8s  %-7s %-11s %s", "TIME", "METHOD", width-65, "PATH", "RESULT", "TIME", "IN/OUT", "OPEN"))
-		}
+		o.line(o.Out, fmt.Sprintf("%-8s %-*s %-*s %-7s %s", "AT", methodWidth, "METHOD"[:min(6, methodWidth)], pathWidth, "PATH", "RESULT", "ELAPSED"))
 		o.rows = true
 	}
-	if width < 90 {
-		o.line(o.Out, fmt.Sprintf("%s %s", column(clip(e.Method, 7), 7), clip(e.Path, width-8)))
-		o.line(o.Out, fmt.Sprintf("%-8s  %s %-7s %s", stamp, mark, result, duration))
-		o.line(o.Out, fmt.Sprintf("%s in / %s out · %d open", byteReading(e.RequestBytes), byteReading(e.ResponseBytes), e.ActiveStreams))
+	if e.Status == 413 && width < 70 {
+		// Preserve the full limit at narrow widths rather than wrapping a request.
+		o.line(o.Out, fmt.Sprintf("%s %s %s 413; edge cap 100 MiB", clip(e.Method, 4), clip(e.Path, 7), o.marker("error")))
 	} else {
-		o.line(o.Out, fmt.Sprintf("%-8s  %s  %s  %s %-3s  %-7s %-11s %d", stamp, column(clip(e.Method, 7), 7), column(clip(e.Path, width-65), width-65), mark, result, duration, byteReading(e.RequestBytes)+"/"+byteReading(e.ResponseBytes), e.ActiveStreams))
+		mark := o.marker(state)
+		if state == "online" {
+			mark = o.paint("32", "[+]")
+		}
+		if state == "unknown" {
+			result = "?"
+		}
+		row := fmt.Sprintf("%-8s %s %s %s %-3s %s", stamp, column(clip(e.Method, methodWidth), methodWidth), column(clip(e.Path, pathWidth), pathWidth), mark, result, clip(duration, 6))
+		if width >= 70 && e.Status == 413 {
+			row += "  edge cap: 100 MiB"
+		}
+		o.line(o.Out, row)
 	}
-	if e.Message != "" {
+	if e.Message != "" && e.Status != 413 {
 		o.line(o.Err, o.marker("error")+" "+Safe(e.Message))
 	}
 }
+
 func (o *Output) Summary() {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	if o.JSON {
 		return
 	}
-	o.line(o.Out, fmt.Sprintf("Requests  %d · %d open", o.requestCount, o.active))
-	o.line(o.Out, fmt.Sprintf("Traffic  %d B in / %d B out", o.requestBytes, o.responseBytes))
+	w := o.Out
+	if !o.TTY {
+		w = o.Err
+	}
+	o.line(w, fmt.Sprintf("Requests  %d", o.requestCount))
+	o.line(w, fmt.Sprintf("Traffic  %d B in / %d B out", o.requestBytes, o.responseBytes))
 }
 
 func (o *Output) URL(value string) {
@@ -290,14 +325,20 @@ func (o *Output) URL(value string) {
 	}
 }
 
-func (o *Output) Waiting(url string) {
+// Diagnostic is human guidance; redirected stdout retains only readings.
+func (o *Output) Diagnostic(text string) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	if o.JSON {
-		return
+	if !o.JSON {
+		o.line(o.Err, Safe(text))
 	}
-	o.line(o.Out, "")
-	o.line(o.Out, "Requests forwarded to your app")
-	o.line(o.Out, time.Now().Format("15:04:05")+"  No requests yet")
-	o.line(o.Out, "curl "+Safe(url))
+}
+
+// Reading is inventory data and stays on stdout even when redirected.
+func (o *Output) Reading(text string) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if !o.JSON {
+		o.line(o.Out, Safe(text))
+	}
 }

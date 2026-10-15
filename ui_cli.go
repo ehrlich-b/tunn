@@ -71,6 +71,7 @@ More
   tunn unix --help                  Share a Unix socket
   tunn connect --help               Connect to a remote endpoint
   tunn domain --help                Custom domains
+  tunn version                      Print the build version
 
 Compare · diff tunn ngrok
   Choose visitor emails with --allow

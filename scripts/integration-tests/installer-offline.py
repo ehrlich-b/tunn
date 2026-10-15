@@ -21,7 +21,7 @@ BASE = "https://offline.invalid/dl"
 
 
 def run(args, env, cwd, expected=0):
-    result = subprocess.run(args, env=env, cwd=cwd, capture_output=True, text=True, timeout=180)
+    result = subprocess.run(args, env=env, cwd=cwd, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=180)
     print(f"$ {' '.join(map(str, args))}\nexit={result.returncode}\n{result.stdout}{result.stderr}", flush=True)
     assert result.returncode == expected, result
     return result
@@ -83,6 +83,12 @@ shutil.copyfile(pathlib.Path(os.environ['OFFLINE_DL']) / path, args[args.index('
         run([str(installed), *args], env, sandbox, expected=2)
     assert not list(home.iterdir()), "version queries wrote credentials or configuration"
 
+    # A service with a missing login must retain the carrier's non-restarting
+    # exit status rather than starting enrollment or retrying the network.
+    env.update(TUNN_ENV="dev", TUNN_PUBLIC_MODE="", TUNN_SECRET="", TUNN_SERVER_ADDR="127.0.0.1:1")
+    missing = run([str(installed), "3000"], env, sandbox, expected=78)
+    assert "tunn login" in missing.stderr and "TUNN_CONFIG_DIR=" in missing.stderr
+
     sums.write_text(f"{'0' * 64}  {asset}\n")
     for target in (install, root / "refused"):
         env["TUNN_INSTALL_DIR"] = str(target)
@@ -98,7 +104,7 @@ shutil.copyfile(pathlib.Path(os.environ['OFFLINE_DL']) / path, args[args.index('
     assert [r["url"] for r in receipts] == expected_urls * 3, receipts
     # Leave the retained fixture valid for independent checksum verification.
     sums.write_text(f"{digest}  {asset}\n")
-    print("PASS: offline release installation, both version commands, unknown flags, checksum refusal and atomicity", flush=True)
+    print("PASS: offline release installation, both version commands, unknown flags, service login exit, checksum refusal and atomicity", flush=True)
 
 
 if __name__ == "__main__":

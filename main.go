@@ -1036,7 +1036,7 @@ func runServe(args []string) {
 		token = clientSecret
 	} else if !cfg.PublicMode {
 		login := &client.LoginClient{ServerAddr: cfg.ServerAddr, Insecure: cfg.Insecure || *insecure}
-		token, credentials, err = loadOrEnrollWebPublisher(context.Background(), cfg.ServerAddr, cfg.Insecure || *insecure, stdinIsTerminal(), loadPublisherToken, login.Run)
+		token, credentials, err = loadOrEnrollWebPublisher(ctx, cfg.ServerAddr, cfg.Insecure || *insecure, stdinIsTerminal(), loadPublisherToken, login.Run)
 		if err != nil {
 			if ctx.Err() != nil {
 				output.State("stopped", "Canceled", "", "", 0)
@@ -1047,6 +1047,7 @@ func runServe(args []string) {
 			} else {
 				output.State("auth_expired", "Sign in to start a tunnel", "", "tunn login", 0)
 			}
+			exitIfLoginRequired(err)
 			os.Exit(1)
 		}
 
@@ -1155,6 +1156,7 @@ func runServe(args []string) {
 	runErr := serveClient.Run(ctx)
 	if !stoppedNormally(runErr) {
 		showTunnelError(output, runErr, cfg.ServerAddr)
+		exitIfLoginRequired(runErr)
 		os.Exit(1)
 	}
 	output.State("stopped", "Tunnel stopped", "", "", 0)

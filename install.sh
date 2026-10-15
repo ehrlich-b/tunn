@@ -3,7 +3,7 @@ set -eu
 INFO='[i]'
 OK='[ok]'
 if [ -t 1 ] && [ -z "${NO_COLOR+x}" ] && [ "${TERM:-dumb}" != dumb ]; then
-    INFO=$(printf '\033[34m[i]\033[0m')
+    INFO=$(printf '\033[2m[i]\033[0m')
     OK=$(printf '\033[32m[ok]\033[0m')
 fi
 DOWNLOAD_BASE="${TUNN_DOWNLOAD_BASE:-https://tunn.to/dl}"

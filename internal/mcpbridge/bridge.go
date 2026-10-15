@@ -55,6 +55,8 @@ type Bridge struct {
 	childInitialized      bool            // guarded by requestGate
 	childInitializeResult json.RawMessage // guarded by requestGate
 	requestSequence       uint64          // guarded by requestGate
+	cancellationMu        sync.Mutex
+	cancellableRequest    *legacyRequest // guarded by cancellationMu
 
 	requestTimeout time.Duration
 	allowedTools   map[string]bool
@@ -71,6 +73,14 @@ type Options struct {
 type childOutput struct {
 	message []byte
 	err     error
+}
+
+// Only the single admitted legacy request can be cancelled. Never retain a
+// remote ID after its handler returns, even if the child finishes late.
+type legacyRequest struct {
+	sessionID string
+	remoteID  json.RawMessage
+	childID   json.RawMessage
 }
 
 type envelope struct {
@@ -343,6 +353,14 @@ func (b *Bridge) handlePOST(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), b.requestTimeout)
 	defer cancel()
+	if !modern && !hasID(incoming.ID) && incoming.Method == "notifications/cancelled" {
+		if err := b.cancelLegacyRequest(ctx, r.Header.Get("Mcp-Session-Id"), body); err != nil {
+			writeRequestError(w, incoming.ID, err, "local MCP process is unavailable")
+			return
+		}
+		w.WriteHeader(http.StatusAccepted)
+		return
+	}
 	if err := b.acquireRequest(ctx); err != nil {
 		writeRequestError(w, incoming.ID, err, "local MCP request could not start")
 		return
@@ -388,7 +406,20 @@ func (b *Bridge) handlePOST(w http.ResponseWriter, r *http.Request) {
 	childID := b.nextChildID()
 	body = replaceMessageID(body, childID)
 
-	if err := b.writeChild(ctx, body); err != nil {
+	// Publish the mapping and write the request under the same lock used by
+	// cancellation, so a notification cannot overtake its child request.
+	b.cancellationMu.Lock()
+	if !modern && incoming.Method != "initialize" {
+		b.cancellableRequest = &legacyRequest{r.Header.Get("Mcp-Session-Id"), incoming.ID, childID}
+	}
+	err = b.writeChild(ctx, body)
+	b.cancellationMu.Unlock()
+	defer func() {
+		b.cancellationMu.Lock()
+		b.cancellableRequest = nil
+		b.cancellationMu.Unlock()
+	}()
+	if err != nil {
 		writeRequestError(w, incoming.ID, err, "local MCP process is unavailable")
 		return
 	}
@@ -456,6 +487,29 @@ func (b *Bridge) handlePOST(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+}
+
+func (b *Bridge) cancelLegacyRequest(ctx context.Context, sessionID string, body []byte) error {
+	var notification struct {
+		Params map[string]json.RawMessage `json:"params"`
+	}
+	if json.Unmarshal(body, &notification) != nil {
+		return nil
+	}
+	b.cancellationMu.Lock()
+	defer b.cancellationMu.Unlock()
+	request := b.cancellableRequest
+	if request == nil || request.sessionID != sessionID || !sameID(request.remoteID, notification.Params["requestId"]) {
+		return nil
+	}
+	// Keep the mapping locked through the write. A late cancellation must not
+	// wait on requestGate and then pick up a later call that reused the ID.
+	notification.Params["requestId"] = request.childID
+	var message map[string]json.RawMessage
+	_ = json.Unmarshal(body, &message)
+	message["params"], _ = json.Marshal(notification.Params)
+	encoded, _ := json.Marshal(message)
+	return b.writeChild(ctx, encoded)
 }
 
 func (b *Bridge) toolCallAllowed(message []byte) bool {

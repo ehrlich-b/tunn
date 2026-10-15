@@ -108,7 +108,7 @@ func (o *Output) marker(state string) string {
 	case "[o]":
 		return text
 	}
-	return o.paint("34", text)
+	return o.paint("2", text)
 }
 func (o *Output) Route(url, target, access string, endpointToken bool, allowed ...string) {
 	o.mu.Lock()
@@ -222,7 +222,7 @@ func (o *Output) RouteCheck(state, title string, checks []Check, command string)
 	for _, c := range checks {
 		labelWidth = max(labelWidth, cells(Safe(c.Label)))
 	}
-	o.line(o.Err, time.Now().Format("15:04:05")+"  "+o.marker(state)+" "+o.paint("31", Safe(title)))
+	o.line(o.Err, o.paint("2", time.Now().Format("15:04:05"))+"  "+o.marker(state)+" "+o.paint("1", Safe(title)))
 	for _, c := range checks {
 		mark := o.marker(c.State)
 		pad := 5 - cells(markerText(c.State))
@@ -276,9 +276,9 @@ func (o *Output) State(state, title, detail, command string, delay time.Duration
 		o.line(w, "")
 	}
 	if state == "error" || state == "offline" || state == "unreachable" || state == "auth_expired" {
-		title = o.paint("31", title)
+		title = o.paint("1", title)
 	}
-	o.line(w, time.Now().Format("15:04:05")+"  "+o.marker(state)+" "+title)
+	o.line(w, o.paint("2", time.Now().Format("15:04:05"))+"  "+o.marker(state)+" "+title)
 	if detail != "" {
 		o.wrapped(w, detail)
 	}
@@ -369,19 +369,10 @@ func shortPath(value string, budget int) string {
 func column(value string, budget int) string {
 	return value + strings.Repeat(" ", max(0, budget-cells(value)))
 }
-func (o *Output) accent(value string) string {
-	// Use truecolor only when the terminal reports a background; otherwise
-	// preserve its native palette.
-	if os.Getenv("COLORTERM") == "truecolor" {
-		switch os.Getenv("COLORFGBG") {
-		case "15;0":
-			return o.paint("1;38;2;255;79;18", value)
-		case "0;15":
-			return o.paint("1;38;2;173;48;0", value)
-		}
-	}
-	return o.paint("1;33", value)
-}
+
+// accent is the one link color; it uses the terminal's own cyan so it reads
+// in 16-color palettes, light or dark.
+func (o *Output) accent(value string) string { return o.paint("36", value) }
 
 func (o *Output) Request(e Event) {
 	o.mu.Lock()
@@ -405,8 +396,10 @@ func (o *Output) Request(e Event) {
 		state = "info"
 	}
 	stamp := Safe(e.At)
+	// Rows print when a request finishes, so stamp the finish time to keep
+	// the column in order.
 	if at, err := time.Parse(time.RFC3339Nano, e.At); err == nil {
-		stamp = at.Local().Format("15:04:05")
+		stamp = at.Add(time.Duration(e.DurationMS) * time.Millisecond).Local().Format("15:04:05")
 	}
 	duration := fmt.Sprintf("%dms", e.DurationMS)
 	if e.DurationMS >= 1000 {
@@ -428,7 +421,7 @@ func (o *Output) Request(e Event) {
 		if !narrow {
 			heading = fmt.Sprintf("%-8s ", "AT") + heading
 		}
-		o.line(o.Out, heading)
+		o.line(o.Out, o.paint("2", heading))
 		o.rows = true
 	}
 	mark := o.marker(state)
@@ -440,7 +433,7 @@ func (o *Output) Request(e Event) {
 	}
 	row := fmt.Sprintf("%s %s %s %-3s %s", column(clip(e.Method, methodWidth), methodWidth), column(shortPath(e.Path, pathWidth), pathWidth), mark, result, clip(duration, 6))
 	if !narrow {
-		row = fmt.Sprintf("%-8s ", stamp) + row
+		row = o.paint("2", fmt.Sprintf("%-8s", stamp)) + " " + row
 	}
 	if e.Status == 413 && !narrow {
 		row += "  edge cap: 100 MiB"
@@ -482,7 +475,7 @@ func (o *Output) URL(value string) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	if !o.JSON {
-		o.line(o.Out, o.paint("36", Safe(value)))
+		o.line(o.Out, o.accent(Safe(value)))
 	}
 }
 

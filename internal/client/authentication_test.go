@@ -137,35 +137,45 @@ func (r *cliQuotaStatusRelay) EstablishTunnel(s pb.TunnelService_EstablishTunnel
 // The relay can discover expiry before the client's cached deadline. Its
 // retry-renewal registration response must force rotation before reconnecting.
 func TestDurableRegistrationRetryForcesRenewal(t *testing.T) {
-	manager, _ := credentialFixture(t)
-	var refreshes atomic.Int32
-	manager.HTTPClient = &http.Client{Transport: loginRoundTripper(func(r *http.Request) (*http.Response, error) {
-		refreshes.Add(1)
-		return refreshFixtureResponse(r, "renewed-access", "renewed-refresh"), nil
-	})}
-	rejections := &cliRetryRenewalRelay{t: t}
-	g := grpc.NewServer()
-	pb.RegisterTunnelServiceServer(g, rejections)
-	relay := httptest.NewUnstartedServer(g)
-	relay.EnableHTTP2 = true
-	relay.StartTLS()
-	defer relay.Close()
-	defer g.Stop()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	s := &ServeClient{ServerAddr: strings.TrimPrefix(relay.URL, "https://"), Insecure: true, Quiet: true, Credentials: manager,
-		InitialDelay: time.Millisecond, MaxReconnectDelay: time.Millisecond, OnRegistered: func(string) { cancel() },
-		Logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
-	err := s.Run(ctx)
-	if !errors.Is(err, context.Canceled) || refreshes.Load() != 1 || rejections.calls.Load() != 2 {
-		t.Fatal("registration recovery failed", err, refreshes.Load(), rejections.calls.Load())
+	for _, tc := range []struct {
+		name        string
+		rejectCount int32
+		stream      bool
+	}{{"registration", 1, false}, {"repeated-stream-rejection", 2, true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			manager, _ := credentialFixture(t)
+			var refreshes atomic.Int32
+			manager.HTTPClient = &http.Client{Transport: loginRoundTripper(func(r *http.Request) (*http.Response, error) {
+				refreshes.Add(1)
+				return refreshFixtureResponse(r, "renewed-access", "renewed-refresh"), nil
+			})}
+			rejections := &cliRetryRenewalRelay{t: t, rejectCount: tc.rejectCount, stream: tc.stream}
+			g := grpc.NewServer()
+			pb.RegisterTunnelServiceServer(g, rejections)
+			relay := httptest.NewUnstartedServer(g)
+			relay.EnableHTTP2 = true
+			relay.StartTLS()
+			defer relay.Close()
+			defer g.Stop()
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			s := &ServeClient{ServerAddr: strings.TrimPrefix(relay.URL, "https://"), Insecure: true, Quiet: true, Credentials: manager,
+				InitialDelay: time.Millisecond, MaxReconnectDelay: time.Millisecond, OnRegistered: func(string) { cancel() },
+				Logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+			err := s.Run(ctx)
+			if !errors.Is(err, context.Canceled) || refreshes.Load() != 1 || rejections.calls.Load() != tc.rejectCount+1 {
+				t.Fatal("registration recovery failed", err, refreshes.Load(), rejections.calls.Load())
+			}
+		})
 	}
 }
 
 type cliRetryRenewalRelay struct {
 	pb.UnimplementedTunnelServiceServer
-	t     *testing.T
-	calls atomic.Int32
+	t           *testing.T
+	calls       atomic.Int32
+	rejectCount int32
+	stream      bool
 }
 
 func (r *cliRetryRenewalRelay) EstablishTunnel(s pb.TunnelService_EstablishTunnelServer) error {
@@ -173,7 +183,10 @@ func (r *cliRetryRenewalRelay) EstablishTunnel(s pb.TunnelService_EstablishTunne
 	if err != nil {
 		return err
 	}
-	if r.calls.Add(1) == 1 {
+	if r.calls.Add(1) <= r.rejectCount {
+		if r.stream {
+			return status.Error(codes.Unauthenticated, "device publisher lease expired; renew with tunn login")
+		}
 		return s.Send(&pb.TunnelMessage{Message: &pb.TunnelMessage_RegisterResponse{RegisterResponse: &pb.RegisterResponse{ErrorMessage: "Device token expired during registration; retry renewal."}}})
 	}
 	if got := msg.GetRegisterClient().AuthToken; got != "renewed-access" {

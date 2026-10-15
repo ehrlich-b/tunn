@@ -175,7 +175,7 @@ func (s *ServeClient) Run(ctx context.Context) error {
 			// login server with the reconnect backoff.
 			err, isPermanent = refreshErr, false
 		}
-		if AuthenticationFailure(err) || status.Code(err) == codes.ResourceExhausted || status.Code(err) == codes.PermissionDenied {
+		if s.Credentials == nil && AuthenticationFailure(err) || status.Code(err) == codes.ResourceExhausted || status.Code(err) == codes.PermissionDenied {
 			return err
 		}
 		if isPermanent && !transientRegistration(permanent) {

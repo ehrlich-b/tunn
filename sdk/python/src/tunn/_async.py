@@ -310,19 +310,20 @@ async def publish_async(options: Options, *, helper=None, cancel_event=None, lif
     return await _owned_start(lambda: _start(options, helper), cancel_event, lifetime_timeout)
 
 
-async def publish_handler_async(handler, options: Options, *, interface="asgi", helper=None, cancel_event=None, lifetime_timeout=None):
-    """Own a loopback ASGI/WSGI server and publish it through the Go transport."""
+async def publish_handler_async(handler, options: Options, *, interface="asgi", lifespan="off", helper=None, cancel_event=None, lifetime_timeout=None):
+    """Publish a loopback handler; lifespan='on' also owns ASGI startup/shutdown."""
     validate(options, handler=True)
-    if not callable(handler) or interface not in ("asgi", "wsgi"):
+    if (not callable(handler) or interface not in ("asgi", "wsgi") or
+            lifespan not in ("off", "on") or (interface == "wsgi" and lifespan != "off")):
         raise TunnelError("invalid_options")
     if lifetime_timeout is not None and not _duration(lifetime_timeout, zero=False):
         raise TunnelError("invalid_options")
     if cancel_event is not None and not isinstance(cancel_event, asyncio.Event):
         raise TunnelError("invalid_options")
-    return await _owned_start(lambda: _open_handler(handler, options, interface, helper), cancel_event, lifetime_timeout)
+    return await _owned_start(lambda: _open_handler(handler, options, interface, helper, lifespan), cancel_event, lifetime_timeout)
 
 
-async def _open_handler(handler, options, interface, helper):
+async def _open_handler(handler, options, interface, helper, lifespan="off"):
     _helper_path(helper)
     try:
         import uvicorn
@@ -330,8 +331,54 @@ async def _open_handler(handler, options, interface, helper):
         raise TunnelError("handler_failed") from None
 
     from uvicorn.protocols.http.h11_impl import H11Protocol
+    from uvicorn.lifespan.on import LifespanOn
+
+    class OwnedLifespan(LifespanOn):
+        task = None
+        startup_complete = False
+        shutdown_requested = False
+
+        async def send(self, message):
+            await super().send(message)
+            if message["type"] == "lifespan.startup.complete":
+                self.startup_complete = True
+
+        async def startup(self):
+            # Retain the task before it starts so cancellation can always join it.
+            self.task = asyncio.create_task(self.main())
+            await self.receive_queue.put({"type": "lifespan.startup"})
+            await self.startup_event.wait()
+            if not self.startup_complete or self.startup_failed or self.error_occurred:
+                # Some Uvicorn versions exit the process on startup failure.
+                raise TunnelError("handler_failed")
+
+        async def shutdown(self):
+            self.shutdown_requested = True
+            await super().shutdown()
+
+        async def close(self):
+            if self.task is None:
+                return
+            try:
+                # Startup can finish just as the caller cancels, before the
+                # listener starts. Such an application still needs shutdown.
+                if (not self.task.done() and self.startup_complete and
+                        not self.error_occurred and
+                        not self.shutdown_requested):
+                    await self.shutdown()
+            finally:
+                if not self.startup_event.is_set():
+                    self.task.cancel()
+                # Failure acknowledgement may precede asynchronous application
+                # cleanup; cancellation must not interrupt that cleanup join.
+                await _joined(asyncio.gather(self.task, return_exceptions=True))
 
     class Config(uvicorn.Config):
+        def load(self):
+            super().load()
+            if lifespan == "on":
+                self.lifespan_class = OwnedLifespan
+
         def configure_logging(self):
             # Uvicorn's access_log=False mutates its process-wide logger even
             # when log_config=None. Suppress output only on our own protocols.
@@ -343,6 +390,17 @@ async def _open_handler(handler, options, interface, helper):
             self.access_log = False
 
     class Server(uvicorn.Server):
+        async def serve(self, sockets=None):
+            try:
+                await super().serve(sockets=sockets)
+            finally:
+                if lifespan == "on":
+                    for listener in getattr(self, "servers", []):
+                        listener.close()
+                    owned = getattr(self, "lifespan", None)
+                    if owned is not None:
+                        await owned.close()
+
         @contextmanager
         def capture_signals(self):
             # The application owns all process signal handlers.
@@ -366,7 +424,7 @@ async def _open_handler(handler, options, interface, helper):
             raise TunnelError("handler_failed") from None
         handler = adapter
     config = Config(handler, interface="asgi3", http=HTTPProtocol, host="127.0.0.1", log_config=None,
-        access_log=False, proxy_headers=False, server_header=False, lifespan="off",
+        access_log=False, proxy_headers=False, server_header=False, lifespan=lifespan,
         limit_concurrency=32, timeout_graceful_shutdown=1)
     server = Server(config)
     server._tunn_wsgi = adapter
@@ -379,8 +437,11 @@ async def _open_handler(handler, options, interface, helper):
                 await asyncio.sleep(0.01)
     except BaseException as exc:
         server.should_exit = True
+        if not server.started:
+            # should_exit alone cannot interrupt a blocked lifespan startup.
+            task.cancel()
         try:
-            await _joined(task)
+            await _joined(asyncio.gather(task, return_exceptions=True))
         finally:
             sock.close()
             if adapter is not None:

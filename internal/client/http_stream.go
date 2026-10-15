@@ -404,9 +404,9 @@ func (s *ServeClient) handleStreamingHTTPRequest(ctx context.Context, sender mes
 	if s.HTTPTransport != nil {
 		roundTripper = s.HTTPTransport
 	}
-	httpClient := &http.Client{Transport: roundTripper}
-	if open.Protocol == common.HTTPOriginReplayProtocol {
-		httpClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	httpClient := &http.Client{
+		Transport:     roundTripper,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
 	response, err := httpClient.Do(request)
 	if err != nil {

@@ -34,10 +34,7 @@ func TestWebInspectorOriginRedirectPolicy(t *testing.T) {
 			})}
 			sender := new(webReplaySender)
 			client.handleStreamingHTTPRequest(context.Background(), sender, &pb.ConnectionOpen{ConnectionId: "fixture", Protocol: protocol, HttpRequest: &pb.HttpRequestHead{Method: "GET", Path: "/", Headers: map[string]string{"Host": "public.example.test"}}}, strings.NewReader(""))
-			wantCalls, wantStatus := 2, int32(200)
-			if protocol == common.HTTPOriginReplayProtocol {
-				wantCalls, wantStatus = 1, 307
-			}
+			wantCalls, wantStatus := 1, int32(307)
 			if calls != wantCalls || len(sender.messages) == 0 || sender.messages[0].GetConnectionAccept().GetHttpResponse().GetStatusCode() != wantStatus {
 				t.Fatalf("calls=%d, wanted %d; response messages=%d", calls, wantCalls, len(sender.messages))
 			}

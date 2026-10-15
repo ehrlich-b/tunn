@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"net"
@@ -71,8 +72,12 @@ func TestStatusCLIServeShutdownAndPersistentHistory(t *testing.T) {
 	for {
 		resp, err := client.Get("http://" + addr + "/status.json")
 		if err == nil {
+			var snapshot statuspage.Snapshot
+			decodeErr := json.NewDecoder(resp.Body).Decode(&snapshot)
 			resp.Body.Close()
-			if resp.StatusCode == 200 {
+			// Serving HTTP can precede the collector's first persisted sample.
+			// Wait for that sample before cancelling the collector under test.
+			if resp.StatusCode == 200 && decodeErr == nil && snapshot.Observed == 1 {
 				break
 			}
 		}

@@ -151,6 +151,7 @@ func (m *inboundConnectionManager) open(ctx context.Context, client *ServeClient
 }
 
 func (s *ServeClient) handleStreamingTCP(ctx context.Context, sender messageSender, connectionID string, input io.Reader) {
+	inputCloser, _ := input.(io.Closer)
 	status, reason := 0, "target_error"
 	var capture *inspectionCapture
 	if s.Inspector != nil {
@@ -176,13 +177,25 @@ func (s *ServeClient) handleStreamingTCP(ctx context.Context, sender messageSend
 		sendConnectionRejection(sender, connectionID, "failed to reach local TCP target")
 		return
 	}
-	defer func() { _ = connection.Close() }()
+	closeConnection := func() {
+		_ = connection.Close()
+		if inputCloser != nil {
+			_ = inputCloser.Close()
+		}
+	}
+	var workers sync.WaitGroup
 	stopWatcher := make(chan struct{})
-	defer close(stopWatcher)
+	defer func() {
+		close(stopWatcher)
+		closeConnection()
+		workers.Wait()
+	}()
+	workers.Add(1)
 	go func() {
+		defer workers.Done()
 		select {
 		case <-ctx.Done():
-			_ = connection.Close()
+			closeConnection()
 		case <-stopWatcher:
 		}
 	}()
@@ -196,8 +209,15 @@ func (s *ServeClient) handleStreamingTCP(ctx context.Context, sender messageSend
 		return
 	}
 
+	uploadDone := make(chan struct{})
+	workers.Add(1)
 	go func() {
-		_, _ = io.Copy(connection, input)
+		defer workers.Done()
+		defer close(uploadDone)
+		if _, err := io.Copy(connection, input); err != nil {
+			closeConnection()
+			return
+		}
 		if halfCloser, ok := connection.(interface{ CloseWrite() error }); ok {
 			_ = halfCloser.CloseWrite()
 		}
@@ -229,7 +249,11 @@ func (s *ServeClient) handleStreamingTCP(ctx context.Context, sender messageSend
 				},
 			}); err != nil {
 				reason = "relay_error"
+				return
 			}
+			// Origin EOF ends only the response direction. Keep accepting
+			// uploads until their EOF, or until cancellation closes both I/Os.
+			<-uploadDone
 			return
 		}
 		if readErr != nil {

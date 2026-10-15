@@ -126,7 +126,8 @@ if your MCP version requires it; do not disable those checks.
 
 ## Lifecycle and handler ownership
 
-Both start functions return after local validation and helper startup.
+Start functions return after local validation and helper startup. Async handler
+publication with `lifespan="on"` also waits for application startup first.
 `wait_ready(timeout)` waits for the first relay registration. Its timeout or
 cancellation affects that wait alone. `wait(timeout)` retains the terminal
 result; `close()` cancels and joins owned resources and succeeds on intentional
@@ -156,9 +157,31 @@ the tunnel closes the owned listener and requests cancellation of active ASGI
 requests. Caller-owned origin servers and other tunnels stay alive. Uvicorn
 receives no signal handlers or logging configuration from this package.
 
-The application owns ASGI lifespan: the adapter does not invoke lifespan
-startup/shutdown. Enter the application's lifespan context yourself, as the MCP
-example does. Handlers must cooperate with cancellation. Python cannot stop
+The application owns ASGI lifespan by default (`lifespan="off"`): enter its
+lifespan context yourself, as the MCP example does. To let the async publisher
+own startup and shutdown instead, pass `lifespan="on"`:
+
+```python
+async with await publish_handler_async(app, options, lifespan="on") as tunnel:
+    print(await tunnel.wait_ready(timeout=15))
+    await tunnel.wait()
+```
+
+This opt-in applies only to `publish_handler_async` with `interface="asgi"`.
+Startup must complete before the helper starts or any ready event can be
+published. Startup failure (including an unsupported lifespan protocol) raises
+`TunnelError("handler_failed")` without publishing. The existing five-second
+local startup timeout also covers lifespan startup. Shutdown runs once when the
+tunnel stops, including helper failure and cancellation after startup. Cancelling
+startup cancels and joins the lifespan task so the application's `finally`
+blocks can release partially acquired resources. If startup has already
+completed, cleanup sends shutdown before joining the task. Close waits for
+cooperative shutdown; `lifetime_timeout` requests cancellation and does not
+impose a hard deadline on application cleanup. Do not also enter an external
+lifespan context for the same application when using this mode. WSGI and the
+sync API retain externally managed application lifecycle.
+
+Handlers must cooperate with cancellation. Python cannot stop
 WSGI threads or application code that ignores cancellation. WSGI callbacks can
 check `environ["tunn.cancelled"]`, a `threading.Event`, during cooperative work.
 Closing waits for WSGI workers to return, closes their response iterables, and

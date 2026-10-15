@@ -1,6 +1,11 @@
 #!/bin/sh
 set -eu
-INFO="[i]"; OK="[ok]"
+INFO='[i]'
+OK='[ok]'
+if [ -t 1 ] && [ -z "${NO_COLOR+x}" ] && [ "${TERM:-dumb}" != dumb ]; then
+    INFO=$(printf '\033[34m[i]\033[0m')
+    OK=$(printf '\033[32m[ok]\033[0m')
+fi
 DOWNLOAD_BASE="${TUNN_DOWNLOAD_BASE:-@DOWNLOAD_BASE@}"
 INSTALL_DIR="${TUNN_INSTALL_DIR:-$HOME/.local/bin}"
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"

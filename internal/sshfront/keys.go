@@ -70,7 +70,7 @@ func ParseKey(value string) (Key, error) {
 
 func (r *Registry) OwnerAccount(ctx context.Context, fingerprint string) (*store.Account, error) {
 	var id string
-	err := r.db.QueryRowContext(ctx, "SELECT account_id FROM ssh_keys WHERE fingerprint=?", fingerprint).Scan(&id)
+	err := r.db.QueryRowContext(ctx, "SELECT account_id FROM ssh_key_owners WHERE fingerprint=?", fingerprint).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -103,10 +103,10 @@ func (r *Registry) Add(ctx context.Context, email, publicKey string) (Key, error
 	if err != nil {
 		return Key{}, err
 	}
-	result, err := r.db.ExecContext(ctx, `INSERT INTO ssh_keys(fingerprint, public_key, owner_email, account_id)
-     SELECT ?, ?, ?, account_id FROM account_emails WHERE email=?
+	result, err := r.db.ExecContext(ctx, `INSERT INTO ssh_keys(fingerprint, public_key, owner_email)
+     SELECT ?, ?, ? FROM account_emails WHERE email=?
      ON CONFLICT(fingerprint) DO UPDATE SET public_key=excluded.public_key
-     WHERE COALESCE((SELECT account_id FROM account_merges WHERE old_id=ssh_keys.account_id),ssh_keys.account_id)=excluded.account_id`, k.Fingerprint, k.PublicKey, common.NormalizeEmail(email), common.NormalizeEmail(email))
+     WHERE (SELECT COALESCE((SELECT account_id FROM account_merges WHERE old_id=o.account_id),o.account_id) FROM ssh_key_owners o WHERE o.fingerprint=ssh_keys.fingerprint)=(SELECT account_id FROM account_emails WHERE email=excluded.owner_email)`, k.Fingerprint, k.PublicKey, common.NormalizeEmail(email), common.NormalizeEmail(email))
 	if err != nil {
 		return Key{}, err
 	}
@@ -124,7 +124,7 @@ func (r *Registry) ConfirmSessionKey(ctx context.Context, accountID, publicKey s
 	if err != nil {
 		return Key{}, err
 	}
-	result, err := r.db.ExecContext(ctx, `UPDATE ssh_keys SET public_key=? WHERE fingerprint=? AND COALESCE((SELECT account_id FROM account_merges WHERE old_id=ssh_keys.account_id),account_id)=?`, k.PublicKey, k.Fingerprint, accountID)
+	result, err := r.db.ExecContext(ctx, `UPDATE ssh_keys SET public_key=? WHERE fingerprint=? AND (SELECT COALESCE((SELECT account_id FROM account_merges WHERE old_id=o.account_id),o.account_id) FROM ssh_key_owners o WHERE o.fingerprint=ssh_keys.fingerprint)=?`, k.PublicKey, k.Fingerprint, accountID)
 	if err != nil {
 		return Key{}, err
 	}
@@ -140,7 +140,7 @@ func (r *Registry) ConfirmSessionKey(ctx context.Context, accountID, publicKey s
 
 func (r *Registry) List(ctx context.Context, accountID string) ([]Key, error) {
 	keys := []Key{}
-	rows, err := r.db.QueryContext(ctx, `SELECT fingerprint,public_key,account_id FROM ssh_keys WHERE COALESCE((SELECT account_id FROM account_merges WHERE old_id=ssh_keys.account_id),account_id)=? ORDER BY fingerprint`, accountID)
+	rows, err := r.db.QueryContext(ctx, `SELECT fingerprint,public_key,(SELECT account_id FROM ssh_key_owners WHERE fingerprint=ssh_keys.fingerprint) FROM ssh_keys WHERE (SELECT COALESCE((SELECT account_id FROM account_merges WHERE old_id=o.account_id),o.account_id) FROM ssh_key_owners o WHERE o.fingerprint=ssh_keys.fingerprint)=? ORDER BY fingerprint`, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -161,7 +161,7 @@ func (r *Registry) Remove(ctx context.Context, accountID, fingerprint string) er
 		return err
 	}
 	defer tx.Rollback()
-	result, err := tx.ExecContext(ctx, `DELETE FROM ssh_keys WHERE COALESCE((SELECT account_id FROM account_merges WHERE old_id=ssh_keys.account_id),account_id)=? AND fingerprint=?`, accountID, fingerprint)
+	result, err := tx.ExecContext(ctx, `DELETE FROM ssh_keys WHERE (SELECT COALESCE((SELECT account_id FROM account_merges WHERE old_id=o.account_id),o.account_id) FROM ssh_key_owners o WHERE o.fingerprint=ssh_keys.fingerprint)=? AND fingerprint=?`, accountID, fingerprint)
 	if err != nil {
 		return err
 	}
@@ -300,7 +300,7 @@ func (r *Registry) completeChallenge(ctx context.Context, table, token, expected
 			return Key{}, fmt.Errorf("invalid SSH key possession proof")
 		}
 	}
-	result, err := tx.ExecContext(ctx, `INSERT INTO ssh_keys(fingerprint,public_key,owner_email,account_id) VALUES (?, ?, ?, ?) ON CONFLICT(fingerprint) DO UPDATE SET public_key=excluded.public_key WHERE COALESCE((SELECT account_id FROM account_merges WHERE old_id=ssh_keys.account_id),ssh_keys.account_id)=excluded.account_id`, k.Fingerprint, k.PublicKey, email, current)
+	result, err := tx.ExecContext(ctx, `INSERT INTO ssh_keys(fingerprint,public_key,owner_email) VALUES (?, ?, ?) ON CONFLICT(fingerprint) DO UPDATE SET public_key=excluded.public_key WHERE (SELECT COALESCE((SELECT account_id FROM account_merges WHERE old_id=o.account_id),o.account_id) FROM ssh_key_owners o WHERE o.fingerprint=ssh_keys.fingerprint)=(SELECT account_id FROM account_emails WHERE email=excluded.owner_email)`, k.Fingerprint, k.PublicKey, email)
 	if err != nil {
 		return Key{}, err
 	}

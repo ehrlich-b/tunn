@@ -24,7 +24,7 @@ func MigrateCredentialOwnership(db *sql.DB) error {
 
 func bindCredentialOwners(ctx context.Context, tx *sql.Tx) error {
 	for _, credential := range []struct{ table, email string }{
-		{"device_codes", "email"}, {"durable_devices", "email"}, {"ssh_keys", "owner_email"},
+		{"device_codes", "email"}, {"durable_devices", "email"},
 		{"ssh_key_links", "email"}, {"ssh_key_proofs", "email"},
 	} {
 		var exists, bound int
@@ -61,7 +61,7 @@ func bindCredentialOwners(ctx context.Context, tx *sql.Tx) error {
 			return err
 		}
 		unbound := ""
-		if credential.table == "ssh_keys" || credential.table == "durable_devices" || credential.table == "device_codes" {
+		if credential.table == "durable_devices" || credential.table == "device_codes" {
 			unbound = "unbound-credential"
 		}
 		for _, email := range emails {
@@ -71,5 +71,41 @@ func bindCredentialOwners(ctx context.Context, tx *sql.Tx) error {
 			}
 		}
 	}
-	return nil
+	return bindSSHKeyOwners(ctx, tx)
+}
+
+// Keep ssh_keys in its three-column shape for rollback builds which insert
+// without a column list. Triggers also bind keys enrolled by those builds.
+func bindSSHKeyOwners(ctx context.Context, tx *sql.Tx) error {
+	var exists, oldColumn int
+	if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='ssh_keys'").Scan(&exists); err != nil {
+		return err
+	}
+	if exists == 0 {
+		return nil
+	}
+	if _, err := tx.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS ssh_key_owners(fingerprint TEXT PRIMARY KEY, account_id TEXT NOT NULL)`); err != nil {
+		return err
+	}
+	if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM pragma_table_info('ssh_keys') WHERE name='account_id'").Scan(&oldColumn); err != nil {
+		return err
+	}
+	if oldColumn != 0 {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO ssh_key_owners SELECT fingerprint,account_id FROM ssh_keys WHERE account_id<>'' ON CONFLICT(fingerprint) DO NOTHING`); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, "ALTER TABLE ssh_keys DROP COLUMN account_id"); err != nil {
+			return err
+		}
+	}
+	_, err := tx.ExecContext(ctx, `INSERT INTO ssh_key_owners(fingerprint,account_id)
+ SELECT fingerprint, COALESCE((SELECT account_id FROM account_emails WHERE email=lower(trim(owner_email))),'unbound-credential') FROM ssh_keys WHERE true
+ ON CONFLICT(fingerprint) DO NOTHING;
+ CREATE TRIGGER IF NOT EXISTS ssh_key_owner_insert AFTER INSERT ON ssh_keys BEGIN
+ INSERT INTO ssh_key_owners(fingerprint,account_id) VALUES(NEW.fingerprint,COALESCE((SELECT account_id FROM account_emails WHERE email=lower(trim(NEW.owner_email))),'unbound-credential'));
+ END;
+ CREATE TRIGGER IF NOT EXISTS ssh_key_owner_delete AFTER DELETE ON ssh_keys BEGIN
+ DELETE FROM ssh_key_owners WHERE fingerprint=OLD.fingerprint;
+ END;`)
+	return err
 }

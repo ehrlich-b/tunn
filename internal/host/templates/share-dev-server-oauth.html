@@ -12,29 +12,30 @@
 <meta property="og:description" content="Share a local dev server through an HTTPS tunnel with GitHub OAuth sign-in and an email allow-list. Includes exact tunn commands.">
 <meta property="og:url" content="https://tunn.to/share-dev-server-oauth">
 <link rel="stylesheet" href="/guides.css">
+<script defer src="/assets/ui.js"></script>
 </head>
-<body>
-<header class="header"><div class="header-inner"><a class="header-logo" href="/">tunn</a><nav aria-label="Guides"><a href="/ngrok-alternative">ngrok alternative</a><a href="/mcp-to-claude">MCP to Claude</a><a href="/share-dev-server-oauth">OAuth sharing</a></nav></div></header>
-<main><h1>Share a dev server with OAuth in one command</h1>
+<body class="guide">
+<!--site-header:docs-->
+<main id="main" class="guide-content" tabindex="-1"><h1>Share a dev server with OAuth in one command</h1>
 <p class="lead">Choose who can open your local app with an email allow-list.</p>
 <p>After installing tunn and completing the one-time login, run this for a dev server already listening on port 3000:</p>
-<pre><code>tunn 3000 --allow=alice@example.com</code></pre>
+<pre class="shell-command" tabindex="0" aria-label="Shell commands"><code><span class="arg">tunn</span> <span class="arg">3000</span> <span class="arg">--allow=alice@example.com</span></code></pre>
 <p>Replace the address with your teammate's verified email. Copy the HTTPS URL printed by tunn and send it to them. Keep the local app and tunn running while they use it.</p>
 <h2>First-time setup</h2>
-<pre><code>curl -fsSL https://tunn.to/install.sh | sh
-tunn login</code></pre>
+<pre class="shell-command" tabindex="0" aria-label="Shell commands"><code><span class="arg">curl</span> <span class="arg">-fsSL</span> <span class="arg">https://tunn.to/install.sh</span> <span class="arg">|</span> <span class="arg">sh</span>
+<span class="arg">tunn</span> <span class="arg">login</span></code></pre>
 <p>The CLI prompts you to finish login in a browser. The single sharing command above assumes that setup is complete.</p>
 <h2>What happens when someone opens the link?</h2>
 <p>An unauthenticated browser is sent to tunn's login page. With GitHub OAuth configured, the visitor chooses GitHub and signs in. tunn checks the account's verified emails against your allow-list before forwarding the request to the local app. The creator is also allowed. The login page can also offer email links; an allow-list does not force visitors to use only OAuth.</p>
 <p>Your teammate needs a browser, without a tunn CLI installation. The relay checks access before forwarding to your app, so this sharing rule does not require adding a login screen to your app.</p>
 <h2>Allow several people or a domain</h2>
-<pre><code>tunn 3000 --allow=alice@example.com,bob@example.com
-tunn 3000 --allow=@example.com</code></pre>
+<pre class="shell-command" tabindex="0" aria-label="Shell commands"><code><span class="arg">tunn</span> <span class="arg">3000</span> <span class="arg">--allow=alice@example.com,bob@example.com</span>
+<span class="arg">tunn</span> <span class="arg">3000</span> <span class="arg">--allow=@example.com</span></code></pre>
 <p>Run one of these variants. Domain sharing admits accounts with a verified email in that domain. Choose the smaller list when you want only specific people to open the app.</p>
 <h2>Check the boundary</h2>
 <p>Try the URL in a signed-out browser: it should ask you to log in. An authenticated account outside the allow-list should receive an access denial. An allowed account should reach your app.</p>
 <p class="note">Updated CLI web tunnels are owner-only by default. Use <code>--allow</code> to initialize sharing, or manage live person access at <a href="/account/sharing">Share access</a>. Use <code>--public</code> only when anonymous access is intended. Stop the tunn process when the sharing session is over. Keep your application's own authentication if it needs additional permissions.</p>
-<p>Looking for another workflow? Read the <a href="/ngrok-alternative">ngrok comparison</a> or <a href="/mcp-to-claude">publish a local MCP server for a remote connector</a>.</p></main>
-<footer><a href="https://github.com/ehrlich-b/tunn">Source and documentation</a> · <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></footer>
+<p>Looking for another workflow? Read the <a href="/ngrok-alternative">ngrok comparison</a> or <a href="/mcp-to-claude">publish a local MCP server for a remote connector</a>.</p><nav class="related-guides" aria-label="Related guides"><h2>Related guides</h2><a href="/ngrok-alternative">ngrok alternative</a><a href="/mcp-to-claude">MCP to Claude</a><a href="/share-dev-server-oauth">OAuth sharing</a></nav></main>
+<!--site-footer-->
 </body>
 </html>

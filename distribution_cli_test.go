@@ -18,7 +18,9 @@ func TestDistributionCLICommands(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	blocks := regexp.MustCompile(`(?s)<pre><code>(.*?)</code></pre>`)
+	// Read both traditional code blocks and individually copyable commands.
+	blocks := regexp.MustCompile(`(?s)(?:<pre(?:\s[^>]*)?><code>|<code class="kbd"[^>]*>)(.*?)</code>`)
+	argumentSpans := regexp.MustCompile(`</?span\b[^>]*>`)
 	var checked int
 	for _, file := range files {
 		data, err := os.ReadFile(file)
@@ -27,7 +29,7 @@ func TestDistributionCLICommands(t *testing.T) {
 		}
 		for _, block := range blocks.FindAllStringSubmatch(string(data), -1) {
 			// Parse shell quoting and continuations without executing examples.
-			source := strings.ReplaceAll(html.UnescapeString(block[1]), "\\\n", "")
+			source := strings.ReplaceAll(html.UnescapeString(argumentSpans.ReplaceAllString(block[1], "")), "\\\n", "")
 			for _, line := range strings.Split(source, "\n") {
 				if !strings.HasPrefix(strings.TrimSpace(line), "tunn ") {
 					continue

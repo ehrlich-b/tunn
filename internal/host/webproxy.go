@@ -747,7 +747,11 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		session.recordError(proxyErr, r.Context())
 		common.LogError("failed to proxy request", "error", proxyErr, "tunnel_id", tunnelID)
 		if !responseHasStarted(proxyErr) {
-			writeIngressError(w, proxyErr)
+			if localAppUnreachable(proxyErr) && acceptsHTML(r) {
+				p.writeLocalAppDown(w, r)
+			} else {
+				writeIngressError(w, proxyErr)
+			}
 		}
 		return proxyErr
 	}
@@ -1150,7 +1154,7 @@ func (p *ProxyServer) handleApexDomain(w http.ResponseWriter, r *http.Request) {
 
 	switch r.URL.Path {
 	case "/privacy":
-		_, _ = fmt.Fprint(w, privacyHTML)
+		_, _ = fmt.Fprint(w, withSiteChrome(privacyHTML))
 	case "/terms":
 		p.renderRevenuePage(w, termsHTML)
 	case "/favicon.ico", "/robots.txt", "/sitemap.xml":

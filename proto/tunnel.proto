@@ -133,6 +133,9 @@ message HttpRequest {
   map<string, string> headers = 4;
   // body is the HTTP request body (may be empty)
   bytes body = 5;
+  // Requires negotiated http-request-headers-v1. A nonempty list replaces the
+  // entire map; values are individual fields and must never be comma-split.
+  repeated HttpHeader header_fields = 6;
 }
 
 // HttpResponse is sent by the client to the server with the HTTP response
@@ -185,6 +188,8 @@ message HttpRequestHead {
   string path = 2;
   map<string, string> headers = 3;
   int64 content_length = 4;
+  // Same negotiated whole-list precedence as HttpRequest.
+  repeated HttpHeader header_fields = 5;
 }
 
 // ConnectionAccept acknowledges an open connection. Adapter response metadata

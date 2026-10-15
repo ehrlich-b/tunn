@@ -816,9 +816,10 @@ func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, 
 	}
 	body := limitedBody
 
-	// Convert headers to map (join multi-value headers per HTTP spec)
-	// SECURITY: Strip platform cookies to prevent tunnel owners from stealing sessions
-	headers := p.forwardedHTTPHeaders(r)
+	headers, fields, ok := p.negotiatedRequestHeaders(w, r, tunnel)
+	if !ok {
+		return nil
+	}
 
 	// Create HttpRequest message
 	httpReq := &pb.HttpRequest{
@@ -826,6 +827,7 @@ func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, 
 		Method:       r.Method,
 		Path:         r.URL.RequestURI(),
 		Headers:      headers,
+		HeaderFields: fields,
 		Body:         body,
 	}
 
@@ -947,34 +949,7 @@ func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, 
 }
 
 func (p *ProxyServer) forwardedRequestHeaders(source http.Header) map[string]string {
-	headers := make(map[string]string, len(source))
-	for key, values := range source {
-		// This header belongs exclusively to the relay, even when a browser
-		// cookie authenticated the request instead of the bearer credential.
-		if strings.EqualFold(key, "Tunn-Authorization") {
-			continue
-		}
-		if strings.EqualFold(key, "Authorization") {
-			kept := make([]string, 0, len(values))
-			for _, value := range values {
-				if !p.isPlatformAuthorization(value) {
-					kept = append(kept, value)
-				}
-			}
-			if len(kept) == 0 {
-				continue
-			}
-			values = kept
-		}
-		value := strings.Join(values, ", ")
-		if strings.EqualFold(key, "Cookie") {
-			value = stripPlatformCookies(strings.Join(values, "; "))
-			if value == "" {
-				continue
-			}
-		}
-		headers[key] = value
-	}
+	headers, _ := common.EncodeHTTPRequestHeaders(p.forwardedApplicationHeaders(source))
 	return headers
 }
 

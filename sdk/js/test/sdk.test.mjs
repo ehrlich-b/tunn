@@ -453,3 +453,66 @@ test('session reconnect destroys old pending HTTP workers', async t => {
   await until(() => closed === 1 && r.sessions.length === 2 && tunnel.status.state === 'ready');
   await tunnel.close(); assert.equal(closed, 1);
 });
+
+for (const buffered of [false, true]) {
+  test(`repeated request fields, Cookie joining and whole-list precedence (${buffered ? 'buffered' : 'streamed'})`, async t => {
+    let observed;
+    const target = http.createServer((req, res) => {
+      observed = req;
+      res.writeHead(204); res.end();
+    });
+    const url = await listen(t, target);
+    const r = await relay(t, async s => {
+      const register = await s.next('registerClient');
+      assert.ok(register.capabilities.includes('http-request-headers-v1'));
+      ready(s, register, [...caps, 'http-request-headers-v1']);
+    });
+    const tunnel = publish({ origin: url, ...r.options }); t.after(() => tunnel.close());
+    await tunnel.waitReady();
+    const session = r.sessions[0];
+    const headerFields = [
+      { name: 'X-App', value: 'first, literal' }, { name: 'x-app', value: 'second' },
+      { name: 'Cookie', value: 'a=1' }, { name: 'Cookie', value: 'b=2' },
+      { name: 'Connection', value: 'X-Hop, keep-alive' }, { name: 'X-Hop', value: 'secret' },
+      { name: 'Keep-Alive', value: 'secret' }, { name: 'Tunn-Authorization', value: 'secret' },
+    ];
+    const head = { method: 'GET', path: '/', contentLength: 0, headerFields, headers: { authorization: 'must-not-merge' } };
+    if (buffered) session.call.write({ httpRequest: { connectionId: 'repeated', ...head } });
+    else {
+      session.call.write({ connectionOpen: { connectionId: 'repeated', protocol: 'http', httpRequest: head } });
+      session.call.write({ connectionHalfClose: { connectionId: 'repeated' } });
+    }
+    const response = await session.next(buffered ? 'httpResponse' : 'connectionAccept');
+    assert.equal((buffered ? response : response.httpResponse).statusCode, 204);
+    const values = [];
+    for (let i = 0; i < observed.rawHeaders.length; i += 2) if (observed.rawHeaders[i].toLowerCase() === 'x-app') values.push(observed.rawHeaders[i + 1]);
+    assert.deepEqual(values, ['first, literal', 'second']);
+    assert.equal(observed.headers.cookie, 'a=1; b=2');
+    for (const key of ['authorization', 'tunn-authorization', 'x-hop', 'keep-alive']) assert.equal(observed.headers[key], undefined);
+  });
+
+  test(`malformed singleton fields fail before origin dispatch (${buffered ? 'buffered' : 'streamed'})`, async t => {
+    let calls = 0;
+    const url = await listen(t, http.createServer((_req, res) => { calls++; res.end(); }));
+    const r = await relay(t, async s => ready(s, await s.next('registerClient'), [...caps, 'http-request-headers-v1']));
+    const tunnel = publish({ origin: url, ...r.options }); t.after(() => tunnel.close());
+    await tunnel.waitReady();
+    const session = r.sessions[0];
+    const cases = [
+      [{ name: 'Host', value: 'a' }, { name: 'host', value: 'b' }],
+      [{ name: 'Authorization', value: 'a' }, { name: 'authorization', value: 'b' }],
+      [{ name: 'Content-Length', value: '0' }, { name: 'content-length', value: '0' }],
+      [{ name: 'Content-Length', value: '0, 0' }],
+      [{ name: 'Content-Length', value: '0' }, { name: 'Transfer-Encoding', value: 'chunked' }],
+      [{ name: 'X-App', value: 'bad\r\nInjected: value' }],
+    ];
+    for (let i = 0; i < cases.length; i++) {
+      const head = { method: 'GET', path: '/', contentLength: 0, headerFields: cases[i] };
+      if (buffered) session.call.write({ httpRequest: { connectionId: `bad-${i}`, ...head } });
+      else session.call.write({ connectionOpen: { connectionId: `bad-${i}`, protocol: 'http', httpRequest: head } });
+      const response = await session.next(buffered ? 'httpResponse' : 'connectionAccept');
+      if (buffered) assert.equal(response.statusCode, 502); else assert.equal(response.success, false);
+    }
+    assert.equal(calls, 0);
+  });
+}

@@ -52,6 +52,38 @@ function validateTrailers(names: string[], trailers: Field[]): void {
   if (bytes > 16 * 1024) throw new Error('invalid trailers');
 }
 
+// Select the complete field list when present. Never merge credentials from
+// the legacy map into it, and validate framing before opening an origin socket.
+function requestHeaders(head: Message, length: number): http.OutgoingHttpHeaders {
+  const headers: Record<string, string[]> = Object.create(null);
+  const entries: Field[] = head.headerFields?.length ? head.headerFields : Object.entries(head.headers ?? {}).map(([name, value]) => ({ name, value: String(value) }));
+  for (const field of entries) {
+    if (!field || typeof field.name !== 'string' || typeof field.value !== 'string' || !token.test(field.name)) throw new Error('invalid request header');
+    http.validateHeaderValue(field.name, field.value);
+    const name = field.name.toLowerCase();
+    (headers[name] ??= []).push(field.value);
+  }
+  for (const name of ['host', 'authorization', 'proxy-authorization', 'content-length', 'transfer-encoding', 'expect', 'sec-websocket-key', 'sec-websocket-version']) {
+    if (headers[name]?.length > 1) throw new Error('repeated singleton');
+  }
+  if (!Number.isSafeInteger(length) || length < -1) throw new Error('invalid length');
+  const declared = headers['content-length']?.[0];
+  if (declared !== undefined && (!/^[0-9]+$/.test(declared.trim()) || Number(declared) !== length || headers['transfer-encoding'])) throw new Error('invalid framing');
+  if (headers['transfer-encoding'] && headers['transfer-encoding'][0].trim().toLowerCase() !== 'chunked') throw new Error('invalid framing');
+  for (const value of headers.connection ?? []) {
+    for (const option of value.split(',')) {
+      const name = option.trim().toLowerCase();
+      if (!token.test(name)) throw new Error('invalid Connection option');
+      delete headers[name];
+    }
+  }
+  for (const name of ['connection', 'upgrade', 'keep-alive', 'proxy-connection', 'proxy-authenticate', 'proxy-authorization', 'te', 'trailer', 'transfer-encoding', 'content-length', 'tunn-authorization']) delete headers[name];
+  for (const name of Object.keys(headers)) if (name.startsWith('tunn-relay-')) delete headers[name];
+  const result: http.OutgoingHttpHeaders = Object.create(null);
+  for (const [name, values] of Object.entries(headers)) result[name] = name === 'cookie' ? values.join('; ') : values.length === 1 ? values[0] : values;
+  return result;
+}
+
 /** Each session owns its workers; a replaced session cannot send into a new one. */
 export class Forwarder {
   #active = new Map<string, Connection>();
@@ -119,11 +151,14 @@ export class Forwarder {
       if (buffered) this.dispatch({ httpResponse: { connectionId: id, statusCode: 503 } }); else this.reject(id);
       return;
     }
-    const headers: Record<string, string> = Object.create(null);
-    for (const [key, value] of Object.entries(head.headers ?? {})) headers[key.toLowerCase()] = String(value);
-    // Publisher credentials are never added to application requests.
-    delete headers['tunn-authorization'];
-    if (this.config.requireUpstreamAuth && !headers.authorization?.trim()) {
+    const length = buffered ? (head.body?.length ?? 0) : head.contentLength;
+    let headers: http.OutgoingHttpHeaders;
+    try { headers = requestHeaders(head, length); }
+    catch {
+      if (buffered) this.dispatch({ httpResponse: { connectionId: id, statusCode: 502 } }); else this.reject(id);
+      return;
+    }
+    if (this.config.requireUpstreamAuth && !String(headers.authorization ?? '').trim()) {
       const metadata = { statusCode: 401, headers: { 'www-authenticate': 'Bearer realm="upstream"' } };
       if (buffered) this.dispatch({ httpResponse: { connectionId: id, ...metadata } });
       else {
@@ -132,7 +167,6 @@ export class Forwarder {
       }
       return;
     }
-    const length = buffered ? (head.body?.length ?? 0) : head.contentLength;
     if (typeof head.path !== 'string' || !head.path.startsWith('/') || /[\x00-\x20\x7f#]/.test(head.path) || !token.test(head.method ?? '') || !Number.isSafeInteger(length) || length < -1 || (buffered && length > this.config.maxBufferedBytes)) {
       if (buffered) this.dispatch({ httpResponse: { connectionId: id, statusCode: 502 } }); else this.reject(id);
       return;

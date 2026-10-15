@@ -115,8 +115,10 @@ func (s *ServeClient) handleWebSocket(ctx context.Context, sender messageSender,
 		sendConnectionRejection(sender, id, "invalid local WebSocket target")
 		return
 	}
-	for key, value := range head.Headers {
-		request.Header.Set(key, value)
+	request.Header, err = common.DecodeHTTPRequestHeaders(head.Headers, head.HeaderFields, 0, true)
+	if err != nil {
+		sendConnectionRejection(sender, id, "invalid request headers")
+		return
 	}
 	request.Host = request.Header.Get("Host")
 	request.Header.Del("Host")
@@ -206,9 +208,11 @@ func (s *ServeClient) handleWebSocket(ctx context.Context, sender messageSender,
 	}
 	if selected := response.Header.Get("Sec-WebSocket-Protocol"); selected != "" {
 		offered := false
-		for _, protocol := range strings.Split(request.Header.Get("Sec-WebSocket-Protocol"), ",") {
-			if strings.TrimSpace(protocol) == selected {
-				offered = true
+		for _, value := range request.Header.Values("Sec-WebSocket-Protocol") {
+			for _, protocol := range strings.Split(value, ",") {
+				if strings.TrimSpace(protocol) == selected {
+					offered = true
+				}
 			}
 		}
 		if !offered {

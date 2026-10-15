@@ -14,7 +14,7 @@ export const TunnelService = loaded.tunn.v1.TunnelService;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type Message = Record<string, any>;
 export type Stream = grpc.ClientDuplexStream<Message, Message>;
-export const capabilities = ['http-stream-v1', 'connection-stream-v1', 'http-response-trailers-v1'];
+export const capabilities = ['http-stream-v1', 'connection-stream-v1', 'http-response-trailers-v1', 'http-request-headers-v1'];
 
 export function write(stream: Stream, message: Message, signal: AbortSignal): Promise<void> {
   if (signal.aborted) return Promise.reject(new Error('session closed'));

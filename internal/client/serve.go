@@ -361,6 +361,7 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 					common.CapabilityConnectionStreamV1,
 					common.CapabilityWebSocketV1,
 					common.CapabilityHTTPResponseTrailersV1,
+					common.CapabilityHTTPRequestHeadersV1,
 					common.CapabilityHTTPOriginReplayV1,
 					deviceReauthCapability,
 				},
@@ -697,8 +698,10 @@ func (s *ServeClient) handleHTTPRequestContext(ctx context.Context, sender messa
 	}
 
 	// Copy headers
-	for key, value := range httpReq.Headers {
-		req.Header.Set(key, value)
+	req.Header, err = common.DecodeHTTPRequestHeaders(httpReq.Headers, httpReq.HeaderFields, int64(len(httpReq.Body)), false)
+	if err != nil {
+		s.sendErrorResponse(sender, httpReq.ConnectionId, http.StatusBadGateway, "Invalid request headers")
+		return
 	}
 	req.Host = req.Header.Get("Host")
 	req.Header.Del("Host")

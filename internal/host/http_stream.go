@@ -54,6 +54,10 @@ func (b *streamingHTTPRequestBody) Close() error {
 // connection-oriented data path. Unlike the legacy path, the response may
 // remain open indefinitely for SSE and MCP standalone event streams.
 func (p *ProxyServer) proxyStreamingHTTPOverGRPC(w http.ResponseWriter, r *http.Request, tunnel *TunnelConnection) error {
+	headers, fields, ok := p.negotiatedRequestHeaders(w, r, tunnel)
+	if !ok {
+		return nil
+	}
 	if r.ContentLength > MaxBodySize {
 		return &requestBodyTooLargeError{MaxBodySize}
 	}
@@ -76,7 +80,8 @@ func (p *ProxyServer) proxyStreamingHTTPOverGRPC(w http.ResponseWriter, r *http.
 		HttpRequest: &pb.HttpRequestHead{
 			Method:        r.Method,
 			Path:          r.URL.RequestURI(),
-			Headers:       p.forwardedHTTPHeaders(r),
+			Headers:       headers,
+			HeaderFields:  fields,
 			ContentLength: r.ContentLength,
 		},
 	}

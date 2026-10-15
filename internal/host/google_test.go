@@ -102,3 +102,52 @@ func TestGoogleLoginVerifiedEmailAndBrowserBinding(t *testing.T) {
 		t.Fatal("unconfigured Google offered")
 	}
 }
+
+func TestGoogleLoginRedirectURIWithPublicPort(t *testing.T) {
+	for _, tc := range []struct {
+		publicAddr, redirectURI string
+	}{
+		{"tunn.to:443", "https://tunn.to/auth/google/callback"},
+		{"tunn.to:8443", "https://tunn.to:8443/auth/google/callback"},
+		{"[::1]:443", "https://[::1]/auth/google/callback"},
+		{"[::1]:8443", "https://[::1]:8443/auth/google/callback"},
+	} {
+		t.Run(tc.publicAddr, func(t *testing.T) {
+			p := newMCPOAuthFixture(t).p
+			p.config.PublicAddr = tc.publicAddr
+			p.config.GoogleClientID, p.config.GoogleClientSecret = "fixture-id", "fixture-secret"
+			fixture := googleFixtureTransport(t, p, true)
+			tokenRequests := 0
+			p.googleHTTPClient = &http.Client{Transport: securityRoundTripper(func(r *http.Request) (*http.Response, error) {
+				if r.URL.String() == googleTokenURL {
+					tokenRequests++
+					if err := r.ParseForm(); err != nil {
+						return nil, err
+					}
+					if got := r.Form.Get("redirect_uri"); got != tc.redirectURI {
+						t.Errorf("token redirect_uri = %q, want %q", got, tc.redirectURI)
+					}
+				}
+				return fixture.Transport.RoundTrip(r)
+			})}
+			start := httptest.NewRecorder()
+			p.handleGoogleLogin(start, httptest.NewRequest("GET", "https://tunn.test/auth/google", nil))
+			authorize, err := url.Parse(start.Header().Get("Location"))
+			if err != nil || start.Code != http.StatusFound {
+				t.Fatalf("authorization redirect: status=%d, parse error=%v", start.Code, err)
+			}
+			if got := authorize.Query().Get("redirect_uri"); got != tc.redirectURI {
+				t.Fatalf("authorization redirect_uri = %q, want %q", got, tc.redirectURI)
+			}
+			req := httptest.NewRequest("GET", tc.redirectURI+"?state="+url.QueryEscape(authorize.Query().Get("state"))+"&code=alice%40example.com", nil)
+			for _, cookie := range start.Result().Cookies() {
+				req.AddCookie(cookie)
+			}
+			callback := httptest.NewRecorder()
+			p.handleGoogleCallback(callback, req)
+			if callback.Code != http.StatusFound || tokenRequests != 1 {
+				t.Fatalf("callback status=%d body=%s token requests=%d", callback.Code, callback.Body.String(), tokenRequests)
+			}
+		})
+	}
+}

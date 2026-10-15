@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"fmt"
 	"net/http"
+	"strconv"
 )
 
 //go:embed templates/ngrok-alternative.html
@@ -14,6 +15,25 @@ var mcpToClaudeHTML string
 
 //go:embed templates/share-dev-server-oauth.html
 var shareDevServerOAuthHTML string
+
+//go:embed templates/assets/echo.py
+var mcpEchoPython []byte
+
+// handleMCPEchoExample serves the bundled example without release-feed lookup.
+func handleMCPEchoExample(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="echo.py"`)
+	w.Header().Set("Content-Length", strconv.Itoa(len(mcpEchoPython)))
+	w.WriteHeader(http.StatusOK)
+	if r.Method == http.MethodGet {
+		_, _ = w.Write(mcpEchoPython)
+	}
+}
 
 //go:embed templates/guides.css
 var guidesCSS string

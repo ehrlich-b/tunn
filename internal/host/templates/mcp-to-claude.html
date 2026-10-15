@@ -18,25 +18,31 @@
 <!--site-header:docs-->
 <main id="main" class="guide-content" tabindex="-1"><h1>Connect MCP to Claude.ai and ChatGPT</h1>
 <p class="lead">Publish a private endpoint, check its OAuth flow, then connect your tools.</p>
-<p><a href="/docs#s1">Install tunn</a> and Python 3. Save the <a href="https://gitlab.com/ehrlich-b/tunn/-/raw/main/examples/mcp/echo.py">echo example</a> as echo.py in your working directory; it returns your message without file or network access.</p>
+<p><a href="/docs#s1">Install tunn</a> and Python 3. Save the <a href="/dl/examples/mcp/echo.py">echo example</a> as echo.py in your working directory; it returns your message without file or network access.</p>
 <p class="note">Experimental: connections to Claude.ai and ChatGPT have not yet been verified end to end. You need an account that supports custom MCP connectors.</p>
 <h2>1. Publish</h2>
-<pre><code>tunn login
-tunn mcp --tools echo -- python3 ./echo.py</code></pre>
+<div class="mcp-commands">
+<div class="glass cmd shell-command"><code class="kbd" tabindex="0" role="region" aria-label="Login command"><span class="arg">tunn</span> <span class="arg">login</span></code><button class="btn sm copy" data-copy="tunn login" aria-describedby="mcp-login-copy">Copy</button></div>
+<div class="copy-status" id="mcp-login-copy" role="status"></div>
+<div class="glass cmd shell-command"><code class="kbd" tabindex="0" role="region" aria-label="Publish command"><span class="arg">tunn</span> <span class="arg">mcp</span> <span class="arg">--tools</span> <span class="arg">echo</span> <span class="arg">--</span> <span class="arg">python3</span> <span class="arg">./echo.py</span></code><button class="btn sm copy" data-copy="tunn mcp --tools echo -- python3 ./echo.py" aria-describedby="mcp-publish-copy">Copy</button></div>
+<div class="copy-status" id="mcp-publish-copy" role="status"></div>
+</div>
 <p>Keep this terminal running. Copy its exact <strong>Connector URL</strong>, including <code>/mcp</code>. MCP is private by default. Use <code>--name work-tools</code> to request a stable name and <code>--allow colleague@example.com</code> to let that verified user approve access. Name protection and quotas depend on your plan; see <a href="/pricing">current pricing</a> and <code>tunn usage</code>.</p>
 <p>Alternative to the echo command: for your own stdio server, list its exact tool names:</p>
-<pre><code>tunn mcp --tools status,search -- ./my-mcp-server</code></pre>
+<div class="glass cmd shell-command"><code class="kbd" tabindex="0" role="region" aria-label="Stdio command"><span class="arg">tunn</span> <span class="arg">mcp</span> <span class="arg">--tools</span> <span class="arg">status,search</span> <span class="arg">--</span> <span class="arg">./my-mcp-server</span></code><button class="btn sm copy" data-copy="tunn mcp --tools status,search -- ./my-mcp-server" aria-describedby="mcp-stdio-copy">Copy</button></div>
+<div class="copy-status" id="mcp-stdio-copy" role="status"></div>
 <p>Alternative to the echo command: for an existing Streamable HTTP server:</p>
-<pre><code>tunn mcp http://127.0.0.1:3000/custom-mcp-path</code></pre>
+<div class="glass cmd shell-command"><code class="kbd" tabindex="0" role="region" aria-label="Http command"><span class="arg">tunn</span> <span class="arg">mcp</span> <span class="arg">http://127.0.0.1:3000/custom-mcp-path</span></code><button class="btn sm copy" data-copy="tunn mcp http://127.0.0.1:3000/custom-mcp-path" aria-describedby="mcp-http-copy">Copy</button></div>
+<div class="copy-status" id="mcp-http-copy" role="status"></div>
 <p>tunn remaps public <code>/mcp</code> to the supplied HTTP path. <code>--tools</code> filters stdio tools only; HTTP upstreams enforce their own tool permissions.</p>
 <h2>2. Check</h2>
 <p>Open a second terminal on the same machine. Leave the publishing command running in the first terminal.</p>
 <p>Replace <code>https://your-name.tunn.to/mcp</code> in both checks with the printed Connector URL, including <code>/mcp</code>. The default check verifies HTTPS, the private challenge, the exact resource, OAuth metadata and public-client S256 PKCE without registering a client.</p>
-<pre><code>tunn connector-check https://your-name.tunn.to/mcp</code></pre>
+<div class="glass cmd shell-command"><code class="kbd" tabindex="0" role="region" aria-label="Check command"><span class="arg">tunn</span> <span class="arg">connector-check</span> <span class="arg">https://your-name.tunn.to/mcp</span></code><button class="btn sm copy" data-copy="tunn connector-check https://your-name.tunn.to/mcp" aria-describedby="mcp-check-copy">Copy</button></div>
+<div class="copy-status" id="mcp-check-copy" role="status"></div>
 <p>For the echo example, verify consent, initialization, the exact tool list, an allowed call and a denied call:</p>
-<pre><code>tunn connector-check --oauth --expect-tools echo \
-  --call-tool echo --arguments '{"message":"hello"}' \
-  --deny-tool hidden_echo https://your-name.tunn.to/mcp</code></pre>
+<div class="glass cmd shell-command"><code class="kbd" tabindex="0" role="region" aria-label="Oauth check command"><span class="arg">tunn</span> <span class="arg">connector-check</span> <span class="arg">--oauth</span> <span class="arg">--expect-tools</span> <span class="arg">echo</span> <span class="arg">--call-tool</span> <span class="arg">echo</span> <span class="arg">--arguments</span> <span class="arg">'{"message":"hello"}'</span> <span class="arg">--deny-tool</span> <span class="arg">hidden_echo</span> <span class="arg">https://your-name.tunn.to/mcp</span></code><button class="btn sm copy" data-copy="tunn connector-check --oauth --expect-tools echo --call-tool echo --arguments &#x27;{&quot;message&quot;:&quot;hello&quot;}&#x27; --deny-tool hidden_echo https://your-name.tunn.to/mcp" aria-describedby="mcp-oauth-check-copy">Copy</button></div>
+<div class="copy-status" id="mcp-oauth-check-copy" role="status"></div>
 <p>Open the printed browser link on this machine. Sign in as the owner or an allowed user and approve <strong>tunn connector-check</strong> for the named tunnel. Expect PASS for discovery, OAuth, tools and both probes. Tokens stay in memory. <code>--json</code> produces a final structured report; the consent link goes to stderr. The default overall deadline is three minutes; <code>--timeout</code> permits up to ten minutes.</p>
 <p>No tool is called unless explicitly chosen. Both probes must be harmless even if your policy is broken. The denied probe requires tunn's <code>-32001</code> stdio policy error; an arbitrary upstream error does not prove filtering.</p>
 <h2>3. Connect</h2>

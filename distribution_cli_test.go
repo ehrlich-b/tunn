@@ -18,7 +18,8 @@ func TestDistributionCLICommands(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	blocks := regexp.MustCompile(`(?s)<pre(?:\s[^>]*)?><code>(.*?)</code></pre>`)
+	// Read both traditional code blocks and individually copyable commands.
+	blocks := regexp.MustCompile(`(?s)(?:<pre(?:\s[^>]*)?><code>|<code class="kbd"[^>]*>)(.*?)</code>`)
 	argumentSpans := regexp.MustCompile(`</?span\b[^>]*>`)
 	var checked int
 	for _, file := range files {

@@ -885,6 +885,7 @@ func (p *ProxyServer) createHandler() http.Handler {
 
 	// Install script endpoint
 	mux.HandleFunc("/install.sh", p.handleInstallScript)
+	mux.HandleFunc("/dl/examples/mcp/echo.py", handleMCPEchoExample)
 	mux.Handle("/dl/", downloads.Handler())
 
 	// Auth endpoints (no auth required on these)

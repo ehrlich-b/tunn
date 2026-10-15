@@ -1,9 +1,12 @@
 package host
 
 import (
+	"bytes"
 	"encoding/xml"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -126,5 +129,73 @@ func TestDistributionPages(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// Test the rendered download link through the platform router and keep the
+// bundled documentation asset in sync with the runnable example.
+func TestMCPEchoDownload(t *testing.T) {
+	source, err := os.ReadFile("../../examples/mcp/echo.py")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(source, mcpEchoPython) {
+		t.Fatal("bundled echo.py differs from examples/mcp/echo.py")
+	}
+	cfg := &config.Config{Domain: "tunn.to"}
+	proxy := &ProxyServer{Domain: cfg.Domain, config: cfg, tunnelServer: NewTunnelServer(cfg, nil, nil, nil)}
+	handler := proxy.createHandler()
+	for _, guide := range []string{"/docs/mcp-to-claude", "/mcp-to-claude"} {
+		t.Run(guide, func(t *testing.T) {
+			page := httptest.NewRecorder()
+			handler.ServeHTTP(page, httptest.NewRequest("GET", "https://tunn.to"+guide, nil))
+			if page.Code != http.StatusOK {
+				t.Fatalf("guide status: %d", page.Code)
+			}
+			doc, err := html.Parse(strings.NewReader(page.Body.String()))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var link string
+			var visit func(*html.Node)
+			visit = func(n *html.Node) {
+				if n.Type == html.ElementNode && n.Data == "a" && n.FirstChild != nil && n.FirstChild.Data == "echo example" {
+					for _, a := range n.Attr {
+						if a.Key == "href" {
+							link = a.Val
+						}
+					}
+				}
+				for c := n.FirstChild; c != nil; c = c.NextSibling {
+					visit(c)
+				}
+			}
+			visit(doc)
+			if link != "/dl/examples/mcp/echo.py" {
+				t.Fatalf("example link: %q", link)
+			}
+			for _, method := range []string{"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"} {
+				w := httptest.NewRecorder()
+				handler.ServeHTTP(w, httptest.NewRequest(method, "https://tunn.to"+link, nil))
+				if method != "GET" && method != "HEAD" {
+					if w.Code != http.StatusMethodNotAllowed || w.Header().Get("Allow") != "GET, HEAD" {
+						t.Fatalf("%s: %d %v", method, w.Code, w.Header())
+					}
+					continue
+				}
+				if w.Code != http.StatusOK || w.Header().Get("Content-Type") != "text/plain; charset=utf-8" || w.Header().Get("Content-Disposition") != `attachment; filename="echo.py"` || w.Header().Get("Content-Length") != strconv.Itoa(len(source)) || w.Header().Get("Location") != "" {
+					t.Fatalf("%s: %d %v", method, w.Code, w.Header())
+				}
+				if method == "GET" && !bytes.Equal(w.Body.Bytes(), source) || method == "HEAD" && w.Body.Len() != 0 {
+					t.Fatalf("%s: unexpected response body", method)
+				}
+			}
+			// Tunnel origins still dispatch this path to their publisher.
+			w := httptest.NewRecorder()
+			handler.ServeHTTP(w, httptest.NewRequest("GET", "https://offline.tunn.to"+link, nil))
+			if w.Code != http.StatusServiceUnavailable || bytes.Equal(w.Body.Bytes(), source) {
+				t.Fatalf("example leaked onto tunnel origin: %d", w.Code)
+			}
+		})
 	}
 }

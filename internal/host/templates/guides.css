@@ -28,3 +28,10 @@
  .guide-content .connector-diagnostics tbody th{margin-bottom:12px}
  .connector-diagnostics .diagnostic-label{display:block;font:600 13px/1.5 var(--sans);color:var(--engrave);margin-bottom:4px}
 }
+
+/* Keep runnable guide commands readable and individually copyable. */
+.guide-content .mcp-commands{display:grid;gap:10px}
+.guide-content .mcp-commands .copy-status:empty{display:none}
+.guide-content .mcp-commands .copy-status:not(:empty){margin-top:0}
+.guide-content .cmd.shell-command{flex-wrap:nowrap}
+.guide-content .cmd.shell-command .kbd{font-size:13px;line-height:1.7}

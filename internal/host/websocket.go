@@ -30,6 +30,10 @@ func closeUpgradedConnection(conn net.Conn) {
 }
 
 func (p *ProxyServer) proxyWebSocketOverGRPC(w http.ResponseWriter, r *http.Request, tunnel *TunnelConnection) (result error) {
+	requestHeaders, fields, ok := p.negotiatedRequestHeaders(w, r, tunnel)
+	if !ok {
+		return nil
+	}
 	id, err := requestConnectionID(r)
 	if err != nil {
 		return err
@@ -43,7 +47,7 @@ func (p *ProxyServer) proxyWebSocketOverGRPC(w http.ResponseWriter, r *http.Requ
 	defer sendConnectionClose(tunnel.Stream.Context(), tunnel, id, "")
 	if err := tunnel.SendMessageContext(r.Context(), &pb.TunnelMessage{Message: &pb.TunnelMessage_ConnectionOpen{
 		ConnectionOpen: &pb.ConnectionOpen{ConnectionId: id, Protocol: "websocket", SourceAddress: r.RemoteAddr,
-			HttpRequest: &pb.HttpRequestHead{Method: r.Method, Path: r.URL.RequestURI(), Headers: p.forwardedHTTPHeaders(r)}},
+			HttpRequest: &pb.HttpRequestHead{Method: r.Method, Path: r.URL.RequestURI(), Headers: requestHeaders, HeaderFields: fields}},
 	}}); err != nil {
 		return err
 	}

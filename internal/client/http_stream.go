@@ -394,8 +394,10 @@ func (s *ServeClient) handleStreamingHTTPRequest(ctx context.Context, sender mes
 		sendConnectionRejection(sender, open.ConnectionId, "failed to create local HTTP request")
 		return
 	}
-	for key, value := range head.Headers {
-		request.Header.Set(key, value)
+	request.Header, err = common.DecodeHTTPRequestHeaders(head.Headers, head.HeaderFields, head.ContentLength, false)
+	if err != nil {
+		sendConnectionRejection(sender, open.ConnectionId, "invalid request headers")
+		return
 	}
 	request.Host = request.Header.Get("Host")
 	request.Header.Del("Host")

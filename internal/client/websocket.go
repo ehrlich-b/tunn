@@ -118,8 +118,10 @@ func (s *ServeClient) handleWebSocket(ctx context.Context, sender messageSender,
 		sendConnectionRejection(sender, id, "invalid local WebSocket target")
 		return
 	}
-	for key, value := range head.Headers {
-		request.Header.Set(key, value)
+	request.Header, err = common.DecodeHTTPRequestHeaders(head.Headers, head.HeaderFields, 0, true)
+	if err != nil {
+		sendConnectionRejection(sender, id, "invalid request headers")
+		return
 	}
 	request.Host = request.Header.Get("Host")
 	request.Header.Del("Host")

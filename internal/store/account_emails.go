@@ -10,11 +10,10 @@ import (
 )
 
 var ErrEmailOwned = errors.New("This email already belongs to another account.")
-var ErrPrimaryEmail = errors.New("Choose another primary email before removing this one.")
 var ErrEmailNotLinked = errors.New("This email is not verified on your account.")
 
 // MutateAccountEmail changes only mailbox metadata in one authoritative transaction.
-// In particular, linking must never call the provider account-merge path.
+// Verified addresses stay linked permanently; linking never calls the provider account-merge path.
 func (s *AccountStore) MutateAccountEmail(ctx context.Context, accountID, email, action string) (*Account, error) {
 	email = common.NormalizeEmail(email)
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -44,30 +43,6 @@ func (s *AccountStore) MutateAccountEmail(ctx context.Context, accountID, email,
 			return nil, ErrEmailNotLinked
 		}
 		_, err = tx.ExecContext(ctx, "UPDATE accounts SET primary_email=? WHERE id=?", email, accountID)
-	case "remove":
-		if primary == email {
-			return nil, ErrPrimaryEmail
-		}
-		if owner != accountID {
-			return nil, ErrEmailNotLinked
-		}
-		if err = bindCredentialOwners(ctx, tx); err != nil {
-			return nil, err
-		}
-		// Mailbox consent issued before removal cannot enroll a key after the
-		// address is reused, even if the key was not linked yet.
-		for _, table := range []string{"ssh_key_links", "ssh_key_proofs"} {
-			var exists int
-			if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&exists); err != nil {
-				return nil, err
-			}
-			if exists != 0 {
-				if _, err = tx.ExecContext(ctx, "DELETE FROM "+table+" WHERE email=?", email); err != nil {
-					return nil, err
-				}
-			}
-		}
-		_, err = tx.ExecContext(ctx, "DELETE FROM account_emails WHERE account_id=? AND email=?", accountID, email)
 	default:
 		return nil, ErrEmailNotLinked
 	}

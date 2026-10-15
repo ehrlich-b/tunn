@@ -464,8 +464,6 @@ func (s *ProxyStorage) MutateAccountEmail(ctx context.Context, id, email, action
 		switch status.Code(err) {
 		case codes.AlreadyExists:
 			return nil, store.ErrEmailOwned
-		case codes.FailedPrecondition:
-			return nil, store.ErrPrimaryEmail
 		case codes.NotFound:
 			return nil, store.ErrEmailNotLinked
 		}

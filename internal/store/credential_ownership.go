@@ -9,8 +9,7 @@ import (
 )
 
 // MigrateCredentialOwnership binds legacy credentials while their verified
-// mailboxes still belong to the original account. Email removal repeats this
-// in its transaction, including when a credential service is disabled.
+// mailboxes belong to the account. Verified mailboxes remain linked permanently.
 func MigrateCredentialOwnership(db *sql.DB) error {
 	tx, err := db.Begin()
 	if err != nil {

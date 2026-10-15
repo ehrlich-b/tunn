@@ -136,20 +136,20 @@ func (p *ProxyServer) handleAccountEmails(w http.ResponseWriter, r *http.Request
 			http.Redirect(w, r, "/account?email_sent=1#emails", 303)
 			return
 		}
-		if action != "primary" && action != "remove" {
+		if action != "primary" {
 			http.Error(w, "Invalid email action", 400)
 			return
 		}
 		var updated *storage.Account
 		updated, err = authority.MutateAccountEmail(r.Context(), account.ID, email, action)
-		if err == nil && (action == "primary" || claims["email"] == email) {
+		if err == nil {
 			// This mailbox was verified by the account flow. Keep the account UUID and
 			// record mailbox proof rather than attributing a new email to Google/GitHub.
 			err = p.setAccountCookie(w, updated, updated.PrimaryEmail, "magic_link")
 		}
 	}
 	if err != nil {
-		if errors.Is(err, store.ErrEmailOwned) || errors.Is(err, store.ErrPrimaryEmail) || errors.Is(err, store.ErrEmailNotLinked) {
+		if errors.Is(err, store.ErrEmailOwned) || errors.Is(err, store.ErrEmailNotLinked) {
 			http.Error(w, err.Error(), 409)
 			return
 		}

@@ -313,8 +313,6 @@ func (s *LoginNodeDBServer) MutateAccountEmail(ctx context.Context, r *internalv
 		switch {
 		case errors.Is(err, store.ErrEmailOwned):
 			return nil, status.Error(codes.AlreadyExists, err.Error())
-		case errors.Is(err, store.ErrPrimaryEmail):
-			return nil, status.Error(codes.FailedPrecondition, err.Error())
 		case errors.Is(err, store.ErrEmailNotLinked):
 			return nil, status.Error(codes.NotFound, err.Error())
 		}

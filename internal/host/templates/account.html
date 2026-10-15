@@ -115,11 +115,10 @@
       <span class="email-address">{{.Email}} {{if eq .Email $.Email}}<span class="plan-badge">Primary</span>{{end}}</span>
       {{if ne .Email $.Email}}<div class="email-actions">
         <form method="POST" action="/account/emails"><input type="hidden" name="csrf_token" value="{{$.EmailCSRF}}"><input type="hidden" name="email" value="{{.Email}}"><button class="btn sm" name="action" value="primary" aria-label="Make {{.Email}} primary">Make primary</button></form>
-        <form method="POST" action="/account/emails"><input type="hidden" name="csrf_token" value="{{$.EmailCSRF}}"><input type="hidden" name="email" value="{{.Email}}"><button class="btn sm" name="action" value="remove" aria-label="Remove {{.Email}}">Remove</button></form>
       </div>{{end}}
     </div>{{end}}
     <form class="email-add" method="POST" action="/account/emails"><input type="hidden" name="csrf_token" value="{{.EmailCSRF}}"><label for="new-email">Add a verified email</label><input id="new-email" type="email" name="email" autocomplete="email" maxlength="254" placeholder="you@example.com" required><button class="btn sm" name="action" value="add">Add email</button></form>
-    <p class="fine">We'll send a verification link. Your primary email must stay on the account.</p>
+    <p class="fine">We'll send a verification link. Verified emails stay linked to this account permanently.</p>
   </section>
   {{end}}
   <div class="billing">

@@ -149,7 +149,7 @@ func accountEmailsLifecycle(t *testing.T, remote bool) {
 		t.Fatal(d, err)
 	}
 	page := f.request("GET", "https://tunn.test/account", "", "", "", c)
-	if page.Code != 200 || !strings.Contains(page.Body.String(), `id="emails"`) || !strings.Contains(page.Body.String(), "Primary") {
+	if page.Code != 200 || !strings.Contains(page.Body.String(), `id="emails"`) || !strings.Contains(page.Body.String(), "Primary") || strings.Contains(page.Body.String(), `value="remove"`) {
 		t.Fatal(page.Code, page.Body)
 	}
 	p.config.GoogleClientID = "fixture"
@@ -183,37 +183,6 @@ func accountEmailsLifecycle(t *testing.T, remote bool) {
 			t.Fatal("Google login omitted account session", email)
 		}
 	}
-	if w := post("remove", sink.to); w.Code != 409 {
-		t.Fatal("removed primary", w.Code)
-	}
-	// Remove the mailbox used by this browser, refreshing to the surviving primary.
-	oldCookie := emailSession(t, p, a.PrimaryEmail)
-	out := emailAction(t, f, oldCookie, url.Values{"action": {"remove"}, "email": {a.PrimaryEmail}})
-	if out.Code != 303 {
-		t.Fatal(out.Code, out.Body)
-	}
-	assertAccountsSessionCookie(t, p, out, sink.to)
-	if old, err := local.GetAccountByEmail(ctx, a.PrimaryEmail); err != nil || old != nil {
-		t.Fatal(old, err)
-	}
-	// Reusing a removed address cannot redirect an old signed account session
-	// to a different account's dashboard or billing data.
-	if _, err = local.FindOrCreateByEmails(ctx, []string{a.PrimaryEmail}, "magic_link"); err != nil {
-		t.Fatal(err)
-	}
-	stale := f.request("GET", "https://tunn.test/account", "", "", "", oldCookie)
-	if stale.Code == 200 {
-		t.Fatal("old UUID session rebound to recycled email")
-	}
-	staleRequest := httptest.NewRequest("GET", "https://tunn.test/account/devices", nil)
-	staleRequest.AddCookie(oldCookie)
-	if email, ok := p.getAuthFromCookie(staleRequest); ok {
-		t.Fatal("shared cookie reader accepted recycled mailbox", email)
-	}
-	if out := f.request("GET", "https://tunn.test/account/devices", "", "", "", oldCookie); out.Code != 302 {
-		t.Fatal("stale session reached email-based device management", out.Code, out.Body)
-	}
-	t.Log("add -> email proof -> session/CSRF confirmation -> link; primary cookie and UUID preserved; existing device, tunnel, reservation, usage, plan preserved; both Google logins resolve same UUID; primary removal refused; non-primary removed")
 }
 
 func TestAccountEmailsRefusals(t *testing.T) {
@@ -258,12 +227,12 @@ func accountEmailsRefusals(t *testing.T, remote bool) {
 	if w := emailAction(t, f, c, url.Values{"token": {raw}}); w.Code != 409 {
 		t.Fatal(w.Code, w.Body)
 	}
-	for _, action := range []string{"primary", "remove"} {
+	for _, action := range []string{"primary"} {
 		if w := emailAction(t, f, c, url.Values{"action": {action}, "email": {other.PrimaryEmail}}); w.Code != 409 {
 			t.Fatal(action, w.Code)
 		}
 	}
-	for _, action := range []string{"add", "primary", "remove"} {
+	for _, action := range []string{"add", "primary"} {
 		w := f.request("POST", "https://tunn.test/account/emails", url.Values{"action": {action}, "email": {"csrf@example.com"}}.Encode(), "application/x-www-form-urlencoded", "", c)
 		if w.Code != 403 {
 			t.Fatal(action, w.Code)

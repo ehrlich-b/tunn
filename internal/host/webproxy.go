@@ -1154,7 +1154,7 @@ func (p *ProxyServer) handleApexDomain(w http.ResponseWriter, r *http.Request) {
 
 	switch r.URL.Path {
 	case "/privacy":
-		_, _ = fmt.Fprint(w, privacyHTML)
+		_, _ = fmt.Fprint(w, withSiteChrome(privacyHTML))
 	case "/terms":
 		p.renderRevenuePage(w, termsHTML)
 	case "/favicon.ico", "/robots.txt", "/sitemap.xml":

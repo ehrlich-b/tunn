@@ -398,3 +398,18 @@ table.log .c4{color:var(--ink);font-weight:700}
 .install-sequence h3{margin-bottom:10px}
 .install-sequence h3::before{content:counter(install,decimal-leading-zero) " ";font:500 13px/1 var(--mono);color:var(--engrave);margin-right:8px}
 .install-sequence p{color:var(--ink2);margin:10px 0}
+
+/* Runnable commands wrap only between complete shell arguments. */
+.shell-command,.shell-command code,.cmd.shell-command .kbd{white-space:pre-wrap;overflow-wrap:normal;word-break:normal}
+.shell-command .arg{white-space:nowrap}
+.cmd.shell-command .kbd{min-width:0;max-width:100%;overflow-x:auto;scrollbar-width:auto}
+.cmd.shell-command .copy{flex-shrink:0}
+
+/* Legal text shares the site's navigation, theme and footer. */
+.legal-content{max-width:700px;margin:0 auto;padding:48px 24px 16px;line-height:1.7}
+.legal-content h1{font-size:36px;margin-bottom:8px}
+.legal-content .updated{color:var(--engrave);font-size:14px;margin-bottom:40px}
+.legal-content h2{font-size:22px;margin:40px 0 16px}
+.legal-content p,.legal-content ul{margin-bottom:16px;color:var(--ink2)}
+.legal-content ul{padding-left:24px}
+.legal-content li{margin-bottom:8px}

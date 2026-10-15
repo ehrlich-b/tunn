@@ -16,3 +16,15 @@
 .guide-content .related-guides h2{flex-basis:100%;font-size:16px;margin:0}
 .guide-content .related-guides a{color:var(--sig-ink)}
 @media (max-width:600px){.guide-content{padding-top:28px}}
+
+.guide-content pre.shell-command,.guide-content pre.shell-command code{white-space:pre-wrap;overflow-wrap:normal;word-break:normal}
+.guide-content .connector-diagnostics tbody th{font-weight:400}
+.connector-diagnostics .diagnostic-label{display:none}
+@media (max-width:600px){
+ .guide-content .connector-diagnostics,.connector-diagnostics caption,.connector-diagnostics tbody,.connector-diagnostics tr,.guide-content .connector-diagnostics th,.guide-content .connector-diagnostics td{display:block;width:100%;min-width:0}
+ .connector-diagnostics thead{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
+ .connector-diagnostics tbody tr{border-bottom:1px solid var(--plate-lo);padding:16px 0}
+ .guide-content .connector-diagnostics tbody th,.guide-content .connector-diagnostics td{border:0;padding:0}
+ .guide-content .connector-diagnostics tbody th{margin-bottom:12px}
+ .connector-diagnostics .diagnostic-label{display:block;font:600 13px/1.5 var(--sans);color:var(--engrave);margin-bottom:4px}
+}

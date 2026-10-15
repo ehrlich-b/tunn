@@ -31,12 +31,12 @@ func TestConnectorGuideRoutes(t *testing.T) {
 				}
 				continue
 			}
-			if w.Body.String() != mcpToClaudeHTML {
+			if w.Body.String() != withSiteChrome(mcpToClaudeHTML) {
 				t.Errorf("%s differs from canonical guide", path)
 			}
 		}
 	}
-	for _, want := range []string{"Claude.ai and ChatGPT", "connector-check --oauth --expect-tools echo", "--deny-tool hidden_echo", "25 seconds", "27 seconds", "REQUIRED-UNRUN", "/pricing", "/account/mcp"} {
+	for _, want := range []string{"Claude.ai and ChatGPT", "connector-check --oauth --expect-tools echo", "--deny-tool hidden_echo", "25 seconds", "27 seconds", "have not yet been verified end to end", "/pricing", "/account/mcp"} {
 		if !strings.Contains(mcpToClaudeHTML, want) {
 			t.Errorf("guide missing %q", want)
 		}

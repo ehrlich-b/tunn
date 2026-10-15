@@ -286,7 +286,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px soli
  .hero{padding:28px 0 24px;gap:24px}
  .hero h1{font-size:30px;margin-top:8px}
  .hero .sub{margin:12px 0 16px}
- .cmd{padding:10px 12px}.cmd .kbd{font-size:13px}.hero .cmd .copy{display:none}
+ .cmd{padding:10px 12px}.cmd .kbd{font-size:13px}
  .ctas{margin-top:14px}.ctas .lbl{display:none}
  .unit{padding:14px}
  .readout{padding:10px 12px;gap:8px}.readout .url{font-size:14px}.readout .lh{font-size:13px}
@@ -383,3 +383,11 @@ table.log .c4{color:var(--ink);font-weight:700}
 .led.bad{background:var(--err)}.led.warn{background:var(--warn)}
 .cmd+.copy-status+.fine,.cmd+.copy-status:empty+.fine{margin-top:10px}
 .gate-card .host{font-family:var(--sans)}.gate-card .seal .led{background:var(--engrave)}
+
+/* Setup commands and the recipient example. */
+.setup-commands{display:grid;gap:10px}
+.setup-commands .copy-status:empty{display:none}
+.setup-commands .copy-status:not(:empty){margin-top:0}
+.recipient-outcomes{margin:12px 0}
+.recipient-outcomes .verdict{padding:12px 0;gap:12px;align-items:flex-start}
+.recipient-outcomes .verdict+.verdict{border-top:1px solid var(--plate-lo)}

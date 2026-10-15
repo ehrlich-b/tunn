@@ -29,9 +29,9 @@ func (p *ProxyServer) serveDistributionPage(w http.ResponseWriter, r *http.Reque
 	case "/ngrok-alternative":
 		body = ngrokAlternativeHTML
 	case "/mcp-to-claude":
-		body = mcpToClaudeHTML
+		body = withSiteChrome(mcpToClaudeHTML)
 	case "/share-dev-server-oauth":
-		body = shareDevServerOAuthHTML
+		body = withSiteChrome(shareDevServerOAuthHTML)
 	case "/guides.css":
 		contentType, body = "text/css; charset=utf-8", baseCSS+"\n"+guidesCSS
 	case "/robots.txt":

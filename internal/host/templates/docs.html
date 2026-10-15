@@ -4,6 +4,31 @@
 <span class="lbl">Quickstart · macOS · Linux</span>
 <h1 style="margin:14px 0 18px">Give port 3000 <span class="sig-t">a&nbsp;URL.</span></h1>
 <p class="sub" style="margin-bottom:28px">Install, sign in once, then run one command next to your app. tunn and your app must keep running.</p>
+
+<section class="step" aria-labelledby="s1"><span class="n">01</span><div><h2 id="s1">Install and sign in</h2>
+<div class="setup-commands">
+<div class="glass cmd"><code class="kbd" tabindex="0">curl -fsSL https://tunn.to/install.sh | sh</code><button class="btn sm copy" data-copy="curl -fsSL https://tunn.to/install.sh | sh" aria-describedby="setup-install-copy">Copy</button></div>
+<div class="copy-status" id="setup-install-copy" role="status"></div>
+<div class="glass cmd"><code class="kbd" tabindex="0">tunn login</code><button class="btn sm copy" data-copy="tunn login" aria-describedby="setup-login-copy">Copy</button></div>
+<div class="copy-status" id="setup-login-copy" role="status"></div>
+</div>
+<p style="margin-top:12px">Intel or ARM. The downloader verifies the latest release from <code>https://tunn.to/dl</code>; manual downloads are on <a href="https://gitlab.com/ehrlich-b/tunn/-/releases">GitLab releases</a>. If <code>tunn</code> is not found, add <code>$HOME/.local/bin</code> to PATH. For source builds and recovery, see the <a href="https://gitlab.com/ehrlich-b/tunn/-/blob/main/docs/install-recovery.md">install guide</a>.</p></div></section>
+
+<section class="step" aria-labelledby="s2"><span class="n">02</span><div><h2 id="s2">Share port 3000</h2>
+<p>Have your local app running on port 3000. Replace the email below with the person you want to invite.</p>
+<div class="glass cmd"><code class="kbd" tabindex="0">tunn 3000 <span class="f">--allow=alex@example.com</span></code><button class="btn sm copy" data-copy="tunn 3000 --allow=alex@example.com" aria-describedby="setup-share-copy">Copy</button></div>
+<div class="copy-status" id="setup-share-copy" role="status"></div>
+<p style="margin-top:12px">tunn prints the HTTPS URL. Keep tunn running in this terminal, alongside your app. Send the link to your invited person; they sign in with GitHub or an email link. Everyone else gets a 403 at the edge, before anything reaches your app.</p>
+<h3>Other ways to share</h3>
+<p>Choose one of these alternatives when you need a different audience:</p>
+<pre class="glass term"><span class="c"># only you</span>
+tunn 3000
+<span class="c"># everyone at a domain</span>
+tunn 3000 --allow=@example.com
+<span class="c"># anyone with the link</span>
+tunn 3000 --public</pre>
+<p style="margin-top:12px">For public webhooks, <a href="/docs/webhook-verification">verify signatures at the edge</a> and keep your app's own check on.</p></div></section>
+
 <section class="panel session" aria-label="Example session: tunn 3000 shared with one person"><i class="screw tl"></i><i class="screw tr"></i><i class="screw bl"></i><i class="screw br"></i>
  <div class="session-bar"><span class="mark"><span class="logo-mark" aria-hidden="true"></span>tunn</span><span class="lbl tty">TTY 1 · ~/code/shop</span><span class="leds"><span class="lbl"><i class="led on"></i>&nbsp; Tunnel</span><span class="lbl"><i class="led on"></i>&nbsp; Allow</span><span class="lbl"><i class="led"></i>&nbsp; Public</span></span></div>
  <div class="glass scr">
@@ -23,21 +48,6 @@
  </div>
  <div class="session-keys"><span class="key"><b>Ctrl-C</b> stop tunnel</span><span class="lbl">Example traffic</span></div>
 </section>
-
-<section class="step" aria-labelledby="s1"><span class="n">01</span><div><h2 id="s1">Install and sign in</h2>
-<pre class="glass term">curl -fsSL https://tunn.to/install.sh | sh
-tunn login</pre>
-<p style="margin-top:12px">Intel or ARM. The downloader verifies the latest release from <code>https://tunn.to/dl</code>; manual downloads are on <a href="https://gitlab.com/ehrlich-b/tunn/-/releases">GitLab releases</a>. If <code>tunn</code> is not found, add <code>$HOME/.local/bin</code> to PATH. For source builds and recovery, see the <a href="https://gitlab.com/ehrlich-b/tunn/-/blob/main/docs/install-recovery.md">install guide</a>.</p></div></section>
-
-<section class="step" aria-labelledby="s2"><span class="n">02</span><div><h2 id="s2">Share port 3000</h2>
-<pre class="glass term"><span class="c"># only you</span>
-tunn 3000
-<span class="c"># one person, or everyone at a domain</span>
-tunn 3000 --allow=alex@example.com
-tunn 3000 --allow=@example.com
-<span class="c"># anyone with the link</span>
-tunn 3000 --public</pre>
-<p style="margin-top:12px">The CLI prints the HTTPS URL. Invited people sign in with GitHub or an email link; everyone else gets a 403 at the edge, before anything reaches your app. For public webhooks, <a href="/docs/webhook-verification">verify signatures at the edge</a> and keep your app's own check on.</p></div></section>
 
 <section class="step" aria-labelledby="s3"><span class="n">03</span><div><h2 id="s3">Watch requests and usage</h2>
 <pre class="glass term">tunn 3000 --public --inspect

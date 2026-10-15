@@ -23,7 +23,7 @@
  <div>
   <span class="lbl">HTTPS tunnel · localhost</span>
   <h1>Share localhost.<br>Pick who <span class="sig-t">gets&nbsp;in.</span></h1>
-  <p class="sub">One command gives port 3000 a URL. Only the emails you list can open it.</p>
+  <p class="sub">Give your local app an HTTPS URL. You and the people you allow sign in in a browser; visitors install nothing.</p>
   <div class="glass cmd"><code class="kbd" tabindex="0"><span class="p" aria-hidden="true">$ </span>tunn 3000 <span class="f">--allow=alex@example.com</span></code><button class="btn sm copy" data-copy="tunn 3000 --allow=alex@example.com" aria-describedby="hero-copy">Copy</button></div>
   <div class="copy-status" id="hero-copy" role="status"></div>
   <div class="ctas"><a class="btn sig" href="#install">Install tunn</a><span class="lbl">curl -fsSL tunn.to/install.sh | sh</span></div>
@@ -32,11 +32,11 @@
 
   <div class="unit-top"><span class="lbl">Example tunnel</span><span class="lbl"><i class="led on"></i>&nbsp; Connected</span></div>
   <div class="glass readout"><span class="led on"></span><span class="url">k7m2.tunn.to</span><span class="arr" aria-hidden="true">→</span><span class="lh">localhost:3000</span></div>
-  <div class="controls">
-   <div class="ctl"><span class="sw on" aria-hidden="true"><span class="slot"><b></b></span></span><span class="meta"><span class="lbl">--allow</span><span class="val">alex@example.com</span></span></div>
-   <div class="ctl"><span class="sw" aria-hidden="true"><span class="slot"><b></b></span></span><span class="meta"><span class="lbl">--public</span><span class="val off">off</span></span></div>
-   <div class="ctl"><span class="sw on" aria-hidden="true"><span class="slot"><b></b></span></span><span class="meta"><span class="lbl">--inspect</span><span class="val">on</span></span></div>
+  <div class="recipient-outcomes">
+   <div class="verdict"><span class="tag sig">Allowed</span><span>Alex opens the link → signs in → your app loads.</span></div>
+   <div class="verdict"><span class="tag">Denied</span><span>Someone outside the allowlist: access denied.</span></div>
   </div>
+  <p class="fine"><a href="/share-dev-server-oauth">Private-sharing walkthrough</a></p>
  </figure>
 </section>
 
@@ -54,10 +54,6 @@
   <div class="rung"><span class="who"><span class="sw on" aria-hidden="true"><span class="slot"><b></b></span></span><span class="lbl sig">One person</span></span><code class="glass">tunn 3000 <span class="f">--allow=alex@example.com</span></code><p>Alex signs in with GitHub or an email link.</p></div>
   <div class="rung"><span class="who"><span class="sw on" aria-hidden="true"><span class="slot"><b></b></span></span><span class="lbl sig">A whole domain</span></span><code class="glass">tunn 3000 <span class="f">--allow=@example.com</span></code><p>Anyone with an example.com address.</p></div>
   <div class="rung"><span class="who"><span class="sw on" aria-hidden="true"><span class="slot"><b></b></span></span><span class="lbl sig">Anyone</span></span><code class="glass">tunn 3000 <span class="f">--public</span></code><p>No sign-in. For webhooks and demos.</p></div>
- </div>
- <div class="verdicts">
-  <div class="panel verdict"><span class="tag sig">Allowed</span><span>alex@example.com<br><span class="mute">Signs in once. Then the app loads.</span></span></div>
-  <div class="panel verdict"><span class="tag">403</span><span>anyone else<br><span class="mute">Stopped at the edge. Never reaches your laptop.</span></span></div>
  </div>
 </section>
 

@@ -728,8 +728,9 @@ func (s *ServeClient) handleHTTPRequestContext(ctx context.Context, sender messa
 		roundTripper = s.HTTPTransport
 	}
 	client := &http.Client{
-		Timeout:   timeout,
-		Transport: roundTripper,
+		Timeout:       timeout,
+		Transport:     roundTripper,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
 
 	resp, err := client.Do(req)

@@ -151,3 +151,40 @@ func TestRequestHeadersAcrossWebSocketPublishers(t *testing.T) {
 		})
 	}
 }
+
+func TestRequestHeadersWebSocketSubprotocolSelection(t *testing.T) {
+	for _, mode := range []string{"handler", "origin", "cli"} {
+		for _, test := range []struct {
+			name   string
+			offers []string
+			status int
+		}{
+			{"later field", []string{"unused-v1", "fixture-v1"}, http.StatusSwitchingProtocols},
+			{"later token", []string{"unused-v1", "other-v1, fixture-v1"}, http.StatusSwitchingProtocols},
+			{"case mismatch", []string{"unused-v1", "Fixture-v1"}, http.StatusBadGateway},
+			{"unoffered", []string{"unused-v1", "other-v1"}, http.StatusBadGateway},
+		} {
+			t.Run(mode+"/"+test.name, func(t *testing.T) {
+				stack := startSDKContractStack(t, mode)
+				conn, reader, response, err := stack.dial("/echo", http.Header{
+					"Tunn-Authorization":     {"Bearer " + sdkEndpointToken},
+					"Sec-Websocket-Protocol": test.offers,
+				}, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer conn.Close()
+				if response.StatusCode != test.status {
+					t.Fatalf("upgrade status %d, want %d", response.StatusCode, test.status)
+				}
+				if test.status == http.StatusSwitchingProtocols {
+					if got := response.Header.Get("Sec-WebSocket-Protocol"); got != "fixture-v1" {
+						t.Fatalf("selected protocol %q, want fixture-v1", got)
+					}
+					_, _ = conn.Write(fixtureFrame(8, true, true, []byte{3, 232}))
+					expectWireFrame(t, reader, 8, []byte{3, 232})
+				}
+			})
+		}
+	}
+}

@@ -18,29 +18,37 @@ import (
 const githubEmailFallback = "Signed up with GitHub? Continue with email using the same address and your account carries over."
 
 func TestLoginGitHubEmailFallback(t *testing.T) {
-	for _, enabled := range []bool{false, true} {
-		t.Run(fmt.Sprintf("github_%t", enabled), func(t *testing.T) {
-			p := &ProxyServer{config: securityConfig(), emailSender: new(accountsMailCapture)}
-			if !enabled {
-				p.config.GitHubClientID = ""
-			}
-			w := httptest.NewRecorder()
-			p.handleLogin(w, httptest.NewRequest(http.MethodGet, "https://tunn.test/auth/login", nil))
-			body := w.Body.String()
-			if w.Code != http.StatusOK || !strings.Contains(body, "Continue with Email") {
-				t.Fatalf("email login unavailable: status=%d", w.Code)
-			}
-			wantLines := 1
-			if enabled {
-				wantLines = 0
-			}
-			if got := strings.Count(body, "<p>"+githubEmailFallback+"</p>"); got != wantLines {
-				t.Fatalf("fallback lines=%d; want %d", got, wantLines)
-			}
-			if strings.Contains(body, "Continue with GitHub") != enabled {
-				t.Fatal("GitHub button does not match configuration")
-			}
-		})
+	for _, github := range []bool{false, true} {
+		for _, email := range []bool{false, true} {
+			t.Run(fmt.Sprintf("github_%t_email_%t", github, email), func(t *testing.T) {
+				p := &ProxyServer{config: securityConfig()}
+				if email {
+					p.emailSender = new(accountsMailCapture)
+				}
+				if !github {
+					p.config.GitHubClientID = ""
+				}
+				w := httptest.NewRecorder()
+				p.handleLogin(w, httptest.NewRequest(http.MethodGet, "https://tunn.test/auth/login", nil))
+				body := w.Body.String()
+				if w.Code != http.StatusOK {
+					t.Fatalf("login status=%d", w.Code)
+				}
+				if strings.Contains(body, `id="email-form"`) != email || strings.Contains(body, "Continue with Email") != email {
+					t.Fatal("email form does not match configuration")
+				}
+				wantLines := 0
+				if !github && email {
+					wantLines = 1
+				}
+				if got := strings.Count(body, "<p>"+githubEmailFallback+"</p>"); got != wantLines {
+					t.Fatalf("fallback lines=%d; want %d", got, wantLines)
+				}
+				if strings.Contains(body, "Continue with GitHub") != github {
+					t.Fatal("GitHub button does not match configuration")
+				}
+			})
+		}
 	}
 }
 

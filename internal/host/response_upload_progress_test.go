@@ -73,14 +73,16 @@ func responseProgressProxy(status int, prefix string, terminal bool) (*ProxyServ
 
 type responseProgressObservedBody struct {
 	io.ReadCloser
-	readStopped atomic.Bool
+	readStopped chan struct{}
 	closes      atomic.Int32
 }
 
 func (b *responseProgressObservedBody) Read(p []byte) (int, error) {
-	n, err := b.ReadCloser.Read(p)
+	// Keep a read pending on the unfinished one-byte upload instead of
+	// returning its buffered byte and possibly exiting on a canceled send.
+	n, err := io.ReadFull(b.ReadCloser, p)
 	if err != nil {
-		b.readStopped.Store(true)
+		close(b.readStopped)
 	}
 	return n, err
 }
@@ -110,7 +112,7 @@ func TestHTTPFidelityCompletedResponseWithOpenWireUpload(t *testing.T) {
 				var proxy *ProxyServer
 				proxy, tunnel, closes = responseProgressProxy(http.StatusAccepted, "abc", true)
 				handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					upload = &responseProgressObservedBody{ReadCloser: r.Body}
+					upload = &responseProgressObservedBody{ReadCloser: r.Body, readStopped: make(chan struct{})}
 					r.Body = upload
 					proxy.handleWebProxy(w, r)
 				})
@@ -132,8 +134,11 @@ func TestHTTPFidelityCompletedResponseWithOpenWireUpload(t *testing.T) {
 			waitResponseSignal(t, returned)
 			if tunnel != nil {
 				assertUploadResponseCleanup(t, tunnel, closes)
-				if !upload.readStopped.Load() || upload.closes.Load() != 1 {
-					t.Errorf("upload reader stopped=%v body closes=%d", upload.readStopped.Load(), upload.closes.Load())
+				// Interrupting HTTP/1 input can cancel the request before Read
+				// returns, so handler return alone is not a reader barrier.
+				waitResponseSignal(t, upload.readStopped)
+				if upload.closes.Load() != 1 {
+					t.Errorf("upload body closes=%d", upload.closes.Load())
 				}
 				if err == nil {
 					if _, nextErr := reader.Peek(1); !response.Close || nextErr != io.EOF {

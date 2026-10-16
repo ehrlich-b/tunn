@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	_ "modernc.org/sqlite"
@@ -96,7 +97,8 @@ func InitForTest() (*sql.DB, error) {
 			_ = os.RemoveAll(dir)
 		}
 	}()
-	dsn := "file:" + filepath.Join(dir, "test.db") + "?_pragma=journal_mode(MEMORY)&_pragma=synchronous(OFF)"
+	path := strings.NewReplacer("%", "%25", "?", "%3f", "#", "%23").Replace(filepath.Join(dir, "test.db"))
+	dsn := "file:" + path + "?_pragma=journal_mode(MEMORY)&_pragma=synchronous(OFF)"
 	registeredDB, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err

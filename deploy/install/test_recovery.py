@@ -77,6 +77,27 @@ class ArtifactTests(unittest.TestCase):
         self.assertEqual(original, self.installation.inspect())
         self.assertEqual(self.first.read_bytes(), self.installation.binary.read_bytes())
 
+    def test_missing_or_wrong_help_banner_keeps_prior_selection(self):
+        original = self.install(self.first)
+        binary = os.environ["TUNN_TEST_BINARY"]
+        result = subprocess.run([binary, "--help"], capture_output=True, timeout=10)
+        self.assertEqual(result.returncode, 0)
+        help_text = (result.stdout + result.stderr).decode()
+        self.assertIn("Start\n  tunn login", help_text)
+        for name, text in (
+            ("missing", ""),
+            ("stale", "tunn - expose localhost to the internet"),
+            ("wrong heading", help_text.replace("Start\n", "Stop\n", 1)),
+            ("wrong command", help_text.replace("tunn login", "other login", 1)),
+        ):
+            with self.subTest(banner=name):
+                candidate = self.fixture_binary(name)
+                candidate.write_text(f"#!/bin/sh\ncat <<'TUNN_HELP'\n{text}\nTUNN_HELP\n")
+                with self.assertRaisesRegex(ValueError, "not a runnable tunn"):
+                    self.install(candidate)
+                self.assertEqual(original, self.installation.inspect())
+                self.assertEqual(self.first.read_bytes(), self.installation.binary.read_bytes())
+
     def test_replacement_os_error_automatically_restores_prior_selection(self):
         original = self.install(self.first)
         select = self.installation.select
@@ -167,7 +188,8 @@ class ArtifactTests(unittest.TestCase):
         profile.write_text(profile.read_text().replace("version: 1", "version: 99"))
         result = subprocess.run([*command, "check", "--config", str(profile)], capture_output=True, timeout=10)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn(b"version must be 1", result.stderr)
+        self.assertIn(b"Command failed\nCheck command options\ntunn --help\n", result.stderr)
+        self.assertNotIn(credential.read_bytes(), result.stdout + result.stderr)
 
     def test_seeded_artifact_transitions_preserve_identity_and_selection(self):
         rng = random.Random(20261010)

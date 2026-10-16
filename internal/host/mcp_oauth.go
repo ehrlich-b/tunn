@@ -260,8 +260,7 @@ func (p *ProxyServer) mcpUserAllowed(ctx context.Context, email string, tunnel *
 	if err != nil {
 		return false
 	}
-	resource, err := p.mcpCurrentResource(ctx, tunnel, owner.ID)
-	return err == nil && webExplicitIdentityAllowed(resource, bucket, nil, "", p.currentTime())
+	return isEmailBucketAllowed(bucket, tunnel.AllowedEmails)
 }
 
 func (p *ProxyServer) handleMCPAuthorize(w http.ResponseWriter, r *http.Request) {

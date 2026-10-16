@@ -40,6 +40,7 @@ func TestMCPExchangeProcessHelper(t *testing.T) {
 		t.Fatal(err)
 	}
 	f := newMCPOAuthFixtureWithDB(t, db)
+	f.tunnel.AllowedEmails = strings.Split(os.Getenv("TUNN_MCP_EXCHANGE_ALLOW"), ",")
 	prepareMCPAuthorityFixture(t, f)
 	var seconds atomic.Int64
 	initial, _ := strconv.ParseInt(os.Getenv("TUNN_MCP_EXCHANGE_TIME"), 10, 64)
@@ -51,14 +52,14 @@ func TestMCPExchangeProcessHelper(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = guest
+	if _, err := f.p.storage.FindOrCreateByEmails(t.Context(), []string{"stranger@example.net"}, "synthetic"); err != nil {
+		t.Fatal(err)
+	}
 	other, err := f.p.storage.FindOrCreateByEmails(t.Context(), []string{"other@example.com"}, "synthetic")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = f.p.sharingBackend().Sharing(t.Context(), &mp.SharingRequest{Operation: "share", Owner: f.tunnel.AccountID, Endpoint: "tools", Email: "guest@example.com", ExpiresAt: time.Now().Add(90 * 24 * time.Hour).UnixMilli()})
-	if err != nil {
-		t.Fatal(err)
-	}
+
 	t.Setenv("TUNN_MCP_OAUTH_HELPER", "1")
 	bridge, err := mcpbridge.StartStdioHandler(t.Context(), []string{os.Args[0], "-test.run=^TestMCPOAuthStdioHelper$"}, io.Discard, mcpbridge.Options{AllowedTools: []string{"echo"}})
 	if err != nil {
@@ -79,7 +80,11 @@ func TestMCPExchangeProcessHelper(t *testing.T) {
 				t.Error("credential forwarded to MCP child")
 			}
 			w := httptest.NewRecorder()
-			bridge.ServeHTTP(w, local)
+			if f.tunnel.TargetURL == "mcp" {
+				bridge.ServeHTTP(w, local)
+			} else {
+				w.WriteString("private HTTP app")
+			}
 			headers := map[string]string{}
 			for k := range w.Header() {
 				headers[k] = w.Header().Get(k)
@@ -111,6 +116,18 @@ func TestMCPExchangeProcessHelper(t *testing.T) {
 				} else {
 					f.p.meter = ledger
 				}
+			case "/fixture/http":
+				out, err := f.p.sharingBackend().Sharing(r.Context(), &mp.SharingRequest{Operation: "register", Owner: f.tunnel.AccountID, Endpoint: "tools", Mode: "private", InitialEmails: []string{"owner@example.com"}})
+				if err != nil {
+					t.Error(err)
+					w.WriteHeader(500)
+					return
+				}
+				f.tunnel.TargetURL = "http://127.0.0.1:8080"
+				f.tunnel.ResourceID = out.Resources[0].Id
+				f.tunnel.PolicyResourceID = ""
+				f.tunnel.ExposureMode = "private"
+				f.tunnel.AllowedEmails = []string{"owner@example.com"}
 			case "/fixture/generation":
 				generation := "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 				if _, err := db.Exec(`UPDATE web_resources SET id=? WHERE endpoint='tools'`, generation); err != nil {
@@ -155,8 +172,12 @@ type exchangeProcess struct {
 
 func startExchangeProcess(t *testing.T, db string, now int64) *exchangeProcess {
 	t.Helper()
+	return startExchangeProcessAllowed(t, db, now, []string{"owner@example.com", "guest@example.com"})
+}
+func startExchangeProcessAllowed(t *testing.T, db string, now int64, allowed []string) *exchangeProcess {
+	t.Helper()
 	cmd := exec.Command(os.Args[0], "-test.run=^TestMCPExchangeProcessHelper$")
-	cmd.Env = append(os.Environ(), "TUNN_MCP_EXCHANGE_PROCESS=1", "TUNN_MCP_EXCHANGE_DB="+db, "TUNN_MCP_EXCHANGE_TIME="+strconv.FormatInt(now, 10))
+	cmd.Env = append(os.Environ(), "TUNN_MCP_EXCHANGE_PROCESS=1", "TUNN_MCP_EXCHANGE_DB="+db, "TUNN_MCP_EXCHANGE_TIME="+strconv.FormatInt(now, 10), "TUNN_MCP_EXCHANGE_ALLOW="+strings.Join(allowed, ","))
 	logs := &refreshLogCapture{}
 	cmd.Stderr = logs
 	out, err := cmd.StdoutPipe()
@@ -660,10 +681,7 @@ func TestMCPExchangePersonRevocationDuringIssuance(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, err = f.p.sharingBackend().Sharing(t.Context(), &mp.SharingRequest{Operation: "share", Owner: f.tunnel.AccountID, Endpoint: "tools", Email: "guest@example.com", ExpiresAt: time.Now().Add(time.Hour).UnixMilli()})
-			if err != nil {
-				t.Fatal(err)
-			}
+			f.tunnel.AllowedEmails = append(f.tunnel.AllowedEmails, "guest@example.com")
 			c := discoverMCPClient(t, f)
 			if refresh {
 				registered := f.request("POST", "https://tunn.test/oauth/register", `{"client_name":"Spec client","redirect_uris":["https://connector.example/callback"],"grant_types":["authorization_code","refresh_token"]}`, "application/json", "", nil)
@@ -719,4 +737,134 @@ func TestMCPExchangePersonRevocationDuringIssuance(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Restart the real publisher authority with a different live list, including
+// verified aliases and domain entries, then prove removal cannot be undone by
+// restoring the list. No MCP invitation may become an HTTP sharing permission.
+func TestMCPExchangeLiveAllowRestartAndHTTPIsolation(t *testing.T) {
+	db := filepath.Join(t.TempDir(), "oauth.db")
+	now := time.Now().Unix()
+	p := startExchangeProcess(t, db, now)
+	client := p.register("")
+	guest := p.cookie("guest@example.com")
+	tokens := p.exchange(codeExchangeForm(client, p.code(client, guest)), 200)
+	p.call(tokens.Access, 200)
+	denyStranger := func() {
+		t.Helper()
+		status, headers, _ := p.consent(client, p.cookie("stranger@example.net"))
+		location, _ := url.Parse(headers.Get("Location"))
+		if status != 302 || location.Query().Get("error") != "access_denied" {
+			t.Fatalf("stranger consent status %d", status)
+		}
+		stranger := relayJWT(t, securityProxy(nil), "stranger@example.net")
+		status, _, _ = p.request("POST", "tools.tunn.test", "/mcp", `{}`, stranger, nil)
+		if status != 403 {
+			t.Fatalf("stranger tool status %d", status)
+		}
+	}
+	denyStranger()
+	// Aliases and domain rules preserve exactly the same account permission.
+	for _, allowed := range [][]string{{"owner@example.com", "ALIAS@example.com"}, {"owner@example.com", "@example.com"}} {
+		secrets := p.secrets
+		p.stop()
+		p = startExchangeProcessAllowed(t, db, now, allowed)
+		p.secrets = append(p.secrets, secrets...)
+		tokens = p.exchange(refreshExchangeForm(client, tokens.Refresh), 200)
+		p.call(tokens.Access, 200)
+		denyStranger()
+	}
+	pendingCode := p.code(client, p.cookie("guest@example.com"))
+	status, _, pending := p.consent(client, p.cookie("alias@example.com"))
+	if status != 200 {
+		t.Fatal("pending alias consent unavailable")
+	}
+	secrets := p.secrets
+	p.stop()
+	p = startExchangeProcessAllowed(t, db, now, []string{"owner@example.com"})
+	p.secrets = append(p.secrets, secrets...)
+	p.exchange(refreshExchangeForm(client, tokens.Refresh), 400)
+	p.exchange(codeExchangeForm(client, pendingCode), 400)
+	p.call(tokens.Access, 401)
+	status, headers, _ := p.consent(client, p.cookie("guest@example.com"))
+	location, _ := url.Parse(headers.Get("Location"))
+	if status != 302 || location.Query().Get("error") != "access_denied" {
+		t.Fatalf("removed guest consent status %d", status)
+	}
+	form := url.Values{"authorization": {hiddenMCPField(t, string(pending), "authorization")}, "csrf_token": {hiddenMCPField(t, string(pending), "csrf_token")}, "decision": {"allow"}}
+	status, headers, _ = p.request("POST", "tunn.test", "/oauth/authorize", form.Encode(), "", p.cookie("alias@example.com"))
+	location, _ = url.Parse(headers.Get("Location"))
+	if status == 302 && location.Query().Get("code") != "" {
+		t.Fatal("removed person's pending form issued a code")
+	}
+	denyStranger()
+	// Re-adding permission requires new consent; old descendants stay revoked.
+	secrets = p.secrets
+	p.stop()
+	p = startExchangeProcess(t, db, now)
+	p.secrets = append(p.secrets, secrets...)
+	p.exchange(refreshExchangeForm(client, tokens.Refresh), 400)
+	p.call(tokens.Access, 401)
+	fresh := p.exchange(codeExchangeForm(client, p.code(client, p.cookie("guest@example.com"))), 200)
+	p.call(fresh.Access, 200)
+	p.control("http")
+	for _, email := range []string{"owner@example.com", "guest@example.com", "stranger@example.net"} {
+		want := 403
+		if email == "owner@example.com" {
+			want = 200
+		}
+		status, _, _ := p.request("GET", "tools.tunn.test", "/", "", relayJWT(t, securityProxy(nil), email), nil)
+		if status != want {
+			t.Fatalf("HTTP app %s status %d, want %d", email, status, want)
+		}
+	}
+	p.call(fresh.Access, 401)
+	p.stop()
+	t.Log("live allow removal revoked forms, codes, consents, access and refresh across restart; aliases and domains retained; HTTP app denied former MCP guest and stranger")
+}
+
+func TestMCPExchangeFastRefreshBoundsOwnerGrants(t *testing.T) {
+	p := startExchangeProcess(t, filepath.Join(t.TempDir(), "oauth.db"), time.Now().Unix())
+	client := p.register("")
+	tokens := p.exchange(codeExchangeForm(client, p.code(client, p.cookie("guest@example.com"))), 200)
+	owner := relayJWT(t, securityProxy(nil), "owner@example.com")
+	createMachine := func(raw string) {
+		t.Helper()
+		digest := sha256.Sum256([]byte(raw))
+		data, err := json.Marshal(&mp.Grant{Consumer: "owner-machine", TokenSha256: digest[:], ExpiresAt: time.Now().Add(time.Hour).UnixMilli()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		status, _, _ := p.request("POST", "tunn.test", "/api/endpoints/tools/grants", string(data), owner, nil)
+		if status != 201 {
+			t.Fatalf("machine grant creation status %d", status)
+		}
+		p.secrets = append(p.secrets, raw)
+	}
+	machine := "tunn_gr_synthetic_owner_machine"
+	createMachine(machine)
+	p.call(machine, 200)
+	initial := tokens.Access
+	for i := 0; i < 300; i++ {
+		previous := tokens.Access
+		tokens = p.exchange(refreshExchangeForm(client, tokens.Refresh), 200)
+		if i == 0 || i == 299 {
+			p.call(previous, 401)
+		}
+		status, _, data := p.request("GET", "tunn.test", "/api/grants", "", owner, nil)
+		var grants mp.ListGrantsResponse
+		if status != 200 || json.Unmarshal(data, &grants) != nil {
+			t.Fatal("cannot count owner grants")
+		}
+		if len(grants.Grants) != 2 {
+			t.Fatalf("rotation %d left %d owner grants, want 2", i+1, len(grants.Grants))
+		}
+	}
+	p.call(initial, 401)
+	p.call(tokens.Access, 200)
+	p.call(machine, 200)
+	createMachine("tunn_gr_synthetic_second_owner_machine")
+	p.call("tunn_gr_synthetic_second_owner_machine", 200)
+	p.stop()
+	t.Log("300 immediate guest refreshes kept one family access grant and one owner machine grant; old access denied; new owner machine grant succeeded")
 }

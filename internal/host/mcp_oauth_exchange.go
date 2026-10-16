@@ -123,7 +123,7 @@ func (p *ProxyServer) issueMCPCredentials(w http.ResponseWriter, r *http.Request
 	}
 	refreshEnabled := slices.Contains(client.GrantTypes, "refresh_token")
 	// Reject unknown credentials before allocating a ledger grant and reclaim
-	// expired OAuth access rows so hourly refresh lasts the full consent lifetime.
+	// expired OAuth access rows and this family's prior grant before allocation.
 	preparation, err := p.mcpOAuth.refreshTx(ctx)
 	if err != nil {
 		oauthProblem(w, 503, "temporarily_unavailable", "Authorization authority unavailable")
@@ -148,6 +148,9 @@ func (p *ProxyServer) issueMCPCredentials(w http.ResponseWriter, r *http.Request
 			oauthProblem(w, 400, "invalid_grant", "Refresh credential reused; consent required")
 		}
 		return
+	}
+	if err == nil && family != 0 {
+		err = mcpauth.PruneFamilyAccess(ctx, preparation, family)
 	}
 	if err == nil {
 		err = mcpauth.PruneAccess(ctx, preparation, auth.Owner, p.currentTime())
@@ -196,6 +199,9 @@ func (p *ProxyServer) issueMCPCredentials(w http.ResponseWriter, r *http.Request
 	next := sha256.Sum256([]byte(secret))
 	if family != 0 {
 		err = p.mcpOAuth.rotateRefreshTx(ctx, tx, family, binding, previous, next)
+		if err == nil {
+			err = mcpauth.PruneFamilyAccess(ctx, tx, family)
+		}
 	} else if refreshEnabled {
 		family, err = p.mcpOAuth.createRefreshFamilyTx(ctx, tx, binding, next, time.Unix(expiry, 0))
 		if err == nil {

@@ -147,7 +147,7 @@ func (s *Store) Sharing(ctx context.Context, in *pb.SharingRequest) (*pb.Sharing
 			err := tx.QueryRowContext(ctx, `SELECT id,owner,mode FROM web_resources WHERE endpoint=?`, in.Endpoint).Scan(&r.Id, &r.Owner, &r.Mode)
 			fresh := errors.Is(err, sql.ErrNoRows) || err == nil && r.Owner != in.Owner
 			if in.Operation == "register" {
-				if len(in.InitialEmails) > s.maxResourcePeople {
+				if in.Mode != "policy-only" && len(in.InitialEmails) > s.maxResourcePeople {
 					return ErrCapacity
 				}
 				if in.Mode != "private" && in.Mode != "public" && in.Mode != "legacy-public" && in.Mode != "policy-only" {
@@ -193,19 +193,13 @@ func (s *Store) Sharing(ctx context.Context, in *pb.SharingRequest) (*pb.Sharing
 				if _, err = tx.ExecContext(ctx, `INSERT INTO web_resources(endpoint,owner,id,mode) VALUES(?,?,?,?) ON CONFLICT(endpoint) DO UPDATE SET owner=excluded.owner,id=excluded.id,mode=excluded.mode`, r.Endpoint, r.Owner, r.Id, r.Mode); err != nil {
 					return err
 				}
-				if fresh || r.Mode == "policy-only" {
+				if r.Mode == "policy-only" {
+					// MCP uses the live publisher allow list, never durable web invitations.
+					if err = mcpauth.ReconcileAllowed(ctx, tx, r.Owner, r.Endpoint, in.InitialEmails); err != nil {
+						return err
+					}
+				} else if fresh {
 					for _, email := range in.InitialEmails {
-						// Upgrade MCP permission metadata without restoring an existing decision.
-						if !fresh {
-							var existing int
-							if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM meter_grants WHERE owner=? AND endpoint=? AND json_extract(CAST(data AS TEXT),'$.consumer')=?`, r.Owner, r.Id, sharingConsumer(normalizeSharingTarget(email))).Scan(&existing); err != nil {
-								return err
-							}
-							if existing != 0 {
-								continue
-							}
-						}
-
 						if err = s.sharePerson(ctx, tx, r, normalizeSharingTarget(email), s.now().AddDate(100, 0, 0).UnixMilli(), true); err != nil {
 							return err
 						}

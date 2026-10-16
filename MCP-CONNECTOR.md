@@ -31,7 +31,9 @@ are outside the authorization-code/DCR connector contract described here.
 Public clients may register `grant_types: ["authorization_code", "refresh_token"]`
 (in either order). Omitting `grant_types` enables both. An explicit
 `["authorization_code"]` registration remains supported and receives only an
-access token. Discovery advertises both grants; no client secret or HTTP client
+access token. Existing registrations that saved only `authorization_code` keep
+that setting and need a new registration to obtain refresh tokens. Discovery
+advertises both grants; no client secret or HTTP client
 authentication is accepted. S256 and exact redirect/resource binding remain
 mandatory for the authorization-code exchange.
 
@@ -53,8 +55,10 @@ the oldest spent digest is pruned as rotation continues. A replay older than tha
 window is rejected without invalidating the family. There is no 127-rotation
 ceiling. Storage permits at most 64 live families per owner and 10,000 globally;
 expired entries are reclaimed when consent or refresh families are created.
-Expired or revoked OAuth access-token rows are reclaimed before issuing another
-access token, so hourly rotation does not consume the general grant capacity.
+Each rotation invalidates and prunes the family's previous access grant, leaving
+at most one live access grant per family. Expired or revoked OAuth access-token
+rows are reclaimed before issuing another access token, so rapid or hourly
+rotation does not consume the general grant capacity.
 Pending and approved authorization records are also bounded (128 per owner,
 10,000 globally), with a 30-day maximum retention. These are OAuth storage bounds.
 
@@ -74,11 +78,16 @@ family on that owner's endpoint. The management page and `GET /api/mcp/clients`
 list approved, unexpired consents independently of access-token cleanup, so a
 dormant client retains its Disconnect control. Consent entries report the consent
 expiry in `expires_at`; `grant_id` is empty when no live access grant remains.
-Removing a person through
-`DELETE /api/sharing/<endpoint>` does the same for that person across clients,
-including consents under linked email aliases. MCP endpoints use their live
-permission decisions, so reconnecting a publisher does not restore a removed
-person. Revoking a mapped access grant through the existing grant API revokes
+MCP person access uses the publisher's current `--allow` list, including verified
+email aliases and domain entries; the owner always retains access. Restarting the
+publisher with a person removed revokes that person's consents, pending forms,
+codes, access tokens and refresh families across clients. Adding the person back
+requires new consent and cannot revive those credentials. MCP invitations are
+not stored as web-sharing permissions and do not grant access to a private HTTP
+app later published on the same name. `DELETE /api/sharing/<endpoint>` also
+revokes that person's existing MCP credentials across clients and linked email
+aliases; remove the person from `--allow` to prevent new consent. Revoking a
+mapped access grant through the existing grant API revokes
 its originating consent and all its descendants. Each authority revocation is
 transactional; an acknowledged revocation cannot race issuance into leaving a
 usable descendant. New consent is required after disconnect or consent revocation.

@@ -687,6 +687,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 
 	// MCP uses its existing access credentials, while policy configuration still
 	// needs an immutable owner generation. This record is not a web sharing ACL.
+	// InitialEmails only revokes omitted MCP consents; it creates no sharing grants.
 	if endpointProtocol == "http" && targetURL == "mcp" && s.sharing != nil && accountID != "" {
 		result, err := s.sharing.Sharing(stream.Context(), &meterpb.SharingRequest{Operation: "register", Owner: accountID, Endpoint: tunnelID, Mode: "policy-only", InitialEmails: allowedEmails})
 		if err != nil || result == nil || len(result.Resources) != 1 {

@@ -6,7 +6,10 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"time"
+
+	"github.com/ehrlich-b/tunn/internal/common"
 )
 
 func Init(db *sql.DB) error {
@@ -28,11 +31,62 @@ func Valid(ctx context.Context, tx *sql.Tx, id string, now time.Time) error {
  JOIN web_resources r ON r.endpoint=a.endpoint AND r.owner=a.owner AND r.id=a.generation
  JOIN accounts owner ON owner.id=a.owner JOIN accounts person ON person.id=a.person
  WHERE a.id=? AND a.approved=1 AND a.expires>? AND NOT EXISTS (SELECT 1 FROM ops_account_state o WHERE o.account_id IN (a.owner,a.person) AND o.state<>'active')
- AND EXISTS (SELECT 1 FROM account_emails e WHERE e.account_id=a.person AND e.email=a.email)
- AND (a.person=a.owner OR EXISTS (SELECT 1 FROM meter_grants g JOIN account_emails e ON e.account_id=a.person
- WHERE g.owner=a.owner AND g.endpoint=a.generation AND g.expires>? AND COALESCE(json_extract(CAST(g.data AS TEXT),'$.revoked'),0)=0
- AND (json_extract(CAST(g.data AS TEXT),'$.consumer')='person:'||e.email
- OR json_extract(CAST(g.data AS TEXT),'$.consumer')='person:'||substr(e.email,instr(e.email,'@')))))`, id, now.Unix(), now.UnixMilli()).Scan(&found)
+ AND EXISTS (SELECT 1 FROM account_emails e WHERE e.account_id=a.person AND e.email=a.email)`, id, now.Unix()).Scan(&found)
+	return err
+}
+
+// ReconcileAllowed revokes consents omitted from a publisher's current MCP
+// allow list. The list is used only in this transaction, never as a web ACL.
+func ReconcileAllowed(ctx context.Context, tx *sql.Tx, owner, endpoint string, allowed []string) error {
+	rows, err := tx.QueryContext(ctx, `SELECT a.id,e.email FROM mcp_oauth_authorizations a
+ LEFT JOIN account_emails e ON e.account_id=a.person WHERE a.owner=? AND a.endpoint=? AND a.person<>a.owner`, owner, endpoint)
+	if err != nil {
+		return err
+	}
+	permitted := make(map[string]bool)
+	for rows.Next() {
+		var id string
+		var email sql.NullString
+		if err := rows.Scan(&id, &email); err != nil {
+			rows.Close()
+			return err
+		}
+		if _, ok := permitted[id]; !ok {
+			permitted[id] = false
+		}
+		if !email.Valid {
+			continue
+		}
+		normalized := common.NormalizeEmail(email.String)
+		for _, entry := range allowed {
+			entry = common.NormalizeEmail(entry)
+			if normalized == entry || strings.HasPrefix(entry, "@") && strings.HasSuffix(normalized, entry) {
+				permitted[id] = true
+			}
+		}
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return err
+	}
+	for id, ok := range permitted {
+		if !ok {
+			if err := RevokeConsent(ctx, tx, id); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// PruneFamilyAccess invalidates and removes the family's previous access grants.
+// Removing the ledger row also revokes its digest; unrelated grants are untouched.
+func PruneFamilyAccess(ctx context.Context, tx *sql.Tx, family int64) error {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM meter_grants WHERE id IN (SELECT grant_id FROM mcp_oauth_access WHERE family=?)`, family); err != nil {
+		return err
+	}
+	_, err := tx.ExecContext(ctx, `DELETE FROM mcp_oauth_access WHERE family=?`, family)
 	return err
 }
 

@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/ehrlich-b/tunn/internal/client"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -243,11 +244,19 @@ func TestPolicyMCPRegistrationBindsGeneration(t *testing.T) {
 		}
 		return stream.mockTunnelStream.Send(msg)
 	}
-	stream.recvQueue <- &pb.TunnelMessage{Message: &pb.TunnelMessage_RegisterClient{RegisterClient: &pb.RegisterClient{TunnelId: "policy-mcp", TargetUrl: "mcp", AuthToken: relayJWT(t, f.p, "owner@example.com"), TunnelKey: f.p.config.WellKnownKey, AllowedEmails: []string{"owner@example.com"}}}}
+	allowed := []string{"owner@example.com"}
+	for i := 0; i < 70; i++ {
+		allowed = append(allowed, fmt.Sprintf("guest%d@example.com", i))
+	}
+	stream.recvQueue <- &pb.TunnelMessage{Message: &pb.TunnelMessage_RegisterClient{RegisterClient: &pb.RegisterClient{TunnelId: "policy-mcp", TargetUrl: "mcp", AuthToken: relayJWT(t, f.p, "owner@example.com"), TunnelKey: f.p.config.WellKnownKey, AllowedEmails: allowed}}}
 	close(stream.recvQueue)
 	_ = s.EstablishTunnel(stream)
 	if registered == nil || registered.PolicyResourceID == "" || registered.ResourceID != "" {
 		t.Fatalf("MCP generation=%+v", registered)
+	}
+	resource, err := s.sharing.Sharing(t.Context(), &meterpb.SharingRequest{Operation: "get", Owner: registered.AccountID, Endpoint: registered.TunnelID})
+	if err != nil || len(resource.Resources) != 1 || len(resource.Resources[0].People) != 0 {
+		t.Fatalf("MCP registration persisted web sharing permissions: %v %v", resource, err)
 	}
 	relayPolicy(t, f.p, registered, `{"rate_limits":{"per_ip":{"requests_per_minute":10,"burst":1}}}`)
 }

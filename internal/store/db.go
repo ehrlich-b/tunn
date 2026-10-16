@@ -98,7 +98,7 @@ func InitForTest() (*sql.DB, error) {
 		}
 	}()
 	path := strings.NewReplacer("%", "%25", "?", "%3f", "#", "%23").Replace(filepath.Join(dir, "test.db"))
-	dsn := "file:" + path + "?_pragma=journal_mode(MEMORY)&_pragma=synchronous(OFF)"
+	dsn := "file:" + path + "?_pragma=journal_mode(MEMORY)&_pragma=synchronous(OFF)&_pragma=busy_timeout(5000)"
 	registeredDB, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err

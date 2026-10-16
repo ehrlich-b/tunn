@@ -393,3 +393,7 @@ func TestAccountOperationsReplicaBillingReportsAndAuthentication(t *testing.T) {
 		}
 	}
 }
+
+func (s *operationsMailSink) Send(to, subject, body string) error {
+	return fmt.Errorf("unexpected account verification email")
+}

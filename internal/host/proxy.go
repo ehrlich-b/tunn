@@ -110,8 +110,11 @@ type ProxyServer struct {
 	proxyStorage *storage.ProxyStorage
 
 	// Email sender (for magic link auth)
-	emailSender interface{ SendMagicLink(string, string) error }
-	now         func() time.Time
+	emailSender interface {
+		SendMagicLink(string, string) error
+		Send(string, string, string) error
+	}
+	now func() time.Time
 
 	// Graceful degradation (non-login nodes)
 	usageBuffer *UsageBuffer

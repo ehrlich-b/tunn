@@ -73,7 +73,7 @@ func (p *ProxyServer) getAuthFromCookie(r *http.Request) (string, bool) {
 		if !ok {
 			return "", false
 		}
-		email, err := accountIdentityEmail(r.Context(), p.storage, claims)
+		email, err := accountIdentityEmail(claims)
 		return email, err == nil
 	}
 	if !p.visitorJWTConfigured() {
@@ -110,7 +110,7 @@ func (p *ProxyServer) getAuthFromCookie(r *http.Request) (string, bool) {
 		return "", false
 	}
 
-	email, err := accountIdentityEmail(r.Context(), p.storage, claims)
+	email, err := accountIdentityEmail(claims)
 	if err != nil {
 		return "", false
 	}
@@ -254,7 +254,7 @@ func (p *ProxyServer) getAuthFromTunnelBearer(r *http.Request, tunnel *TunnelCon
 		if !validClaims {
 			continue
 		}
-		email, err := accountIdentityEmail(r.Context(), p.storage, claims)
+		email, err := accountIdentityEmail(claims)
 		if claims["type"] == "management_access" && token.Method.Alg() == "HS256" && tunnel.TunnelID == "" {
 			email, err = p.managementIdentity(r, claims)
 		}
@@ -879,7 +879,7 @@ func (p *ProxyServer) CheckJWT(next http.Handler) http.Handler {
 		}
 
 		// Extract user email from claims
-		email, err := accountIdentityEmail(r.Context(), p.storage, claims)
+		email, err := accountIdentityEmail(claims)
 		if claims["type"] == "management_access" && token.Method.Alg() == "HS256" {
 			email, err = p.managementIdentity(r, claims)
 		}

@@ -589,3 +589,7 @@ func TestSSHJumpAdmissionRequiresPersonGrant(t *testing.T) {
 	}
 	tunnel.accountQuotaExempt = false
 }
+
+func (s jumpMailCapture) Send(to, subject, body string) error {
+	return fmt.Errorf("unexpected account verification email")
+}

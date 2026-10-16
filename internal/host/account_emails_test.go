@@ -91,6 +91,15 @@ func accountEmailsLifecycle(t *testing.T, remote bool) {
 	if sink.calls != 1 || sink.to != "alias@example.com" {
 		t.Fatal(sink)
 	}
+	if sink.subject != "Verify this address for your tunn.to account" ||
+		!strings.Contains(sink.body, "your signed-in tunn.to account") ||
+		!strings.Contains(sink.body, ">Verify this address</a>") ||
+		!strings.Contains(sink.body, "expires in 5 minutes") ||
+		strings.Contains(strings.ToLower(sink.subject+sink.body), "log in") ||
+		strings.Contains(strings.ToLower(sink.subject+sink.body), "login") {
+		t.Fatalf("unexpected verification email: %q %q", sink.subject, sink.body)
+	}
+
 	if unverified, err := local.GetAccountByEmail(ctx, sink.to); err != nil || unverified != nil {
 		t.Fatal("linked before verification", unverified, err)
 	}

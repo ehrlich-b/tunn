@@ -34,30 +34,17 @@ func identityEmail(claims jwt.MapClaims) (string, error) {
 	return email, nil
 }
 
-// accountIdentityEmail applies the signed UUID and live mailbox check to every
-// presentation of an account session, including bearer and publisher JWTs.
-func accountIdentityEmail(ctx context.Context, authority storage.Storage, claims jwt.MapClaims) (string, error) {
+// accountIdentityEmail validates the signed account binding. Emails cannot be
+// removed, so existing sessions need no live mailbox lookup on relay requests.
+func accountIdentityEmail(claims jwt.MapClaims) (string, error) {
 	email, err := identityEmail(claims)
 	if err != nil {
 		return "", err
 	}
-	if _, bound := claims["account_id"]; !bound {
-		return email, nil
-	}
-	if claims["type"] != "session" || !validAccountClaims(claims) || authority == nil || !authority.Available() {
+	if _, bound := claims["account_id"]; bound && (claims["type"] != "session" || !validAccountClaims(claims)) {
 		return "", fmt.Errorf("invalid account session")
 	}
-	id, _ := claims["account_id"].(string)
-	account, err := authority.GetAccount(ctx, id)
-	if err != nil || account == nil {
-		return "", fmt.Errorf("account session unavailable")
-	}
-	for _, alias := range account.Emails {
-		if common.NormalizeEmail(alias.Email) == email {
-			return email, nil
-		}
-	}
-	return "", fmt.Errorf("session mailbox no longer belongs to account")
+	return email, nil
 }
 
 func deviceAccount(ctx context.Context, authority storage.Storage, claims jwt.MapClaims) (*storage.Account, error) {

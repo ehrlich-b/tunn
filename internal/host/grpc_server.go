@@ -437,7 +437,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 			return fmt.Errorf("no authentication provided for tunnel %s", tunnelID)
 		}
 
-		extractedEmail, err := s.validatePublisherToken(regClient.AuthToken)
+		extractedEmail, err := s.validatePublisherToken(stream.Context(), regClient.AuthToken)
 		if err != nil {
 			common.LogError("JWT validation failed", "tunnel_id", tunnelID, "error", err)
 			respMsg := &pb.TunnelMessage{
@@ -990,7 +990,7 @@ func (s *TunnelServer) validateJWTAndExtractEmail(tokenString string) (string, e
 	}
 
 	// Extract email
-	return accountIdentityEmail(context.Background(), s.storage, claims)
+	return accountIdentityEmail(claims)
 }
 
 // rejectTunnelRegistration sends a failed reply before terminating the stream.
@@ -1007,12 +1007,12 @@ func (s *TunnelServer) currentTime() time.Time {
 	}
 	return time.Now()
 }
-func (s *TunnelServer) validatePublisherToken(raw string) (string, error) {
+func (s *TunnelServer) validatePublisherToken(ctx context.Context, raw string) (string, error) {
 	if _, _, _, err := parseDeviceToken(raw, []byte(s.cfg.JWTSecret), s.currentTime()); err == nil {
 		if s.storage == nil || !s.storage.Available() {
 			return "", storage.ErrNotAvailable
 		}
-		account, err := s.storage.GetAccount(context.Background(), signedAccountID(raw))
+		account, err := s.storage.GetAccount(ctx, signedAccountID(raw))
 		if err != nil || account == nil || account.OperationalState != "active" {
 			return "", fmt.Errorf("device account unavailable")
 		}

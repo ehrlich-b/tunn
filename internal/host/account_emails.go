@@ -2,6 +2,8 @@ package host
 
 import (
 	"errors"
+	"fmt"
+	"html"
 	"html/template"
 	"net/http"
 	"net/mail"
@@ -127,7 +129,10 @@ func (p *ProxyServer) handleAccountEmails(w http.ResponseWriter, r *http.Request
 				http.Error(w, "Email service unavailable", 503)
 				return
 			}
-			if err = p.emailSender.SendMagicLink(email, "https://"+p.config.PublicAddr+accountEmailsPath+"?token="+url.QueryEscape(token)); err != nil {
+			link := "https://" + p.config.PublicAddr + accountEmailsPath + "?token=" + url.QueryEscape(token)
+			subject := "Verify this address for your tunn.to account"
+			body := fmt.Sprintf(`<p>Verify this address for your signed-in tunn.to account.</p><p><a href="%s">Verify this address</a></p><p>This link expires in 5 minutes. If you didn't request this email, you can safely ignore it.</p>`, html.EscapeString(link))
+			if err = p.emailSender.Send(email, subject, body); err != nil {
 				http.Error(w, "Could not send email. Please retry.", 503)
 				return
 			}

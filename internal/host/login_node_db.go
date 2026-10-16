@@ -310,7 +310,7 @@ func (s *LoginNodeDBServer) MutateAccountEmail(ctx context.Context, r *internalv
 	}
 	var a *storage.Account
 	var err error
-	if r.Action == "link" && r.TokenJti != "" {
+	if r.Action == "link" {
 		a, err = s.storage.LinkAccountEmail(ctx, r.AccountId, r.Email, r.TokenJti, time.Unix(r.TokenExpiresAt, 0))
 	} else {
 		a, err = s.storage.MutateAccountEmail(ctx, r.AccountId, r.Email, r.Action)

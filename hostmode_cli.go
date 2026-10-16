@@ -109,7 +109,7 @@ func hostCommand(ctx context.Context, command string, args []string, out, errout
 		}
 		if action == "check" {
 			if _, err := hostmode.Credentials(c); err != nil {
-				return err
+				return &cliCommandError{cause: err, state: "error", title: "Command failed", detail: "Check command options", command: "tunn --help"}
 			}
 			_, err := fmt.Fprintf(out, "PASS local host config v%d: machine %s, %d endpoints, private credential; JWT expiry checked locally. Relay authentication and readiness remain unchecked.\n", c.Version, c.Machine, len(c.Tunnels))
 			return err
@@ -141,7 +141,7 @@ func hostCommand(ctx context.Context, command string, args []string, out, errout
 		}
 		if action == "install" || action == "restart" {
 			if _, err := hostmode.Credentials(c); err != nil {
-				return err
+				return &cliCommandError{cause: err, state: "error", title: "Command failed", detail: "Check command options", command: "tunn --help"}
 			}
 		}
 		result, err := spec.Manage(action, hostmode.ExecCommand)

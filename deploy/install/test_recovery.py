@@ -79,7 +79,8 @@ class ArtifactTests(unittest.TestCase):
 
     def test_missing_or_wrong_help_banner_keeps_prior_selection(self):
         original = self.install(self.first)
-        binary = os.environ["TUNN_TEST_BINARY"]
+        binary = os.environ.get("TUNN_TEST_BINARY")
+        self.assertIsNotNone(binary, "fixture gate must stage an offline build in TUNN_TEST_BINARY")
         result = subprocess.run([binary, "--help"], capture_output=True, timeout=10)
         self.assertEqual(result.returncode, 0)
         help_text = (result.stdout + result.stderr).decode()
@@ -188,7 +189,7 @@ class ArtifactTests(unittest.TestCase):
         profile.write_text(profile.read_text().replace("version: 1", "version: 99"))
         result = subprocess.run([*command, "check", "--config", str(profile)], capture_output=True, timeout=10)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn(b"Command failed\nCheck command options\ntunn --help\n", result.stderr)
+        self.assertIn(b"version must be 1", result.stderr)
         self.assertNotIn(credential.read_bytes(), result.stdout + result.stderr)
 
     def test_seeded_artifact_transitions_preserve_identity_and_selection(self):

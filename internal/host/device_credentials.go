@@ -358,7 +358,9 @@ func (p *ProxyServer) handleDevices(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/account/devices", 303)
 		return
 	}
-	rows, err := p.devices.db.QueryContext(r.Context(), `SELECT id,email,name,created,last_used,revoked,account_id FROM durable_devices ORDER BY created DESC`)
+	rows, err := p.devices.db.QueryContext(r.Context(), `SELECT id,email,name,created,last_used,revoked,account_id FROM durable_devices
+ WHERE COALESCE((SELECT account_id FROM account_merges WHERE old_id=durable_devices.account_id),account_id)=?
+ ORDER BY created DESC`, account.ID)
 	if err != nil {
 		http.Error(w, "Device service unavailable", 503)
 		return
@@ -386,10 +388,6 @@ func (p *ProxyServer) handleDevices(w http.ResponseWriter, r *http.Request) {
 	writePageStart(w, "tunn - Devices")
 	_, _ = fmt.Fprint(w, `<h1>Devices</h1><p>Publisher devices can publish and connect to tunnels; management devices administer the account. Revocation stops management access and renewal immediately; publisher leases expire within five minutes.</p>`)
 	for _, d := range list {
-		owner, lookupErr := p.storage.GetAccount(r.Context(), d.AccountID)
-		if lookupErr != nil || owner == nil || owner.ID != account.ID {
-			continue
-		}
 		_, _ = fmt.Fprintf(w, `<p><strong>%s</strong> <code>%s</code> Created: %s; last refresh: %s; revoked: %t</p>`, html.EscapeString(d.Name), html.EscapeString(d.ID), time.Unix(d.Created, 0).UTC().Format(time.RFC3339), time.Unix(d.LastUsed, 0).UTC().Format(time.RFC3339), d.Revoked != 0)
 		if d.Revoked == 0 {
 			_, _ = fmt.Fprintf(w, `<form method="post" action="/account/devices"><input type="hidden" name="csrf_token" value="%s"><input type="hidden" name="device_id" value="%s"><button>Revoke device</button></form>`, html.EscapeString(csrf), html.EscapeString(d.ID))

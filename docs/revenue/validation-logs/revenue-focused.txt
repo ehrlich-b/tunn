@@ -1,2 +1,0 @@
-ok  	github.com/ehrlich-b/tunn	0.063s
-ok  	github.com/ehrlich-b/tunn/internal/host	0.956s

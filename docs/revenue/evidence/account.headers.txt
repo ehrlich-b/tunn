@@ -1,7 +1,0 @@
-HTTP/2 302 
-alt-svc: h3=":443"; ma=3600
-content-type: text/html; charset=utf-8
-location: /auth/login?return_to=%2Faccount
-content-length: 55
-date: Sun, 11 Oct 2026 13:39:40 GMT
-

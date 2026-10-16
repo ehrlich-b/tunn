@@ -1,5 +1,0 @@
-Traceback (most recent call last):
-  File "/work/lanes/tunn-r3fix/tunn/evidence/fix-r3-domains/verifier-regression.py", line 49, in <module>
-    assert scope['keys'].jwk_set_cache.lifespan == 60, 'documented verifier must explicitly bound its JWKS cache to 60 seconds'
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-AssertionError: documented verifier must explicitly bound its JWKS cache to 60 seconds

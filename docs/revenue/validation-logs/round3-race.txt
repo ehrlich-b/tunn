@@ -1,5 +1,0 @@
-Full -race store/storage; focused -race billing/host/CLI.
-ok  	github.com/ehrlich-b/tunn/internal/store	43.436s
-ok  	github.com/ehrlich-b/tunn/internal/storage	11.203s
-ok  	github.com/ehrlich-b/tunn/internal/host	22.759s
-ok  	github.com/ehrlich-b/tunn	4.479s

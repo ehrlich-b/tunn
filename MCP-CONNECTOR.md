@@ -59,9 +59,11 @@ Each successful rotation revokes the family's previous access grant, leaving
 at most one live access grant per family. The superseded ledger row remains for
 in-flight requests to receive a normal revocation denial. Failure to create or
 commit the replacement preserves the current access grant and leaves the refresh
-token unused. Expired or revoked OAuth access-token rows are reclaimed before
-issuing another access token, so rapid or hourly rotation does not consume the
-general grant capacity.
+token unused. Expired or revoked OAuth access-token rows without unfinished
+requests are reclaimed before issuing another access token. Rows still needed
+for in-flight revocation or expiry checks count toward grant capacity until all
+their requests finish; a later issuance then reclaims them. Rapid or hourly
+rotation with completed requests does not accumulate spent access grants.
 Pending and approved authorization records are also bounded (128 per owner,
 10,000 globally), with a 30-day maximum retention. These are OAuth storage bounds.
 

@@ -184,10 +184,13 @@ func CheckAccess(ctx context.Context, tx *sql.Tx, grant string, now time.Time) e
 	return Valid(ctx, tx, id, now)
 }
 
-// PruneAccess reclaims only spent OAuth access-token storage before grant
-// capacity is checked. General machine grants, usage and audit are untouched.
+// PruneAccess reclaims spent OAuth access-token storage before grant capacity
+// is checked, retaining grants until every admitted request has finished so
+// charging can still report revocation or expiry. General machine grants,
+// usage and audit are untouched.
 func PruneAccess(ctx context.Context, tx *sql.Tx, owner string, now time.Time) error {
-	const expired = `SELECT id FROM meter_grants WHERE owner=? AND substr(json_extract(CAST(data AS TEXT),'$.consumer'),1,6)='oauth:' AND (expires<=? OR json_extract(CAST(data AS TEXT),'$.revoked')=1)`
+	const expired = `SELECT id FROM meter_grants WHERE owner=? AND substr(json_extract(CAST(data AS TEXT),'$.consumer'),1,6)='oauth:' AND (expires<=? OR json_extract(CAST(data AS TEXT),'$.revoked')=1)
+ AND id NOT IN (SELECT COALESCE(json_extract(CAST(data AS TEXT),'$.grant_id'),'') FROM meter_events WHERE finished=0)`
 	if _, err := tx.ExecContext(ctx, `DELETE FROM mcp_oauth_access WHERE grant_id IN (`+expired+`)`, owner, now.UnixMilli()); err != nil {
 		return err
 	}

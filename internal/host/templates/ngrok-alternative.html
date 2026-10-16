@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>tunn vs ngrok · share localhost with email access | tunn</title>
-<meta name="description" content="tunn and ngrok side by side: email-gated access in one flag, a $5 paid plan, and a hard stop at the limit instead of overage billing.">
+<title>tunn vs ngrok · plans and commands | tunn</title>
+<meta name="description" content="Compare tunn and ngrok prices and limits. Copy a tunn command for your local server.">
 <link rel="canonical" href="https://tunn.to/ngrok-alternative">
 <meta property="og:type" content="article">
 <meta property="og:site_name" content="tunn">
 <meta property="og:title" content="tunn vs ngrok">
-<meta property="og:description" content="Email-gated access in one flag, a $5 paid plan, and a hard stop at the limit.">
+<meta property="og:description" content="Compare plans and limits. Copy a tunn command for your local server.">
 <meta property="og:url" content="https://tunn.to/ngrok-alternative">
 <meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)"><meta name="theme-color" content="#0F1115" media="(prefers-color-scheme: dark)">
 <link rel="stylesheet" href="/guides.css">
@@ -18,37 +18,45 @@
 <body>
 <!--site-header:ngrok-->
 <main id="main">
-<div class="wrap">
-<section class="section" style="padding-top:56px" aria-labelledby="vs-title">
- <div class="section-head"><div><div class="glass diff-cmd" style="display:inline-flex"><code class="kbd"><span class="p" aria-hidden="true">$ </span>diff tunn ngrok</code></div><h1 id="vs-title">tunn vs <span class="dim-t">ngrok</span></h1></div><span class="lbl">Free and solo paid plans</span></div>
- <div class="panel diff" role="table" aria-label="tunn and ngrok compared">
-  <i class="screw tl"></i><i class="screw tr"></i><i class="screw bl"></i><i class="screw br"></i>
-  <div class="diff-head" role="row"><span role="columnheader"><span class="sr-only">Task</span></span><span class="lbl sig" role="columnheader">+ tunn</span><span class="lbl" role="columnheader">− ngrok</span></div>
-  <div class="diff-row" role="row"><span class="lbl" role="rowheader">Only Alex gets in</span>
-   <div class="cell glass" role="cell" data-who="+ tunn"><code>tunn 3000 <span class="f">--allow=alex@example.com</span></code></div>
-   <div class="cell them" role="cell" data-who="− ngrok"><span>Traffic Policy: oauth action + email expression + deny rule</span></div></div>
-  <div class="diff-row" role="row"><span class="lbl" role="rowheader">Paid plan / month</span>
-   <div class="cell glass" role="cell" data-who="+ tunn"><span class="big">${{.MonthlyUSD}}</span><span class="bar"><i style="width:50%"></i></span></div>
-   <div class="cell them" role="cell" data-who="− ngrok"><span class="big">$10</span><span class="bar"><i style="width:100%"></i></span></div></div>
-  <div class="diff-row" role="row"><span class="lbl" role="rowheader">Free each month</span>
-   <div class="cell glass" role="cell" data-who="+ tunn"><span>{{.FreeBytesShort}} · {{.FreeRequestsShort}} requests</span><span class="bar"><i style="width:100%"></i></span></div>
-   <div class="cell them" role="cell" data-who="− ngrok"><span>1 GB · 20,000 requests</span><span class="bar"><i style="width:10%"></i></span></div></div>
-  <div class="diff-row" role="row"><span class="lbl" role="rowheader">At the limit</span>
-   <div class="cell glass" role="cell" data-who="+ tunn"><span>Hard stop. No overage bill.</span></div>
-   <div class="cell them" role="cell" data-who="− ngrok"><span>Hobbyist covers extra usage with credit</span></div></div>
+<div class="wrap comparison">
+<section class="section" aria-labelledby="vs-title">
+ <div class="section-head"><h1 id="vs-title">tunn vs <span class="dim-t">ngrok</span></h1><span class="lbl">Monthly limits · USD before tax</span></div>
+ <p class="fine comparison-scroll">Scroll for all columns →</p>
+ <div class="panel table-wrap" tabindex="0" role="region" aria-label="Plan comparison, scroll for all columns">
+ <table class="spec comparison-table">
+ <caption class="sr-only">Free and solo paid plans</caption>
+ <thead><tr><th scope="col">Plan</th><th scope="col">Price</th><th scope="col">Endpoints</th><th scope="col">Bandwidth</th><th scope="col">Interstitial</th><th scope="col">Source</th></tr></thead>
+ <tbody>
+ <tr><th scope="row">tunn Free</th><td>$0</td><td>{{.FreeTunnels}} concurrent tunnels</td><td>{{.FreeBytesShort}}</td><td>None</td><td><a href="/pricing">tunn pricing</a></td></tr>
+ <tr><th scope="row">tunn Pro</th><td>${{.MonthlyUSD}}/month or ${{.YearlyUSD}}/year</td><td>{{.ProTunnels}} concurrent tunnels</td><td>{{.ProBytesShort}}</td><td>None</td><td><a href="/pricing">tunn pricing</a></td></tr>
+ <tr><th scope="row">ngrok Free</th><td>$0</td><td>3 online</td><td>1 GB out</td><td><a href="https://ngrok.com/docs/pricing-limits/free-plan-limits/">Browser HTML</a></td><td><a href="https://ngrok.com/pricing">ngrok pricing</a></td></tr>
+ <tr><th scope="row">ngrok Hobbyist</th><td>$10/month</td><td>3 online</td><td>5 GB out included; more with credit</td><td>None</td><td><a href="https://ngrok.com/pricing">ngrok pricing</a></td></tr>
+ </tbody>
+ </table>
  </div>
- <p class="fine" style="margin-top:14px">ngrok figures from <a href="https://ngrok.com/pricing">ngrok.com/pricing</a> and <a href="https://ngrok.com/docs/pricing-limits/">pricing limits</a>, accessed 2026-10-12. Yearly: tunn Pro ${{.YearlyUSD}}, ngrok Hobbyist $96. Visitor sign-in on ngrok: <a href="https://ngrok.com/docs/gateway/traffic-policy/actions/oauth#restricting-access-by-email">OAuth action docs</a>.</p>
+ <p class="fine comparison-note">tunn counts transfer both ways; ngrok counts data out. ngrok sources checked 2026-10-16.</p>
+ <p class="fine">At a limit, tunn stops. No surprise bill. <a href="/pricing">Request limits and reserved names</a></p>
 </section>
 
-<section class="section" style="padding-top:8px" aria-labelledby="switch-title">
- <div class="section-head"><h2 id="switch-title">Switch in three commands</h2><span class="lbl">macOS · Linux</span></div>
- <div class="term-box"><pre><code>curl -fsSL https://tunn.to/install.sh | sh
-tunn login
-tunn 3000 --allow=alex@example.com</code></pre></div>
- <div class="prose" style="margin-top:28px">
-  <p>Alex opens the printed HTTPS URL and signs in with GitHub or an email link. Anyone else gets a 403 at the edge. Use <code>--allow=@example.com</code> for a whole domain and <code>--public</code> for webhooks.</p>
-  <p>Units differ: tunn counts requests that get through, plus WebSocket and TCP opens, and transfer in both directions. ngrok counts HTTP requests and data out.</p>
-  <p>ngrok fits better if you need its gateway policies, compliance programs or an enterprise SLA; tunn publishes no SLA. Your laptop and tunn must stay online. <a href="/pricing">See tunn plans</a> · <a href="/mcp-to-claude">Connect a local MCP server</a> · <a href="/share-dev-server-oauth">Share a dev server with OAuth</a></p>
+<section class="section comparison-commands" aria-labelledby="commands-title">
+ <div class="section-head"><h2 id="commands-title">Run tunn</h2><a class="lbl" href="/docs#s1">Install and sign in</a></div>
+ <div class="comparison-workflow">
+  <h3>Share port 3000 with Alex</h3>
+  <div class="glass cmd shell-command"><code class="kbd" tabindex="0"><span class="arg">tunn</span> <span class="arg">3000</span> <span class="arg">--allow=alex@example.com</span></code><button class="btn sm copy" data-copy="tunn 3000 --allow=alex@example.com" aria-describedby="share-copy">Copy</button></div>
+  <div class="copy-status" id="share-copy" role="status"></div>
+  <p class="fine">Alex signs in to open the printed HTTPS URL. <a href="/share-dev-server-oauth">Sharing guide</a></p>
+ </div>
+ <div class="comparison-workflow">
+  <h3>Receive webhooks on port 3000</h3>
+  <div class="glass cmd shell-command"><code class="kbd" tabindex="0"><span class="arg">tunn</span> <span class="arg">3000</span> <span class="arg">--public</span></code><button class="btn sm copy" data-copy="tunn 3000 --public" aria-describedby="webhook-copy">Copy</button></div>
+  <div class="copy-status" id="webhook-copy" role="status"></div>
+  <p class="fine">No sign-in. Keep your app's signature check on. <a href="/docs/webhook-verification">Webhook guide</a></p>
+ </div>
+ <div class="comparison-workflow">
+  <h3>Connect a local MCP server</h3>
+  <div class="glass cmd shell-command"><code class="kbd" tabindex="0"><span class="arg">tunn</span> <span class="arg">mcp</span> <span class="arg">http://127.0.0.1:3000/mcp</span></code><button class="btn sm copy" data-copy="tunn mcp http://127.0.0.1:3000/mcp" aria-describedby="mcp-copy">Copy</button></div>
+  <div class="copy-status" id="mcp-copy" role="status"></div>
+  <p class="fine">Use the printed <code>/mcp</code> URL in your client and approve access. <a href="/mcp-to-claude">MCP guide</a></p>
  </div>
 </section>
 </div>

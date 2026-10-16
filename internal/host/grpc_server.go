@@ -827,7 +827,7 @@ func (s *TunnelServer) processTunnelMessages(conn *TunnelConnection, stream pb.T
 			if lease == nil {
 				return status.Error(codes.Unauthenticated, "unexpected device renewal")
 			}
-			if err := lease.renew(m.RegisterClient.AuthToken, []byte(s.cfg.JWTSecret), s.currentTime()); err != nil {
+			if err := lease.renew(stream.Context(), m.RegisterClient.AuthToken, []byte(s.cfg.JWTSecret), s.currentTime()); err != nil {
 				return status.Error(codes.Unauthenticated, "device renewal rejected")
 			}
 
@@ -1028,11 +1028,14 @@ type publisherDeviceLease struct {
 	expiry            time.Time
 }
 
-func (l *publisherDeviceLease) renew(raw string, key []byte, now time.Time) error {
+func (l *publisherDeviceLease) renew(ctx context.Context, raw string, key []byte, now time.Time) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	// Account resolution must stop on disconnect or expiry of the current lease.
+	ctx, cancel := context.WithTimeout(ctx, l.expiry.Sub(now))
+	defer cancel()
 	_, device, expiry, err := parseDeviceToken(raw, key, now)
-	if err != nil || l.accountID == "" || !sameResolvedAccount(context.Background(), l.authority, signedAccountID(raw), l.accountID) || device != l.device || !now.Before(l.expiry) {
+	if err != nil || l.accountID == "" || !sameResolvedAccount(ctx, l.authority, signedAccountID(raw), l.accountID) || device != l.device || !now.Before(l.expiry) {
 		return fmt.Errorf("invalid device lease renewal")
 	}
 	l.expiry = expiry

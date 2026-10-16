@@ -385,17 +385,17 @@ func TestDurableLeaseRejectsIdentitySwitch(t *testing.T) {
 	}
 	lease := &publisherDeviceLease{accountID: signedAccountID(token.Access), device: device, expiry: expiry}
 	other := durableLogin(t, p)
-	if lease.renew(other.Access, p.getJWTSigningKey(), time.Now()) == nil {
+	if lease.renew(context.Background(), other.Access, p.getJWTSigningKey(), time.Now()) == nil {
 		t.Fatal("device switch accepted")
 	}
-	if lease.renew(token.Access, p.getJWTSigningKey(), expiry) == nil {
+	if lease.renew(context.Background(), token.Access, p.getJWTSigningKey(), expiry) == nil {
 		t.Fatal("expired lease resurrected")
 	}
 	parsed, _, _ := jwt.NewParser().ParseUnverified(token.Access, jwt.MapClaims{})
 	claims := parsed.Claims.(jwt.MapClaims)
 	claims["scope"] = "publish connect manage"
 	forged, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(p.getJWTSigningKey())
-	if lease.renew(forged, p.getJWTSigningKey(), time.Now()) == nil {
+	if lease.renew(context.Background(), forged, p.getJWTSigningKey(), time.Now()) == nil {
 		t.Fatal("scope expansion accepted")
 	}
 }

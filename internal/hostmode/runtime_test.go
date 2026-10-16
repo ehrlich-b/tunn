@@ -83,7 +83,12 @@ func TestHostHealth(t *testing.T) {
 }
 
 func TestHostRuntimeTokensSurviveRestart(t *testing.T) {
-	t.Setenv("TUNN_CONFIG_DIR", t.TempDir())
+	configDir := t.TempDir()
+	// Credential validation requires a private directory regardless of the process umask.
+	if err := os.Chmod(configDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TUNN_CONFIG_DIR", configDir)
 	p, err := endpointToken("gpu-http")
 	if err != nil {
 		t.Fatal(err)

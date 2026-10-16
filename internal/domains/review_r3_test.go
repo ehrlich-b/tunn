@@ -19,7 +19,7 @@ func TestR3ReservationLossDuringFailedRenewalReturnsOldKey(t *testing.T) {
 		cert, key := fakeCert(t, name, r.now())
 		return cert, key, nil
 	})
-	if _, err := r.Certificate(ctx, &pb.Domain{Name: "dashboard.apps.ehrlich.dev"}); err != nil {
+	if _, err := r.Certificate(ctx, &pb.Domain{Name: "dashboard.apps.example.com"}); err != nil {
 		t.Fatal(err)
 	}
 	now := r.now().Add(61 * 24 * time.Hour)
@@ -37,7 +37,7 @@ func TestR3ReservationLossDuringFailedRenewalReturnsOldKey(t *testing.T) {
 		}
 		return nil, nil, fmt.Errorf("bounded fixture renewal failure")
 	})
-	pair, err := r.Certificate(ctx, &pb.Domain{Name: "dashboard.apps.ehrlich.dev"})
+	pair, err := r.Certificate(ctx, &pb.Domain{Name: "dashboard.apps.example.com"})
 	if err == nil && len(pair.KeyPem) > 0 {
 		t.Fatal("failed renewal returned cached key after app reservation changed owner")
 	}

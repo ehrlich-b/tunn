@@ -58,7 +58,7 @@ func reviewDatabaseRelay(t *testing.T) (*ProxyServer, *sql.DB, sshfront.Identity
 }
 
 func reviewPublish(t *testing.T, p *ProxyServer, allowed []string) func() {
-	return reviewPublishNamed(t, p, "owner@example.com", "forge-ssh", allowed)
+	return reviewPublishNamed(t, p, "owner@example.com", "build-host-ssh", allowed)
 }
 
 func reviewPublishNamed(t *testing.T, p *ProxyServer, owner, name string, allowed []string, dialers ...func(context.Context, string, string) (net.Conn, error)) func() {
@@ -170,7 +170,7 @@ func reviewRevocationDeadline(t *testing.T, ignore bool) {
 	reviewPublish(t, p, []string{"owner@example.com"})
 	stalled := &reviewPoolStall{Storage: p.storage, db: db, held: make(chan *sql.Conn, 1), checkCtx: make(chan context.Context, 1), ignoreCancellation: ignore}
 	p.storage = stalled
-	stream, err := p.sshConnect(context.Background(), id, "forge-ssh")
+	stream, err := p.sshConnect(context.Background(), id, "build-host-ssh")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,7 +213,7 @@ func TestReviewAnonymousTargetOracle(t *testing.T) {
 	p, client, _ := sshRelay(t, false)
 	reviewPublish(t, p, []string{"owner@example.com"})
 	for _, port := range []string{"22", "80"} {
-		_, online := client.Dial("tcp", "forge-ssh:"+port)
+		_, online := client.Dial("tcp", "build-host-ssh:"+port)
 		_, absent := client.Dial("tcp", "absent-review-target:"+port)
 		if online == nil || absent == nil {
 			t.Fatal("unexpected admission", online, absent)
@@ -260,7 +260,7 @@ func TestReviewJumpNamesAndUnconfirmedAdmission(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stream, err := p.sshConnect(context.Background(), id, "forge-ssh"); err == nil {
+	if stream, err := p.sshConnect(context.Background(), id, "build-host-ssh"); err == nil {
 		stream.Close()
 		t.Fatal("pending unconfirmed key admitted")
 	}
@@ -271,7 +271,7 @@ func TestReviewJumpNamesAndUnconfirmedAdmission(t *testing.T) {
 		t.Fatal(err)
 	}
 	id.Email = "alice@example.com"
-	stream, err := p.sshConnect(context.Background(), id, "forge-ssh")
+	stream, err := p.sshConnect(context.Background(), id, "build-host-ssh")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -283,7 +283,7 @@ func TestReviewJumpNamesAndUnconfirmedAdmission(t *testing.T) {
 		t.Fatal(err)
 	}
 	reviewPublishNamed(t, p, "bob@example.com", "bob-target", []string{"bob@example.com"})
-	for _, name := range []string{"bob-target", "FORGE-SSH", "Forge-ssh", "fоrge-ssh", "ｆorge-ssh", "forge-ssh.tunn.test", "forge-ssh.", "xn--frge-ssh-7jg", "other-publisher"} {
+	for _, name := range []string{"bob-target", "BUILD-HOST-SSH", "Build-host-ssh", "bуild-host-ssh", "ｂuild-host-ssh", "build-host-ssh.tunn.test", "build-host-ssh.", "xn--bild-host-ssh-i9k", "other-publisher"} {
 		if c, err := p.sshConnect(context.Background(), id, name); err == nil {
 			c.Close()
 			t.Fatalf("target variant admitted: %q", name)
@@ -323,7 +323,7 @@ func TestReviewInnerSSHTrustAndAuthentication(t *testing.T) {
 		return nil, nil
 	}}
 	originConfig.AddHostKey(originKey)
-	reviewPublishNamed(t, p, "owner@example.com", "forge-ssh", []string{"owner@example.com"}, func(context.Context, string, string) (net.Conn, error) {
+	reviewPublishNamed(t, p, "owner@example.com", "build-host-ssh", []string{"owner@example.com"}, func(context.Context, string, string) (net.Conn, error) {
 		local, remote := net.Pipe()
 		go func() {
 			defer remote.Close()
@@ -371,12 +371,12 @@ func TestReviewInnerSSHTrustAndAuthentication(t *testing.T) {
 		{"unauthorized OS user", "root", originKey.PublicKey(), originUser, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			stream, err := c.Dial("tcp", "forge-ssh:22")
+			stream, err := c.Dial("tcp", "build-host-ssh:22")
 			if err != nil {
 				t.Fatal(err)
 			}
 			defer stream.Close()
-			conn, channels, requests, err := ssh.NewClientConn(stream, "forge-ssh", &ssh.ClientConfig{User: tc.user, Auth: []ssh.AuthMethod{ssh.PublicKeys(tc.signer)}, HostKeyCallback: ssh.FixedHostKey(tc.trusted)})
+			conn, channels, requests, err := ssh.NewClientConn(stream, "build-host-ssh", &ssh.ClientConfig{User: tc.user, Auth: []ssh.AuthMethod{ssh.PublicKeys(tc.signer)}, HostKeyCallback: ssh.FixedHostKey(tc.trusted)})
 			if !tc.succeeds {
 				if err == nil {
 					conn.Close()
@@ -415,7 +415,7 @@ func TestReviewLivePersonRevokeClosesStream(t *testing.T) {
 	}
 	id := sshfront.Identity{Fingerprint: key.Fingerprint, PublicKey: alicePub, Email: "alice@example.com", IP: "127.0.0.1"}
 	stop := reviewPublish(t, p, []string{"alice@example.com"})
-	stream, err := p.sshConnect(context.Background(), id, "forge-ssh")
+	stream, err := p.sshConnect(context.Background(), id, "build-host-ssh")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -437,7 +437,7 @@ func TestReviewLivePersonRevokeClosesStream(t *testing.T) {
 		t.Fatal("stopped publication retained stream")
 	}
 	reviewPublish(t, p, []string{"owner@example.com"})
-	if stream, err := p.sshConnect(context.Background(), id, "forge-ssh"); err == nil {
+	if stream, err := p.sshConnect(context.Background(), id, "build-host-ssh"); err == nil {
 		stream.Close()
 		t.Fatal("removed recipient admitted after publisher restart")
 	}

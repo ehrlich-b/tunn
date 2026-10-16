@@ -300,7 +300,7 @@ func TestDurablePublisherSurvives48Hours(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	stream := &durableControlStream{ctx: ctx, incoming: make(chan *pb.TunnelMessage, 2), outgoing: make(chan *pb.TunnelMessage, 4)}
-	stream.incoming <- &pb.TunnelMessage{Message: &pb.TunnelMessage_RegisterClient{RegisterClient: &pb.RegisterClient{TunnelId: "forge-ssh", TargetUrl: "tcp", EndpointProtocol: "tcp", AuthToken: token.Access, TunnelKey: p.config.WellKnownKey, AllowedEmails: []string{"owner@example.com"}, Capabilities: []string{deviceReauthCapability, "connection-stream-v1"}}}}
+	stream.incoming <- &pb.TunnelMessage{Message: &pb.TunnelMessage_RegisterClient{RegisterClient: &pb.RegisterClient{TunnelId: "build-host-ssh", TargetUrl: "tcp", EndpointProtocol: "tcp", AuthToken: token.Access, TunnelKey: p.config.WellKnownKey, AllowedEmails: []string{"owner@example.com"}, Capabilities: []string{deviceReauthCapability, "connection-stream-v1"}}}}
 	done := make(chan error, 1)
 	go func() { done <- p.tunnelServer.EstablishTunnel(stream) }()
 	select {
@@ -313,7 +313,7 @@ func TestDurablePublisherSurvives48Hours(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("registration stalled")
 	}
-	tunnel, ok := p.tunnelServer.GetTunnel("forge-ssh")
+	tunnel, ok := p.tunnelServer.GetTunnel("build-host-ssh")
 	if !ok {
 		t.Fatal("tunnel missing")
 	}
@@ -340,7 +340,7 @@ func TestDurablePublisherSurvives48Hours(t *testing.T) {
 		case <-time.After(3 * time.Second):
 			t.Fatal("SSH delivery stalled")
 		}
-		if current, ok := p.tunnelServer.GetTunnel("forge-ssh"); !ok || current != tunnel {
+		if current, ok := p.tunnelServer.GetTunnel("build-host-ssh"); !ok || current != tunnel {
 			t.Fatal("publisher restarted")
 		}
 		select {
@@ -372,7 +372,7 @@ func TestDurablePublisherSurvives48Hours(t *testing.T) {
 	default:
 		t.Fatal("revoked publisher retained SSH stream")
 	}
-	if _, ok = p.tunnelServer.GetTunnel("forge-ssh"); ok {
+	if _, ok = p.tunnelServer.GetTunnel("build-host-ssh"); ok {
 		t.Fatal("expired publisher remained registered")
 	}
 }
@@ -411,7 +411,7 @@ func TestDurableLeaseExpiresWithBlockedSSHDelivery(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	stream := &durableControlStream{ctx: ctx, incoming: make(chan *pb.TunnelMessage, 32), outgoing: make(chan *pb.TunnelMessage, 1)}
-	stream.incoming <- &pb.TunnelMessage{Message: &pb.TunnelMessage_RegisterClient{RegisterClient: &pb.RegisterClient{TunnelId: "forge-ssh", TargetUrl: "tcp", EndpointProtocol: "tcp", AuthToken: token.Access, TunnelKey: p.config.WellKnownKey, AllowedEmails: []string{"owner@example.com"}, Capabilities: []string{deviceReauthCapability, "connection-stream-v1"}}}}
+	stream.incoming <- &pb.TunnelMessage{Message: &pb.TunnelMessage_RegisterClient{RegisterClient: &pb.RegisterClient{TunnelId: "build-host-ssh", TargetUrl: "tcp", EndpointProtocol: "tcp", AuthToken: token.Access, TunnelKey: p.config.WellKnownKey, AllowedEmails: []string{"owner@example.com"}, Capabilities: []string{deviceReauthCapability, "connection-stream-v1"}}}}
 	done := make(chan error, 1)
 	go func() { done <- p.tunnelServer.EstablishTunnel(stream) }()
 	select {
@@ -424,7 +424,7 @@ func TestDurableLeaseExpiresWithBlockedSSHDelivery(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("registration stalled")
 	}
-	tunnel, _ := p.tunnelServer.GetTunnel("forge-ssh")
+	tunnel, _ := p.tunnelServer.GetTunnel("build-host-ssh")
 	pending, err := tunnel.addPendingConnection("blocked-ssh")
 	if err != nil {
 		t.Fatal(err)

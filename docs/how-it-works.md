@@ -221,7 +221,7 @@ audit events and caller rollups, plus owner totals across the selected tunnels.
 Without `--since`, it uses durable current-month counters; duration reports
 flag potentially missing audit events. Optional login-node settings
 `TUNN_OWNER_MONTHLY_REQUESTS` and `TUNN_OWNER_MONTHLY_BYTES` enforce shared HTTP
-caps per account UUID across all verified owner emails, callers, and tunnels. These controls support Bryan's
+caps per account UUID across all verified owner emails, callers, and tunnels. These controls support the operator's
 about-$12/year entry-tier target and per-user Fly.io egress cost checks.
 See [the v1 usage contract](METERING.md) for exact units, hard
 retention/capacity bounds, owner API authentication, and local test commands.

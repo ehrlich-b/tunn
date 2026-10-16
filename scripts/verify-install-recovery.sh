@@ -6,7 +6,7 @@ repo_root="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)"
 cd "$repo_root"
 
 if [[ "${1:-}" == "--native-plan" && $# == 1 ]]; then
-    cat docs/install-native-acceptance.md
+    sed -n '/^## Native validation/,$p' docs/install-recovery.md
     exit 0
 fi
 if [[ "${1:-}" != "--fixtures" || $# != 1 ]]; then
@@ -28,5 +28,5 @@ if [[ "$(uname -s)" == Darwin ]]; then
     resource=(taskpolicy -b nice -n 15)
 fi
 
-"${resource[@]}" make -j1 build test-ai-hosts test-install-recovery
+"${resource[@]}" make -j1 build test-install-recovery
 echo "PASS install/recovery fixtures: fake launchd/systemd/Task Scheduler; private TLS/SQLite; no native activation."

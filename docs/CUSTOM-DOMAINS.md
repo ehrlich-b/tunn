@@ -76,10 +76,9 @@ In-flight orders cannot recreate a deleted or replaced claim. DNS changes can
 remain effective until the next check or lease expiry, rather than instantaneously.
 Account email-bucket merges transfer bindings with their reserved names.
 
-## Bryan's Fly operator setup
+## Fly.io operator setup
 
-These are configuration requirements for Bryan; this task performs no live Fly,
-DNS, ACME, secret, deployment or certificate changes.
+Configure the following on your own relay deployment.
 
 - Keep TCP 443 and UDP 443 as passthrough to tunn, with the existing base-domain
   wildcard certificate at `TUNN_CERT_FILE` / `TUNN_KEY_FILE`. Customer certificates
@@ -120,25 +119,4 @@ DNS, ACME or Fly call is part of these tests.
 GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local make test-domains-contract
 GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go vet ./...
 GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go test ./...
-```
-
-The full suite also contains pre-existing loopback integration tests. Run those
-unchanged on the coordinator's loopback-capable host if binding is blocked here.
-
-Validation receipt (2026-10-10): `go vet ./...` and the focused suites with the
-race detector pass. The host package's existing memory WebSocket mode also passes
-with the two socket-only host tests excluded at execution time; no test was
-removed or weakened. The full `go test ./...` reaches loopback binding failures
-in `internal/client`, `internal/host` and `internal/mcpbridge` (`operation not
-permitted` for `127.0.0.1:0` or `[::1]:0`). Coordinator rerun, unchanged:
-
-```bash
-cd /Users/ehrlich/repos/tunn-domains-20261010
-GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go test ./internal/client ./internal/host ./internal/mcpbridge
-```
-
-The memory-host verification command is:
-
-```bash
-GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go test -race -count=1 -timeout=90s -skip 'TestLoopbackHostMode|TestStreamingHTTPAcrossRealGRPCTunnel' ./internal/host -args -websocket-memory
 ```

@@ -1,7 +1,7 @@
 # Persistent machine endpoints
 
 Start with the [versioned install/recovery path](install-recovery.md) and its
-[native acceptance plan](install-native-acceptance.md). The commands below
+[native validation checklist](install-recovery.md#native-validation). The commands below
 describe the host capability; native activation remains an owner-run gate.
 
 Host mode keeps named, private capabilities on a GPU box or agent server
@@ -22,18 +22,18 @@ server: tunnel.example.com:443
 domain: tunnel.example.com
 health: 127.0.0.1:9087
 # Pin this directory across terminal and daemon environments (absolute path):
-# credentials_dir: /home/bryan/.local/state/tunn-host/credentials
+# credentials_dir: /home/you/.local/state/tunn-host/credentials
 # Optional: absolute path to a login JWT or a self-hosted per-user token.
-# token_file: /home/bryan/.tunn/token
+# token_file: /home/you/.tunn/token
 tunnels:
-  - name: bryan-gpu-api
+  - name: my-gpu-api
     kind: http
     target: "8080"
-    allow: [bryan@example.com, "@example.org"]
-  - name: bryan-gpu-ssh
+    allow: [owner@example.com, "@example.org"]
+  - name: my-gpu-ssh
     kind: tcp
     target: 127.0.0.1:22
-  - name: bryan-gpu-tools
+  - name: my-gpu-tools
     kind: mcp
     target: http://127.0.0.1:3000/internal/mcp
 ```
@@ -59,18 +59,18 @@ and `tunn token --rotate` commands work with these endpoints.
 A Unix socket can carry raw bytes or HTTP:
 
 ```yaml
-  - name: bryan-control
+  - name: my-control
     kind: unix
-    target: /home/bryan/run/control.sock
+    target: /home/you/run/control.sock
     as: http  # omit for raw tunn CONNECT
 ```
 
 For stdio MCP, replace `target` with an argv array. No shell interprets it:
 
 ```yaml
-  - name: bryan-files
+  - name: my-files
     kind: mcp
-    command: [/usr/local/bin/filesystem-mcp, /home/bryan/shared]
+    command: [/usr/local/bin/filesystem-mcp, /home/you/shared]
     tools: [read_file, list_directory]
 ```
 
@@ -196,8 +196,8 @@ surviving account. The management path is scoped to the relay authority;
 ## OpenClaw scaffold
 
 ```bash
-tunn openclaw --name bryan-openclaw
-tunn openclaw --name bryan-openclaw --gateway http://127.0.0.1:18789 \
+tunn openclaw --name my-openclaw
+tunn openclaw --name my-openclaw --gateway http://127.0.0.1:18789 \
   --domain tunnel.example.com --qr-file ./openclaw-setup.png
 ```
 
@@ -220,7 +220,6 @@ These commands use repository fixtures and loopback only; no hosted service:
 
 ```bash
 make build
-make test-ai-hosts
 bash scripts/verify-install-recovery.sh --fixtures
 make test-hostmode           # race-checked contracts, no listeners
 make test-hostmode-compile   # compile all tests without running them

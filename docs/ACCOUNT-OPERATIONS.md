@@ -106,8 +106,8 @@ The backend does not independently retrieve evidence or enforce an approved
 Price allowlist: the scoped operator must verify actual ownership, Price and
 current-period payment. Both apply modes are mutually exclusive; default is
 still read-only. CAS, complete-batch validation, audit, suspension and usage
-preservation apply to reviewed writes as well. See [GO-LIVE.md](../GO-LIVE.md)
-for the exact evidence, activation, renewal and cancellation procedure. Checkout defaults disabled until that workflow has passed acceptance and is
+preservation apply to reviewed writes as well. Review current provider ownership, payment and subscription state before
+activation, renewal or cancellation. Checkout defaults disabled until that workflow has passed acceptance and is
 staffed. `PrepareBillingCheckout` persists a random intent and exact destination
 before redirect. Unpaid retries resume that same reference/destination across
 tabs and restarts, with a 24-hour redirect window. Paid completions and multiple
@@ -120,11 +120,11 @@ on-time payments delivered late remain fulfillable. Actual late or unknown-time
 completions use `checkout_expired_review_required`, with a versioned audited
 `payment-review` approval path. `payment-queue` includes unbound missing-reference
 and duplicate completions; active Pro does not hide customer billing notices.
-The [round-3 runbook](revenue/round3-fixes.md) specifies scoped ownership review,
-explicit additional-purchase decisions, and recorded refund/cancellation closure. Receipts are acknowledged only after the
+Require scoped ownership review, explicit additional-purchase decisions, and
+recorded refund/cancellation closure. Receipts are acknowledged only after the
 payment ledger and receipt commit together. This fallback prevents duplicate
 fulfillment, not duplicate provider charges: the tree has no Stripe Session API
-integration. Bryan must review and perform any required provider refund or
+integration. The operator must review and perform any required provider refund or
 cancellation. Existing bound accounts cannot buy another subscription; support
 must resolve the prior purchase. A canceled binding blocks returning self-service checkout because
 replacement binding is not yet supported.
@@ -177,8 +177,7 @@ Stripe. Review paid states before explicitly ending the legacy grant; only the
 last effective entitlement ending releases reservations. Save a reservation
 inventory before cutover: regranting Pro does not recreate released names.
 Schema-only rollback retains the old plan and reservation tables untouched.
-See GO-LIVE.md for the operator-run command; agents never execute production
-mutations. `admin migrate --account` authorizes the supplied and surviving UUIDs
+`admin migrate --account` authorizes the supplied and surviving UUIDs
 and installs schema only; it has no account entitlement side effects.
 
 Legacy hash-only review times provide a conservative provider-read ordering
@@ -206,114 +205,3 @@ reuses `closePendingConnections` for HTTP streaming/WS/CONNECT. Buffered HTTP ex
 through its existing request context. Existing publishers can serve new requests
 after a correct resume. No quota counter or active-byte-cutoff implementation is
 added here.
-
-**RELEASE BLOCKER: combined-head active-stream and restart acceptance.** Local
-pipe fixtures establish active HTTP/SSE, upgraded WS and CONNECT termination,
-unaffected B traffic, restart denial, merge preservation and resumed grants. They
-do not certify the domains lane's combined HTTP/WS/
-CONNECT behavior, active byte cutoff, restart persistence or multi-node failure
-handling. The coordinator must retain H3/M6 and run the combined acceptance case:
-open idle and transferring HTTP/SSE, established WS, and authenticated CONNECT for
-two accounts; suspend A; require every A stream and pending admission to terminate
-within six seconds while B continues; change A's plan and merge an active account
-into A without clearing suspension; restart login/ingress; require A's old JWT,
-endpoint token and grants plus publisher reconnect to remain denied; resume with
-the current version; require new A traffic to work with pre-suspension usage and
-grant budgets intact. Repeat across login and replica ingress, then replay H3/M6.
-
-The existing `test-account-operations` target supplies local fixtures only.
-The combined-head gate is `TUNN_DOMAINS_HEAD=<pinned-integrated-domains-commit>
-make -j1 test-account-operations-combined`. It requires Git ancestry of the supplied
-domains pin and runs the lifecycle fixture plus account and metering contracts.
-This gate is REQUIRED/UNRUN until the domains branch is integrated and the target
-runs on that exact combined head. Retain the domains lane's H3/M6 and domain/ACME
-acceptance targets in addition to this gate. Also rerun `make -j1 build vet
-test-metering-contract`, `make -j1 test`, `make -j1 test-race`,
-`make -j1 test-account-operations` and `git diff --check` on the combined head.
-No real-host, production billing or deployed-service evidence is asserted.
-
-The installed Homebrew `protoc` cannot load
-`libabsl_die_if_null.2601.0.0.dylib`. These checked-in internal protobuf files were
-generated from `proto/internal.proto` using installed Buf 1.67.0 and the local
-`protoc-gen-go` / `protoc-gen-go-grpc` generators, without remote plugins. The
-usual `make -j1 proto-internal` command remains available after repairing that
-external `protoc` installation.
-
-
-## Billing regression validation — 2026-10-11
-
-The independent review's six reproductions are committed in
-`internal/host/billing_review_regression_test.go`. Running that file against an
-untouched archive of `578f52a` produced exactly six expected failures. All six
-pass with the ordered verified-state implementation. Additional scenarios cover
-unchanged-state watermark advancement, equal-time conflicts, restart and replay,
-legacy review ordering and receipt digest compatibility, multi-subscription
-aggregation, atomic reservation release/retention, checkout commit failures,
-concurrent and merged checkout holds, proxy fulfillment, and legacy authorities.
-
-All Go commands used clone-local `GOCACHE`, `GOMODCACHE` and `GOTMPDIR`, with
-`taskpolicy -b nice -n 15`. Final `go vet ./...` passed. Focused race tests passed
-57 tests/subtests across store, storage and host, including the quota,
-delinquency/recovery and suspension integration case.
-
-The ordinary `go test ./...` invocation was attempted: this environment rejects
-TCP loopback binds with `operation not permitted`, and panic-based HTTP fixtures
-stop their packages at the first unavailable listener. The complete portable
-rerun used `-p 1`, the repository's native `-websocket-memory` option for host and
-`-dogfood-proxy-memory` option for client, and excluded only the 35 named
-listener cases below. It passed 3210 tests/subtests across
-17 packages, with 4 existing skips: one documented Unicode
-normalization gap and three missing certificate fixtures. No test was changed
-to silently skip listener failures. One earlier concurrent run exceeded the
-MCP initialization deadline test's timing allowance; the final sequential run
-passed that test and the rest of the portable suite.
-
-These exact cases still require a host permitting local listeners. The two
-`UnixSocket` cases also require Unix listeners; the operational HTTP/3 cases
-require UDP. WebSocket and proxy memory fixtures prove their assertions without
-certifying real loopback behavior.
-
-```text
-TestInspectorCapturesAndReplaysToLocalTarget
-TestInspectorStreamingCaptureAndReplayProtection
-TestInspectorStartsOnLoopbackWithSessionSecret
-TestHandleHttpRequest
-TestHandleHttpRequestRewritesAdapterPath
-TestInboundConnectionStreamsHTTP
-TestHandleHttpRequestMultiValueHeaders
-TestHandleHttpRequestConcurrent
-TestHandleHttpRequestTimeout
-TestProcessMessagesHttpRequest
-TestInboundConnectionStreamsTCP
-TestInboundConnectionStreamsUnixSocket
-TestInboundConnectionServesHTTPOverUnixSocket
-TestConnectClientOverHTTP2CONNECT
-TestLoopbackEdgeOpenSSHAndHTTPSSharePort
-TestLoopbackHostMode
-TestBridgeMCPFlow
-TestBridgeOfficialGoSDKClient
-TestBridgeModernHeadersAndSessionlessCalls
-TestBridgeCarriesFiniteSSENotifications
-TestBridgeRejectsChildRequestsWithoutDeadlock
-TestBridgeEnforcesLocalToolAllowList
-TestBridgeValidatesHTTPEnvelope
-TestBridgeReportsChildExit
-TestBridgeFailsRequestWhenChildExits
-TestOpsLoopbackReadinessLifecycleAndDependency
-TestOpsLoopbackStartupFailureReleasesSiblingListeners
-TestOpsLoopbackShutdownWithLivePublisherAndRestart
-TestProdAuthLoopbackHTTPSOAuthLifecycle
-TestSDKResponseConformance
-TestSDKResponseControllerConformance
-TestSDKCLIHTTPAndWebSocketContract
-TestSDKActiveWebSocketClose
-TestSDKExternalResponseConsumer
-TestStreamingHTTPAcrossRealGRPCTunnel
-```
-
-Validation receipts and exact commands are clone-local in
-`.scratch/billing/final-checks.json`, `summary.json`, `portable.json`,
-`race-final.json`, `baseline-578f52a.json`, and `full-final.json`. These are
-ignored scratch artifacts, not repository contents. Internal protobuf bindings
-were regenerated from source with installed Buf and local Go generators.
-No production mutation, push, deployment, or external comment was performed.

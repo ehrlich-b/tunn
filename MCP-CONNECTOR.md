@@ -44,38 +44,3 @@ Limitations: stdio application state remains shared across transport sessions;
 there is no standalone SSE, resumption, client-side sampling/elicitation, refresh
 token, client-ID metadata-document support, or per-client child isolation. These
 are outside the authorization-code/DCR connector contract requested here.
-
-## Verification
-
-`go vet ./...` passed. The in-process end-to-end test in
-`internal/host/mcp_oauth_test.go:TestMCPOAuthConnectorEndToEnd` passes with a real
-stdio subprocess and relay/tunnel messages: discovery → DCR → email login →
-consent → PKCE code/token → initialize → tools/list → tools/call. Its assertions
-include credential stripping, grant audit identity, admission counts and byte
-metering. Negative tests cover resource/client/redirect/verifier binding, code
-reuse, missing PKCE, token expiry, revoked clients, pending-code/consent
-revocation, CSRF, denied consent replay and unapproved email access. CLI and
-session lifecycle regressions pass without socket listeners.
-
-The focused OAuth, stdio/session and lifecycle tests also pass under `-race`.
-Additional tests prove cross-node ownership verification, fail-closed old-peer
-behavior, durable registrations, and atomic single-use codes across independent
-registry instances. All host tests that do not need loopback sockets pass with
-this explicit selection (the full-suite failures remain reported below):
-
-```sh
-GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go test ./internal/host -skip 'TestLoopbackHostMode|TestStreamingHTTPAcrossRealGRPCTunnel|TestWebSocket' -count=1
-GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go test -race ./internal/host ./internal/mcpbridge -run '^(TestMCPOAuth|TestBridgeIndependentLegacySessions|TestBridgeSecondLegacyClientCanInitialize|TestBridgeLifecycle)' -count=1
-```
-
-`go test ./...` was attempted unchanged. It is blocked by `bind: operation not
-permitted` in `internal/client` (first failure: inspector loopback server),
-`internal/host` (host-mode loopback fixture), and `internal/mcpbridge` (all socket
-bridge fixtures). The remaining packages pass. Coordinator rerun with loopback
-available, from this checkout:
-
-```sh
-GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go test ./...
-```
-
-No network access, hosted connector check, deployment or push was performed.

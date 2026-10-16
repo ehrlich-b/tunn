@@ -58,7 +58,7 @@ slice; reliable webhook delivery would require its own queue and retry design.
 
 ## Pricing experiment
 
-Keep a free path for individual development. Bryan's entry paid-tier target is
+Keep a free path for individual development. the operator's entry paid-tier target is
 **about $12/year**, with monthly bandwidth and request caps: a no-brainer purchase
 intended to be strictly cheaper than a VPS and easier than a VPN. Choose the
 included units from measured per-user usage and Fly.io egress economics before
@@ -94,7 +94,7 @@ is part of this prototype.
 Keep denied decisions out of proposed request charges. Decide how failed
 admissions, short writes, and conservative crash reservations reconcile before
 calling counters billable. Test real multi-node routing and authority failures
-before charging for these units. The about-$12/year entry tier is Bryan's pricing
+before charging for these units. The about-$12/year entry tier is the operator's pricing
 input, with a higher team tier still an experiment; usage meters support the
 commercial bet but do not prove demand or a sustainable cap.
 

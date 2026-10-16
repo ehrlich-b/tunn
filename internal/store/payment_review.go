@@ -170,7 +170,7 @@ func paymentAccountConflict(ctx context.Context, q operationQuery, account, prov
 
 // ReviewCheckoutPayment records provider verification and a scoped CAS decision.
 // Approval only unlocks binding/reviewed snapshots; it never grants service.
-// Refunded closes the queue only after Bryan has canceled and refunded at the
+// Refunded closes the queue only after the operator has canceled and refunded at the
 // provider. Immutable intake evidence and resolution audits remain retained.
 func (s *OperationsStore) ReviewCheckoutPayment(ctx context.Context, p AdminPrincipal, d PaymentReview) error {
 	if err := p.authorize(d.AccountID); err != nil {

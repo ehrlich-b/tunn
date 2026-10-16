@@ -1,71 +1,38 @@
-# Email fallback for GitHub sign-in
+# Sign-in provider configuration
 
-These are production steps for the operator to run.
-Use the existing production checkout and its reviewed Fly configuration; keep
-its topology, persistent data, SMTP and other secrets intact.
+Configure sign-in providers on the login authority and preserve the existing
+SMTP configuration, database, public authority and persistent secrets.
 
-1. **Immediate fix: disable the suspended GitHub OAuth app.**
-   Step 1 alone restores email sign-in on the current production image (`110485c`)
-   with the existing SMTP configuration; no application deployment is required.
-   That image accepts both GitHub secrets empty, hides the GitHub button and
-   keeps the email form. Existing GitHub users continue with the same verified
-   email address to reach their account.
+## Email fallback
 
-   ```sh
-   fly secrets unset TUNN_GITHUB_CLIENT_ID TUNN_GITHUB_CLIENT_SECRET -a tunn
-   ```
+With SMTP configured, leaving both `TUNN_GITHUB_CLIENT_ID` and
+`TUNN_GITHUB_CLIENT_SECRET` empty hides the GitHub button and keeps email sign-in
+available. Existing GitHub users can use a previously verified mailbox to reach
+their existing account. An address the user cannot receive mail at cannot
+complete email sign-in.
 
-   This command has no `--stage`: it restarts every machine immediately and
-   drops publisher streams and active connections. Bryan should retain
-   independent access and allow supervised publishers to reconnect; users
-   reopen sessions after the relay is ready.
+On Fly.io, an operator can unset those two secrets in the deployment's app.
+An unstaged secret change restarts machines, drops publisher streams and active
+connections, and requires supervised publishers to reconnect. Keep independent
+administrative access throughout the maintenance window.
 
-2. **Optional Google sign-in, after the gated carrier rollout in step 3.**
-   Create a Google OAuth web client with the exact authorized redirect URI
-   `https://tunn.to/auth/google/callback`. Keep the valid production
-   `TUNN_PUBLIC_ADDR=tunn.to:443` configuration; the carrier omits the default
-   HTTPS port in Google redirect URIs. After the approved rollout, set the
-   client credentials privately, replacing the placeholders:
+## Google sign-in
 
-   ```sh
-   fly secrets set TUNN_GOOGLE_CLIENT_ID=... TUNN_GOOGLE_CLIENT_SECRET=... -a tunn
-   ```
+Register a Google OAuth web client with the exact authorized redirect URI.
+For `TUNN_PUBLIC_ADDR=tunn.to:443`, use
+`https://tunn.to/auth/google/callback`. Default HTTPS port 443 is omitted;
+retain a custom port when one is configured. Set `TUNN_GOOGLE_CLIENT_ID` and
+`TUNN_GOOGLE_CLIENT_SECRET` privately, then verify sign-in with a test account.
 
-   This unstaged secret change also restarts machines and interrupts streams.
+For another relay, replace the hostname with its configured public authority.
+See [release notes](RELEASE-NOTES.md) for configuration and migration behavior
+and [self-hosting](docs/self-hosting.md) for installation and recovery.
 
-3. **Fallback line: deferred carrier release, currently blocked.**
-   The fallback line and Google callback normalization ship with the integrated
-   carrier (`a5122b2` base), which includes schema migrations, private-by-default
-   sharing, durable credentials and custom domains beyond production `110485c`.
-   This is not a standalone login hotfix.
+## Verify account continuity
 
-   Do not deploy this carrier until all four blockers in
-   [RELEASE-VALIDATION.md](RELEASE-VALIDATION.md) close. After release approval
-   and source handoff, Bryan deploys the
-   reviewed carrier using [DEPLOY-RUNBOOK.md](DEPLOY-RUNBOOK.md), including its
-   inventory, backup and validation steps. Use the recorded `fly.release.toml`,
-   an immutable image digest, and the runbook's machine-specific deploy commands
-   with `--only-machines` and `--update-only --ha=false` to preserve the single
-   login writer. Roll resource machines first if present, then the login machine.
-   Step 1 does not depend on this release.
-
-After step 1, Bryan checks that the GitHub button is absent and Continue with
-Email reaches an existing GitHub account using the same verified mailbox, and
-checks `tunn login` through email and explicit device approval. The fallback
-line appears only after the approved carrier rollout, when email is configured.
-If Google was added afterward, he checks its sign-in separately.
-
-## Account carryover evidence
-
-`TestGitHubAccountMagicLinkFallbackForBothVerifiedEmails` creates an account
-through the GitHub callback with verified primary address A and verified alias B,
-then disables GitHub and completes a magic-link login independently for each.
-Both A and B reach the same account ID, retain A as primary and retain both
-aliases; no second account is created. This applies to addresses that GitHub
-previously supplied as verified, not arbitrary addresses on a GitHub profile.
-An address the user cannot receive mail at cannot complete email sign-in.
-
-`TestLoginGitHubEmailFallback` covers GitHub off/on.
-`TestCLIDeviceLoginThroughEmailWithoutGitHub` runs the CLI login client against
-a local TLS relay and captured mail, including confirmation and saved renewable
-credentials. The existing email/device flow needs no code fix.
+Check GitHub off/on behavior and email fallback with
+`TestLoginGitHubEmailFallback` and
+`TestGitHubAccountMagicLinkFallbackForBothVerifiedEmails`. The latter verifies
+that a previously verified primary address and alias retain the same account.
+`TestCLIDeviceLoginThroughEmailWithoutGitHub` exercises CLI device approval
+against a disposable local TLS relay and captured mail.

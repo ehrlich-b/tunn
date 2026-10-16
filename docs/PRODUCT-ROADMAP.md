@@ -137,7 +137,7 @@ without taking down the service.
 
 ### 5. Test willingness to pay
 
-Dogfood all three workflows first. Bryan's entry paid-tier target is about
+Dogfood all three workflows first. the operator's entry paid-tier target is about
 **$12/year**, with monthly bandwidth and request caps: a no-brainer purchase
 intended to be strictly cheaper than a VPS and easier than a VPN. Use per-user
 usage exports to choose sustainable allowances against Fly.io egress and fixed

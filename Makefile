@@ -36,7 +36,7 @@ test-ops-regression:
 test-ops:
 	$(MAKE) -j1 test-ops-regression test-ops-host test-ops-scripts
 
-.PHONY: all build clean proto fmt tidy verify check vet lint test test-ai-hosts test-ai-hosts-security test-verbose test-mcp test-websocket test-websocket-memory test-websocket-unit test-lifecycle-contract test-metering-contract test-domains-contract test-coverage test-race integration-test integration-test-smoke integration-test-ai integration-test-lifecycle integration-test-metering docker docker-build docker-run cert-setup cert-renew cert-install-schedule fly-create fly-init fly-secrets fly-certs fly-deploy fly-logs fly-status analytics-hour analytics-day analytics-live help test-install-recovery
+.PHONY: all build clean proto fmt tidy verify check vet lint test test-publisher-security test-verbose test-mcp test-websocket test-websocket-memory test-websocket-unit test-lifecycle-contract test-metering-contract test-domains-contract test-coverage test-race integration-test integration-test-smoke integration-test-ai integration-test-lifecycle integration-test-metering docker docker-build docker-run cert-setup cert-renew cert-install-schedule fly-create fly-init fly-secrets fly-certs fly-deploy fly-logs fly-status analytics-hour analytics-day analytics-live help test-install-recovery
 
 # Default target
 all: build
@@ -56,7 +56,7 @@ proto-internal:
 test-account-operations:
 	go test -race -v -count=1 -parallel=2 -timeout=120s -run '^TestAccountOperations' ./internal/store ./internal/storage ./internal/metering ./internal/host .
 
-# The coordinator must supply the pinned domains commit after integration.
+# Supply the immutable domains commit to verify integration ancestry.
 # A missing pin or unmerged domains head is a failed promotion gate.
 .PHONY: test-account-operations-combined
 test-account-operations-combined:
@@ -113,17 +113,12 @@ test-dogfood-memory:
 	go test $(GO_TEST_FLAGS) -race -count=1 -timeout=90s -run '^TestDogfood' ./internal/client -args -dogfood-proxy-memory
 	go test $(GO_TEST_FLAGS) -race -count=1 -timeout=90s -run '^(TestDogfood|TestProxyEnvironment|TestProxyCONNECT|TestProxySOCKS|TestLoadConfig)' ./internal/host ./internal/store ./internal/relaytransport ./internal/config
 
-# Offline checks for the AI-host kit; no sockets, hosted relay, or credentials.
-test-ai-hosts:
-	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s deploy/ai-hosts -p 'test_*.py'
-	bash -n deploy/ai-hosts/wsl-run.sh
-
 # Explicitly rooted artifact/service/TLS/SQLite fixtures; never native activation.
 test-install-recovery: build
 	go test $(GO_TEST_FLAGS) -count=1 -timeout=90s -run '^(TestConfig|TestService.*|TestHostRuntimePrivateCredentialFixtures|TestHostRuntimeConfiguredCredentialRootSurvivesRestart|TestHostRuntimeTokensSurviveRestart)$$' ./internal/hostmode
 	PYTHONDONTWRITEBYTECODE=1 TUNN_TEST_BINARY="$(abspath $(BINARY_DIR)/$(BINARY_NAME))" python3 -m unittest discover -s deploy/install -p 'test_*.py'
 
-test-ai-hosts-security:
+test-publisher-security:
 	go test -run '^(TestLogin|TestGetTokenPath|TestSaveAndLoadToken|TestLoadTokenNotFound|TestSaveTokenCreatesDirectory|TestCookieAuthenticatedRequestDoesNotForwardPlatformCredentials|TestMalformedAuthorizationIsNotLogged|TestHandleWebProxy|TestPublicTunnelStripsTunnAuthorization|TestProxyHTTPOverGRPC|TestSaveAndLoadEndpointToken|TestRotateEndpointTokenReplacesFile|TestWatchEndpointTokenSendsDigestOnly)' ./internal/client ./internal/host
 
 lint:
@@ -314,9 +309,9 @@ cert-renew:
 
 cert-install-schedule:
 	@mkdir -p "$(HOME)/Library/LaunchAgents" "$(HOME)/.config/tunn"
-	@install -m 600 scripts/com.ehrlich.tunn-cert-renewal.plist "$(HOME)/Library/LaunchAgents/com.ehrlich.tunn-cert-renewal.plist"
-	@launchctl bootout "gui/$$(id -u)/com.ehrlich.tunn-cert-renewal" >/dev/null 2>&1 || true
-	@launchctl bootstrap "gui/$$(id -u)" "$(HOME)/Library/LaunchAgents/com.ehrlich.tunn-cert-renewal.plist"
+	@umask 077; python3 scripts/cert-renewal-plist.py > "$(HOME)/Library/LaunchAgents/com.example.tunn-cert-renewal.plist"
+	@launchctl bootout "gui/$$(id -u)/com.example.tunn-cert-renewal" >/dev/null 2>&1 || true
+	@launchctl bootstrap "gui/$$(id -u)" "$(HOME)/Library/LaunchAgents/com.example.tunn-cert-renewal.plist"
 	@echo "Installed daily certificate renewal check."
 
 # Create certs directory structure
@@ -547,8 +542,7 @@ test-edge-contract:
 test-edge-renewal:
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s deploy/install -p 'test_edge_renewal.py'
 
-# Coordinator acceptance: real loopback TCP, native OpenSSH, verified host key
-# and TLS. Keep separate from lanes that forbid executing ssh or binding sockets.
+# Native acceptance: real loopback TCP, OpenSSH, verified host key and TLS.
 test-edge-openssh:
 	go test -race -count=1 -timeout=45s -run '^TestLoopbackEdgeOpenSSHAndHTTPSSharePort$$' ./internal/host
 
@@ -592,13 +586,11 @@ build-sdk-response-consumer:
 test-candidate-cross:
 	go test $(GO_TEST_FLAGS) -tags=candidatefixture -json -race -count=1 -parallel=2 -timeout=90s -run '^TestCandidate' ./internal/host
 
-.PHONY: format-candidate test-candidate-cli test-candidate-provenance test-candidate-dogfix test-candidate-build-info
+.PHONY: format-candidate test-candidate-cli test-candidate-dogfix test-candidate-build-info
 format-candidate:
 	gofmt -w candidate_cli_test.go internal/host/candidate_integration_test.go sdk/candidate_fixture.go sdk/testdata/candidate-consumer/consumer_test.go
 test-candidate-cli:
 	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=60s -run '^TestCandidate' .
-test-candidate-provenance:
-	PYTHONDONTWRITEBYTECODE=1 python3 scripts/candidate-inventory.py --verify --output ".scratch/receipts/provenance-$$(git rev-parse HEAD).json"
 test-candidate-dogfix:
 	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=60s -run '^TestDogfood' ./internal/client -args -dogfood-proxy-memory
 	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=60s -run '^TestDogfood' ./internal/host ./internal/store
@@ -613,7 +605,7 @@ test-candidate-consumer:
 	$(MAKE) -j1 -C "$$consumer_dir" verify-module; \
 	printf '%s\n' "$$consumer_dir" > .scratch/sdk-response-consumer/second-consumer-path
 
-# Safe baseline witnesses for account/billing, edge and startup lanes. Config
+# Baseline regression checks for account/billing, edge and startup. Config
 # witnesses run in test-candidate-dogfix; auth runs in test-auth-contract.
 .PHONY: test-candidate-baseline
 test-candidate-baseline:

@@ -185,12 +185,12 @@ func TestDogfoodPublisherPersistsSevenDays(t *testing.T) {
 	}
 	manager.Now = clientClock
 	manager.HTTPClient = &http.Client{Transport: &http.Transport{DialContext: relay.dial, TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}}
-	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("forge")) }))
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("build-host")) }))
 	defer origin.Close()
 
 	var registrations atomic.Int64
 	publisher := &client.ServeClient{
-		TunnelID: "forge-ssh", TargetURL: origin.URL, ServerAddr: "tunn.test:443", AuthToken: token, Credentials: manager,
+		TunnelID: "build-host-ssh", TargetURL: origin.URL, ServerAddr: "tunn.test:443", AuthToken: token, Credentials: manager,
 		TunnelKey: relay.proxy().config.WellKnownKey, AllowedEmails: []string{"owner@example.com"}, Insecure: true, Quiet: true,
 		DialContext: relay.dial, InitialDelay: 5 * time.Millisecond, MaxReconnectDelay: 50 * time.Millisecond, RenewInterval: time.Millisecond,
 		OnRegistered: func(string) { registrations.Add(1) },
@@ -217,7 +217,7 @@ func TestDogfoodPublisherPersistsSevenDays(t *testing.T) {
 				current = readPersistLogin(t, dir)
 			}
 			applied, _ := relay.applied.Load().(string)
-			_, registered := relay.proxy().tunnelServer.GetTunnel("forge-ssh")
+			_, registered := relay.proxy().tunnelServer.GetTunnel("build-host-ssh")
 			if registered && current.Pending == "" && applied == current.Access && current.Expires.After(clientClock().Add(time.Minute)) {
 				return
 			}
@@ -253,7 +253,7 @@ func TestDogfoodPublisherPersistsSevenDays(t *testing.T) {
 			relay.asleep.Store(&wake)
 			seconds.Add(int64(3 * time.Hour / time.Second))
 			deadline := time.Now().Add(10 * time.Second)
-			for _, registered := relay.proxy().tunnelServer.GetTunnel("forge-ssh"); registered; _, registered = relay.proxy().tunnelServer.GetTunnel("forge-ssh") {
+			for _, registered := relay.proxy().tunnelServer.GetTunnel("build-host-ssh"); registered; _, registered = relay.proxy().tunnelServer.GetTunnel("build-host-ssh") {
 				if time.Now().After(deadline) {
 					t.Fatal("relay kept an expired lease")
 				}

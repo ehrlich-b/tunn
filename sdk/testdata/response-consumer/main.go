@@ -1,5 +1,5 @@
 // response-consumer is a standalone importer of the exported Go SDK. Run its
-// live gate only against the coordinator's disposable local relay.
+// live gate only against the operator's disposable local relay.
 package main
 
 import (

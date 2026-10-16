@@ -5,26 +5,26 @@ on the publisher and each laptop. Existing logins remain valid until their
 24-hour expiry; run login once with the updated CLI to obtain renewable device
 credentials. Never copy the credential files between machines.
 
-Publish forge's SSH port using the updated binary:
+Publish build-host's SSH port using the updated binary:
 
 ```sh
-tunn tcp --account-only --name forge-ssh 127.0.0.1:22
+tunn tcp --account-only --name build-host-ssh 127.0.0.1:22
 ```
 
 Use account authentication from the laptop in `~/.ssh/config`:
 
 ```sshconfig
-Host forge
-    HostName forge-ssh
-    User YOUR_FORGE_USER
-    ProxyCommand tunn connect --stdio --account forge-ssh
+Host build-host
+    HostName build-host-ssh
+    User YOUR_USER
+    ProxyCommand tunn connect --stdio --account build-host-ssh
 ```
 
 A publisher refreshes before expiry and sends its new access token on the
 existing tunnel; live SSH connections remain open during successful renewal.
 The laptop obtains a current token before opening each CONNECT. If the relay
 returns 401, it renews once and retries before reading any SSH bytes. A local
-listener (`tunn connect --account --listen 127.0.0.1:2222 forge-ssh`) also obtains
+listener (`tunn connect --account --listen 127.0.0.1:2222 build-host-ssh`) also obtains
 a current token for each new connection. An already authorized laptop session
 can drain normally after device revocation; a revoked publisher loses its lease
 and connections within five minutes with synchronized relay clocks (up to one additional minute of permitted relay clock skew). A login-server outage lasting past the
@@ -62,11 +62,10 @@ refresh credential.
 
 ## Deployment runbook
 
-1. Keep independent access to forge throughout the rollout. Preserve its
+1. Keep independent access to build-host throughout the rollout. Preserve its
    current publisher binary, user service unit and credentials for recovery.
-   The forge unit from branch `956477e` is outside this repository; verify its
-   executable, restart policy, environment and credential directory before
-   replacing it. Take a consistent backup of the login node's SQLite database,
+   Verify the service executable, restart policy, environment and credential
+   directory before replacing it. Take a consistent backup of the login node's SQLite database,
    including committed WAL state, and preserve the signing key.
 2. Upgrade every resource relay first, keeping clients on their existing
    logins. Check listener readiness and legacy publisher registration after
@@ -82,15 +81,15 @@ refresh credential.
    `durable_device_used` tables, exchange/refresh forwarding, browser listing
    and revocation, and existing legacy sessions before upgrading clients.
    Keep signing-key rotation separate; refresh recovery uses that key.
-4. Install the fixed CLI on forge and run a fresh `tunn login` there using the
+4. Install the fixed CLI on build-host and run a fresh `tunn login` there using the
    exact relay origin and an absolute private `TUNN_CONFIG_DIR` shared with the
    service. An existing token file does not become renewable automatically.
    Restart the user service to load `credentials.json` and negotiate
    `device-reauth-v1`, retaining
-   `tcp --account-only --name forge-ssh 127.0.0.1:22`. Keep independent access
+   `tcp --account-only --name build-host-ssh 127.0.0.1:22`. Keep independent access
    available: restarting the publisher drops its live SSH sessions.
 5. Update each laptop and log in independently. Retain
-   `ProxyCommand tunn connect --stdio --account forge-ssh`, matching
+   `ProxyCommand tunn connect --stdio --account build-host-ssh`, matching
    `TUNN_SERVER_ADDR` and config-directory settings. Do not copy refresh
    credentials between machines. Both publisher and laptops need outbound
    HTTPS to their saved login relay as well as tunnel access.
@@ -102,7 +101,7 @@ refresh credential.
    longer outages or crashes may require browser login. A login-node outage
    beyond the publisher lease closes the tunnel. Keep relay clocks synchronized.
 
-Restarting the owning relay drops forge's publisher control stream and all live
+Restarting the owning relay drops build-host's publisher control stream and all live
 SSH sessions. The publisher process reconnects afterward when its loaded
 credential is valid; users must reopen SSH connections. A legacy publisher holds
 its original access JWT in memory and cannot renew it. Replacing its token file
@@ -110,8 +109,7 @@ or installing a binary does not update that running process, and an expired
 legacy JWT prevents reconnecting after the relay restart. An upgraded publisher
 loads current durable state before reconnecting, but relay replacement still
 interrupts SSH. Restarting only a separate login node leaves streams on other
-resource relays intact if renewal service returns before lease expiry. The live
-forge topology and service have not been inspected by these local checks.
+resource relays intact if renewal service returns before lease expiry. Verify the topology and service configuration before upgrading.
 
 Owner compatibility uses `common.NormalizeEmail` when reading old sessions,
 authorized device codes and durable owners, and when checking device ownership.
@@ -119,12 +117,12 @@ New sessions, access tokens, authorized codes and devices use the same canonical
 email. Existing durable rows remain intact and revocable without a database
 backfill; aliases remain governed by the account email bucket.
 
-## Rollback to 110485c
+## Rollback to a legacy relay
 
 Stop or revert durable clients and publishers **before** returning resource
-relays to `110485c`. Once the old server is available, log in with an old CLI
+relays to a version without durable credentials. Once the old server is available, log in with an old CLI
 to obtain a legacy credential, or use the updated login against the old server
-so its legacy response replaces durable JSON state. Restart forge's publisher
+so its legacy response replaces durable JSON state. Restart build-host's publisher
 with a legacy-compatible binary and credential. Restarts interrupt live SSH
 connections, and rollback restores the legacy 24-hour renewal limitation.
 

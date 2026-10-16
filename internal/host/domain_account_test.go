@@ -25,13 +25,13 @@ import (
 	"github.com/golang-jwt/jwt/v4"
 )
 
-const appHost = "dashboard.apps.ehrlich.dev"
+const appHost = "dashboard.apps.example.com"
 
 // Only the external provider/SMTP delivery is replaced. These tests acquire
 // platform cookies through production callbacks, then follow the whole app SSO.
 func TestDomainAccountCompleteProviderLogin(t *testing.T) {
 	for _, provider := range []string{"github", "magic_link", "google"} {
-		for _, email := range []string{bryanEmail, "stranger@gmail.com"} {
+		for _, email := range []string{appOwnerEmail, "stranger@gmail.com"} {
 			t.Run(provider+"/"+email, func(t *testing.T) {
 				p, tunnel, _ := appProxyFixture(t)
 				handler := p.createHandler()
@@ -104,7 +104,7 @@ func TestDomainAccountCompleteProviderLogin(t *testing.T) {
 				result := httptest.NewRecorder()
 				handler.ServeHTTP(result, request)
 				want := 403
-				if email == bryanEmail {
+				if email == appOwnerEmail {
 					want = 200
 				}
 				if result.Code != want {
@@ -149,7 +149,7 @@ func TestDomainAccountSharingAndLegacyAllowList(t *testing.T) {
 			p, tunnel, _ := appProxyFixture(t)
 			// An alias is allowed because it was verified into the same UUID, independent
 			// of the account's primary email or the provider used for this login.
-			account, err := p.storage.FindOrCreateByEmails(context.Background(), []string{bryanEmail, "owner-alias@example.com"}, "github")
+			account, err := p.storage.FindOrCreateByEmails(context.Background(), []string{appOwnerEmail, "owner-alias@example.com"}, "github")
 			if err != nil || account.ID != tunnel.AccountID {
 				t.Fatal(err)
 			}
@@ -185,14 +185,14 @@ func TestDomainAccountSharingAndLegacyAllowList(t *testing.T) {
 }
 func TestDomainAccountSessionBindingAndRevocation(t *testing.T) {
 	p, tunnel, _ := appProxyFixture(t)
-	owner := appSessionCookie(t, p, bryanEmail, "github", true, appHost)
+	owner := appSessionCookie(t, p, appOwnerEmail, "github", true, appHost)
 	guest := appSessionCookie(t, p, "guest@example.com", "magic_link", true, appHost)
 	guestRequest := httptest.NewRequest("GET", "https://"+appHost+"/", nil)
 	guestRequest.AddCookie(guest)
 	claims, _ := p.accountSession(guestRequest)
 	// A signed assertion for another UUID cannot gain ownership by naming the
 	// owner's mailbox. Neither primary-email equality nor email lookup authorizes.
-	claims["email"] = bryanEmail
+	claims["email"] = appOwnerEmail
 	w := httptest.NewRecorder()
 	if err := p.signedSession(w, claims, appCookie, "", time.Hour); err != nil {
 		t.Fatal(err)
@@ -332,11 +332,11 @@ func TestDomainAccountStreamingAndWebSocketRevocation(t *testing.T) {
 func TestDomainAccountNamespaceRevocationClosesIdleRequest(t *testing.T) {
 	p, tunnel, _ := appProxyFixture(t)
 	r := httptest.NewRequest("GET", "https://"+appHost+"/events", nil)
-	r.AddCookie(appSessionCookie(t, p, bryanEmail, "github", true, appHost))
+	r.AddCookie(appSessionCookie(t, p, appOwnerEmail, "github", true, appHost))
 	r = r.WithContext(context.WithValue(r.Context(), domainOwnerKey{}, tunnel.AccountID))
 	watched, stop := p.watchAppPermission(r, tunnel)
 	defer stop()
-	if _, err := p.domains.Delete(context.Background(), &domainpb.Domain{Name: "*.apps.ehrlich.dev", Owner: tunnel.AccountID}); err != nil {
+	if _, err := p.domains.Delete(context.Background(), &domainpb.Domain{Name: "*.apps.example.com", Owner: tunnel.AccountID}); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -348,17 +348,17 @@ func TestDomainAccountNamespaceRevocationClosesIdleRequest(t *testing.T) {
 
 func TestDomainAccountMailboxMovementCannotRebindSession(t *testing.T) {
 	p, tunnel, _, db := appProxyFixtureDB(t)
-	owner := appSessionCookie(t, p, bryanEmail, "github", true, appHost)
+	owner := appSessionCookie(t, p, appOwnerEmail, "github", true, appHost)
 	other, err := p.storage.FindOrCreateByEmails(context.Background(), []string{"other@example.com"}, "magic_link")
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Move the mailbox without an authorized account merge. The old signed UUID
 	// still identifies the former owner, and must lose access rather than follow it.
-	if _, err := db.Exec(`UPDATE account_emails SET account_id=? WHERE email=?`, other.ID, bryanEmail); err != nil {
+	if _, err := db.Exec(`UPDATE account_emails SET account_id=? WHERE email=?`, other.ID, appOwnerEmail); err != nil {
 		t.Fatal(err)
 	}
-	current, err := p.storage.GetAccountByEmail(context.Background(), bryanEmail)
+	current, err := p.storage.GetAccountByEmail(context.Background(), appOwnerEmail)
 	if err != nil || current.ID != other.ID || current.ID == tunnel.AccountID {
 		t.Fatal("mailbox movement fixture")
 	}
@@ -366,7 +366,7 @@ func TestDomainAccountMailboxMovementCannotRebindSession(t *testing.T) {
 		t.Fatal("old signed account followed a moved mailbox")
 	}
 	// Fresh mailbox proof yields the new account, not the namespace owner.
-	fresh := appSessionCookie(t, p, bryanEmail, "magic_link", true, appHost)
+	fresh := appSessionCookie(t, p, appOwnerEmail, "magic_link", true, appHost)
 	if appOpenWithCookie(p, fresh).Code != 403 {
 		t.Fatal("new mailbox account acquired namespace ownership")
 	}
@@ -383,7 +383,7 @@ func TestDomainAccountVerifiedMergeResolvesExistingCookie(t *testing.T) {
 	if _, err := db.Exec(`UPDATE accounts SET plan='pro' WHERE id=?`, tunnel.AccountID); err != nil {
 		t.Fatal(err)
 	}
-	merged, err := p.storage.FindOrCreateByEmails(context.Background(), []string{bryanEmail, "merge@example.com"}, "github")
+	merged, err := p.storage.FindOrCreateByEmails(context.Background(), []string{appOwnerEmail, "merge@example.com"}, "github")
 	if err != nil || merged.ID != tunnel.AccountID {
 		t.Fatal("verified merge", err)
 	}
@@ -437,7 +437,7 @@ func TestDomainAccountOwnerResourceRevocation(t *testing.T) {
 				outage := &appSharingOutage{PolicyBackend: ledger, Backend: ledger, sharing: ledger}
 				p.meter = outage
 				appResource(t, p, tunnel, "private")
-				cookie := appSessionCookie(t, p, bryanEmail, "github", true, appHost)
+				cookie := appSessionCookie(t, p, appOwnerEmail, "github", true, appHost)
 				tunnel.Capabilities = map[string]bool{common.CapabilityHTTPStreamV1: true, common.CapabilityWebSocketV1: true}
 				tunnel.pendingStreams = make(map[string]*pendingConnection)
 				stream := tunnel.Stream.(*meteringFixtureStream)

@@ -25,10 +25,10 @@ Billing bind: --account UUID --provider NAME --customer ID --subscription ID
 Billing status: --subscription ID [--after provider/subscription] (payments_next continues account payments)
 Billing fixtures: --events PATH (disposable fixture databases only)
 Reconcile: --snapshots PATH [--apply-fixture | --apply-reviewed] (default: read-only dry run)
-Reviewed apply requires fresh Stripe evidence and receipts; see GO-LIVE.md.
+Reviewed apply requires fresh Stripe evidence and receipts; see docs/ACCOUNT-OPERATIONS.md.
 Legacy reconciliation: --snapshots PATH (explicit decisions; requires accounts:["*"])
 Payment queue: [--after provider/subscription] (100 records per page)
-Payment review: --snapshots PATH (one reasoned CAS decision; see docs/revenue/round3-fixes.md)
+Payment review: --snapshots PATH (one reasoned CAS decision; see docs/ACCOUNT-OPERATIONS.md)
 Reports: --account UUID --category abuse|billing|availability --endpoint NAME
 Response: --report ID --response triaged|action_taken|closed --expect-version N
 Fixture init: --email fixture@example.invalid (creates a new disposable database)

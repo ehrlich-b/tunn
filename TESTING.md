@@ -195,7 +195,7 @@ GOTOOLCHAIN=go1.26.9 GOPROXY=off GOSUMDB=off make build vet test-dogfood
 If socket binds are prohibited, run `make test-dogfood-memory` with the same
 environment. It uses the same TLS/HTTP2/gRPC proxy fixture over in-memory
 sockets, plus the SQLite and forwarding regressions. The default loopback gate
-still must run in an unrestricted coordinator environment; it never skips a
+still must run in an unrestricted operator environment; it never skips a
 denied listener. Full validation remains `make test` there.
 
 ```bash
@@ -253,7 +253,7 @@ and relay restart durability. All credentials and SQLite files are disposable
 fixtures under `.scratch`; it uses no live service or wildcard DNS.
 
 A sandbox that rejects TCP/UDP binds cannot run that E2E or the full `make check`.
-Keep those tests intact and run both commands on the coordinator host. The
+Keep those tests intact and run both commands on the operator host. The
 accounting definitions and commercial reconciliation limits are in
 [docs/METERING.md](docs/METERING.md).
 

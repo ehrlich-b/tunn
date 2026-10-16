@@ -1,5 +1,5 @@
 #!/bin/sh
-# Read-only deployment check. The coordinator must review before live use.
+# Read-only deployment check. The operator must review before live use.
 set -eu
 umask 077
 

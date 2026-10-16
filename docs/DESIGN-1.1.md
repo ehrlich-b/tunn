@@ -273,7 +273,7 @@ $ tunn domain unshare tunn.mycompany.com bob@company.com
 # Check who can use it
 $ tunn domain show tunn.mycompany.com
 Domain: tunn.mycompany.com
-Owner:  bryan@tunn.to
+Owner:  owner@example.com
 Shared: @mycompany.com (domain wildcard)
 Status: verified
 ```

@@ -104,7 +104,7 @@ WantedBy=default.target
 ```
 
 Save the reviewed definition as `.scratch/native-acceptance/tunn-relay.service`
-in the staged checkout. These are commands for Bryan to run, not fixture actions:
+in the staged checkout. These are commands for the operator to run, not fixture actions:
 
 ```sh
 systemd-analyze --user verify .scratch/native-acceptance/tunn-relay.service

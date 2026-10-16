@@ -28,7 +28,7 @@ func wildcardFixture(t *testing.T) (*Registry, *wildcardDNS, *pb.Domain) {
 	}
 	wd := &wildcardDNS{fakeDNS: dns}
 	r.dns = wd
-	d := addDomain(t, r, "*.apps.ehrlich.dev", "dashboard", "one")
+	d := addDomain(t, r, "*.apps.example.com", "dashboard", "one")
 	wd.txt = []string{d.CnameTarget}
 	return r, wd, d
 }
@@ -54,7 +54,7 @@ func TestWildcardOwnershipRoutingAndAbuseGuards(t *testing.T) {
 	if _, err := r.Verify(ctx, d); status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("generic CNAME accepted: %v", err)
 	}
-	if _, err := r.Certificate(ctx, &pb.Domain{Name: "dashboard.apps.ehrlich.dev"}); err == nil {
+	if _, err := r.Certificate(ctx, &pb.Domain{Name: "dashboard.apps.example.com"}); err == nil {
 		t.Fatal("unverified domain issued")
 	}
 	dns.txt = []string{d.CnameTarget}
@@ -64,7 +64,7 @@ func TestWildcardOwnershipRoutingAndAbuseGuards(t *testing.T) {
 	if calls.Load() != 0 {
 		t.Fatal("wildcard verification ordered a wildcard certificate")
 	}
-	for _, name := range []string{"evil.test", "apps.ehrlich.dev", "a.b.apps.ehrlich.dev", "random.apps.ehrlich.dev", "www.apps.ehrlich.dev", "*.apps.ehrlich.dev"} {
+	for _, name := range []string{"evil.test", "apps.example.com", "a.b.apps.example.com", "random.apps.example.com", "www.apps.example.com", "*.apps.example.com"} {
 		if _, err := r.Certificate(ctx, &pb.Domain{Name: name}); err == nil {
 			t.Fatalf("accepted arbitrary SNI %s", name)
 		}
@@ -72,12 +72,12 @@ func TestWildcardOwnershipRoutingAndAbuseGuards(t *testing.T) {
 	if calls.Load() != 0 {
 		t.Fatal("abusive SNI created an order")
 	}
-	for _, name := range []string{"dashboard.apps.ehrlich.dev", "*.nested.apps.ehrlich.dev", "*.ehrlich.dev"} {
+	for _, name := range []string{"dashboard.apps.example.com", "*.nested.apps.example.com", "*.example.com"} {
 		if _, err := r.Add(ctx, &pb.Domain{Name: name, Tunnel: "second", Owner: "two"}); status.Code(err) != codes.AlreadyExists {
 			t.Fatalf("overlap %s: %v", name, err)
 		}
 	}
-	route, err := r.Route(ctx, &pb.Domain{Name: "dashboard.apps.ehrlich.dev"})
+	route, err := r.Route(ctx, &pb.Domain{Name: "dashboard.apps.example.com"})
 	if err != nil || route.Tunnel != "dashboard" || route.Owner != "one" {
 		t.Fatalf("route=%v %v", route, err)
 	}
@@ -86,7 +86,7 @@ func TestWildcardOwnershipRoutingAndAbuseGuards(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if _, err := r.Certificate(ctx, &pb.Domain{Name: "dashboard.apps.ehrlich.dev"}); err != nil {
+			if _, err := r.Certificate(ctx, &pb.Domain{Name: "dashboard.apps.example.com"}); err != nil {
 				t.Error(err)
 			}
 		}()
@@ -95,7 +95,7 @@ func TestWildcardOwnershipRoutingAndAbuseGuards(t *testing.T) {
 	if calls.Load() != 1 {
 		t.Fatalf("concurrent orders=%d", calls.Load())
 	}
-	pair, err := r.Certificate(ctx, &pb.Domain{Name: "dashboard.apps.ehrlich.dev"})
+	pair, err := r.Certificate(ctx, &pb.Domain{Name: "dashboard.apps.example.com"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +111,7 @@ func TestWildcardOwnershipRoutingAndAbuseGuards(t *testing.T) {
 		t.Fatal(err)
 	}
 	reopened.now = r.now
-	if cached, err := reopened.Certificate(ctx, &pb.Domain{Name: "dashboard.apps.ehrlich.dev"}); err != nil || !bytes.Equal(cached.CertificatePem, pair.CertificatePem) {
+	if cached, err := reopened.Certificate(ctx, &pb.Domain{Name: "dashboard.apps.example.com"}); err != nil || !bytes.Equal(cached.CertificatePem, pair.CertificatePem) {
 		t.Fatalf("restart lost cert: %v", err)
 	}
 	if _, err := r.Add(ctx, &pb.Domain{Name: d.Name, Tunnel: "reports", Owner: "one"}); err != nil {
@@ -125,7 +125,7 @@ func TestWildcardOwnershipRoutingAndAbuseGuards(t *testing.T) {
 	if err := r.Refresh(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.Certificate(ctx, &pb.Domain{Name: "dashboard.apps.ehrlich.dev"}); err == nil {
+	if _, err := r.Certificate(ctx, &pb.Domain{Name: "dashboard.apps.example.com"}); err == nil {
 		t.Fatal("DNS failure retained certificate admission")
 	}
 }
@@ -140,7 +140,7 @@ func TestWildcardFailuresRateLimitRenewalAndDeletion(t *testing.T) {
 		calls++
 		return nil, nil, fmt.Errorf("issuance fails")
 	})
-	in := &pb.Domain{Name: "dashboard.apps.ehrlich.dev"}
+	in := &pb.Domain{Name: "dashboard.apps.example.com"}
 	if _, err := r.Certificate(ctx, in); status.Code(err) != codes.Unavailable {
 		t.Fatal(err)
 	}
@@ -196,7 +196,7 @@ func TestWildcardPersistentOwnerAndGlobalIssuanceLimits(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if _, err := r.Certificate(ctx, &pb.Domain{Name: "dashboard.apps.ehrlich.dev"}); status.Code(err) != codes.ResourceExhausted {
+			if _, err := r.Certificate(ctx, &pb.Domain{Name: "dashboard.apps.example.com"}); status.Code(err) != codes.ResourceExhausted {
 				t.Fatalf("limit ignored: %v", err)
 			}
 		})
@@ -218,7 +218,7 @@ func TestWildcardInflightDeletionCannotResurrectCertificate(t *testing.T) {
 		cert, key := fakeCert(t, name, r.now())
 		return cert, key, nil
 	})
-	if _, err := r.Certificate(ctx, &pb.Domain{Name: "dashboard.apps.ehrlich.dev"}); err == nil {
+	if _, err := r.Certificate(ctx, &pb.Domain{Name: "dashboard.apps.example.com"}); err == nil {
 		t.Fatal("deleted claim published certificate")
 	}
 	var count int
@@ -238,7 +238,7 @@ func TestWildcardRenewalBackoffKeepsValidCertificate(t *testing.T) {
 		cert, key := fakeCert(t, name, r.now())
 		return cert, key, nil
 	})
-	in := &pb.Domain{Name: "dashboard.apps.ehrlich.dev"}
+	in := &pb.Domain{Name: "dashboard.apps.example.com"}
 	original, err := r.Certificate(ctx, in)
 	if err != nil {
 		t.Fatal(err)

@@ -1,4 +1,4 @@
-# DRAFT release asset. The pinned commit must be pushed by the coordinator first.
+# DRAFT release asset. The pinned commit must be pushed by the operator first.
 # Install through a local tap; see docs/revenue/install-one-liners.md.
 class Tunn < Formula
   desc "HTTPS tunnels for local MCP tools and webhooks"

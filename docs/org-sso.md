@@ -17,7 +17,7 @@ configured-policy check after removal.
 Keep the existing personal Google/GitHub credentials and domain configuration.
 Personal `/auth/google` (without `org`) and GitHub login use signed browser state,
 not the organization pending-state table. Custom-domain login and the
-`*.apps.ehrlich.dev` Google gate use personal Google sessions and their separate
+`*.apps.example.com` Google gate use personal Google sessions and their separate
 handoff/replay storage. Organization-state exhaustion cannot consume their
 login slots, even when organizations are enabled. Custom domains can therefore
 ship with organization SSO disabled while real-tenant organization acceptance
@@ -95,7 +95,7 @@ Org sessions last at most **15 minutes**, shortened to ID-token expiry; only the
 
 SCIM-driven immediate offboarding and org session administration are deferred. Previously enrolled publisher devices remain separately revocable and can renew until revoked, including when the user leaves the IdP. The resource owner and explicitly issued machine grants retain their existing independent authority; adding a group does not silently revoke them. Organization/group permissions apply to tunn's web ingress, not app-internal roles, sshd users/keys or direct-origin traffic. Protect the origin against bypass. No enterprise-MFA assurance is asserted merely because OIDC succeeded.
 
-The adjacent app-domain lane owns signed app identity/JWKS headers. Integrate its reviewed commit separately: use the stable subject for authorization, keep display email separate, and do not label Entra's email as mailbox-verified. This branch does not create another JWT header signer.
+The app-domain implementation supplies signed app identity/JWKS headers: use the stable subject for authorization, keep display email separate, and do not label Entra's email as mailbox-verified. This branch does not create another JWT header signer.
 
 ## Security review and acceptance
 
@@ -103,4 +103,4 @@ Review exact-issuer/client/tenant binding, subject/account isolation, callback/b
 
 Run `make test-sso` for the security corpus, and the entire suite plus race with the repository's make targets. Use `umask 0022` for the existing tests: the workspace's 0002 makes host-mode fixture directories group-writable; 0077 changes a symlink-test victim's expected 0644 permissions. Both mismatches occur on untouched baseline `7f5d619`. Avoid changing production credential permissions or weakening checks to accommodate test fixtures.
 
-Final test results and commit IDs are recorded in [org-sso-validation.md](org-sso-validation.md). Original SAML attacks are deferred by the explicit scope cut, rather than reported as passing. No push, deployment, IdP registration, DNS change or billing change is performed.
+SAML support and live-tenant validation remain separate from the OIDC fixture checks.

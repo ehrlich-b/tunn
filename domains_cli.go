@@ -23,6 +23,7 @@ const domainUsage = `Usage:
   tunn domain verify <domain>
   tunn domain list
   tunn domain delete <domain>
+Sign in for domain management with tunn policy login (24 hours).
 Owner options: --server, --owner-token-file, --insecure
 Add requires Pro and returns a unique cname_target. Set your DNS CNAME to
 that exact target, then run verify to provision HTTPS. Wildcard claims can
@@ -130,7 +131,7 @@ func executeDomains(args []string, out io.Writer) error {
 		}
 		token = string(data)
 	} else {
-		token, err = client.LoadToken()
+		token, err = client.LoadPolicyOwnerToken(o.server)
 		if err != nil {
 			return err
 		}

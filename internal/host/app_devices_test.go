@@ -462,6 +462,9 @@ func TestAppDeviceSharedAccountLiveAuthorityAndExpiry(t *testing.T) {
 func TestAppDeviceCapacityClaimsValidationAndRates(t *testing.T) {
 	t.Run("invitations", func(t *testing.T) {
 		f := newAppDeviceFixture(t)
+		// Keep rate counters in one minute regardless of test scheduling.
+		now := time.Now()
+		f.p.appDevices.now = func() time.Time { return now }
 		for n := 0; n < 5; n++ {
 			f.invite(t, nil)
 		}
@@ -476,6 +479,9 @@ func TestAppDeviceCapacityClaimsValidationAndRates(t *testing.T) {
 	})
 	t.Run("failed-claims", func(t *testing.T) {
 		f := newAppDeviceFixture(t)
+		// Keep rate counters in one minute regardless of test scheduling.
+		now := time.Now()
+		f.p.appDevices.now = func() time.Time { return now }
 		i := f.invite(t, nil)
 		for n := 0; n < 10; n++ {
 			w := f.json(t, "/api/app-devices/claims", map[string]any{"invitation": i.Invitation, "hostname": "wrong.apps.test", "name": "Device", "code_challenge": strings.Repeat("A", 43), "code_challenge_method": "S256"})
@@ -490,6 +496,9 @@ func TestAppDeviceCapacityClaimsValidationAndRates(t *testing.T) {
 	})
 	t.Run("validation", func(t *testing.T) {
 		f := newAppDeviceFixture(t)
+		// Keep rate counters in one minute regardless of test scheduling.
+		now := time.Now()
+		f.p.appDevices.now = func() time.Time { return now }
 		for n := 0; n < 30; n++ {
 			if w := appDeviceOpen(f.p, appDeviceTestHost, "tunn_app_"+strings.Repeat("A", 43), nil); w.Code != 401 {
 				t.Fatalf("failure %d=%d", n, w.Code)
@@ -502,6 +511,9 @@ func TestAppDeviceCapacityClaimsValidationAndRates(t *testing.T) {
 	})
 	t.Run("capacity", func(t *testing.T) {
 		f := newAppDeviceFixture(t)
+		// Keep rate counters in one minute regardless of test scheduling.
+		now := time.Now()
+		f.p.appDevices.now = func() time.Time { return now }
 		scope, _, _, err := f.p.appEnrollmentScope(context.Background(), appDeviceTestHost)
 		if err != nil {
 			t.Fatal(err)

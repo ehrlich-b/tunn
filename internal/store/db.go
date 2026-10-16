@@ -1,10 +1,13 @@
 package store
 
 import (
+	"context"
 	"database/sql"
+	"database/sql/driver"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	_ "modernc.org/sqlite"
@@ -79,20 +82,57 @@ func DB() *sql.DB {
 	return globalDB
 }
 
-// InitForTest initializes an in-memory database for testing
+// InitForTest initializes a disposable database for testing. Closing the database
+// removes its temporary directory.
+// File backing preserves the schema and fixtures when cancellation causes
+// database/sql to discard and replace a connection.
 func InitForTest() (*sql.DB, error) {
-	testDB, err := sql.Open("sqlite", ":memory:")
+	dir, err := os.MkdirTemp("", "tunn-test-db-")
 	if err != nil {
 		return nil, err
 	}
+	initialized := false
+	defer func() {
+		if !initialized {
+			_ = os.RemoveAll(dir)
+		}
+	}()
+	path := strings.NewReplacer("%", "%25", "?", "%3f", "#", "%23").Replace(filepath.Join(dir, "test.db"))
+	dsn := "file:" + path + "?_pragma=journal_mode(MEMORY)&_pragma=synchronous(OFF)&_pragma=busy_timeout(5000)"
+	registeredDB, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return nil, err
+	}
+	drv := registeredDB.Driver()
+	_ = registeredDB.Close()
+	testDB := sql.OpenDB(&testDBConnector{drv: drv, dsn: dsn, dir: dir})
 	if err := initSchema(testDB); err != nil {
+		_ = testDB.Close()
 		return nil, err
 	}
 	if _, err := testDB.Exec(`CREATE TABLE ops_fixture(id INTEGER PRIMARY KEY,value TEXT); INSERT INTO ops_fixture VALUES(1,'disposable-local')`); err != nil {
 		_ = testDB.Close()
 		return nil, err
 	}
+	initialized = true
 	return testDB, nil
+}
+
+type testDBConnector struct {
+	drv driver.Driver
+	dsn string
+	dir string
+}
+
+func (c *testDBConnector) Connect(context.Context) (driver.Conn, error) {
+	return c.drv.Open(c.dsn)
+}
+
+func (c *testDBConnector) Driver() driver.Driver { return c.drv }
+
+func (c *testDBConnector) Close() error {
+	_ = os.RemoveAll(c.dir)
+	return nil
 }
 
 func initSchema(db *sql.DB) error {

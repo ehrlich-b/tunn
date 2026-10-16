@@ -562,6 +562,7 @@ func TestPolicyOwnerBrowserLoginObtainsUsableSeparateCredential(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = db.Close() })
 	f := newMCPOAuthFixtureWithDB(t, db)
 	p := f.p
 	p.devices, err = newDeviceCredentialStore(db)

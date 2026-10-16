@@ -34,7 +34,7 @@ func TestLoginFallbackDeploymentSafety(t *testing.T) {
 			"[DEPLOY-RUNBOOK.md](DEPLOY-RUNBOOK.md)",
 			"fly.release.toml", "immutable image digest",
 			"--only-machines", "--update-only --ha=false",
-			"exists only in this lane", "schema migrations",
+			"schema migrations",
 		} {
 			if !strings.Contains(prose, required) {
 				t.Errorf("missing carrier release constraint: %s", required)

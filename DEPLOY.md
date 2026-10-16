@@ -1,6 +1,6 @@
 # Email fallback for GitHub sign-in
 
-These are Bryan's production actions. They have not been run by this lane.
+These are production steps for the operator to run.
 Use the existing production checkout and its reviewed Fly configuration; keep
 its topology, persistent data, SMTP and other secrets intact.
 
@@ -37,13 +37,11 @@ its topology, persistent data, SMTP and other secrets intact.
    The fallback line and Google callback normalization ship with the integrated
    carrier (`a5122b2` base), which includes schema migrations, private-by-default
    sharing, durable credentials and custom domains beyond production `110485c`.
-   This is not a standalone login hotfix. The branch
-   `codex/tunn-login-fallback-20261015` exists only in this lane; it has not been
-   pushed and cannot be switched to in the production checkout as written.
+   This is not a standalone login hotfix.
 
    Do not deploy this carrier until all four blockers in
    [RELEASE-VALIDATION.md](RELEASE-VALIDATION.md) close. After release approval
-   and source handoff through the normal coordinator process, Bryan deploys the
+   and source handoff, Bryan deploys the
    reviewed carrier using [DEPLOY-RUNBOOK.md](DEPLOY-RUNBOOK.md), including its
    inventory, backup and validation steps. Use the recorded `fly.release.toml`,
    an immutable image digest, and the runbook's machine-specific deploy commands

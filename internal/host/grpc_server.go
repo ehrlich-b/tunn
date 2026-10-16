@@ -730,7 +730,9 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		if err != nil || (owner != "" && owner != accountID) {
 			s.mu.Unlock()
 			if registeredWithStorage {
-				_ = s.storage.UnregisterTunnel(context.Background(), tunnelID)
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				_ = s.storage.UnregisterTunnel(ctx, tunnelID)
 			}
 			_ = stream.Send(&pb.TunnelMessage{Message: &pb.TunnelMessage_RegisterResponse{RegisterResponse: &pb.RegisterResponse{Success: false, ErrorMessage: "name reservation could not be verified"}}})
 			return fmt.Errorf("name reservation could not be verified")
@@ -755,7 +757,9 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 
 		// Unregister from login node if we registered
 		if registeredWithStorage && s.storage != nil && s.storage.Available() {
-			if err := s.storage.UnregisterTunnel(context.Background(), tunnelID); err != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if err := s.storage.UnregisterTunnel(ctx, tunnelID); err != nil {
 				common.LogError("failed to unregister tunnel from login node", "tunnel_id", tunnelID, "error", err)
 			}
 		}

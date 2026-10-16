@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -84,18 +85,29 @@ func TestHostCLICredentialErrorsStayRedacted(t *testing.T) {
 			if err := os.WriteFile(path, []byte(manifest), 0600); err != nil {
 				t.Fatal(err)
 			}
-			args := []string{"check", "--config", path}
-			var out, stderr bytes.Buffer
-			err := hostCommand(context.Background(), "service", args, &out, &stderr)
-			if err == nil {
-				t.Fatal("invalid credential accepted")
-			}
-			writeHostError(&out, &stderr, err, args)
-			if !strings.HasSuffix(stderr.String(), "Command failed\nCheck command options\ntunn --help\n") {
-				t.Fatalf("credential diagnostic changed: %s", stderr.String())
-			}
-			if out.Len() != 0 || strings.Contains(stderr.String(), "private-token-secret") {
-				t.Fatal("credential information printed")
+			for _, action := range []string{"check", "install", "restart"} {
+				t.Run(action, func(t *testing.T) {
+					// Install and restart must run without --dry-run to check credentials.
+					args := []string{action, "--config", path}
+					var out, stderr bytes.Buffer
+					err := hostCommand(context.Background(), "service", args, &out, &stderr)
+					if err == nil {
+						t.Fatal("invalid credential accepted")
+					}
+					if token == "" {
+						var pathErr *os.PathError
+						if !errors.As(err, &pathErr) || pathErr.Path != tokenPath || !os.IsNotExist(pathErr) {
+							t.Fatalf("expected missing credential error containing the private path, got %v", err)
+						}
+					}
+					writeHostError(&out, &stderr, err, args)
+					if out.Len() != 0 || strings.Contains(stderr.String(), "private-token-secret") {
+						t.Fatalf("credential information printed: stdout=%q stderr=%q", out.String(), stderr.String())
+					}
+					if !strings.HasSuffix(stderr.String(), "Command failed\nCheck command options\ntunn --help\n") {
+						t.Fatalf("credential diagnostic changed: %s", stderr.String())
+					}
+				})
 			}
 		})
 	}

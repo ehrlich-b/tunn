@@ -220,17 +220,17 @@ func TestNamespacePublisherAndLeaseAfterAccountMerge(t *testing.T) {
 				t.Fatal(err)
 			}
 			lease := &publisherDeviceLease{authority: p.storage, accountID: signedAccountID(original.Access), device: device, expiry: expiry}
-			if err := lease.renew(refreshed.Access, p.getJWTSigningKey(), time.Now()); err != nil {
+			if err := lease.renew(context.Background(), refreshed.Access, p.getJWTSigningKey(), time.Now()); err != nil {
 				t.Fatal("renewal after merge", err)
 			}
 			// Canonical UUID comparison also accepts equivalent encodings.
 			lease.accountID = strings.ToUpper(owner.ID)
-			if err := lease.renew(refreshed.Access, p.getJWTSigningKey(), time.Now()); err != nil {
+			if err := lease.renew(context.Background(), refreshed.Access, p.getJWTSigningKey(), time.Now()); err != nil {
 				t.Fatal("obsolete UUID case renewal", err)
 			}
 			foreign := durableLogin(t, p)
 			// A different device in the same merged account cannot renew this lease.
-			if err := lease.renew(foreign.Access, p.getJWTSigningKey(), time.Now()); err == nil {
+			if err := lease.renew(context.Background(), foreign.Access, p.getJWTSigningKey(), time.Now()); err == nil {
 				t.Fatal("different device renewed lease")
 			}
 		})

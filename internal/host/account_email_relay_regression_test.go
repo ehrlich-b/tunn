@@ -81,6 +81,7 @@ func TestRegistrationLoginLookupRespectsStreamDeadline(t *testing.T) {
 		t.Run(token.name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
 			defer cancel()
+			deadline, _ := ctx.Deadline()
 			stream := &durableControlStream{ctx: ctx, incoming: make(chan *pb.TunnelMessage, 1), outgoing: make(chan *pb.TunnelMessage, 1)}
 			stream.incoming <- &pb.TunnelMessage{Message: &pb.TunnelMessage_RegisterClient{RegisterClient: &pb.RegisterClient{
 				TunnelId: "deadline", TargetUrl: "http://localhost:8080", AuthToken: token.raw, TunnelKey: p.config.WellKnownKey,
@@ -94,7 +95,8 @@ func TestRegistrationLoginLookupRespectsStreamDeadline(t *testing.T) {
 			}
 			select {
 			case err := <-done:
-				if err == nil || ctx.Err() != context.DeadlineExceeded {
+				// The RPC deadline timer can fire before the parent context's timer.
+				if err == nil || time.Now().Before(deadline) {
 					t.Fatalf("registration returned before lookup deadline: %v, context: %v", err, ctx.Err())
 				}
 			case <-time.After(time.Second):

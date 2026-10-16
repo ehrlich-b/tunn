@@ -110,5 +110,5 @@ func writeHostError(out, errout io.Writer, err error, args []string) {
 		terminal.New(out, errout, jsonRequested(args)).State(e.state, e.title, e.detail, e.command, 0)
 		return
 	}
-	terminal.New(out, errout, jsonRequested(args)).State("error", "Command failed", "Check command options", "tunn --help", 0)
+	terminal.New(out, errout, jsonRequested(args)).State("error", "Command failed", err.Error(), "tunn --help", 0)
 }

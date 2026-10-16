@@ -15,7 +15,10 @@ import sys
 import tempfile
 
 
-HELP_MARKER = b"tunn - expose localhost to the internet"
+HELP_MARKER = (
+    b"Start\n  tunn login                          Sign in\n\n"
+    b"Choose who gets in\n"
+)
 
 
 def regular(path, private=False):

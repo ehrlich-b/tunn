@@ -43,3 +43,60 @@ func TestHostCLIRejectsInvalidActions(t *testing.T) {
 		}
 	}
 }
+
+func TestHostCLIConfigErrorDetail(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "host.yaml")
+	if err := os.WriteFile(path, []byte("version: 2\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, action := range []string{"check", "install"} {
+		t.Run(action, func(t *testing.T) {
+			args := []string{action, "--config", path, "--dry-run"}
+			var out, stderr bytes.Buffer
+			err := hostCommand(context.Background(), "service", args, &out, &stderr)
+			if err == nil {
+				t.Fatal("invalid config accepted")
+			}
+			writeHostError(&out, &stderr, err, args)
+			if !strings.HasSuffix(stderr.String(), "Command failed\nhost config version must be 1\ntunn --help\n") {
+				t.Fatalf("missing ordered diagnostic: %s", stderr.String())
+			}
+			if out.Len() != 0 {
+				t.Fatal("diagnostic on stdout")
+			}
+		})
+	}
+}
+
+func TestHostCLICredentialErrorsStayRedacted(t *testing.T) {
+	for _, token := range []string{"", "private-token-secret\ninvalid", "eyJprivate-token-secret"} {
+		t.Run(token, func(t *testing.T) {
+			dir := t.TempDir()
+			tokenPath := filepath.Join(dir, "private-token-secret")
+			// The missing-file error includes the private path in its cause.
+			if token != "" {
+				if err := os.WriteFile(tokenPath, []byte(token), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			path := filepath.Join(dir, "host.yaml")
+			manifest := "version: 1\nmachine: fixture\ntoken_file: " + tokenPath + "\ntunnels:\n  - name: fixture-http\n    kind: http\n    target: \"8080\"\n    allow: [owner@example.test]\n"
+			if err := os.WriteFile(path, []byte(manifest), 0600); err != nil {
+				t.Fatal(err)
+			}
+			args := []string{"check", "--config", path}
+			var out, stderr bytes.Buffer
+			err := hostCommand(context.Background(), "service", args, &out, &stderr)
+			if err == nil {
+				t.Fatal("invalid credential accepted")
+			}
+			writeHostError(&out, &stderr, err, args)
+			if !strings.HasSuffix(stderr.String(), "Command failed\nCheck command options\ntunn --help\n") {
+				t.Fatalf("credential diagnostic changed: %s", stderr.String())
+			}
+			if out.Len() != 0 || strings.Contains(stderr.String(), "private-token-secret") {
+				t.Fatal("credential information printed")
+			}
+		})
+	}
+}

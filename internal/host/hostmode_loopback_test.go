@@ -25,7 +25,12 @@ import (
 // This test intentionally requires real loopback and Unix listeners. It must
 // fail, rather than skip, when run in a sandbox that denies those listeners.
 func TestLoopbackHostMode(t *testing.T) {
-	t.Setenv("TUNN_CONFIG_DIR", t.TempDir())
+	configDir := t.TempDir()
+	// Credential validation requires a private directory regardless of the process umask.
+	if err := os.Chmod(configDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TUNN_CONFIG_DIR", configDir)
 	localHTTP := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Tunn-Authorization") != "" {
 			t.Error("endpoint credential reached local target")

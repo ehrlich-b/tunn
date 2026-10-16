@@ -287,6 +287,10 @@ func TestHostRuntimePrivateCredentialFixtures(t *testing.T) {
 
 func TestHostRuntimeConfiguredCredentialRootSurvivesRestart(t *testing.T) {
 	root := t.TempDir()
+	// Credential validation requires a private directory regardless of the process umask.
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
 	wrong := t.TempDir()
 	t.Setenv("TUNN_CONFIG_DIR", wrong)
 	c := &Config{CredentialsDir: root}

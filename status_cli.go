@@ -28,7 +28,7 @@ func runStatus(args []string) {
 }
 func executeStatus(ctx context.Context, args []string, out, errOut io.Writer) error {
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") && args[0] != "--help" && args[0] != "-h" {
-		return hostCommand(ctx, "hosts", args, out, errOut)
+		return hostCommand(ctx, "status", args, out, errOut)
 	}
 	if args[0] == "--help" || args[0] == "-h" {
 		writeCLIHelp(out, "Check account tunnels\n  tunn status [--json]\n  tunn list [--json]\n\nCheck tunn on this machine\n  tunn service status\n\nHost your own status page\n  tunn status serve       Serve the status page\n  tunn status incident    Post an incident\n  tunn status resolve     Close an incident\n")

@@ -163,7 +163,7 @@ func showHTTPLoginRequired(o *terminal.Output, err error) bool {
 		o.State(state, "Sign in required", cause, loginCommand(), 0)
 	} else {
 		// Services keep one log line and the exit status that prevents restart loops.
-		o.Diagnostic(cause + "; run " + loginCommand())
+		o.Diagnostic(client.LoginRequiredMessage())
 	}
 	return true
 }
@@ -175,13 +175,26 @@ func relayCause(err error) string {
 	if errors.As(err, &dns) {
 		return "Relay DNS lookup failed"
 	}
-	if errors.Is(err, syscall.ECONNREFUSED) {
+	if relayRefused(err) {
 		return "Relay connection refused"
 	}
 	if errors.Is(err, context.DeadlineExceeded) || os.IsTimeout(err) {
 		return "Relay connection timed out"
 	}
 	return "Relay connection failed"
+}
+func relayRecovery(err error) string {
+	if relayRefused(err) {
+		return "Relay is down or the address is wrong"
+	}
+	return "Restore your connection"
+}
+func relayRefused(err error) bool {
+	if errors.Is(err, syscall.ECONNREFUSED) {
+		return true
+	}
+	// gRPC reports dial failures as status text without the original net error.
+	return status.Code(err) == codes.Unavailable && strings.Contains(strings.ToLower(err.Error()), "connection refused")
 }
 func showTunnelError(o *terminal.Output, err error, server string) {
 	if client.AuthenticationFailure(err) || status.Code(err) == codes.Unauthenticated {
@@ -217,7 +230,7 @@ func showTunnelError(o *terminal.Output, err error, server string) {
 		o.State("error", "Relay cannot start this tunnel", "Check the installed version", "tunn --version", 0)
 		return
 	}
-	o.State("offline", "Cannot reach tunn", relayCause(err)+". Restore your connection, then retry.", relayCheck(server), 0)
+	o.State("offline", "Cannot reach tunn", relayCause(err)+". "+relayRecovery(err)+".", relayCheck(server), 0)
 }
 
 // cliSession owns the human health reading. A relay alone cannot mark it Online.
@@ -282,7 +295,7 @@ func attachCLI(ctx context.Context, s *client.ServeClient, o *terminal.Output, v
 		case client.StateReconnecting:
 			c.ready = false
 			if !c.retryAdvice {
-				detail := relayCause(e.Err) + ". Restore your connection; tunn retries automatically."
+				detail := relayCause(e.Err) + ". " + relayRecovery(e.Err) + "; tunn retries automatically."
 				if !c.lastRequest.IsZero() {
 					detail += " Last request " + c.lastRequest.Local().Format("15:04:05")
 				}

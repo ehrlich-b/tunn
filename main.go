@@ -1038,7 +1038,7 @@ func runServe(args []string) {
 		login := &client.LoginClient{ServerAddr: cfg.ServerAddr, Insecure: cfg.Insecure || *insecure}
 		load := func(ctx context.Context, server string, insecure bool) (string, *client.CredentialManager, error) {
 			return loadPublisherTokenWithRetry(ctx, server, insecure, func(err error, delay time.Duration) {
-				output.State("offline", "Cannot renew login", relayCause(err)+". Restore your connection; tunn retries automatically.", relayCheck(server), delay)
+				output.State("offline", "Cannot renew login", relayCause(err)+". "+relayRecovery(err)+"; tunn retries automatically.", relayCheck(server), delay)
 			})
 		}
 		token, credentials, err = loadOrEnrollWebPublisher(ctx, cfg.ServerAddr, cfg.Insecure || *insecure, stdinIsTerminal() && !opts.jsonOutput, load, login.Run)

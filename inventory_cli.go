@@ -19,6 +19,20 @@ type cliCommandError struct {
 
 func (e *cliCommandError) Error() string { return e.title }
 func (e *cliCommandError) Unwrap() error { return e.cause }
+
+func inventoryFlagCause(err error) string {
+	text := err.Error()
+	for _, prefix := range []string{"flag provided but not defined: ", "flag needs an argument: "} {
+		if name, ok := strings.CutPrefix(text, prefix); ok {
+			return "Invalid option " + name
+		}
+	}
+	// JSON is the only inventory flag whose parser can reject a value.
+	if strings.HasPrefix(text, "invalid boolean value ") && strings.HasSuffix(text, " for -json: parse error") {
+		return "Invalid option -json"
+	}
+	return "Check command options"
+}
 func jsonRequested(args []string) bool {
 	value := false
 	for _, arg := range args {

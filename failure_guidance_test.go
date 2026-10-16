@@ -52,7 +52,8 @@ func TestTunnelFailuresNameCauseAndOneAction(t *testing.T) {
 		{"tunnels", status.Error(codes.ResourceExhausted, "tunnel limit reached (3/3) synthetic-token"), "3 / 3 tunnels in use. Stop a running tunnel.", "https://relay.example/account"},
 		{"usage", status.Error(codes.ResourceExhausted, "quota synthetic-token"), "Relay usage limit reached. Check the reset time.", "https://relay.example/account"},
 		{"dns", &net.DNSError{Err: "synthetic-token", Name: "relay.example"}, "Relay DNS lookup failed", "curl --connect-timeout 5 -I https://relay.example"},
-		{"refused", fmt.Errorf("synthetic-token: %w", syscall.ECONNREFUSED), "Relay connection refused", "curl --connect-timeout 5 -I https://relay.example"},
+		{"refused", fmt.Errorf("synthetic-token: %w", syscall.ECONNREFUSED), "Relay connection refused. Relay is down or the address is wrong", "curl --connect-timeout 5 -I https://relay.example"},
+		{"grpc-refused", status.Error(codes.Unavailable, "transport dial: connection refused synthetic-token"), "Relay connection refused. Relay is down or the address is wrong", "curl --connect-timeout 5 -I https://relay.example"},
 		{"timeout", context.DeadlineExceeded, "Relay connection timed out", "curl --connect-timeout 5 -I https://relay.example"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -124,11 +125,39 @@ func TestRunningOfflineNamesRelayAndKeepsRetryDelay(t *testing.T) {
 	s.OnLifecycle(client.LifecycleEvent{State: client.StateReconnecting, Err: fmt.Errorf("synthetic-token: %w", syscall.ECONNREFUSED), RetryDelay: 2 * time.Second})
 	s.OnLifecycle(client.LifecycleEvent{State: client.StateReconnecting, RetryDelay: 3 * time.Second})
 	e := decodeFailure(t, errout.String())
-	if !strings.Contains(e.Cause, "Relay connection refused") || e.NextAction != "curl --connect-timeout 5 -I https://relay.example" {
+	if !strings.Contains(e.Cause, "Relay is down or the address is wrong") || strings.Contains(e.Cause, "Restore your connection") || e.NextAction != "curl --connect-timeout 5 -I https://relay.example" {
 		t.Fatal(e)
 	}
 	if !strings.Contains(out.String(), `"retry_delay_ms":3000`) {
 		t.Fatal("backoff lost", out.String())
+	}
+}
+
+func TestRefusedGRPCRelayNamesRelayOrAddress(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := listener.Addr().String()
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var out, errout bytes.Buffer
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	s := &client.ServeClient{ServerAddr: address, TargetURL: "http://localhost:3000", AuthToken: "synthetic-token", Insecure: true}
+	attachCLI(ctx, s, terminal.New(&out, &errout, true))
+	lifecycle := s.OnLifecycle
+	s.OnLifecycle = func(e client.LifecycleEvent) {
+		lifecycle(e)
+		if e.State == client.StateReconnecting {
+			cancel()
+		}
+	}
+	_ = s.Run(ctx)
+	e := decodeFailure(t, errout.String())
+	if e.State != "offline" || !strings.Contains(e.Cause, "Relay is down or the address is wrong") || strings.Contains(e.Cause, "Restore your connection") || e.NextAction != relayCheck(address) {
+		t.Fatal(e)
 	}
 }
 
@@ -164,7 +193,7 @@ func TestInventoryFailureThroughTLSForStatusAndList(t *testing.T) {
 				if e.HTTPStatus != code || !strings.Contains(e.Cause, fmt.Sprintf("HTTP %d", code)) {
 					t.Fatalf("status changed: %+v", e)
 				}
-				want := "tunn list"
+				want := "tunn " + command + " --config " + shellURL(manifest) + " --json"
 				switch code {
 				case 401:
 					want = "tunn login"
@@ -172,6 +201,9 @@ func TestInventoryFailureThroughTLSForStatusAndList(t *testing.T) {
 					want = relay.URL + "/account"
 				case 404, 501:
 					want = "tunn service --help"
+				}
+				if (code == 401 || code == 403) && e.State != "auth_expired" {
+					t.Fatalf("auth state changed: %+v", e)
 				}
 				if e.NextAction != want || out.Len() != 0 {
 					t.Fatalf("wrong action: %+v stdout=%s", e, out.String())
@@ -268,7 +300,7 @@ func TestHTTPLoginRequiredHumanAndJSON(t *testing.T) {
 			if e.NextAction != want {
 				t.Fatal(e)
 			}
-		} else if strings.Count(errout.String(), "\n") != 1 || strings.Count(errout.String(), want) != 1 {
+		} else if errout.String() != client.LoginRequiredMessage()+"\n" || !strings.Contains(errout.String(), "then restart this service") {
 			t.Fatal(errout.String())
 		}
 	}
@@ -324,7 +356,7 @@ func TestMissingInventoryLoginNamesCause(t *testing.T) {
 		}
 		writeHostError(&out, &errout, err, args)
 		e := decodeFailure(t, errout.String())
-		if e.State != "auth_missing" || e.Cause != "No saved login on this machine" || !strings.HasSuffix(e.NextAction, " tunn login") {
+		if e.State != "auth_expired" || e.Cause != "No saved login on this machine" || !strings.HasSuffix(e.NextAction, " tunn login") {
 			t.Fatalf("wrong missing-login cause: %+v", e)
 		}
 	}
@@ -364,16 +396,127 @@ func TestStartupRenewalOfflineStaysJSON(t *testing.T) {
 }
 
 func TestInventoryInvalidFlagsStayJSONAndDoNotEchoValues(t *testing.T) {
-	for _, args := range [][]string{{"--json", "--unknown=synthetic-token"}, {"--json", "synthetic-token"}} {
-		var out, errout bytes.Buffer
-		err := hostCommand(context.Background(), "list", args, &out, &errout)
-		if err == nil {
-			t.Fatal("bad arguments accepted")
+	for _, command := range []string{"list", "hosts", "status"} {
+		for _, tc := range []struct {
+			args  []string
+			cause string
+		}{
+			{[]string{"--json", "--bogus"}, "Invalid option -bogus"},
+			{[]string{"--json", "--unknown=synthetic-token"}, "Invalid option -unknown"},
+			{[]string{"--json", "--unknown", "synthetic-token"}, "Invalid option -unknown"},
+			{[]string{"--json=synthetic-token", "--json"}, "Invalid option -json"},
+			{[]string{"--json=value for -synthetic-token: parse error", "--json"}, "Invalid option -json"},
+			{[]string{"--json", "--config"}, "Invalid option -config"},
+			{[]string{"--json", "synthetic-token"}, "Unexpected argument"},
+		} {
+			var out, errout bytes.Buffer
+			var err error
+			if command == "status" {
+				err = executeStatus(context.Background(), tc.args, &out, &errout)
+			} else {
+				err = hostCommand(context.Background(), command, tc.args, &out, &errout)
+			}
+			if err == nil {
+				t.Fatal("bad arguments accepted")
+			}
+			writeHostError(&out, &errout, err, tc.args)
+			e := decodeFailure(t, errout.String())
+			if e.NextAction != "tunn "+command+" --help" || e.Cause != tc.cause || out.Len() != 0 {
+				t.Fatal(e, out.String())
+			}
+			errout.Reset()
+			writeHostError(&out, &errout, err, nil)
+			if !strings.Contains(errout.String(), tc.cause) || !strings.Contains(errout.String(), e.NextAction) || strings.Contains(errout.String(), "synthetic-token") {
+				t.Fatal(errout.String())
+			}
 		}
-		writeHostError(&out, &errout, err, args)
-		e := decodeFailure(t, errout.String())
-		if e.NextAction != "tunn list --help" || out.Len() != 0 {
-			t.Fatal(e, out.String())
+	}
+}
+
+func TestServicePublishersWithoutConfigEnvUseResolvedLoginDirectory(t *testing.T) {
+	if command := os.Getenv("TUNN_GUIDANCE_PUBLISHER_CHILD"); command != "" {
+		switch command {
+		case "http":
+			runServe([]string{"3000"})
+		case "ssh":
+			runTCP([]string{"--account-only", "127.0.0.1:22"})
+		case "tcp":
+			runTCP([]string{"127.0.0.1:5432"})
+		case "unix":
+			runUnix([]string{filepath.Join(os.Getenv("HOME"), "app.sock")})
+		}
+		return
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("TUNN_CONFIG_DIR", "")
+	if err := os.Unsetenv("TUNN_CONFIG_DIR"); err != nil {
+		t.Fatal(err)
+	}
+	want := client.LoginRequiredMessage() + "\n"
+	if !strings.Contains(want, "TUNN_CONFIG_DIR="+filepath.Join(home, ".tunn")+" tunn login") || !strings.Contains(want, "then restart this service") {
+		t.Fatal(want)
+	}
+	for _, command := range []string{"http", "ssh", "tcp", "unix"} {
+		t.Run(command, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestServicePublishersWithoutConfigEnvUseResolvedLoginDirectory$")
+			cmd.Env = append(os.Environ(), "TUNN_GUIDANCE_PUBLISHER_CHILD="+command, "TUNN_ENV=dev", "TUNN_PUBLIC_MODE=false", "TUNN_SECRET=", "TUNN_SERVER_ADDR=127.0.0.1:1")
+			var out, errout bytes.Buffer
+			cmd.Stdout, cmd.Stderr = &out, &errout
+			err := cmd.Run() // A nil Stdin supplies /dev/null, as a service does.
+			var exit *exec.ExitError
+			if !errors.As(err, &exit) || exit.ExitCode() != client.ExitLoginRequired || out.Len() != 0 || errout.String() != want {
+				t.Fatalf("exit %v, stdout %q, stderr %q; want exit 78 and %q", err, out.String(), errout.String(), want)
+			}
+		})
+	}
+}
+
+func TestRefusedInventoryKeepsInvocationAndConfig(t *testing.T) {
+	t.Setenv("TUNN_ENV", "dev")
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := listener.Addr().String()
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	manifest := guidanceManifest(t, address)
+	// A space in the path must remain one shell argument in the retry command.
+	spaced := filepath.Join(filepath.Dir(manifest), "host config.yaml")
+	if err := os.Rename(manifest, spaced); err != nil {
+		t.Fatal(err)
+	}
+	for _, command := range []string{"hosts", "list", "status"} {
+		for _, configArgs := range [][]string{{"--config", spaced}, {"--config=" + spaced}} {
+			for _, machine := range []bool{false, true} {
+				args := append([]string{}, configArgs...)
+				want := "tunn " + command + " --config " + shellURL(spaced)
+				if machine {
+					args = append(args, "--json")
+					want += " --json"
+				}
+				var out, errout bytes.Buffer
+				var err error
+				if command == "status" {
+					err = executeStatus(context.Background(), args, &out, &errout)
+				} else {
+					err = hostCommand(context.Background(), command, args, &out, &errout)
+				}
+				writeHostError(&out, &errout, err, args)
+				if machine {
+					e := decodeFailure(t, errout.String())
+					if e.State != "offline" || e.NextAction != want {
+						t.Fatal(e)
+					}
+				}
+				if !strings.Contains(errout.String(), "Relay is down or the address is wrong") || strings.Contains(errout.String(), "Restore your connection") || !strings.Contains(errout.String(), want) || out.Len() != 0 {
+					t.Fatal(errout.String(), out.String())
+				}
+			}
 		}
 	}
 }

@@ -32,7 +32,8 @@ func runHostCommand(command string, args []string) {
 }
 
 func hostCommand(ctx context.Context, command string, args []string, out, errout io.Writer) error {
-	if command == "list" {
+	invoked := command
+	if command == "list" || command == "status" {
 		command = "hosts"
 	}
 	defaultPath, err := hostmode.DefaultPath()
@@ -84,13 +85,13 @@ func hostCommand(ctx context.Context, command string, args []string, out, errout
 			return nil
 		}
 		if command == "hosts" {
-			return &cliCommandError{cause: err, state: "error", title: "Invalid inventory command", detail: "Check command options", command: "tunn list --help"}
+			return &cliCommandError{cause: err, state: "error", title: "Invalid inventory command", detail: inventoryFlagCause(err), command: "tunn " + invoked + " --help"}
 		}
 		return err
 	}
 	if fs.NArg() != 0 {
 		if command == "hosts" {
-			return &cliCommandError{state: "error", title: "Invalid inventory command", detail: "Unexpected argument", command: "tunn list --help"}
+			return &cliCommandError{state: "error", title: "Invalid inventory command", detail: "Unexpected argument", command: "tunn " + invoked + " --help"}
 		}
 		return fmt.Errorf("unexpected argument %q", fs.Arg(0))
 	}
@@ -183,17 +184,25 @@ func hostCommand(ctx context.Context, command string, args []string, out, errout
 	token, err := hostmode.Credentials(c)
 	if err != nil {
 		detail := "Saved login expired or invalid"
-		state := "auth_expired"
 		if errors.Is(err, os.ErrNotExist) {
-			detail, state = "No saved login on this machine", "auth_missing"
+			detail = "No saved login on this machine"
 		}
-		return &cliCommandError{cause: err, state: state, title: "Sign in required", detail: detail, command: loginCommand()}
+		return &cliCommandError{cause: err, state: "auth_expired", title: "Sign in required", detail: detail, command: loginCommand()}
 	}
 	api := hostmode.API{Server: server, Token: token, Insecure: c.Insecure || *insecure}
 	if command == "hosts" {
+		retry := "tunn " + invoked
+		fs.Visit(func(f *flag.Flag) {
+			if f.Name == "config" {
+				retry += " --config " + shellURL(*path)
+			}
+		})
+		if *jsonOutput {
+			retry += " --json"
+		}
 		machines, err := api.Hosts(ctx)
 		if err != nil {
-			return inventoryFailure(err, server)
+			return inventoryFailure(err, server, retry)
 		}
 		if *jsonOutput {
 			return json.NewEncoder(out).Encode(inventoryReadings(machines))
@@ -212,7 +221,7 @@ func hostCommand(ctx context.Context, command string, args []string, out, errout
 	return (&hostmode.Runtime{Config: c, API: api, TunnelKey: cfg.WellKnownKey}).Run(ctx)
 }
 
-func inventoryFailure(err error, server string) error {
+func inventoryFailure(err error, server, retry string) error {
 	var apiError *hostmode.APIError
 	if errors.As(err, &apiError) {
 		detail := fmt.Sprintf("Relay returned HTTP %d", apiError.Status)
@@ -221,15 +230,15 @@ func inventoryFailure(err error, server string) error {
 		case 401:
 			e.state, e.title, e.detail, e.command = "auth_expired", "Sign in again", detail+". Login expired or rejected", loginCommand()
 		case 403:
-			e.state, e.title, e.detail, e.command = "error", "Access denied", detail+". This account cannot read inventory", accountURL(server)
+			e.state, e.title, e.detail, e.command = "auth_expired", "Access denied", detail+". This account cannot read inventory", accountURL(server)
 		case 404, 501:
 			e.state, e.title, e.detail, e.command = "error", "Machine inventory unavailable", detail+". This relay does not provide inventory", "tunn service --help"
 		case 429:
 			e.state, e.title, e.detail, e.command = "limit", "Request limit reached", detail+". Check account usage and reset time", accountURL(server)
 		default:
-			e.state, e.title, e.detail, e.command = "offline", "Cannot fetch hosts", detail+". Retry when the relay is reachable", "tunn list"
+			e.state, e.title, e.detail, e.command = "offline", "Cannot fetch hosts", detail+". Retry when the relay is reachable", retry
 		}
 		return e
 	}
-	return &cliCommandError{cause: err, state: "offline", title: "Cannot fetch hosts", detail: relayCause(err) + ". Restore your connection, then retry", command: "tunn list"}
+	return &cliCommandError{cause: err, state: "offline", title: "Cannot fetch hosts", detail: relayCause(err) + ". " + relayRecovery(err) + ".", command: retry}
 }

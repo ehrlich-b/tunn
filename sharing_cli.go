@@ -132,13 +132,18 @@ func loadOrEnrollWebPublisher(ctx context.Context, server string, insecure, inte
 // starts before its network does not exit. It returns only a missing or
 // rejected login, which needs a person.
 func loadPublisherToken(ctx context.Context, server string, insecure bool) (string, *client.CredentialManager, error) {
+	return loadPublisherTokenWithRetry(ctx, server, insecure, func(err error, delay time.Duration) {
+		_, _ = fmt.Fprintf(os.Stderr, "tunn: login renewal unavailable (%v); retrying in %s\n", err, delay.Round(time.Second))
+	})
+}
+func loadPublisherTokenWithRetry(ctx context.Context, server string, insecure bool, retry func(error, time.Duration)) (string, *client.CredentialManager, error) {
 	for attempt := 0; ; attempt++ {
 		token, credentials, err := client.LoadTunnelToken(ctx, server, insecure)
 		if err == nil || credentials == nil || client.LoginRequired(err) || ctx.Err() != nil {
 			return token, credentials, err
 		}
 		delay := client.ReconnectDelay(time.Second, 30*time.Second, attempt)
-		_, _ = fmt.Fprintf(os.Stderr, "tunn: login renewal unavailable (%v); retrying in %s\n", err, delay.Round(time.Second))
+		retry(err, delay)
 		select {
 		case <-ctx.Done():
 			return "", nil, ctx.Err()

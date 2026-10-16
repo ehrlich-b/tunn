@@ -38,6 +38,9 @@ type Event struct {
 	Detail        string   `json:"detail,omitempty"`
 	Message       string   `json:"message,omitempty"`
 	Command       string   `json:"command,omitempty"`
+	Cause         string   `json:"cause,omitempty"`
+	NextAction    string   `json:"next_action,omitempty"`
+	HTTPStatus    int      `json:"http_status,omitempty"`
 }
 
 type Output struct {
@@ -215,7 +218,7 @@ func (o *Output) RouteCheck(state, title string, checks []Check, command string)
 			last := checks[len(checks)-1]
 			detail = Safe(last.Label) + " · " + Safe(last.Text)
 		}
-		_ = json.NewEncoder(o.Err).Encode(Event{Type: "state", State: state, At: time.Now().Format(time.RFC3339Nano), Message: Safe(title), Detail: detail, Command: Safe(command)})
+		_ = json.NewEncoder(o.Err).Encode(Event{Type: "state", State: state, At: time.Now().Format(time.RFC3339Nano), Message: Safe(title), Detail: detail, Command: Safe(command), Cause: detail, NextAction: Safe(command)})
 		return
 	}
 	labelWidth := 0
@@ -237,7 +240,7 @@ func markerText(state string) string {
 	switch state {
 	case "online":
 		return "[ok]"
-	case "error", "offline", "unreachable", "auth_expired":
+	case "error", "offline", "unreachable", "auth_expired", "auth_missing":
 		return "[x]"
 	case "reconnecting", "limit":
 		return "[!]"
@@ -247,7 +250,7 @@ func markerText(state string) string {
 	return "[i]"
 }
 
-func (o *Output) State(state, title, detail, command string, delay time.Duration) {
+func (o *Output) State(state, title, detail, command string, delay time.Duration, httpStatus ...int) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	key := state + title + detail + command + delay.String()
@@ -258,7 +261,16 @@ func (o *Output) State(state, title, detail, command string, delay time.Duration
 	title, detail, command = Safe(title), Safe(detail), Safe(command)
 	if o.JSON {
 		e := Event{Type: "state", State: state, At: time.Now().Format(time.RFC3339Nano), Message: title, Detail: detail, Command: command, RetryDelayMS: delay.Milliseconds()}
-		if state == "error" || state == "offline" || state == "unreachable" || state == "auth_expired" || state == "limit" {
+		if len(httpStatus) > 0 {
+			e.HTTPStatus = httpStatus[0]
+		}
+		if command != "" {
+			e.Cause, e.NextAction = detail, command
+			if e.Cause == "" {
+				e.Cause = title
+			}
+		}
+		if state == "error" || state == "offline" || state == "unreachable" || state == "auth_expired" || state == "auth_missing" || state == "limit" {
 			_ = json.NewEncoder(o.Err).Encode(e)
 		} else {
 			o.event(e)
@@ -269,13 +281,13 @@ func (o *Output) State(state, title, detail, command string, delay time.Duration
 	if !o.TTY {
 		w = o.Err
 	}
-	if state == "error" || state == "offline" || state == "unreachable" || state == "auth_expired" || state == "limit" {
+	if state == "error" || state == "offline" || state == "unreachable" || state == "auth_expired" || state == "auth_missing" || state == "limit" {
 		w = o.Err
 	}
 	if state == "stopped" {
 		o.line(w, "")
 	}
-	if state == "error" || state == "offline" || state == "unreachable" || state == "auth_expired" {
+	if state == "error" || state == "offline" || state == "unreachable" || state == "auth_expired" || state == "auth_missing" {
 		title = o.paint("1", title)
 	}
 	o.line(w, o.paint("2", time.Now().Format("15:04:05"))+"  "+o.marker(state)+" "+title)

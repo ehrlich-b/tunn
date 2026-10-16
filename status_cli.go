@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -21,16 +22,16 @@ func runStatus(args []string) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if err := executeStatus(ctx, args, os.Stdout, os.Stderr); err != nil && !errors.Is(err, flag.ErrHelp) {
-		fmt.Fprintln(os.Stderr, err)
+		writeHostError(os.Stdout, os.Stderr, err, args)
 		os.Exit(1)
 	}
 }
 func executeStatus(ctx context.Context, args []string, out, errOut io.Writer) error {
-	if len(args) == 0 {
-		return errors.New("usage: tunn status serve|incident|resolve [options]")
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") && args[0] != "--help" && args[0] != "-h" {
+		return hostCommand(ctx, "status", args, out, errOut)
 	}
 	if args[0] == "--help" || args[0] == "-h" {
-		writeCLIHelp(out, "Check tunn on this machine\n  tunn service status\n\nHost your own status page\n  tunn status serve       Serve the status page\n  tunn status incident    Post an incident\n  tunn status resolve     Close an incident\n")
+		writeCLIHelp(out, "Check account tunnels\n  tunn status [--json]\n  tunn list [--json]\n\nCheck tunn on this machine\n  tunn service status\n\nHost your own status page\n  tunn status serve       Serve the status page\n  tunn status incident    Post an incident\n  tunn status resolve     Close an incident\n")
 		return nil
 	}
 	fs := flag.NewFlagSet("status "+args[0], flag.ContinueOnError)
@@ -118,6 +119,6 @@ func executeStatus(ctx context.Context, args []string, out, errOut io.Writer) er
 		defer s.Close()
 		return s.ResolveIncident(ctx, time.Now().UTC(), id, *note)
 	default:
-		return errors.New("usage: tunn status serve|incident|resolve [options]")
+		return &cliCommandError{state: "error", title: "Invalid status command", detail: "Unknown status command", command: "tunn status --help"}
 	}
 }

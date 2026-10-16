@@ -94,7 +94,7 @@ func main() {
 		runStatus(args[1:])
 	case "admin":
 		runOperations(args[1:])
-	case "service", "hosts", "openclaw":
+	case "service", "hosts", "list", "openclaw":
 		runHostCommand(args[0], args[1:])
 	case "keys":
 		runKeys(args[1:])
@@ -1036,17 +1036,32 @@ func runServe(args []string) {
 		token = clientSecret
 	} else if !cfg.PublicMode {
 		login := &client.LoginClient{ServerAddr: cfg.ServerAddr, Insecure: cfg.Insecure || *insecure}
-		token, credentials, err = loadOrEnrollWebPublisher(ctx, cfg.ServerAddr, cfg.Insecure || *insecure, stdinIsTerminal(), loadPublisherToken, login.Run)
+		load := func(ctx context.Context, server string, insecure bool) (string, *client.CredentialManager, error) {
+			return loadPublisherTokenWithRetry(ctx, server, insecure, func(err error, delay time.Duration) {
+				output.State("offline", "Cannot renew login", relayCause(err)+". "+relayRecovery(err)+"; tunn retries automatically.", relayCheck(server), delay)
+			})
+		}
+		enrolling := false
+		token, credentials, err = loadOrEnrollWebPublisher(ctx, cfg.ServerAddr, cfg.Insecure || *insecure, stdinIsTerminal() && !opts.jsonOutput, load, func(ctx context.Context) error {
+			enrolling = true
+			return login.Run(ctx)
+		})
 		if err != nil {
-			exitIfLoginRequired(err)
+			if showHTTPLoginRequired(output, err) {
+				os.Exit(client.ExitLoginRequired)
+			}
 			if ctx.Err() != nil {
 				output.State("stopped", "Canceled", "", "", 0)
 				return
 			}
-			if client.RetryableCredentialError(err) {
-				output.State("offline", "Cannot reach tunn", "Sign-in renewal failed. Check your connection, then run it again.", "", 0)
+			if client.RetryableCredentialError(err) || enrolling && loginRelayFailure(err) {
+				output.State("offline", "Cannot reach tunn", relayCause(err)+". "+relayRecovery(err)+".", relayCheck(cfg.ServerAddr), 0)
 			} else {
-				output.State("auth_expired", "Sign in to start a tunnel", "", "tunn login", 0)
+				state, cause := "auth_expired", savedLoginCause(err)
+				if enrolling {
+					state, cause = "error", loginCause(err)
+				}
+				output.State(state, "Sign in to start a tunnel", cause, loginCommand(), 0)
 			}
 			os.Exit(1)
 		}
@@ -1155,7 +1170,9 @@ func runServe(args []string) {
 	attachCLI(ctx, serveClient, output, opts.inspect)
 	runErr := serveClient.Run(ctx)
 	if !stoppedNormally(runErr) {
-		exitIfLoginRequired(runErr)
+		if showHTTPLoginRequired(output, runErr) {
+			os.Exit(client.ExitLoginRequired)
+		}
 		showTunnelError(output, runErr, cfg.ServerAddr)
 		os.Exit(1)
 	}
@@ -1164,7 +1181,8 @@ func runServe(args []string) {
 }
 
 func printServeUsage() {
-	fmt.Fprintln(os.Stderr, `Usage: tunn serve [options] <port|host:port|url>
+	fmt.Fprintln(os.Stderr, `Usage: tunn http <port|host:port|url> [options]
+       tunn serve [options] <port|host:port|url>
        tunn <target> [options]
 
 Private by default. Use --public to let anyone with the link open it.
@@ -1187,7 +1205,21 @@ Options:
   --inspect-body                Retain local bodies up to 64 KiB (requires --inspect)
   --skip-local-tls-verify        Skip local HTTPS certificate verification
   --secret SECRET               Self-hosted publisher secret (or TUNN_SECRET)
-  --tunnel-key KEY               Tunnel creation authorization key`)
+  --tunnel-key KEY               Tunnel creation authorization key
+
+Local app unreachable
+  Start your app on the target port, then check it.
+  curl -I http://localhost:3000
+
+Login missing or expired
+  tunn login
+
+Tunnel or usage limit reached
+  https://tunn.to/account
+
+Relay offline
+  Restore your connection. tunn retries automatically.
+  curl --connect-timeout 5 -I https://tunn.to`)
 }
 
 // normalizeTargetURL converts various input formats to a full URL

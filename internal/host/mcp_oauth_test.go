@@ -117,6 +117,12 @@ func newMCPOAuthFixtureWithDB(t *testing.T, db *sql.DB) *mcpOAuthFixture {
 	p.emailSender = &EmailSender{Host: "unused-in-process-email-fixture"}
 	stream := &meteringFixtureStream{}
 	tunnel := &TunnelConnection{TunnelID: "tools", TargetURL: "mcp", AccountID: owner.ID, CreatorEmail: "owner@example.com", AllowedEmails: []string{"owner@example.com"}, Stream: stream, pendingRequests: make(map[string]chan *pb.HttpResponse)}
+	registered, err := ledger.Sharing(context.Background(), &meterpb.SharingRequest{Operation: "register", Owner: owner.ID, Endpoint: "tools", Mode: "policy-only", InitialEmails: tunnel.AllowedEmails})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tunnel.PolicyResourceID = registered.Resources[0].Id
+	registry.now = p.currentTime
 	p.tunnelServer.tunnels[tunnel.TunnelID] = tunnel
 	fixture := &mcpOAuthFixture{p: p, tunnel: tunnel}
 	stream.hook = func(message *pb.TunnelMessage) error {

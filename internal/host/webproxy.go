@@ -345,7 +345,7 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 				session.event.Caller = "grant:" + grant.Id
 				session.event.GrantId = grant.Id
 			}
-			if grant.Id == "" || !strings.HasPrefix(grant.Consumer, "oauth:") || grant.Revoked || grant.ExpiresAt <= time.Now().UnixMilli() || r.URL.Path != "/mcp" || tunnel.TargetURL != "mcp" || common.IsWebSocketUpgrade(r.Header) {
+			if grant.Id == "" || !strings.HasPrefix(grant.Consumer, "oauth:") || grant.Revoked || grant.ExpiresAt <= p.currentTime().UnixMilli() || r.URL.Path != "/mcp" || tunnel.TargetURL != "mcp" || common.IsWebSocketUpgrade(r.Header) {
 				session.reason = "invalid_oauth_token"
 				p.mcpChallenge(w, tunnelID, "invalid_token")
 				http.Error(w, "Invalid or expired MCP access token", http.StatusUnauthorized)

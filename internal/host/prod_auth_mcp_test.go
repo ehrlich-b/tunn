@@ -68,7 +68,7 @@ func TestProdAuthMCPOAuthMetadataContract(t *testing.T) {
 		}
 	}
 	for key, expected := range map[string]string{
-		"response_types_supported": "code", "grant_types_supported": "authorization_code",
+		"response_types_supported": "code", "grant_types_supported": "authorization_code,refresh_token",
 		"token_endpoint_auth_methods_supported": "none", "code_challenge_methods_supported": "S256", "scopes_supported": "mcp",
 	} {
 		var value []string
@@ -129,7 +129,7 @@ func TestProdAuthMCPOAuthClientMetadataMatrix(t *testing.T) {
 		{"missing-redirect", `{}`, "invalid_redirect_uri"},
 		{"empty-redirects", `{"redirect_uris":[]}`, "invalid_redirect_uri"},
 		{"client-authentication", `{"redirect_uris":["https://connector.example/cb"],"token_endpoint_auth_method":"client_secret_basic"}`, "invalid_client_metadata"},
-		{"refresh-grant", `{"redirect_uris":["https://connector.example/cb"],"grant_types":["authorization_code","refresh_token"]}`, "invalid_client_metadata"},
+		{"unsupported-grant", `{"redirect_uris":["https://connector.example/cb"],"grant_types":["authorization_code","password"]}`, "invalid_client_metadata"},
 		{"implicit-response", `{"redirect_uris":["https://connector.example/cb"],"response_types":["token"]}`, "invalid_client_metadata"},
 		{"second-object", `{"redirect_uris":["https://connector.example/cb"]} {}`, "invalid_client_metadata"},
 		{"array", `[]`, "invalid_client_metadata"},
@@ -231,7 +231,7 @@ func TestProdAuthMCPOAuthParameterMatrix(t *testing.T) {
 					form.Add("resource", c.resource)
 				case "unsupported-flow":
 					if stage == "token" {
-						form.Set("grant_type", "refresh_token")
+						form.Set("grant_type", "password")
 						problem = "unsupported_grant_type"
 					} else {
 						form.Set("response_type", "token")

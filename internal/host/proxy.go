@@ -296,6 +296,9 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 		quotaCache:         NewQuotaCache(30 * time.Second),
 		deviceCodeRateByIP: make(map[string][]time.Time),
 	}
+	if localOAuth != nil {
+		localOAuth.now = proxy.currentTime
+	}
 	if emailSender != nil {
 		proxy.emailSender = emailSender
 	}

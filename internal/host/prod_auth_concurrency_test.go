@@ -87,6 +87,7 @@ func TestProdAuthMCPOAuthConcurrentConsent(t *testing.T) {
 
 type prodAuthIssuanceBarrier struct {
 	metering.Backend
+	metering.SharingBackend
 	entered chan struct{}
 	release chan struct{}
 	once    sync.Once
@@ -107,7 +108,7 @@ func TestProdAuthMCPOAuthRevocationDuringIssuance(t *testing.T) {
 	f.p.mcpOAuth.db.SetMaxOpenConns(1)
 	c := discoverMCPClient(t, f)
 	code := c.code(t)
-	barrier := &prodAuthIssuanceBarrier{Backend: f.p.meter, entered: make(chan struct{}), release: make(chan struct{})}
+	barrier := &prodAuthIssuanceBarrier{Backend: f.p.meter, SharingBackend: f.p.sharingBackend(), entered: make(chan struct{}), release: make(chan struct{})}
 	f.p.meter = barrier
 	var release sync.Once
 	unblock := func() { release.Do(func() { close(barrier.release) }) }

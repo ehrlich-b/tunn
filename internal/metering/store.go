@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/ehrlich-b/tunn/internal/common"
+	"github.com/ehrlich-b/tunn/internal/mcpauth"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/meteringv1"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
@@ -178,6 +179,9 @@ SELECT account_id,'legacy','legacy',month,max(0,bytes_used-coalesce((SELECT sum(
 	if err := s.initIPPolicies(); err != nil {
 		return nil, err
 	}
+	if err := mcpauth.Init(db); err != nil {
+		return nil, err
+	}
 	if err := s.initSharing(); err != nil {
 		return nil, err
 	}
@@ -206,16 +210,27 @@ func (s *Store) transaction(ctx context.Context, f func(*sql.Tx) error) error {
 }
 
 func (s *Store) Resolve(ctx context.Context, r *pb.ResolveRequest) (*pb.Grant, error) {
-	var data []byte
-	err := s.db.QueryRowContext(ctx, `SELECT data FROM meter_grants WHERE owner=? AND endpoint=? AND digest=?`, r.Owner, r.Endpoint, r.TokenSha256).Scan(&data)
-	if errors.Is(err, sql.ErrNoRows) {
-		return &pb.Grant{}, nil
-	}
-	if err != nil {
-		return nil, err
-	}
 	g := new(pb.Grant)
-	if err = json.Unmarshal(data, g); err != nil {
+	err := s.transaction(ctx, func(tx *sql.Tx) error {
+		var data []byte
+		err := tx.QueryRowContext(ctx, `SELECT data FROM meter_grants WHERE owner=? AND endpoint=? AND digest=?`, r.Owner, r.Endpoint, r.TokenSha256).Scan(&data)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if err := json.Unmarshal(data, g); err != nil {
+			return err
+		}
+		if err := mcpauth.CheckAccess(ctx, tx, g.Id, s.now()); errors.Is(err, sql.ErrNoRows) {
+			g.Revoked = true
+			return nil
+		} else {
+			return err
+		}
+	})
+	if err != nil {
 		return nil, err
 	}
 	return g, nil
@@ -303,6 +318,15 @@ func (s *Store) RevokeGrant(ctx context.Context, r *pb.Grant) (*emptypb.Empty, e
 		}
 		if g.Owner != r.Owner || g.Endpoint != r.Endpoint {
 			return fmt.Errorf("grant not found")
+		}
+		var authorization string
+		err = tx.QueryRowContext(ctx, `SELECT authorization FROM mcp_oauth_access WHERE grant_id=?`, g.Id).Scan(&authorization)
+		if err == nil {
+			if err := mcpauth.RevokeConsent(ctx, tx, authorization); err != nil {
+				return err
+			}
+		} else if !errors.Is(err, sql.ErrNoRows) {
+			return err
 		}
 		g.Revoked = true
 		data, _ := json.Marshal(g)
@@ -506,6 +530,11 @@ func (s *Store) Admit(ctx context.Context, input *pb.Event) (*pb.Decision, error
 				return err
 			} else {
 				checkGrant(g, e, d, now)
+				if err := mcpauth.CheckAccess(ctx, tx, g.Id, now); errors.Is(err, sql.ErrNoRows) {
+					deny(d, "oauth_consent_revoked", 403)
+				} else if err != nil {
+					return err
+				}
 				remaining(g, u, d)
 				if d.Allowed && d.RequestsRemaining == 0 {
 					deny(d, "request_budget", 429)
@@ -610,6 +639,11 @@ func (s *Store) Charge(ctx context.Context, r *pb.ChargeRequest) (*pb.Decision, 
 				return err
 			}
 			checkGrant(g, e, d, s.now())
+			if err := mcpauth.CheckAccess(ctx, tx, g.Id, s.now()); errors.Is(err, sql.ErrNoRows) {
+				deny(d, "oauth_consent_revoked", 403)
+			} else if err != nil {
+				return err
+			}
 			u, err := usage(tx, e)
 			if err != nil {
 				return err

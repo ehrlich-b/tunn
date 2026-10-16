@@ -42,6 +42,9 @@ func TestDurableCredentialsRejectSymlinkedLock(t *testing.T) {
 	if err := os.WriteFile(victim, []byte("untouched"), 0644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Chmod(victim, 0644); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Symlink(victim, filepath.Join(dir, "credentials.lock")); err != nil {
 		t.Fatal(err)
 	}

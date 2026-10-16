@@ -36,3 +36,11 @@ Check GitHub off/on behavior and email fallback with
 that a previously verified primary address and alias retain the same account.
 `TestCLIDeviceLoginThroughEmailWithoutGitHub` exercises CLI device approval
 against a disposable local TLS relay and captured mail.
+
+## Scheduled certificate renewal on macOS
+
+Set `TUNN_CERT_DOMAIN`, `TUNN_FLY_APP` and `TUNN_CERT_EMAIL` for your deployment.
+After configuring renewal credentials, `make cert-install-schedule` renders a
+private launchd job using the current checkout and your home directory. Keep
+that checkout in place while the job is installed. The daily job runs
+`renew-certs.sh`, which renews and publishes the certificate for that deployment.

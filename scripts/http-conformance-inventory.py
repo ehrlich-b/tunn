@@ -33,12 +33,11 @@ UNSUPPORTED = [
     ('internal/host', 'TestHTTPFidelityLegacyCookieAmbiguity', 1, 'Legacy cookie splitting cannot recover all comma-containing values'),
 ]
 REQUIRED_UNRUN = [
-    {'gate': 'make -j1 test-sdk-contract', 'cells': 8, 'test': 'TestSDKResponseConformance', 'reason': 'Worker cannot bind loopback; exported PublishHandler has no public in-memory relay dial seam'},
+    {'gate': 'make -j1 test-sdk-contract', 'cells': 8, 'test': 'TestSDKResponseConformance', 'reason': 'Exported PublishHandler requires a disposable loopback relay'},
     {'gate': 'make -j1 test-sdk-contract', 'cells': 1, 'test': 'TestSDKResponseControllerConformance', 'reason': 'Exported-handler relay runtime requires ordinary-host loopback'},
     {'gate': 'make -j1 test-sdk-response-consumer-live', 'cells': 1, 'test': 'TestSDKExternalResponseConsumer', 'reason': 'External program must connect to a disposable ordinary-host TLS/gRPC/HTTP relay'},
     {'gate': 'make -j1 check', 'reason': 'Full suite includes listener-dependent relay, auth, HTTP, WebSocket and kernel transports'},
-    {'gate': 'staged protoc capability', 'reason': 'Installed protoc cannot start: libabsl_die_if_null.2601.0.0.dylib missing; no schema changed, so regeneration is inapplicable'},
-    {'gate': 'deployed client response acceptance', 'reason': 'No deployed relay/client or provider/network operations authorized'},
+    {'gate': 'deployed client response acceptance', 'reason': 'Requires separate deployed relay/client acceptance'},
 ]
 
 

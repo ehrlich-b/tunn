@@ -1,6 +1,6 @@
 # Company sign-in and group sharing
 
-This branch implements the 13:10/13:11 scope in [IDEAS-INBOX](../../IDEAS-INBOX.md): customer Okta, Microsoft Entra ID and Google Workspace sign-in with per-app group sharing. It is an OIDC client of those providers. [DESIGN](../DESIGN.md) ranks the remaining protocol roles; [ENTERPRISE-ZT](../ENTERPRISE-ZT.md) is the short enterprise roadmap. No SAML, identity linking, SCIM or new OIDC issuer is enabled.
+tunn supports customer Okta, Microsoft Entra ID and Google Workspace sign-in with per-app group sharing. It is an OIDC client of those providers. [DESIGN](../DESIGN.md) ranks the remaining protocol roles; [ENTERPRISE-ZT](../ENTERPRISE-ZT.md) is the short enterprise roadmap. No SAML, identity linking, SCIM or new OIDC issuer is enabled.
 
 ## Disable organization SSO for a custom-domain release
 

@@ -1,6 +1,6 @@
 # Organization SSO and group sharing
 
-Research: 2026-10-11; baseline: `7f5d619`. [BRIEF](../BRIEF.md) and the complete [live inbox](../IDEAS-INBOX.md) govern scope: the 13:10 cut and 13:11 addition authorize only **Okta, Microsoft Entra ID and Google Workspace OIDC sign-in and group sharing**. SAML, identity linking, SCIM, posture, AI identities and outbound OIDC-provider endpoints are deferred. The previous design is preserved in [docs/durable-device-design.md](docs/durable-device-design.md). Read the short [enterprise roadmap](ENTERPRISE-ZT.md) first.
+The current scope is **Okta, Microsoft Entra ID and Google Workspace OIDC sign-in and group sharing**. SAML, identity linking, SCIM, posture, AI identities and outbound OIDC-provider endpoints are deferred. The previous design is preserved in [docs/durable-device-design.md](docs/durable-device-design.md). Read the short [enterprise roadmap](ENTERPRISE-ZT.md) first.
 
 ## Value, effort and build order
 

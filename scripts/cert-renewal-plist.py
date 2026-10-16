@@ -9,7 +9,7 @@ home = Path.home()
 repo = Path(__file__).resolve().parents[1]
 log = str(home / ".config/tunn/cert-renewal.log")
 plistlib.dump({
-    "Label": "com.example.tunn-cert-renewal",
+    "Label": "com.ehrlich.tunn-cert-renewal",
     "ProgramArguments": [str(repo / "renew-certs.sh")],
     "WorkingDirectory": str(repo),
     "EnvironmentVariables": {

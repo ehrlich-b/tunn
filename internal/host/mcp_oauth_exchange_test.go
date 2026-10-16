@@ -461,6 +461,88 @@ func TestMCPExchangeProcessJourney(t *testing.T) {
 	t.Log("authorization-code-only client works; raw synthetic tokens absent from database and process logs")
 }
 
+func TestMCPExchangeDormantClientDisconnect(t *testing.T) {
+	for _, disconnect := range []string{"api", "browser"} {
+		t.Run(disconnect, func(t *testing.T) {
+			p := startExchangeProcess(t, filepath.Join(t.TempDir(), "oauth.db"), time.Now().Unix())
+			cookie := p.cookie("owner@example.com")
+			owner := relayJWT(t, securityProxy(nil), "owner@example.com")
+			clientA := p.register("")
+			tokensA := p.exchange(codeExchangeForm(clientA, p.code(clientA, cookie)), 200)
+			list := func(path, bearer string) []mcpOAuthConnection {
+				t.Helper()
+				status, _, data := p.request("GET", "tunn.test", path, "", bearer, nil)
+				var out struct {
+					Clients []mcpOAuthConnection `json:"clients"`
+				}
+				if status != 200 || json.Unmarshal(data, &out) != nil {
+					t.Fatalf("client list status %d", status)
+				}
+				return out.Clients
+			}
+			assertConnected := func(connections []mcpOAuthConnection, client string) mcpOAuthConnection {
+				t.Helper()
+				var matches []mcpOAuthConnection
+				for _, c := range connections {
+					if c.ClientID == client && !c.Revoked {
+						matches = append(matches, c)
+					}
+				}
+				if len(matches) != 1 || matches[0].Tunnel != "tools" {
+					t.Fatalf("expected one connected client on tools, got %d", len(matches))
+				}
+				return matches[0]
+			}
+			path := "/api/mcp/clients?tunnel=tools"
+			assertConnected(list(path, owner), clientA)
+			p.control("advance?seconds=3601")
+			clientB := p.register("")
+			tokensB := p.exchange(codeExchangeForm(clientB, p.code(clientB, cookie)), 200)
+			// Unrelated issuance reclaims A's expired access grant but must leave
+			// its live consent discoverable through both management surfaces.
+			connections := list(path, owner)
+			dormant := assertConnected(connections, clientA)
+			assertConnected(connections, clientB)
+			if dormant.GrantID != "" || dormant.ExpiresAt <= time.Now().Add(24*time.Hour).UnixMilli() {
+				t.Fatal("dormant connection must expose consent expiry without an access grant")
+			}
+			assertConnected(list("/api/mcp/clients", owner), clientA)
+			other := relayJWT(t, securityProxy(nil), "other@example.com")
+			if len(list(path, other)) != 0 || len(list("/api/mcp/clients?tunnel=other", owner)) != 0 {
+				t.Fatal("client discovery escaped owner or endpoint scope")
+			}
+			status, _, page := p.request("GET", "tunn.test", "/account/mcp?tunnel=tools", "", "", cookie)
+			if status != 200 || !strings.Contains(string(page), `name="client_id" value="`+clientA+`"`) || !strings.Contains(string(page), "<button>Disconnect</button>") {
+				t.Fatal("dormant client lost its browser Disconnect control")
+			}
+			rotated := p.exchange(refreshExchangeForm(clientA, tokensA.Refresh), 200)
+			p.call(rotated.Access, 200)
+			if disconnect == "browser" {
+				form := url.Values{"client_id": {clientA}, "csrf_token": {hiddenMCPField(t, string(page), "csrf_token")}}
+				status, _, _ = p.request("POST", "tunn.test", "/account/mcp?tunnel=tools", form.Encode(), "", cookie)
+				if status != http.StatusSeeOther {
+					t.Fatalf("browser disconnect status %d", status)
+				}
+			} else {
+				status, _, _ = p.request("DELETE", "tunn.test", path+"&client_id="+clientA, "", owner, nil)
+				if status != http.StatusNoContent {
+					t.Fatalf("API disconnect status %d", status)
+				}
+			}
+			p.exchange(refreshExchangeForm(clientA, tokensA.Refresh), 400)
+			p.exchange(refreshExchangeForm(clientA, rotated.Refresh), 400)
+			p.call(rotated.Access, 401)
+			for _, c := range list(path, owner) {
+				if c.ClientID == clientA && !c.Revoked {
+					t.Fatal("disconnected consent still listed as active")
+				}
+			}
+			p.call(tokensB.Access, 200)
+			p.exchange(refreshExchangeForm(clientB, tokensB.Refresh), 200)
+		})
+	}
+}
+
 func TestMCPExchangeProcessFailures(t *testing.T) {
 	for _, scenario := range []string{"wrong-client-resource", "cross-owner", "replay", "concurrent", "generation", "takeover", "outage", "expiry", "lifetime"} {
 		t.Run(scenario, func(t *testing.T) {

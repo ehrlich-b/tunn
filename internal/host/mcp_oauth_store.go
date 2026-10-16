@@ -69,6 +69,45 @@ type mcpOAuthClient struct {
 	IssuedAt      int64    `json:"client_id_issued_at"`
 }
 
+type mcpOAuthConnection struct {
+	ClientID  string `json:"client_id"`
+	Name      string `json:"client_name"`
+	Tunnel    string `json:"tunnel"`
+	GrantID   string `json:"grant_id"`
+	ExpiresAt int64  `json:"expires_at"`
+	Revoked   bool   `json:"revoked"`
+}
+
+// Connected clients remain discoverable for the consent lifetime, even after
+// their shorter-lived access grants have expired and been reclaimed.
+func (s *mcpOAuthStore) connections(ctx context.Context, owner, endpoint string) ([]mcpOAuthConnection, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT a.client,c.data,a.endpoint,max(a.expires)
+ FROM mcp_oauth_authorizations a JOIN mcp_oauth_clients c ON c.id=a.client
+ WHERE a.owner=? AND (?='' OR a.endpoint=?) AND a.approved=1 AND a.expires>?
+ GROUP BY a.endpoint,a.client ORDER BY a.endpoint,a.client`, owner, endpoint, endpoint, s.now().Unix())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	connections := []mcpOAuthConnection{}
+	for rows.Next() {
+		var connection mcpOAuthConnection
+		var data []byte
+		var expires int64
+		if err := rows.Scan(&connection.ClientID, &data, &connection.Tunnel, &expires); err != nil {
+			return nil, err
+		}
+		var client mcpOAuthClient
+		if err := json.Unmarshal(data, &client); err != nil {
+			return nil, err
+		}
+		connection.Name = client.Name
+		connection.ExpiresAt = time.Unix(expires, 0).UnixMilli()
+		connections = append(connections, connection)
+	}
+	return connections, rows.Err()
+}
+
 type mcpAuthorization struct {
 	ClientID    string `json:"client_id"`
 	Person      string `json:"person"`

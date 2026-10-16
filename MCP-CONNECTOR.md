@@ -70,7 +70,11 @@ not be logged or sent to the publisher.
 
 Owner disconnect at `/account/mcp` or `DELETE /api/mcp/clients?tunnel=...&client_id=...`
 revokes the client's pending forms, codes, all access tokens and every refresh
-family on that owner's endpoint. Removing a person through
+family on that owner's endpoint. The management page and `GET /api/mcp/clients`
+list approved, unexpired consents independently of access-token cleanup, so a
+dormant client retains its Disconnect control. Consent entries report the consent
+expiry in `expires_at`; `grant_id` is empty when no live access grant remains.
+Removing a person through
 `DELETE /api/sharing/<endpoint>` does the same for that person across clients,
 including consents under linked email aliases. MCP endpoints use their live
 permission decisions, so reconnecting a publisher does not restore a removed

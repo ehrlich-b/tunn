@@ -581,26 +581,33 @@ func (p *ProxyServer) handleMCPClients(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Grant ledger unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	type connection struct {
-		ClientID  string `json:"client_id"`
-		Name      string `json:"client_name"`
-		Tunnel    string `json:"tunnel"`
-		GrantID   string `json:"grant_id"`
-		ExpiresAt int64  `json:"expires_at"`
-		Revoked   bool   `json:"revoked"`
+	connections, err := p.mcpOAuth.connections(r.Context(), owner.ID, endpoint)
+	if err != nil {
+		http.Error(w, "Authorization service unavailable", http.StatusServiceUnavailable)
+		return
 	}
-	connections := []connection{}
+	type connectionKey struct{ tunnel, client string }
+	consents := make(map[connectionKey]int, len(connections))
+	for i, c := range connections {
+		consents[connectionKey{c.Tunnel, c.ClientID}] = i
+	}
 	for _, grant := range grants.Grants {
 		if !strings.HasPrefix(grant.Consumer, "oauth:") {
 			continue
 		}
 		clientID := strings.TrimPrefix(grant.Consumer, "oauth:")
+		if i, ok := consents[connectionKey{grant.Endpoint, clientID}]; ok {
+			if !grant.Revoked && grant.ExpiresAt > p.currentTime().UnixMilli() {
+				connections[i].GrantID = grant.Id
+			}
+			continue
+		}
 		client, err := p.mcpOAuth.client(r.Context(), clientID)
 		if err != nil {
 			http.Error(w, "Client registry unavailable", http.StatusServiceUnavailable)
 			return
 		}
-		connections = append(connections, connection{clientID, client.Name, grant.Endpoint, grant.Id, grant.ExpiresAt, grant.Revoked})
+		connections = append(connections, mcpOAuthConnection{clientID, client.Name, grant.Endpoint, grant.Id, grant.ExpiresAt, grant.Revoked})
 	}
 	if !page {
 		writeOAuthJSON(w, 200, map[string]any{"clients": connections})

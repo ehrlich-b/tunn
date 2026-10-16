@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -154,10 +155,21 @@ func loginCause(err error) string {
 	return "Sign-in failed"
 }
 
+func savedLoginCause(err error) string {
+	if client.LoginRequired(err) || client.AuthenticationFailure(err) {
+		return loginCause(err)
+	}
+	if strings.Contains(err.Error(), "saved login belongs to a different server") {
+		return "Saved login is for a different server"
+	}
+	return "Saved login file is unreadable"
+}
+
 func loginRelayFailure(err error) bool {
 	var network net.Error
 	var response *client.DeviceCodeHTTPError
-	return client.RetryableCredentialError(err) || errors.As(err, &network) ||
+	var certificate *tls.CertificateVerificationError
+	return errors.As(err, &certificate) || client.RetryableCredentialError(err) || errors.As(err, &network) ||
 		errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, context.DeadlineExceeded) ||
 		(errors.As(err, &response) && response.StatusCode >= 500 && response.StatusCode <= 599)
 }
@@ -179,6 +191,14 @@ func showHTTPLoginRequired(o *terminal.Output, err error) bool {
 	return true
 }
 func relayCause(err error) string {
+	var response *client.DeviceCodeHTTPError
+	if errors.As(err, &response) && response.StatusCode >= 500 && response.StatusCode <= 599 {
+		return fmt.Sprintf("Relay returned HTTP %d", response.StatusCode)
+	}
+	var certificate *tls.CertificateVerificationError
+	if errors.As(err, &certificate) {
+		return "Relay TLS certificate verification failed"
+	}
 	if client.RetryableCredentialError(err) {
 		return "Login server unavailable"
 	}
@@ -195,6 +215,14 @@ func relayCause(err error) string {
 	return "Relay connection failed"
 }
 func relayRecovery(err error) string {
+	var response *client.DeviceCodeHTTPError
+	if errors.As(err, &response) && response.StatusCode >= 500 && response.StatusCode <= 599 {
+		return "Retry when the relay is reachable"
+	}
+	var certificate *tls.CertificateVerificationError
+	if errors.As(err, &certificate) {
+		return "Check the relay certificate"
+	}
 	if relayRefused(err) {
 		return "Relay is down or the address is wrong"
 	}

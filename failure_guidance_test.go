@@ -526,7 +526,11 @@ func TestHTTPFirstRunLoginFailures(t *testing.T) {
 		if !stdinIsTerminal() {
 			t.Fatal("first-run enrollment needs terminal stdin")
 		}
-		os.Args = []string{"tunn", "--verbosity", "none", "--insecure", "http", "3000"}
+		os.Args = []string{"tunn", "--verbosity", "none"}
+		if os.Getenv("TUNN_GUIDANCE_ENROLL_TLS") != "1" {
+			os.Args = append(os.Args, "--insecure")
+		}
+		os.Args = append(os.Args, "http", "3000")
 		main()
 		return
 	}
@@ -534,11 +538,15 @@ func TestHTTPFirstRunLoginFailures(t *testing.T) {
 	if err != nil {
 		t.Skip("script is required for terminal stdin")
 	}
-	for _, code := range []int{0, 500, 502, 503, 504, 400, 401} {
+	for _, code := range []int{0, -1, 500, 502, 503, 504, 400, 401} {
 		t.Run(fmt.Sprint(code), func(t *testing.T) {
 			relay := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Method != http.MethodPost || r.URL.Path != "/api/device/code" {
 					t.Error("wrong enrollment request", r.Method, r.URL.Path)
+				}
+				if code < 0 {
+					t.Error("unverified TLS reached enrollment handler")
+					return
 				}
 				w.WriteHeader(code)
 				fmt.Fprint(w, "synthetic-token")
@@ -553,6 +561,9 @@ func TestHTTPFirstRunLoginFailures(t *testing.T) {
 			defer cancel()
 			cmd := exec.CommandContext(ctx, script, "-qefc", shellURL(os.Args[0])+" -test.run=^TestHTTPFirstRunLoginFailures$", "/dev/null")
 			cmd.Env = append(os.Environ(), "HOME="+home, "TUNN_CONFIG_DIR="+filepath.Join(home, ".tunn"), "TUNN_GUIDANCE_ENROLL_CHILD=1", "TUNN_ENV=dev", "TUNN_PUBLIC_MODE=false", "TUNN_SECRET=", "TUNN_SERVER_ADDR="+address, "NO_COLOR=1")
+			if code == -1 {
+				cmd.Env = append(cmd.Env, "TUNN_GUIDANCE_ENROLL_TLS=1", "TUNN_ENV=prod")
+			}
 			data, err := cmd.CombinedOutput()
 			var exit *exec.ExitError
 			if !errors.As(err, &exit) || exit.ExitCode() != 1 {
@@ -560,9 +571,11 @@ func TestHTTPFirstRunLoginFailures(t *testing.T) {
 			}
 			text := string(data)
 			want := "curl --connect-timeout 5 -I https://" + address
-			cause := "Relay connection failed. Restore your connection."
+			cause := fmt.Sprintf("Relay returned HTTP %d. Retry when the relay is reachable.", code)
 			if code == 0 {
 				cause = "Relay connection refused. Relay is down or the address is wrong."
+			} else if code == -1 {
+				cause = "Relay TLS certificate verification failed. Check the relay certificate."
 			} else if code < 500 {
 				cause = "Sign-in failed"
 				want = "TUNN_CONFIG_DIR=" + filepath.Join(home, ".tunn") + " tunn login"
@@ -570,6 +583,7 @@ func TestHTTPFirstRunLoginFailures(t *testing.T) {
 			if !strings.Contains(text, cause) || strings.Count(text, want) != 1 || strings.Contains(text, "expired or revoked") || strings.Contains(text, "synthetic-token") {
 				t.Fatalf("wrong first-run recovery: %s", text)
 			}
+			t.Log(strings.TrimSpace(text))
 		})
 	}
 }

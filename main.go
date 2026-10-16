@@ -1041,7 +1041,11 @@ func runServe(args []string) {
 				output.State("offline", "Cannot renew login", relayCause(err)+". "+relayRecovery(err)+"; tunn retries automatically.", relayCheck(server), delay)
 			})
 		}
-		token, credentials, err = loadOrEnrollWebPublisher(ctx, cfg.ServerAddr, cfg.Insecure || *insecure, stdinIsTerminal() && !opts.jsonOutput, load, login.Run)
+		enrolling := false
+		token, credentials, err = loadOrEnrollWebPublisher(ctx, cfg.ServerAddr, cfg.Insecure || *insecure, stdinIsTerminal() && !opts.jsonOutput, load, func(ctx context.Context) error {
+			enrolling = true
+			return login.Run(ctx)
+		})
 		if err != nil {
 			if showHTTPLoginRequired(output, err) {
 				os.Exit(client.ExitLoginRequired)
@@ -1050,10 +1054,14 @@ func runServe(args []string) {
 				output.State("stopped", "Canceled", "", "", 0)
 				return
 			}
-			if loginRelayFailure(err) {
+			if client.RetryableCredentialError(err) || enrolling && loginRelayFailure(err) {
 				output.State("offline", "Cannot reach tunn", relayCause(err)+". "+relayRecovery(err)+".", relayCheck(cfg.ServerAddr), 0)
 			} else {
-				output.State("error", "Sign in to start a tunnel", loginCause(err), loginCommand(), 0)
+				state, cause := "auth_expired", savedLoginCause(err)
+				if enrolling {
+					state, cause = "error", loginCause(err)
+				}
+				output.State(state, "Sign in to start a tunnel", cause, loginCommand(), 0)
 			}
 			os.Exit(1)
 		}

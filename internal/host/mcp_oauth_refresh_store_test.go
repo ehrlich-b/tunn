@@ -17,12 +17,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ehrlich-b/tunn/internal/metering"
+	meterpb "github.com/ehrlich-b/tunn/pkg/proto/meteringv1"
 	"modernc.org/sqlite"
 )
 
 var refreshTestBinding = mcpRefreshBinding{
 	OwnerID: "11111111-1111-4111-8111-111111111111", PersonID: "22222222-2222-4222-8222-222222222222",
-	ClientID: "synthetic-client", Resource: "https://tools.example.test/mcp", Generation: 1,
+	ClientID: "synthetic-client", Resource: "https://tools.example.test/mcp", Generation: "33333333-3333-4333-8333-333333333333",
 }
 
 type refreshLogCapture struct {
@@ -138,6 +140,97 @@ func TestMCPRefreshFreshUpgradeAndReopen(t *testing.T) {
 	}
 }
 
+// Exercise the same authority registration used for MCP policy resources, then
+// persist its UUID unchanged across transfer, reclaim and a refresh-store reopen.
+func TestMCPRefreshRealResourceGeneration(t *testing.T) {
+	f := newMCPOAuthFixture(t)
+	authority := f.p.meter.(*metering.Store)
+	register := func(owner string) string {
+		t.Helper()
+		out, err := authority.Sharing(t.Context(), &meterpb.SharingRequest{
+			Operation: "register", Owner: owner, Endpoint: f.tunnel.TunnelID, Mode: "policy-only",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(out.Resources) != 1 {
+			t.Fatalf("registered resources: %d", len(out.Resources))
+		}
+		return out.Resources[0].Id
+	}
+	original := refreshTestBinding
+	original.OwnerID, original.PersonID = f.tunnel.AccountID, f.tunnel.AccountID
+	original.Generation = register(original.OwnerID)
+	if reconnect := register(original.OwnerID); reconnect != original.Generation {
+		t.Fatal("same-owner reconnect changed generation")
+	}
+	s, path := refreshFixture(t)
+	first, second, third := sha256.Sum256([]byte("first")), sha256.Sum256([]byte("second")), sha256.Sum256([]byte("third"))
+	oldID, err := s.createRefreshFamily(t.Context(), original, first, time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := f.p.storage.FindOrCreateByEmails(t.Context(), []string{"other@example.test"}, "synthetic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	transferred := original
+	transferred.OwnerID = other.ID
+	transferred.Generation = register(other.ID)
+	current := original
+	current.Generation = register(original.OwnerID)
+	if original.Generation == transferred.Generation || original.Generation == current.Generation || transferred.Generation == current.Generation {
+		t.Fatal("transfer and reclaim must produce distinct resource generations")
+	}
+	for _, binding := range []mcpRefreshBinding{transferred, current} {
+		if err := s.rotateRefresh(t.Context(), oldID, binding, first, second); !errors.Is(err, errMCPRefreshInvalid) {
+			t.Fatalf("old credential accepted under replacement binding: %v", err)
+		}
+		if err := s.revokeRefreshFamily(t.Context(), oldID, binding); err != nil {
+			t.Fatal(err)
+		}
+	}
+	newID, err := s.createRefreshFamily(t.Context(), current, first, time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s = newRefreshTestStore(t, openRefreshTestDB(t, path))
+	for id, want := range map[int64]string{oldID: original.Generation, newID: current.Generation} {
+		var generation, storageType string
+		if err := s.db.QueryRow(`SELECT generation,typeof(generation) FROM mcp_oauth_refresh_families WHERE id=?`, id).Scan(&generation, &storageType); err != nil {
+			t.Fatal(err)
+		}
+		if generation != want || storageType != "text" {
+			t.Fatalf("generation=%q type=%q, want exact UUID %q as text", generation, storageType, want)
+		}
+	}
+	if err := s.rotateRefresh(t.Context(), oldID, current, first, second); !errors.Is(err, errMCPRefreshInvalid) {
+		t.Fatalf("reopen accepted retired generation: %v", err)
+	}
+	var used int
+	if err := s.db.QueryRow(`SELECT used FROM mcp_oauth_refresh_tokens WHERE family=? AND digest=?`, oldID, first[:]).Scan(&used); err != nil || used != 0 {
+		t.Fatalf("replacement binding affected original family: used=%d err=%v", used, err)
+	}
+	if err := s.rotateRefresh(t.Context(), newID, current, first, second); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.revokeRefreshFamily(t.Context(), newID, original); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.rotateRefresh(t.Context(), newID, current, second, third); err != nil {
+		t.Fatalf("retired generation revoked replacement family: %v", err)
+	}
+	if err := s.revokeRefreshFamily(t.Context(), newID, current); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.rotateRefresh(t.Context(), newID, current, third, first); !errors.Is(err, errMCPRefreshInvalid) {
+		t.Fatalf("current generation revocation failed: %v", err)
+	}
+}
+
 func TestMCPRefreshConcurrentRotationAndReplay(t *testing.T) {
 	s, path := refreshFixture(t)
 	other := newRefreshTestStore(t, openRefreshTestDB(t, path))
@@ -192,7 +285,7 @@ func TestMCPRefreshExactBindings(t *testing.T) {
 		"person":     func(b *mcpRefreshBinding) { b.PersonID = b.OwnerID },
 		"client":     func(b *mcpRefreshBinding) { b.ClientID += "-other" },
 		"resource":   func(b *mcpRefreshBinding) { b.Resource += "/" },
-		"generation": func(b *mcpRefreshBinding) { b.Generation++ },
+		"generation": func(b *mcpRefreshBinding) { b.Generation = "44444444-4444-4444-8444-444444444444" },
 	}
 	for name, mutate := range mutations {
 		t.Run(name, func(t *testing.T) {
@@ -276,12 +369,15 @@ func TestMCPRefreshBounds(t *testing.T) {
 	s, _ := refreshFixture(t)
 	digest := sha256.Sum256([]byte("first"))
 	for name, mutate := range map[string]func(*mcpRefreshBinding){
-		"email owner":        func(b *mcpRefreshBinding) { b.OwnerID = "owner@example.test" },
-		"email person":       func(b *mcpRefreshBinding) { b.PersonID = "person@example.test" },
-		"nil owner":          func(b *mcpRefreshBinding) { b.OwnerID = "00000000-0000-0000-0000-000000000000" },
-		"empty client":       func(b *mcpRefreshBinding) { b.ClientID = "" },
-		"large resource":     func(b *mcpRefreshBinding) { b.Resource = strings.Repeat("x", 2049) },
-		"missing generation": func(b *mcpRefreshBinding) { b.Generation = 0 },
+		"email owner":             func(b *mcpRefreshBinding) { b.OwnerID = "owner@example.test" },
+		"email person":            func(b *mcpRefreshBinding) { b.PersonID = "person@example.test" },
+		"nil owner":               func(b *mcpRefreshBinding) { b.OwnerID = "00000000-0000-0000-0000-000000000000" },
+		"empty client":            func(b *mcpRefreshBinding) { b.ClientID = "" },
+		"large resource":          func(b *mcpRefreshBinding) { b.Resource = strings.Repeat("x", 2049) },
+		"missing generation":      func(b *mcpRefreshBinding) { b.Generation = "" },
+		"numeric generation":      func(b *mcpRefreshBinding) { b.Generation = "1" },
+		"nil generation":          func(b *mcpRefreshBinding) { b.Generation = "00000000-0000-0000-0000-000000000000" },
+		"noncanonical generation": func(b *mcpRefreshBinding) { b.Generation = "{33333333-3333-4333-8333-333333333333}" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			binding := refreshTestBinding
@@ -324,7 +420,7 @@ func TestMCPRefreshBounds(t *testing.T) {
 	// Populate capacity in one transaction, without 10,000 fsyncs.
 	refreshExec(t, s.db, `WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<?)
  INSERT INTO mcp_oauth_refresh_families(owner,person,client,resource,generation,expires)
- SELECT ?,?,?,?,1,? FROM n`, mcpRefreshMaxFamilies, refreshTestBinding.OwnerID, refreshTestBinding.PersonID, refreshTestBinding.ClientID, refreshTestBinding.Resource, time.Now().Add(time.Hour).Unix())
+ SELECT ?,?,?,?,?,? FROM n`, mcpRefreshMaxFamilies, refreshTestBinding.OwnerID, refreshTestBinding.PersonID, refreshTestBinding.ClientID, refreshTestBinding.Resource, refreshTestBinding.Generation, time.Now().Add(time.Hour).Unix())
 	if _, err := s.createRefreshFamily(t.Context(), refreshTestBinding, digest, time.Now().Add(time.Hour)); !errors.Is(err, errMCPRefreshCapacity) {
 		t.Fatalf("family cap: %v", err)
 	}

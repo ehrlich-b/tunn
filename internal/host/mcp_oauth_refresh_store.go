@@ -24,12 +24,13 @@ var (
 
 // mcpRefreshBinding contains trusted, current authorization state. Callers must
 // resolve owner and person to canonical account UUIDs and obtain the current
-// resource generation before calling the store. Email addresses are not IDs.
+// resource generation (the immutable resource UUID) before calling the store.
+// Email addresses are not IDs.
 // Bindings are immutable and compared exactly; a rename, merge, transfer or
 // generation change requires new consent rather than rebinding a family.
 type mcpRefreshBinding struct {
 	OwnerID, PersonID, ClientID, Resource string
-	Generation                            int64
+	Generation                            string
 }
 
 func (b mcpRefreshBinding) valid() bool {
@@ -38,9 +39,13 @@ func (b mcpRefreshBinding) valid() bool {
 		return false
 	}
 	person, err := uuid.Parse(b.PersonID)
-	return err == nil && person != uuid.Nil && person.String() == b.PersonID &&
+	if err != nil || person == uuid.Nil || person.String() != b.PersonID {
+		return false
+	}
+	generation, err := uuid.Parse(b.Generation)
+	return err == nil && generation != uuid.Nil && generation.String() == b.Generation &&
 		b.ClientID != "" && len(b.ClientID) <= 256 &&
-		b.Resource != "" && len(b.Resource) <= 2048 && b.Generation > 0
+		b.Resource != "" && len(b.Resource) <= 2048
 }
 
 // The persistence API accepts SHA-256 digests only, never bearer secrets.
@@ -57,7 +62,7 @@ func migrateMCPRefreshStore(db *sql.DB) error {
 	_, err = tx.Exec(`CREATE TABLE IF NOT EXISTS mcp_oauth_refresh_families (
  id INTEGER PRIMARY KEY AUTOINCREMENT,
  owner TEXT NOT NULL, person TEXT NOT NULL, client TEXT NOT NULL,
- resource TEXT NOT NULL, generation INTEGER NOT NULL CHECK(generation>0),
+ resource TEXT NOT NULL, generation TEXT NOT NULL CHECK(length(generation)=36),
  expires INTEGER NOT NULL);
  CREATE INDEX IF NOT EXISTS mcp_oauth_refresh_expiry ON mcp_oauth_refresh_families(expires);
  CREATE TABLE IF NOT EXISTS mcp_oauth_refresh_tokens (

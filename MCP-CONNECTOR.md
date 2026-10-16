@@ -55,10 +55,13 @@ the oldest spent digest is pruned as rotation continues. A replay older than tha
 window is rejected without invalidating the family. There is no 127-rotation
 ceiling. Storage permits at most 64 live families per owner and 10,000 globally;
 expired entries are reclaimed when consent or refresh families are created.
-Each rotation invalidates and prunes the family's previous access grant, leaving
-at most one live access grant per family. Expired or revoked OAuth access-token
-rows are reclaimed before issuing another access token, so rapid or hourly
-rotation does not consume the general grant capacity.
+Each successful rotation revokes the family's previous access grant, leaving
+at most one live access grant per family. The superseded ledger row remains for
+in-flight requests to receive a normal revocation denial. Failure to create or
+commit the replacement preserves the current access grant and leaves the refresh
+token unused. Expired or revoked OAuth access-token rows are reclaimed before
+issuing another access token, so rapid or hourly rotation does not consume the
+general grant capacity.
 Pending and approved authorization records are also bounded (128 per owner,
 10,000 globally), with a 30-day maximum retention. These are OAuth storage bounds.
 

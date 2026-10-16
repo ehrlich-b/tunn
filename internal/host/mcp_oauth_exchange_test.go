@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/tls"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -823,6 +824,73 @@ func TestMCPExchangeLiveAllowRestartAndHTTPIsolation(t *testing.T) {
 	t.Log("live allow removal revoked forms, codes, consents, access and refresh across restart; aliases and domains retained; HTTP app denied former MCP guest and stranger")
 }
 
+func TestMCPExchangeRefusesWebShareBeforeHTTP(t *testing.T) {
+	p := startExchangeProcessAllowed(t, filepath.Join(t.TempDir(), "oauth.db"), time.Now().Unix(), []string{"owner@example.com"})
+	owner := relayJWT(t, securityProxy(nil), "owner@example.com")
+	status, _, _ := p.request("POST", "tunn.test", "/api/sharing/tools", `{"email":"guest@example.com"}`, owner, nil)
+	if status != 400 {
+		t.Fatalf("MCP web share status %d, want 400", status)
+	}
+	status, _, data := p.request("GET", "tunn.test", "/api/sharing/tools", "", owner, nil)
+	if status != 200 || bytes.Contains(data, []byte("guest@example.com")) {
+		t.Fatal("policy resource lookup failed or refused invite was persisted")
+	}
+	status, _, _ = p.request("DELETE", "tunn.test", "/api/sharing/tools", `{"email":"guest@example.com"}`, owner, nil)
+	if status != 200 {
+		t.Fatalf("MCP unshare status %d, want 200", status)
+	}
+	p.control("http")
+	for _, email := range []string{"guest@example.com", "owner@example.com", "stranger@example.net"} {
+		want := 403
+		if email == "owner@example.com" {
+			want = 200
+		}
+		status, _, _ := p.request("GET", "tools.tunn.test", "/", "", relayJWT(t, securityProxy(nil), email), nil)
+		if status != want {
+			t.Fatalf("HTTP app %s status %d, want %d", email, status, want)
+		}
+	}
+	p.stop()
+}
+
+func TestMCPExchangeFailedRefreshPreservesCredentials(t *testing.T) {
+	for _, table := range []string{"meter_grants", "mcp_oauth_access"} {
+		t.Run(table, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "oauth.db")
+			p := startExchangeProcess(t, path, time.Now().Unix())
+			client := p.register("")
+			tokens := p.exchange(codeExchangeForm(client, p.code(client, p.cookie("guest@example.com"))), 200)
+			p.call(tokens.Access, 200)
+			db, err := sql.Open("sqlite", path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			// Fail either replacement grant creation or the final binding transaction.
+			if _, err := db.Exec(`CREATE TRIGGER fail_refresh BEFORE INSERT ON ` + table + ` BEGIN SELECT RAISE(ABORT,'synthetic refresh failure'); END`); err != nil {
+				t.Fatal(err)
+			}
+			p.exchange(refreshExchangeForm(client, tokens.Refresh), 503)
+			p.call(tokens.Access, 200)
+			family, digest, err := parseMCPRefresh(tokens.Refresh)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var used int
+			if err := db.QueryRow(`SELECT used FROM mcp_oauth_refresh_tokens WHERE family=? AND digest=?`, family, digest[:]).Scan(&used); err != nil || used != 0 {
+				t.Fatalf("failed refresh consumed credential: used=%d error=%v", used, err)
+			}
+			if _, err := db.Exec(`DROP TRIGGER fail_refresh`); err != nil {
+				t.Fatal(err)
+			}
+			next := p.exchange(refreshExchangeForm(client, tokens.Refresh), 200)
+			p.call(tokens.Access, 401)
+			p.call(next.Access, 200)
+			p.stop()
+		})
+	}
+}
+
 func TestMCPExchangeFastRefreshBoundsOwnerGrants(t *testing.T) {
 	p := startExchangeProcess(t, filepath.Join(t.TempDir(), "oauth.db"), time.Now().Unix())
 	client := p.register("")
@@ -856,8 +924,14 @@ func TestMCPExchangeFastRefreshBoundsOwnerGrants(t *testing.T) {
 		if status != 200 || json.Unmarshal(data, &grants) != nil {
 			t.Fatal("cannot count owner grants")
 		}
-		if len(grants.Grants) != 2 {
-			t.Fatalf("rotation %d left %d owner grants, want 2", i+1, len(grants.Grants))
+		live := 0
+		for _, g := range grants.Grants {
+			if !g.Revoked {
+				live++
+			}
+		}
+		if live != 2 || len(grants.Grants) > 3 {
+			t.Fatalf("rotation %d left %d live and %d total owner grants, want 2 live and at most 3 total", i+1, live, len(grants.Grants))
 		}
 	}
 	p.call(initial, 401)
@@ -866,5 +940,5 @@ func TestMCPExchangeFastRefreshBoundsOwnerGrants(t *testing.T) {
 	createMachine("tunn_gr_synthetic_second_owner_machine")
 	p.call("tunn_gr_synthetic_second_owner_machine", 200)
 	p.stop()
-	t.Log("300 immediate guest refreshes kept one family access grant and one owner machine grant; old access denied; new owner machine grant succeeded")
+	t.Log("300 immediate guest refreshes kept one live family access grant, one revoked predecessor and one owner machine grant; old access denied; new owner machine grant succeeded")
 }

@@ -32,6 +32,9 @@ func runHostCommand(command string, args []string) {
 }
 
 func hostCommand(ctx context.Context, command string, args []string, out, errout io.Writer) error {
+	if command == "list" {
+		command = "hosts"
+	}
 	defaultPath, err := hostmode.DefaultPath()
 	if err != nil {
 		return err
@@ -61,6 +64,8 @@ func hostCommand(ctx context.Context, command string, args []string, out, errout
 		cliopts.ServiceFlags(fs, o, defaultPath, runtime.GOOS)
 		path, dry, platform = &o.Config, &o.DryRun, &o.OS
 	case "hosts":
+		fs.SetOutput(io.Discard)
+		fs.Usage = func() {}
 		jsonOutput = fs.Bool("json", false, "print the machine inventory as JSON")
 	case "openclaw":
 		name = fs.String("name", "home-openclaw", "stable endpoint name")
@@ -73,11 +78,20 @@ func hostCommand(ctx context.Context, command string, args []string, out, errout
 	}
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
+			if command == "hosts" {
+				printInventoryHelp(out)
+			}
 			return nil
+		}
+		if command == "hosts" {
+			return &cliCommandError{cause: err, state: "error", title: "Invalid inventory command", detail: "Check command options", command: "tunn list --help"}
 		}
 		return err
 	}
 	if fs.NArg() != 0 {
+		if command == "hosts" {
+			return &cliCommandError{state: "error", title: "Invalid inventory command", detail: "Unexpected argument", command: "tunn list --help"}
+		}
 		return fmt.Errorf("unexpected argument %q", fs.Arg(0))
 	}
 	configPath, err := filepath.Abs(*path)
@@ -168,26 +182,21 @@ func hostCommand(ctx context.Context, command string, args []string, out, errout
 	}
 	token, err := hostmode.Credentials(c)
 	if err != nil {
-		return &cliCommandError{cause: err, state: "auth_expired", title: "Sign in again", command: "tunn login"}
+		detail := "Saved login expired or invalid"
+		state := "auth_expired"
+		if errors.Is(err, os.ErrNotExist) {
+			detail, state = "No saved login on this machine", "auth_missing"
+		}
+		return &cliCommandError{cause: err, state: state, title: "Sign in required", detail: detail, command: loginCommand()}
 	}
 	api := hostmode.API{Server: server, Token: token, Insecure: c.Insecure || *insecure}
 	if command == "hosts" {
 		machines, err := api.Hosts(ctx)
 		if err != nil {
-			var apiError *hostmode.APIError
-			if errors.As(err, &apiError) && (apiError.Status == 401 || apiError.Status == 403) {
-				return &cliCommandError{cause: err, state: "auth_expired", title: "Sign in again", command: "tunn login"}
-			}
-			if errors.As(err, &apiError) && (apiError.Status == 404 || apiError.Status == 501) {
-				return &cliCommandError{cause: err, state: "error", title: "Machine inventory unavailable", detail: "This relay does not provide inventory.", command: "tunn service --help"}
-			}
-			if errors.As(err, &apiError) && apiError.Status == 429 {
-				return &cliCommandError{cause: err, state: "limit", title: "Limit reached", command: accountURL(server)}
-			}
-			return &cliCommandError{cause: err, state: "offline", title: "Cannot fetch hosts", detail: "Check connectivity, then retry", command: "tunn hosts --json"}
+			return inventoryFailure(err, server)
 		}
 		if *jsonOutput {
-			return json.NewEncoder(out).Encode(machines)
+			return json.NewEncoder(out).Encode(inventoryReadings(machines))
 		}
 		return printHosts(out, errout, machines)
 	}
@@ -201,4 +210,26 @@ func hostCommand(ctx context.Context, command string, args []string, out, errout
 	defer slog.SetDefault(previous)
 	common.LogError("host service starting", "machine", c.Machine)
 	return (&hostmode.Runtime{Config: c, API: api, TunnelKey: cfg.WellKnownKey}).Run(ctx)
+}
+
+func inventoryFailure(err error, server string) error {
+	var apiError *hostmode.APIError
+	if errors.As(err, &apiError) {
+		detail := fmt.Sprintf("Relay returned HTTP %d", apiError.Status)
+		e := &cliCommandError{cause: err, httpStatus: apiError.Status, detail: detail}
+		switch apiError.Status {
+		case 401:
+			e.state, e.title, e.detail, e.command = "auth_expired", "Sign in again", detail+". Login expired or rejected", loginCommand()
+		case 403:
+			e.state, e.title, e.detail, e.command = "error", "Access denied", detail+". This account cannot read inventory", accountURL(server)
+		case 404, 501:
+			e.state, e.title, e.detail, e.command = "error", "Machine inventory unavailable", detail+". This relay does not provide inventory", "tunn service --help"
+		case 429:
+			e.state, e.title, e.detail, e.command = "limit", "Request limit reached", detail+". Check account usage and reset time", accountURL(server)
+		default:
+			e.state, e.title, e.detail, e.command = "offline", "Cannot fetch hosts", detail+". Retry when the relay is reachable", "tunn list"
+		}
+		return e
+	}
+	return &cliCommandError{cause: err, state: "offline", title: "Cannot fetch hosts", detail: relayCause(err) + ". Restore your connection, then retry", command: "tunn list"}
 }

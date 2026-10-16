@@ -23,9 +23,9 @@ tunn hosts --json
 tunn 3000 --json
 ```
 
-`hosts` lists account machines and tunnels. Its connection reading describes the edge; local app health remains unchecked. Current access scope is public, private or unknown when authority is unavailable. Older relays that omit access show unknown plus a command to check it. `service status` reads the local service manager; a missing service points to `tunn service install`. Operator probe collection uses `tunn status --help`.
+`hosts`, `list`, and `status` list account machines and tunnels. `status serve`, `status incident`, and `status resolve` keep their status-page commands. Its connection reading describes the edge; local app health remains unchecked. Current access scope is public, private or unknown when authority is unavailable. Older relays that omit access show unknown plus a command to check it. `service status` reads the local service manager; a missing service points to `tunn service install`. Operator probe collection uses `tunn status --help`.
 
-`--json` writes one object per line to stdout. Failures go to stderr as JSON. No colors, human headings or cursor controls are added. Inventory keeps its array schema, with optional `access` and `endpoint_token` fields per endpoint. Route and state events omit request-only measurements; every request includes the numeric measurement fields even when zero.
+`--json` writes one object per line to stdout. Failures go to stderr as JSON. No colors, human headings or cursor controls are added. Inventory keeps its array schema, with optional `access` and `endpoint_token` fields per endpoint. An endpoint that stopped sending heartbeats adds `cause` and `next_action`; app health remains unknown. The restart command must run on the named source machine. Route and state events omit request-only measurements; every request includes the numeric measurement fields even when zero.
 
 | Field | Meaning |
 |---|---|
@@ -35,6 +35,8 @@ tunn 3000 --json
 | `endpoint_token` | True when endpoint tokens are enabled |
 | `requested_emails` | Requested startup invitations; check current access separately |
 | `state`, `message`, `detail`, `command` | State and its next action |
+| `cause`, `next_action` | Failure cause and one command or URL; `command` remains available |
+| `http_status` | Original HTTP status of a failed inventory request |
 | `retry_delay_ms` | Actual retry delay in milliseconds |
 | `at` | Request start or transition time in RFC 3339 format |
 | `method`, `path`, `status` | Method, redacted path and HTTP code (zero means unknown) |
@@ -47,3 +49,7 @@ tunn 3000 --json
 `tunn --version` and `tunn version` print the embedded build version without loading configuration or signing in. Invalid flags still fail. Release builds set the tag with `-ldflags "-X main.version=<tag>"`.
 
 Run `make test-installer-offline` to build a local release fixture, install it through the verified `/dl` layout, check both version commands and confirm that a bad checksum leaves existing installations intact. The fixture transport reads only local files and makes no network requests.
+
+Failures name the cause and show one command or URL. Missing or expired login points to `tunn login`, preserving `TUNN_CONFIG_DIR` when set. An HTTP publisher keeps service exit status 78 when login cannot renew. In JSON mode that failure is a JSON object, including failures during startup renewal. `--json` reports a missing login immediately. Inventory distinguishes a rejected login (401) from denied account access (403). Limits keep the relay's tunnel count and point to the configured relay's account page.
+
+A closed local port says to start the app on the shown address, then prints `curl -I` for that address. Relay failures name a refused connection, DNS failure or timeout when known and print a bounded `curl` check for the configured relay. These commands verify the app or connection after repair. While reconnecting, tunn keeps its existing backoff; the check command does not start a second tunnel. URL credentials and queries stay out of recovery commands. `tunn http --help` covers these failures.

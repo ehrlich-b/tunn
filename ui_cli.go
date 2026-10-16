@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/ehrlich-b/tunn/internal/client"
@@ -62,6 +63,8 @@ Access
 
 More
   tunn http --help                  HTTP options
+  tunn status                       Check account tunnels
+  tunn list                         List account tunnels
   tunn hosts                        List machines and tunnels
   tunn service --help               Run tunnels in the background
   tunn service status               Check the local service
@@ -86,7 +89,7 @@ Global options go before the command
 }
 
 func shellURL(value string) string {
-	if strings.ContainsAny(value, " ;&|$`'\"()<>\t\r\n") {
+	if strings.ContainsAny(value, " \\;&|$`'\"()<>\t\r\n") {
 		return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 	}
 	return value
@@ -99,7 +102,7 @@ func validateCLIURL(value string) error {
 	return nil
 }
 func accountURL(server string) string {
-	return "https://" + strings.TrimSuffix(server, ":443") + "/account"
+	return relayOrigin(server) + "/account"
 }
 func localReading(target string) (string, string, string) {
 	u, err := url.Parse(target)
@@ -121,14 +124,73 @@ func localReading(target string) (string, string, string) {
 
 var tunnelLimit = regexp.MustCompile(`tunnel limit reached \(([0-9]+)/([0-9]+)\)`)
 
+// relayOrigin drops credentials, paths and queries before printing a relay URL.
+func relayOrigin(server string) string {
+	if !strings.Contains(server, "://") {
+		server = "https://" + server
+	}
+	u, err := url.Parse(server)
+	if err != nil || u.Hostname() == "" || strings.ContainsAny(u.Host, "\r\n\x1b") {
+		return "https://tunn.to"
+	}
+	return "https://" + strings.TrimSuffix(u.Host, ":443")
+}
+func relayCheck(server string) string {
+	return "curl --connect-timeout 5 -I " + shellURL(relayOrigin(server))
+}
+func loginCommand() string {
+	if dir := os.Getenv("TUNN_CONFIG_DIR"); dir != "" {
+		return "TUNN_CONFIG_DIR=" + shellURL(dir) + " tunn login"
+	}
+	return "tunn login"
+}
+func loginCause(err error) string {
+	if errors.Is(err, client.ErrNotLoggedIn) {
+		return "No saved login on this machine"
+	}
+	return "Login expired or revoked"
+}
+func showHTTPLoginRequired(o *terminal.Output, err error) bool {
+	if !client.LoginRequired(err) {
+		return false
+	}
+	cause := loginCause(err)
+	state := "auth_expired"
+	if errors.Is(err, client.ErrNotLoggedIn) {
+		state = "auth_missing"
+	}
+	if o.JSON {
+		o.State(state, "Sign in required", cause, loginCommand(), 0)
+	} else {
+		// Services keep one log line and the exit status that prevents restart loops.
+		o.Diagnostic(cause + "; run " + loginCommand())
+	}
+	return true
+}
+func relayCause(err error) string {
+	if client.RetryableCredentialError(err) {
+		return "Login server unavailable"
+	}
+	var dns *net.DNSError
+	if errors.As(err, &dns) {
+		return "Relay DNS lookup failed"
+	}
+	if errors.Is(err, syscall.ECONNREFUSED) {
+		return "Relay connection refused"
+	}
+	if errors.Is(err, context.DeadlineExceeded) || os.IsTimeout(err) {
+		return "Relay connection timed out"
+	}
+	return "Relay connection failed"
+}
 func showTunnelError(o *terminal.Output, err error, server string) {
 	if client.AuthenticationFailure(err) || status.Code(err) == codes.Unauthenticated {
-		o.State("auth_expired", "Sign in again", "Tunnel stopped", "tunn login", 0)
+		o.State("auth_expired", "Sign in again", "Login expired or rejected", loginCommand(), 0)
 		return
 	}
 	text := strings.ToLower(err.Error())
 	if status.Code(err) == codes.PermissionDenied {
-		o.State("error", "Access denied", "Check your account access", "tunn login", 0)
+		o.State("error", "Access denied", "Relay denied this account access", accountURL(server), 0)
 		return
 	}
 	if status.Code(err) == codes.ResourceExhausted && strings.Contains(text, "larger than max") {
@@ -136,18 +198,18 @@ func showTunnelError(o *terminal.Output, err error, server string) {
 		return
 	}
 	if match := tunnelLimit.FindStringSubmatch(text); len(match) == 3 {
-		o.State("limit", "Limit reached", match[1]+" / "+match[2]+" tunnels. Stop one, then retry.", accountURL(server), 0)
+		o.State("limit", "Tunnel limit reached", match[1]+" / "+match[2]+" tunnels in use. Stop a running tunnel.", accountURL(server), 0)
 		return
 	}
 	if status.Code(err) == codes.ResourceExhausted || strings.Contains(text, "quota") || strings.Contains(text, "limit reached") {
-		o.State("limit", "Limit reached", "Tunnel stopped. Check usage and reset time.", accountURL(server), 0)
+		o.State("limit", "Limit reached", "Relay usage limit reached. Check the reset time.", accountURL(server), 0)
 		return
 	}
 	if client.ClassifyFailure(err) == client.FailureRegistration {
 		if strings.Contains(text, "already in use") || strings.Contains(text, "reserved") {
 			o.State("error", "Tunnel name unavailable", "Choose another name", "tunn 3000 --name my-app", 0)
 		} else {
-			o.State("error", "Tunnel rejected", "Check your account access", "tunn login", 0)
+			o.State("error", "Tunnel rejected", "Relay rejected this account or tunnel", accountURL(server), 0)
 		}
 		return
 	}
@@ -155,7 +217,7 @@ func showTunnelError(o *terminal.Output, err error, server string) {
 		o.State("error", "Relay cannot start this tunnel", "Check the installed version", "tunn --version", 0)
 		return
 	}
-	o.State("offline", "Cannot reach tunn", "Tunnel stopped. Check your connection, then run it again.", "", 0)
+	o.State("offline", "Cannot reach tunn", relayCause(err)+". Restore your connection, then retry.", relayCheck(server), 0)
 }
 
 // cliSession owns the human health reading. A relay alone cannot mark it Online.
@@ -220,11 +282,11 @@ func attachCLI(ctx context.Context, s *client.ServeClient, o *terminal.Output, v
 		case client.StateReconnecting:
 			c.ready = false
 			if !c.retryAdvice {
-				detail := "Check your connection."
+				detail := relayCause(e.Err) + ". Restore your connection; tunn retries automatically."
 				if !c.lastRequest.IsZero() {
-					detail = "Last request " + c.lastRequest.Local().Format("15:04:05")
+					detail += " Last request " + c.lastRequest.Local().Format("15:04:05")
 				}
-				o.State("offline", "Cannot reach tunn", detail, "", 0)
+				o.State("offline", "Cannot reach tunn", detail, relayCheck(s.ServerAddr), 0)
 				c.retryAdvice = true
 			}
 			o.State("reconnecting", fmt.Sprintf("Retrying in %.1f s", e.RetryDelay.Seconds()), "", "", e.RetryDelay)
@@ -309,7 +371,7 @@ func (c *cliSession) unreachable(err error) {
 		{Label: "browser", State: "unknown", Text: "not checked"},
 		{Label: "edge", State: "online", Text: "connected"},
 		{Label: "tunn on laptop", State: "online", Text: "connected"},
-		{Label: c.target, State: "error", Text: strings.ToLower(detail)},
+		{Label: c.target, State: "error", Text: strings.ToLower(detail) + "; start your app here"},
 	}, c.check)
 }
 

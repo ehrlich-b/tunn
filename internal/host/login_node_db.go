@@ -303,3 +303,28 @@ func (s *LoginNodeDBServer) CheckManagementDevice(ctx context.Context, req *inte
 	}
 	return &internalv1.CheckManagementDeviceResponse{Valid: valid}, nil
 }
+
+func (s *LoginNodeDBServer) MutateAccountEmail(ctx context.Context, r *internalv1.MutateAccountEmailRequest) (*internalv1.AccountResponse, error) {
+	if !validGoogleEmail(r.Email) {
+		return nil, status.Error(codes.InvalidArgument, "Invalid email")
+	}
+	var a *storage.Account
+	var err error
+	if r.Action == "link" && r.TokenJti != "" {
+		a, err = s.storage.LinkAccountEmail(ctx, r.AccountId, r.Email, r.TokenJti, time.Unix(r.TokenExpiresAt, 0))
+	} else {
+		a, err = s.storage.MutateAccountEmail(ctx, r.AccountId, r.Email, r.Action)
+	}
+	if err != nil {
+		switch {
+		case errors.Is(err, store.ErrEmailTokenUsed):
+			return nil, status.Error(codes.InvalidArgument, err.Error())
+		case errors.Is(err, store.ErrEmailOwned):
+			return nil, status.Error(codes.AlreadyExists, err.Error())
+		case errors.Is(err, store.ErrEmailNotLinked):
+			return nil, status.Error(codes.NotFound, err.Error())
+		}
+		return nil, status.Error(codes.Internal, "Account email update unavailable")
+	}
+	return accountToProto(a), nil
+}

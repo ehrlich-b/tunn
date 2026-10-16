@@ -110,8 +110,11 @@ type ProxyServer struct {
 	proxyStorage *storage.ProxyStorage
 
 	// Email sender (for magic link auth)
-	emailSender interface{ SendMagicLink(string, string) error }
-	now         func() time.Time
+	emailSender interface {
+		SendMagicLink(string, string) error
+		Send(string, string, string) error
+	}
+	now func() time.Time
 
 	// Graceful degradation (non-login nodes)
 	usageBuffer *UsageBuffer
@@ -904,6 +907,7 @@ func (p *ProxyServer) createHandler() http.Handler {
 
 	// Account page (requires auth)
 	mux.HandleFunc("/account", p.handleAccount)
+	mux.HandleFunc("/account/emails", p.handleAccountEmails)
 	mux.HandleFunc("/account/inspect", p.handleInspectorPage)
 	mux.HandleFunc("/api/inspector/", p.handleInspectorAPI)
 	mux.HandleFunc("/pricing", p.handlePricing)

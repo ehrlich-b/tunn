@@ -174,7 +174,7 @@ func TestReviewProductionBaseDatabaseMigration(t *testing.T) {
 	if err = json.Unmarshal(data, &old); err != nil {
 		t.Fatal(err)
 	}
-	if email, err := p.tunnelServer.validatePublisherToken(old["access"]); err != nil || email != "owner@example.com" {
+	if email, err := p.tunnelServer.validatePublisherToken(context.Background(), old["access"]); err != nil || email != "owner@example.com" {
 		t.Fatal("existing access rejected", email, err)
 	}
 	r := httptest.NewRequest("GET", "https://tunn.test/account/devices", nil)

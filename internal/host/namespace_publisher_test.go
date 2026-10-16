@@ -11,6 +11,7 @@ import (
 
 	"github.com/ehrlich-b/tunn/internal/client"
 	"github.com/ehrlich-b/tunn/internal/domains"
+	"github.com/ehrlich-b/tunn/internal/storage"
 	"github.com/ehrlich-b/tunn/internal/store"
 	domainpb "github.com/ehrlich-b/tunn/pkg/proto/domainv1"
 	"github.com/golang-jwt/jwt/v4"
@@ -146,5 +147,92 @@ func TestNamespacePublisherDeviceForwardingFailsClosed(t *testing.T) {
 	p.handleNamespacePublisher(rec, req)
 	if rec.Code != 503 {
 		t.Fatalf("missing live device authority: %d", rec.Code)
+	}
+}
+
+func TestNamespacePublisherAndLeaseAfterAccountMerge(t *testing.T) {
+	for _, remote := range []bool{false, true} {
+		t.Run(fmt.Sprint("RPC=", remote), func(t *testing.T) {
+			p := durableFixture(t)
+			original := durableLogin(t, p)
+			local := p.storage.(*storage.LocalStorage)
+			accounts := store.NewAccountStore(p.devices.db)
+			// Create the second identity before invoking the existing provider merge path.
+			survivor, err := accounts.FindOrCreateByEmails([]string{"aaa-survivor@example.com"}, "github")
+			if err != nil {
+				t.Fatal(err)
+			}
+			owner, err := local.GetAccountByEmail(context.Background(), "owner@example.com")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := accounts.UpdatePlan(owner.ID, "pro"); err != nil {
+				t.Fatal(err)
+			}
+			dns := new(hostDomainDNS)
+			registry, err := domains.New(p.devices.db, p.Domain, []byte("01234567890123456789012345678901"), dns, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			p.domains = registry
+			domain, err := registry.Add(context.Background(), &domainpb.Domain{Name: "*.merge.customer.test", Tunnel: "grafana", Owner: owner.ID})
+			if err != nil {
+				t.Fatal(err)
+			}
+			dns.target = domain.CnameTarget
+			if _, err := registry.Verify(context.Background(), domain); err != nil {
+				t.Fatal(err)
+			}
+			// Force the other account to survive while preserving namespace entitlement.
+			if err := accounts.UpdatePlan(survivor.ID, "pro"); err != nil {
+				t.Fatal(err)
+			}
+			if err := accounts.UpdatePlan(owner.ID, "free"); err != nil {
+				t.Fatal(err)
+			}
+			merged, err := accounts.FindOrCreateByEmails([]string{owner.PrimaryEmail, survivor.PrimaryEmail}, "github")
+			if err != nil || merged.ID != survivor.ID {
+				t.Fatal("merge did not choose survivor", merged, err)
+			}
+			if remote {
+				p.storage = securityReplicaStorage(t, local)
+			}
+			response, refreshed := durableRefresh(p, original.Refresh, strings.Repeat("m", 43))
+			if response.Code != 200 {
+				t.Fatal(response.Code, response.Body)
+			}
+			var storedID string
+			if err := p.devices.db.QueryRow("SELECT account_id FROM durable_devices WHERE id=?", original.Device).Scan(&storedID); err != nil || storedID != owner.ID {
+				t.Fatal(storedID, err)
+			}
+			if signedAccountID(refreshed.Access) != merged.ID {
+				t.Fatal("refresh did not resolve merge")
+			}
+			request := httptest.NewRequest("POST", "https://"+p.Domain+"/api/domains/publisher", strings.NewReader(`{"name":"grafana.merge.customer.test"}`))
+			request.Header.Set("Authorization", "Bearer "+refreshed.Access)
+			result := httptest.NewRecorder()
+			p.handleNamespacePublisher(result, request)
+			if result.Code != 200 {
+				t.Fatal("namespace after merge", result.Code, result.Body)
+			}
+			_, device, expiry, err := parseDeviceToken(original.Access, p.getJWTSigningKey(), time.Now())
+			if err != nil {
+				t.Fatal(err)
+			}
+			lease := &publisherDeviceLease{authority: p.storage, accountID: signedAccountID(original.Access), device: device, expiry: expiry}
+			if err := lease.renew(refreshed.Access, p.getJWTSigningKey(), time.Now()); err != nil {
+				t.Fatal("renewal after merge", err)
+			}
+			// Canonical UUID comparison also accepts equivalent encodings.
+			lease.accountID = strings.ToUpper(owner.ID)
+			if err := lease.renew(refreshed.Access, p.getJWTSigningKey(), time.Now()); err != nil {
+				t.Fatal("obsolete UUID case renewal", err)
+			}
+			foreign := durableLogin(t, p)
+			// A different device in the same merged account cannot renew this lease.
+			if err := lease.renew(foreign.Access, p.getJWTSigningKey(), time.Now()); err == nil {
+				t.Fatal("different device renewed lease")
+			}
+		})
 	}
 }

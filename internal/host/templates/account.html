@@ -7,6 +7,12 @@
 <title>Account - tunn</title>
 <link rel="stylesheet" href="/assets/system.css">
 <style>
+.emails{grid-column:1;padding:20px;min-width:0}
+.email-row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:14px 0;border-bottom:1px solid var(--plate-lo)}
+.email-address{overflow-wrap:anywhere;min-width:0;font:400 14px/1.5 var(--sans);color:var(--ink)}
+.email-actions,.email-add{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.email-add{margin-top:16px}.email-add label{width:100%;font-size:14px}.email-add input[type=email]{flex:1;min-width:0;width:100%;padding:10px;border:1px solid var(--plate-lo);border-radius:4px;background:var(--plate-hi);color:var(--ink);font:inherit}
+.email-row form{margin:0}.emails h2{margin:0}.emails .fine{margin:10px 0}
 .acct{padding-top:22px;padding-bottom:40px}
 .acct h1{font-size:28px;margin:0}
 .acct-top{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:16px}
@@ -100,6 +106,21 @@
   <div class="card"><div class="card-title">IP restrictions</div><a href="/account/ip-policy">Choose which IP addresses can reach your tunnels</a></div>
   <div class="card"><div class="card-title">App devices</div><a href="/account/app-devices">Let a phone or laptop into an app, or remove it</a></div>
   </div>
+  {{if .EmailCSRF}}
+  <section class="panel emails" id="emails" aria-labelledby="emails-title">
+    <h2 class="card-title" id="emails-title">Emails</h2>
+    <p class="fine">Verified addresses on your account. Choose which one tunn uses as your primary.</p>
+    {{if .EmailSent}}<p role="status">Check your inbox. Open the link within 5 minutes while signed in to this account, then confirm to add the address.</p>{{end}}
+    {{range .Emails}}<div class="email-row">
+      <span class="email-address">{{.Email}} {{if eq .Email $.Email}}<span class="plan-badge">Primary</span>{{end}}</span>
+      {{if ne .Email $.Email}}<div class="email-actions">
+        <form method="POST" action="/account/emails"><input type="hidden" name="csrf_token" value="{{$.EmailCSRF}}"><input type="hidden" name="email" value="{{.Email}}"><button class="btn sm" name="action" value="primary" aria-label="Make {{.Email}} primary">Make primary</button></form>
+      </div>{{end}}
+    </div>{{end}}
+    <form class="email-add" method="POST" action="/account/emails"><input type="hidden" name="csrf_token" value="{{.EmailCSRF}}"><label for="new-email">Add a verified email</label><input id="new-email" type="email" name="email" autocomplete="email" maxlength="254" placeholder="you@example.com" required><button class="btn sm" name="action" value="add">Add email</button></form>
+    <p class="fine">We'll send a verification link. Emails cannot be removed yet.</p>
+  </section>
+  {{end}}
   <div class="billing">
   {{if .BillingNotice}}
   <div class="card" role="status" aria-live="polite">

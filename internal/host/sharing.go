@@ -111,13 +111,13 @@ func (p *ProxyServer) watchWebPermission(r *http.Request, t *TunnelConnection, e
 	return r.WithContext(ctx), func() { cancel(nil) }
 }
 func (p *ProxyServer) sharingOwner(w http.ResponseWriter, r *http.Request, browser bool) *storage.Account {
-	var email string
+	var email, header string
 	var ok bool
 	if browser {
 		email, ok = p.getAuthFromCookie(r)
 	} else {
 		var capability bool
-		email, _, capability, ok = p.getAuthFromTunnelBearer(r, &TunnelConnection{})
+		email, header, capability, ok = p.getAuthFromTunnelBearer(r, &TunnelConnection{})
 		ok = ok && !capability
 	}
 	if !ok {
@@ -128,7 +128,17 @@ func (p *ProxyServer) sharingOwner(w http.ResponseWriter, r *http.Request, brows
 		http.Error(w, "Sharing authority unavailable", 503)
 		return nil
 	}
-	a, err := p.storage.GetAccountByEmail(r.Context(), common.NormalizeEmail(email))
+	var a *storage.Account
+	var err error
+	if browser {
+		if claims, valid := p.accountSession(r); valid {
+			a, err = p.sessionAccount(r, claims)
+		} else {
+			a, err = p.storage.GetAccountByEmail(r.Context(), common.NormalizeEmail(email))
+		}
+	} else {
+		a, err = p.bearerAccount(r, email, header)
+	}
 	if err != nil || a == nil || a.ID == "" || a.OperationalState != "active" {
 		http.Error(w, "Active owner account required", 403)
 		return nil

@@ -511,3 +511,19 @@ func (s *LocalStorage) CheckManagementDevice(ctx context.Context, id, email, acc
 	}
 	return original.ID == current.ID && current.OperationalState == "active", nil
 }
+
+func (s *LocalStorage) MutateAccountEmail(ctx context.Context, id, email, action string) (*Account, error) {
+	a, err := s.accounts.MutateAccountEmail(ctx, id, email, action)
+	if err != nil {
+		return nil, err
+	}
+	return storeAccountToStorage(a), nil
+}
+
+func (s *LocalStorage) LinkAccountEmail(ctx context.Context, id, email, jti string, expiry time.Time) (*Account, error) {
+	a, err := s.accounts.LinkAccountEmail(ctx, id, email, jti, expiry)
+	if err != nil {
+		return nil, err
+	}
+	return storeAccountToStorage(a), nil
+}

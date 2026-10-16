@@ -109,7 +109,7 @@ func TestSSHKeyHTTPPossessionAndIdentityProof(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := p.sshKeys.Remove(context.Background(), []string{"alice@example.com"}, parsed.Fingerprint); err != nil {
+	if err := p.sshKeys.Remove(context.Background(), sshTestAccountID(t, p, "alice@example.com"), parsed.Fingerprint); err != nil {
 		t.Fatal(err)
 	}
 	w = request("alice@example.com", payload(pub, stale))
@@ -139,12 +139,29 @@ func TestSSHKeyAccountBudgetUsesCanonicalIdentity(t *testing.T) {
 	if _, err := p.storage.FindOrCreateByEmails(context.Background(), []string{"owner@example.com", "alias@example.com"}, "test"); err != nil {
 		t.Fatal(err)
 	}
-	primary, err := p.sshAccountBudget(context.Background(), "owner@example.com")
+	first, err := p.sshKeys.Add(context.Background(), "owner@example.com", string(ssh.MarshalAuthorizedKey(sshSigner(t).PublicKey())))
 	if err != nil {
 		t.Fatal(err)
 	}
-	alias, err := p.sshAccountBudget(context.Background(), "alias@example.com")
-	if err != nil || alias != primary {
+	second, err := p.sshKeys.Add(context.Background(), "alias@example.com", string(ssh.MarshalAuthorizedKey(sshSigner(t).PublicKey())))
+	if err != nil {
+		t.Fatal(err)
+	}
+	primary, err := p.sshKeys.AccountID(context.Background(), first.Fingerprint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	alias, err := p.sshKeys.AccountID(context.Background(), second.Fingerprint)
+	if err != nil || alias != primary || primary == "" {
 		t.Fatal("alias escaped account budget", alias, primary, err)
 	}
+}
+
+func sshTestAccountID(t *testing.T, p *ProxyServer, email string) string {
+	t.Helper()
+	a, err := p.storage.GetAccountByEmail(context.Background(), email)
+	if err != nil || a == nil {
+		t.Fatal(a, err)
+	}
+	return a.ID
 }

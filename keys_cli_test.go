@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
-	"database/sql"
 	"encoding/json"
 	"encoding/pem"
 	"net"
@@ -18,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/ehrlich-b/tunn/internal/sshfront"
+	"github.com/ehrlich-b/tunn/internal/store"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 	_ "modernc.org/sqlite"
@@ -84,12 +84,16 @@ func TestKeysCLIProvesPossession(t *testing.T) {
 				}()
 				t.Setenv("SSH_AUTH_SOCK", socket)
 			}
-			db, err := sql.Open("sqlite", ":memory:")
+			db, err := store.InitForTest()
 			if err != nil {
 				t.Fatal(err)
 			}
 			defer db.Close()
 			db.SetMaxOpenConns(1)
+			account, err := store.NewAccountStore(db).FindOrCreateByEmails([]string{"owner@example.com"}, "test")
+			if err != nil {
+				t.Fatal(err)
+			}
 			registry, err := sshfront.NewRegistry(db)
 			if err != nil {
 				t.Fatal(err)
@@ -110,7 +114,7 @@ func TestKeysCLIProvesPossession(t *testing.T) {
 					return
 				}
 				if req.Signature == nil {
-					token, err := registry.BeginProof(r.Context(), req.PublicKey, "owner@example.com")
+					token, err := registry.BeginProof(r.Context(), req.PublicKey, "owner@example.com", account.ID)
 					if err != nil {
 						http.Error(w, err.Error(), 500)
 						return
@@ -120,7 +124,7 @@ func TestKeysCLIProvesPossession(t *testing.T) {
 					_ = json.NewEncoder(w).Encode(map[string]string{"challenge": token, "email": "owner@example.com", "fingerprint": key.Fingerprint})
 					return
 				}
-				key, err := registry.CompleteProof(r.Context(), "owner@example.com", req.PublicKey, req.Challenge, req.Signature)
+				key, err := registry.CompleteProof(r.Context(), account.ID, "owner@example.com", req.PublicKey, req.Challenge, req.Signature)
 				if err != nil {
 					http.Error(w, err.Error(), 400)
 					return

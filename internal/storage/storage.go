@@ -119,3 +119,9 @@ type ScopedDeviceStorage interface {
 	CreateDeviceCodeForPurpose(context.Context, string, string) (*DeviceCode, error)
 	CheckManagementDevice(context.Context, string, string, string) (bool, error)
 }
+
+// AccountEmailStorage is implemented locally and through the login node.
+type AccountEmailStorage interface {
+	LinkAccountEmail(context.Context, string, string, string, time.Time) (*Account, error)
+	MutateAccountEmail(context.Context, string, string, string) (*Account, error)
+}

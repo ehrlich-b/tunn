@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"database/sql"
+	"github.com/ehrlich-b/tunn/internal/store"
 	"strings"
 	"testing"
 	"time"
@@ -26,12 +27,17 @@ func publicKey(t *testing.T) string {
 	return strings.TrimSpace(string(ssh.MarshalAuthorizedKey(pub)))
 }
 func TestKeyLinkOwnershipAndReplay(t *testing.T) {
-	db, err := sql.Open("sqlite", ":memory:")
+	db, err := store.InitForTest()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = db.Close() }()
 	db.SetMaxOpenConns(1)
+	for _, email := range []string{"alice@example.com", "mallory@example.com"} {
+		if _, err := store.NewAccountStore(db).FindOrCreateByEmails([]string{email}, "test"); err != nil {
+			t.Fatal(err)
+		}
+	}
 	r, err := NewRegistry(db)
 	if err != nil {
 		t.Fatal(err)
@@ -58,14 +64,14 @@ func TestKeyLinkOwnershipAndReplay(t *testing.T) {
 	if _, err := r.Add(ctx, "mallory@example.com", pub); err == nil {
 		t.Fatal("key stolen by other account")
 	}
-	if err := r.Remove(ctx, []string{"mallory@example.com"}, key.Fingerprint); err == nil {
+	if err := r.Remove(ctx, keyTestAccountID(t, db, "mallory@example.com"), key.Fingerprint); err == nil {
 		t.Fatal("other account removed key")
 	}
-	keys, err := r.List(ctx, []string{"alice@example.com"})
+	keys, err := r.List(ctx, keyTestAccountID(t, db, "alice@example.com"))
 	if err != nil || len(keys) != 1 {
 		t.Fatalf("keys=%v err=%v", keys, err)
 	}
-	if err := r.Remove(ctx, []string{"alice@example.com"}, key.Fingerprint); err != nil {
+	if err := r.Remove(ctx, keyTestAccountID(t, db, "alice@example.com"), key.Fingerprint); err != nil {
 		t.Fatal(err)
 	}
 	token, err = r.BeginLink(ctx, pub, "alice@example.com")
@@ -116,5 +122,67 @@ func TestOptionsGrammarAndAnonymousAdmission(t *testing.T) {
 	}
 	if _, err := s.acquire(Identity{Fingerprint: "two", IP: id.IP}); err == nil {
 		t.Fatal("new key reset IP budget")
+	}
+}
+
+func keyTestAccountID(t *testing.T, db *sql.DB, email string) string {
+	t.Helper()
+	a, err := store.NewAccountStore(db).GetByEmail(email)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return a.ID
+}
+
+func TestKeyOwnershipMigrationKeepsThreeColumnRollbackSchema(t *testing.T) {
+	db, err := store.InitForTest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	account, err := store.NewAccountStore(db).FindOrCreateByEmails([]string{"alice@example.com"}, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := NewRegistry(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Model a database from the earlier version of this branch.
+	if _, err := db.Exec(`DROP TRIGGER ssh_key_owner_insert; DROP TRIGGER ssh_key_owner_delete; DROP TABLE ssh_key_owners; ALTER TABLE ssh_keys ADD COLUMN account_id TEXT NOT NULL DEFAULT ''`); err != nil {
+		t.Fatal(err)
+	}
+	pub := publicKey(t)
+	key, _ := ParseKey(pub)
+	if _, err := db.Exec("INSERT INTO ssh_keys VALUES(?,?,?,?)", key.Fingerprint, key.PublicKey, account.PrimaryEmail, account.ID); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if err := store.MigrateCredentialOwnership(db); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var columns int
+	if err := db.QueryRow("SELECT count(*) FROM pragma_table_info('ssh_keys')").Scan(&columns); err != nil || columns != 3 {
+		t.Fatal("rollback schema", columns, err)
+	}
+	if owner, err := r.OwnerAccount(context.Background(), key.Fingerprint); err != nil || owner == nil || owner.ID != account.ID {
+		t.Fatal("bound ownership lost", owner, err)
+	}
+	// The rollback build's column-less INSERT still binds account ownership.
+	legacyKey, _ := ParseKey(publicKey(t))
+	if _, err := db.Exec("INSERT INTO ssh_keys VALUES(?,?,?)", legacyKey.Fingerprint, legacyKey.PublicKey, account.PrimaryEmail); err != nil {
+		t.Fatal("rollback insert", err)
+	}
+	if owner, err := r.OwnerAccount(context.Background(), legacyKey.Fingerprint); err != nil || owner == nil || owner.ID != account.ID {
+		t.Fatal("legacy insert unbound", owner, err)
+	}
+	if err := r.Remove(context.Background(), account.ID, legacyKey.Fingerprint); err != nil {
+		t.Fatal(err)
+	}
+	var orphan int
+	if err := db.QueryRow("SELECT count(*) FROM ssh_key_owners WHERE fingerprint=?", legacyKey.Fingerprint).Scan(&orphan); err != nil || orphan != 0 {
+		t.Fatal("orphan owner", orphan, err)
 	}
 }

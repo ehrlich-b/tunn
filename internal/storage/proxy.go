@@ -453,3 +453,31 @@ func (s *ProxyStorage) CheckManagementDevice(ctx context.Context, id, email, acc
 	}
 	return out.Valid, nil
 }
+
+func (s *ProxyStorage) MutateAccountEmail(ctx context.Context, id, email, action string) (*Account, error) {
+	return s.mutateAccountEmail(ctx, &internalv1.MutateAccountEmailRequest{AccountId: id, Email: email, Action: action})
+}
+
+func (s *ProxyStorage) LinkAccountEmail(ctx context.Context, id, email, jti string, expiry time.Time) (*Account, error) {
+	return s.mutateAccountEmail(ctx, &internalv1.MutateAccountEmailRequest{AccountId: id, Email: email, Action: "link", TokenJti: jti, TokenExpiresAt: expiry.Unix()})
+}
+
+func (s *ProxyStorage) mutateAccountEmail(ctx context.Context, request *internalv1.MutateAccountEmailRequest) (*Account, error) {
+	client := s.getClient()
+	if client == nil {
+		return nil, ErrNotAvailable
+	}
+	resp, err := client.MutateAccountEmail(ctx, request)
+	if err != nil {
+		switch status.Code(err) {
+		case codes.AlreadyExists:
+			return nil, store.ErrEmailOwned
+		case codes.InvalidArgument:
+			return nil, store.ErrEmailTokenUsed
+		case codes.NotFound:
+			return nil, store.ErrEmailNotLinked
+		}
+		return nil, err
+	}
+	return protoAccountToStorage(resp), nil
+}

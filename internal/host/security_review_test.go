@@ -264,10 +264,10 @@ func TestReviewJumpNamesAndUnconfirmedAdmission(t *testing.T) {
 		stream.Close()
 		t.Fatal("pending unconfirmed key admitted")
 	}
-	if err := p.sshKeys.CompleteLink(context.Background(), link); err != nil {
+	if _, err := p.storage.FindOrCreateByEmails(context.Background(), []string{"alice@example.com"}, "magic_link"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := p.storage.FindOrCreateByEmails(context.Background(), []string{"alice@example.com"}, "magic_link"); err != nil {
+	if err := p.sshKeys.CompleteLink(context.Background(), link); err != nil {
 		t.Fatal(err)
 	}
 	id.Email = "alice@example.com"
@@ -406,11 +406,11 @@ func TestReviewInnerSSHTrustAndAuthentication(t *testing.T) {
 func TestReviewLivePersonRevokeClosesStream(t *testing.T) {
 	p, _, _ := reviewDatabaseRelay(t)
 	alicePub := string(ssh.MarshalAuthorizedKey(sshSigner(t).PublicKey()))
-	key, err := p.sshKeys.Add(context.Background(), "alice@example.com", alicePub)
-	if err != nil {
+	if _, err := p.storage.FindOrCreateByEmails(context.Background(), []string{"alice@example.com"}, "test"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := p.storage.FindOrCreateByEmails(context.Background(), []string{"alice@example.com"}, "test"); err != nil {
+	key, err := p.sshKeys.Add(context.Background(), "alice@example.com", alicePub)
+	if err != nil {
 		t.Fatal(err)
 	}
 	id := sshfront.Identity{Fingerprint: key.Fingerprint, PublicKey: alicePub, Email: "alice@example.com", IP: "127.0.0.1"}

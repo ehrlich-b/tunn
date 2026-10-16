@@ -73,7 +73,7 @@ func sshRelay(t *testing.T, known bool) (*ProxyServer, *ssh.Client, func() *ssh.
 	}
 	p := &ProxyServer{Domain: cfg.Domain, config: cfg, tunnelServer: s, storage: st, meter: ledger, sshKeys: keys, quotaCache: NewQuotaCache(time.Minute), usageBuffer: NewUsageBuffer(), tunnelCache: map[string]string{}}
 	hostKey := sshSigner(t)
-	server, err := sshfront.New(sshfront.Config{HostKey: hostKey, Resolve: keys.Owner, Establish: p.establishSSH, Command: p.sshCommand, RotateToken: p.rotateSSHToken, Connect: p.sshConnect})
+	server, err := sshfront.New(sshfront.Config{HostKey: hostKey, Resolve: keys.Owner, ResolveAccount: keys.AccountID, CanonicalAccount: keys.CanonicalAccountID, Establish: p.establishSSH, Command: p.sshCommand, RotateToken: p.rotateSSHToken, Connect: p.sshConnect})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -706,11 +706,11 @@ func TestSSHNamedForwardCancellationAndAccountNameOwnership(t *testing.T) {
 	if err := p.tunnelServer.accounts.ReserveSubdomain(owner.ID, "reserved-demo"); err != nil {
 		t.Fatal(err)
 	}
-	keys, err := p.sshKeys.List(context.Background(), []string{owner.PrimaryEmail})
+	keys, err := p.sshKeys.List(context.Background(), sshTestAccountID(t, p, owner.PrimaryEmail))
 	if err != nil || len(keys) != 1 {
 		t.Fatalf("keys=%v %v", keys, err)
 	}
-	if err := p.sshKeys.Remove(context.Background(), []string{owner.PrimaryEmail}, keys[0].Fingerprint); err != nil {
+	if err := p.sshKeys.Remove(context.Background(), sshTestAccountID(t, p, owner.PrimaryEmail), keys[0].Fingerprint); err != nil {
 		t.Fatal(err)
 	}
 	anonymous := dial()
@@ -722,4 +722,34 @@ func TestSSHNamedForwardCancellationAndAccountNameOwnership(t *testing.T) {
 		t.Fatal("anonymous key claimed another account's reserved name")
 	}
 
+}
+
+func TestSSHPublishAfterPrimarySwitchOnExistingConnection(t *testing.T) {
+	p, connection, _ := sshRelay(t, true)
+	ctx := context.Background()
+	account, err := p.storage.GetAccountByEmail(ctx, "owner@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	emails := p.storage.(storage.AccountEmailStorage)
+	if _, err := emails.MutateAccountEmail(ctx, account.ID, "new-primary@example.com", "link"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := emails.MutateAccountEmail(ctx, account.ID, "new-primary@example.com", "primary"); err != nil {
+		t.Fatal(err)
+	}
+	_, output := sshForward(t, connection, "--name primary-switch --public", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, "still connected") }))
+	if line := sshLine(t, output); line != "https://primary-switch.tunn.test\n" {
+		t.Fatal(line)
+	}
+	tunnel, ok := p.tunnelServer.GetTunnel("primary-switch")
+	if !ok || tunnel.AccountID != account.ID || tunnel.CreatorEmail != "new-primary@example.com" {
+		t.Fatalf("wrong tunnel owner: %+v", tunnel)
+	}
+	request := httptest.NewRequest("GET", "https://primary-switch.tunn.test/", nil)
+	response := httptest.NewRecorder()
+	p.handleWebProxy(response, request)
+	if response.Code != 200 || response.Body.String() != "still connected" {
+		t.Fatal(response.Code, response.Body)
+	}
 }

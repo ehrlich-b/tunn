@@ -2,17 +2,22 @@ package sshfront
 
 import (
 	"context"
-	"database/sql"
+	"github.com/ehrlich-b/tunn/internal/store"
 	"testing"
 )
 
 func TestReviewPendingLinkCannotUndoRevocation(t *testing.T) {
-	db, err := sql.Open("sqlite", ":memory:")
+	db, err := store.InitForTest()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
 	db.SetMaxOpenConns(1)
+	for _, email := range []string{"alice@example.com", "mallory@example.com"} {
+		if _, err := store.NewAccountStore(db).FindOrCreateByEmails([]string{email}, "test"); err != nil {
+			t.Fatal(err)
+		}
+	}
 	registry, err := NewRegistry(db)
 	if err != nil {
 		t.Fatal(err)
@@ -28,7 +33,7 @@ func TestReviewPendingLinkCannotUndoRevocation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := registry.Remove(ctx, []string{"alice@example.com"}, key.Fingerprint); err != nil {
+	if err := registry.Remove(ctx, keyTestAccountID(t, db, "alice@example.com"), key.Fingerprint); err != nil {
 		t.Fatal(err)
 	}
 	if owner, err := registry.Owner(ctx, key.Fingerprint); err != nil || owner != "" {

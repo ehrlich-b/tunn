@@ -173,7 +173,7 @@ func TestLoopbackNativeSSHJump(t *testing.T) {
 	}()
 	stopPublisher := jumpPublish(t, p, origin.Addr().String(), []string{"alice@example.com"})
 	relayKey := sshSigner(t)
-	front, err := sshfront.New(sshfront.Config{HostKey: relayKey, Resolve: p.sshKeys.Owner, Establish: p.establishSSH, Command: p.sshCommand, Connect: p.sshConnect})
+	front, err := sshfront.New(sshfront.Config{HostKey: relayKey, Resolve: p.sshKeys.Owner, ResolveAccount: p.sshKeys.AccountID, CanonicalAccount: p.sshKeys.CanonicalAccountID, Establish: p.establishSSH, Command: p.sshCommand, Connect: p.sshConnect})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -274,6 +274,9 @@ func TestLoopbackNativeSSHJump(t *testing.T) {
 	output, err := native(current.Username, "forge-ssh")
 	if err == nil || !bytes.Contains(output, []byte("SSH endpoint access denied")) {
 		t.Fatalf("unknown key admitted: %s %v", output, err)
+	}
+	if _, err := p.storage.FindOrCreateByEmails(context.Background(), []string{"stranger@example.com"}, "test"); err != nil {
+		t.Fatal(err)
 	}
 	if _, err := p.sshKeys.Add(context.Background(), "stranger@example.com", string(ssh.MarshalAuthorizedKey(stranger.PublicKey()))); err != nil {
 		t.Fatal(err)
@@ -483,12 +486,12 @@ func TestSSHJumpLiveKeyRevocationAndReusedTransport(t *testing.T) {
 	if _, err := io.ReadFull(stream, data); err != nil {
 		t.Fatal(err)
 	}
-	keys, err := p.sshKeys.List(context.Background(), []string{"owner@example.com"})
+	keys, err := p.sshKeys.List(context.Background(), sshTestAccountID(t, p, "owner@example.com"))
 	if err != nil || len(keys) != 1 {
 		t.Fatal(keys, err)
 	}
 	start := time.Now()
-	if err := p.sshKeys.Remove(context.Background(), []string{"owner@example.com"}, keys[0].Fingerprint); err != nil {
+	if err := p.sshKeys.Remove(context.Background(), sshTestAccountID(t, p, "owner@example.com"), keys[0].Fingerprint); err != nil {
 		t.Fatal(err)
 	}
 	done := make(chan error, 1)
@@ -516,7 +519,7 @@ func TestSSHJumpPinsResourceGeneration(t *testing.T) {
 	p, c, _ := sshRelay(t, true)
 	stop := jumpPublish(t, p, "127.0.0.1:1", []string{"owner@example.com"})
 	original, _ := p.tunnelServer.GetTunnel("forge-ssh")
-	keys, err := p.sshKeys.List(context.Background(), []string{"owner@example.com"})
+	keys, err := p.sshKeys.List(context.Background(), sshTestAccountID(t, p, "owner@example.com"))
 	if err != nil || len(keys) != 1 {
 		t.Fatal(keys, err)
 	}
@@ -554,6 +557,9 @@ func TestSSHJumpPinsResourceGeneration(t *testing.T) {
 
 func TestSSHJumpAdmissionRequiresPersonGrant(t *testing.T) {
 	p, _, _ := sshRelay(t, true)
+	if _, err := p.storage.FindOrCreateByEmails(context.Background(), []string{"stranger@example.com"}, "test"); err != nil {
+		t.Fatal(err)
+	}
 	jumpPublish(t, p, "127.0.0.1:1", nil) // Even a public raw endpoint is not a jump grant.
 	tunnel, _ := p.tunnelServer.GetTunnel("forge-ssh")
 	stranger := sshSigner(t)
@@ -572,7 +578,7 @@ func TestSSHJumpAdmissionRequiresPersonGrant(t *testing.T) {
 		}
 	}
 	// A tunnel with no account authority fails closed instead of becoming public.
-	keys, err := p.sshKeys.List(context.Background(), []string{"owner@example.com"})
+	keys, err := p.sshKeys.List(context.Background(), sshTestAccountID(t, p, "owner@example.com"))
 	if err != nil || len(keys) != 1 {
 		t.Fatal(keys, err)
 	}
@@ -582,4 +588,8 @@ func TestSSHJumpAdmissionRequiresPersonGrant(t *testing.T) {
 		t.Fatal("missing endpoint owner admitted")
 	}
 	tunnel.accountQuotaExempt = false
+}
+
+func (s jumpMailCapture) Send(to, subject, body string) error {
+	return fmt.Errorf("unexpected account verification email")
 }

@@ -53,7 +53,7 @@ func TestLoopbackEdgeOpenSSHAndHTTPSSharePort(t *testing.T) {
 	}
 	hostKey := sshSigner(t)
 	server, err := sshfront.New(sshfront.Config{
-		HostKey: hostKey, Resolve: p.sshKeys.Owner, Establish: p.establishSSH,
+		HostKey: hostKey, Resolve: p.sshKeys.Owner, ResolveAccount: p.sshKeys.AccountID, CanonicalAccount: p.sshKeys.CanonicalAccountID, Establish: p.establishSSH,
 		RenderQR: func(_ context.Context, url string, out io.Writer) error {
 			_, err := fmt.Fprintf(out, "fixture QR: %s\n", url)
 			return err

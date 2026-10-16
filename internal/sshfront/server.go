@@ -23,6 +23,7 @@ import (
 	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/ehrlich-b/tunn/internal/mcpbridge"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
+	"github.com/google/uuid"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/time/rate"
 )
@@ -34,7 +35,11 @@ type Identity struct{ Fingerprint, PublicKey, Email, IP, AccountID string }
 type Config struct {
 	HostKey ssh.Signer
 	Resolve func(context.Context, string) (string, error)
-	// Account resolves a verified email to its canonical account for shared budgets.
+	// ResolveAccount resolves an authenticating fingerprint to its account UUID.
+	ResolveAccount func(context.Context, string) (string, error)
+	// CanonicalAccount resolves cached UUIDs through authoritative merge aliases.
+	CanonicalAccount func(context.Context, string) (string, error)
+	// Account resolves a verified email to its account UUID for legacy callers.
 	Account        func(context.Context, string) (string, error)
 	Establish      func(context.Context, Identity, *Stream) error
 	Command        func(context.Context, Identity, []string, io.Reader, io.Writer) error
@@ -213,7 +218,13 @@ func (s *Server) ServeConn(parent context.Context, raw net.Conn) {
 	id := Identity{Fingerprint: conn.Permissions.Extensions["fingerprint"], PublicKey: conn.Permissions.Extensions["public"], IP: ip}
 	resolveCtx, stopResolve := context.WithTimeout(ctx, 10*time.Second)
 	id.Email, err = s.cfg.Resolve(resolveCtx, id.Fingerprint)
-	if err == nil && id.Email != "" && s.cfg.Account != nil {
+	if err == nil && id.Email != "" && s.cfg.ResolveAccount != nil {
+		id.AccountID, err = s.cfg.ResolveAccount(resolveCtx, id.Fingerprint)
+		if id.AccountID == "" && err == nil {
+			err = fmt.Errorf("SSH account unavailable")
+		}
+	}
+	if err == nil && id.Email != "" && s.cfg.ResolveAccount == nil && s.cfg.Account != nil {
 		id.AccountID, err = s.cfg.Account(resolveCtx, id.Email)
 		if id.AccountID == "" && err == nil {
 			err = fmt.Errorf("SSH account unavailable")
@@ -489,6 +500,50 @@ func (c *connection) session(ch ssh.Channel, requests <-chan *ssh.Request) {
 	}
 }
 
+// checkOwner rechecks revocation without treating a primary mailbox change
+// as a transfer of the authenticated key to another account.
+func (c *connection) checkOwner() error {
+	email, err := c.server.cfg.Resolve(c.ctx, c.id.Fingerprint)
+	if err != nil {
+		return err
+	}
+	if c.id.AccountID == "" && c.id.Email == "" && email == "" {
+		return nil // An anonymous key must remain unlinked until reconnecting.
+	}
+	current := ""
+	if c.server.cfg.ResolveAccount != nil {
+		current, err = c.server.cfg.ResolveAccount(c.ctx, c.id.Fingerprint)
+	} else if c.server.cfg.Account != nil && email != "" {
+		current, err = c.server.cfg.Account(c.ctx, email)
+	}
+	if err != nil {
+		return err
+	}
+	before, beforeErr := uuid.Parse(c.id.AccountID)
+	after, afterErr := uuid.Parse(current)
+	if beforeErr != nil || afterErr != nil {
+		return fmt.Errorf("SSH key ownership changed; reconnect")
+	}
+	resolve := c.server.cfg.CanonicalAccount
+	if resolve == nil {
+		return fmt.Errorf("SSH account resolver unavailable")
+	}
+	canonicalBefore, err := resolve(c.ctx, before.String())
+	if err != nil {
+		return err
+	}
+	canonicalAfter, err := resolve(c.ctx, after.String())
+	if err != nil {
+		return err
+	}
+	before, beforeErr = uuid.Parse(canonicalBefore)
+	after, afterErr = uuid.Parse(canonicalAfter)
+	if beforeErr != nil || afterErr != nil || before != after {
+		return fmt.Errorf("SSH key ownership changed; reconnect")
+	}
+	return nil
+}
+
 func (c *connection) run(args []string, in ssh.Channel) error {
 	for len(args) > 0 && args[0] == "--" {
 		args = args[1:]
@@ -502,12 +557,8 @@ func (c *connection) run(args []string, in ssh.Channel) error {
 		}
 		return nil
 	}
-	email, err := c.server.cfg.Resolve(c.ctx, c.id.Fingerprint)
-	if err != nil {
+	if err := c.checkOwner(); err != nil {
 		return err
-	}
-	if email != c.id.Email {
-		return fmt.Errorf("SSH key ownership changed; reconnect")
 	}
 	protocol := "http"
 	kind := "serve"
@@ -636,12 +687,8 @@ func (c *connection) run(args []string, in ssh.Channel) error {
 }
 
 func (c *connection) start(f *forward) error {
-	email, err := c.server.cfg.Resolve(c.ctx, c.id.Fingerprint)
-	if err != nil {
+	if err := c.checkOwner(); err != nil {
 		return err
-	}
-	if email != c.id.Email {
-		return fmt.Errorf("SSH key ownership changed; reconnect")
 	}
 	id := c.id
 	o := *c.options

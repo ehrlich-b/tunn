@@ -16,6 +16,7 @@ import (
 
 	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/ehrlich-b/tunn/internal/metering"
+	"github.com/ehrlich-b/tunn/internal/storage"
 	meterpb "github.com/ehrlich-b/tunn/pkg/proto/meteringv1"
 	"github.com/golang-jwt/jwt/v4"
 )
@@ -69,8 +70,11 @@ func (p *ProxyServer) setAuthCookie(w http.ResponseWriter, email string) error {
 func (p *ProxyServer) getAuthFromCookie(r *http.Request) (string, bool) {
 	if _, err := r.Cookie(appCookie); err == nil && p.customerHost(r.Host) {
 		claims, ok := p.accountSession(r)
-		email, _ := claims["email"].(string)
-		return email, ok
+		if !ok {
+			return "", false
+		}
+		email, err := accountIdentityEmail(claims)
+		return email, err == nil
 	}
 	if !p.visitorJWTConfigured() {
 		return "", false
@@ -106,7 +110,7 @@ func (p *ProxyServer) getAuthFromCookie(r *http.Request) (string, bool) {
 		return "", false
 	}
 
-	email, err := identityEmail(claims)
+	email, err := accountIdentityEmail(claims)
 	if err != nil {
 		return "", false
 	}
@@ -250,7 +254,7 @@ func (p *ProxyServer) getAuthFromTunnelBearer(r *http.Request, tunnel *TunnelCon
 		if !validClaims {
 			continue
 		}
-		email, err := identityEmail(claims)
+		email, err := accountIdentityEmail(claims)
 		if claims["type"] == "management_access" && token.Method.Alg() == "HS256" && tunnel.TunnelID == "" {
 			email, err = p.managementIdentity(r, claims)
 		}
@@ -259,6 +263,13 @@ func (p *ProxyServer) getAuthFromTunnelBearer(r *http.Request, tunnel *TunnelCon
 				continue
 			}
 			email, _, _, err = deviceIdentity(claims, p.currentTime())
+			if err == nil {
+				var account *storage.Account
+				account, err = deviceAccount(r.Context(), p.storage, claims)
+				if err == nil {
+					email = account.PrimaryEmail
+				}
+			}
 		}
 		if claims["type"] != "device_access" && claims.Valid() != nil {
 			continue
@@ -872,7 +883,7 @@ func (p *ProxyServer) CheckJWT(next http.Handler) http.Handler {
 		}
 
 		// Extract user email from claims
-		email, err := identityEmail(claims)
+		email, err := accountIdentityEmail(claims)
 		if claims["type"] == "management_access" && token.Method.Alg() == "HS256" {
 			email, err = p.managementIdentity(r, claims)
 		}
@@ -943,6 +954,9 @@ func (p *ProxyServer) handleLogout(w http.ResponseWriter, r *http.Request) {
 
 // AccountPageData holds data for the account page template
 type AccountPageData struct {
+	Emails    []storage.AccountEmail
+	EmailCSRF string
+	EmailSent bool
 	revenuePageData
 	BillingNotice            string
 	BillingReturn            bool
@@ -1049,6 +1063,21 @@ func (p *ProxyServer) handleAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	if org, ok := p.getOrgSession(r); ok {
 		data.Email = org.Email
+	} else if claims, ok := p.accountSession(r); ok {
+		live, err := p.sessionAccount(r, claims)
+		if err != nil {
+			http.Error(w, "Account service unavailable", 503)
+			return
+		}
+		if live != nil && live.ID == account.ID {
+			data.Emails = live.Emails
+			data.EmailCSRF, err = p.createCSRFToken(r, accountEmailsPath)
+			if err != nil {
+				http.Error(w, "Email forms unavailable", 500)
+				return
+			}
+			data.EmailSent = r.URL.Query().Get("email_sent") == "1"
+		}
 	}
 
 	// Render template

@@ -3,6 +3,7 @@ package host
 import (
 	"context"
 	"errors"
+	"html"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -16,15 +17,22 @@ import (
 )
 
 type accountsMailCapture struct {
-	to, link string
-	calls    int
-	err      error
+	to, link, subject, body string
+	calls                   int
+	err                     error
 }
 
 func (s *accountsMailCapture) SendMagicLink(to, link string) error {
 	s.calls++
 	s.to, s.link = to, link
 	return s.err
+}
+
+func (s *accountsMailCapture) Send(to, subject, body string) error {
+	s.subject, s.body = subject, body
+	_, rest, _ := strings.Cut(body, `href="`)
+	link, _, _ := strings.Cut(rest, `"`)
+	return s.SendMagicLink(to, html.UnescapeString(link))
 }
 
 func magicFixturePost(p *ProxyServer, query, body string) *httptest.ResponseRecorder {

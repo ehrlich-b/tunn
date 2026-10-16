@@ -5,6 +5,14 @@ on the publisher and each laptop. Existing logins remain valid until their
 24-hour expiry; run login once with the updated CLI to obtain renewable device
 credentials. Never copy the credential files between machines.
 
+The device refresh credential has no fixed or inactivity expiry. It rotates on
+renewal and can support unattended publishers for years. Renewal checks tunn's
+persistent device and account records, without contacting the identity provider
+used for the original browser login. Provider suspension or an outage therefore
+does not prevent an existing device from renewing. Device revocation, credential
+reuse, or suspension of the tunn account still stops renewal. Keep the login
+database and signing key across node replacements.
+
 Publish build-host's SSH port using the updated binary:
 
 ```sh
@@ -97,9 +105,10 @@ refresh credential.
    sharing the credential file, and browser revocation of a disposable device.
    Include a mixed-case owner in the regression gate, including a device or
    authorized code stored before this fix. Observe publisher renewal without
-   restarting it. Lost committed responses recover for less than 60 seconds;
-   longer outages or crashes may require browser login. A login-node outage
-   beyond the publisher lease closes the tunnel. Keep relay clocks synchronized.
+   restarting it. Lost committed responses recover with the saved request ID
+   until the replacement credential is redeemed, including after long outages
+   or crashes. A login-node outage beyond the publisher lease closes the tunnel.
+   Keep relay clocks synchronized.
 
 Restarting the owning relay drops build-host's publisher control stream and all live
 SSH sessions. The publisher process reconnects afterward when its loaded

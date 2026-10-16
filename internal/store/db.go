@@ -1,7 +1,9 @@
 package store
 
 import (
+	"context"
 	"database/sql"
+	"database/sql/driver"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -79,8 +81,8 @@ func DB() *sql.DB {
 	return globalDB
 }
 
-// InitForTest initializes a disposable database for testing. Its temporary
-// directory is left in os.TempDir for the test runner to clean up after exit.
+// InitForTest initializes a disposable database for testing. Closing the database
+// removes its temporary directory.
 // File backing preserves the schema and fixtures when cancellation causes
 // database/sql to discard and replace a connection.
 func InitForTest() (*sql.DB, error) {
@@ -94,10 +96,14 @@ func InitForTest() (*sql.DB, error) {
 			_ = os.RemoveAll(dir)
 		}
 	}()
-	testDB, err := sql.Open("sqlite", filepath.Join(dir, "test.db"))
+	dsn := "file:" + filepath.Join(dir, "test.db") + "?_pragma=journal_mode(MEMORY)&_pragma=synchronous(OFF)"
+	registeredDB, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}
+	drv := registeredDB.Driver()
+	_ = registeredDB.Close()
+	testDB := sql.OpenDB(&testDBConnector{drv: drv, dsn: dsn, dir: dir})
 	if err := initSchema(testDB); err != nil {
 		_ = testDB.Close()
 		return nil, err
@@ -108,6 +114,23 @@ func InitForTest() (*sql.DB, error) {
 	}
 	initialized = true
 	return testDB, nil
+}
+
+type testDBConnector struct {
+	drv driver.Driver
+	dsn string
+	dir string
+}
+
+func (c *testDBConnector) Connect(context.Context) (driver.Conn, error) {
+	return c.drv.Open(c.dsn)
+}
+
+func (c *testDBConnector) Driver() driver.Driver { return c.drv }
+
+func (c *testDBConnector) Close() error {
+	_ = os.RemoveAll(c.dir)
+	return nil
 }
 
 func initSchema(db *sql.DB) error {

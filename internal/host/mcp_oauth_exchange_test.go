@@ -40,6 +40,7 @@ func TestMCPExchangeProcessHelper(t *testing.T) {
 		t.Fatal(err)
 	}
 	f := newMCPOAuthFixtureWithDB(t, db)
+	prepareMCPAuthorityFixture(t, f)
 	var seconds atomic.Int64
 	initial, _ := strconv.ParseInt(os.Getenv("TUNN_MCP_EXCHANGE_TIME"), 10, 64)
 	seconds.Store(initial)
@@ -572,6 +573,7 @@ func TestMCPExchangePersonRevocationDuringIssuance(t *testing.T) {
 	for _, refresh := range []bool{false, true} {
 		t.Run(fmt.Sprintf("refresh=%t", refresh), func(t *testing.T) {
 			f := newMCPOAuthFixture(t)
+			prepareMCPAuthorityFixture(t, f)
 			_, err := f.p.storage.FindOrCreateByEmails(t.Context(), []string{"guest@example.com"}, "synthetic")
 			if err != nil {
 				t.Fatal(err)

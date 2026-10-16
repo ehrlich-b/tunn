@@ -31,6 +31,7 @@ func TestConnectorJourneyOAuthToolsAndRevocation(t *testing.T) {
 		t.Fatal(err)
 	}
 	f := newMCPOAuthFixtureWithDB(t, db)
+	prepareMCPAuthorityFixture(t, f)
 	t.Setenv("TUNN_MCP_OAUTH_HELPER", "1")
 	bridge, err := mcpbridge.StartStdioHandler(context.Background(), []string{os.Args[0], "-test.run=^TestMCPOAuthStdioHelper$"}, io.Discard, mcpbridge.Options{AllowedTools: []string{"echo"}})
 	if err != nil {

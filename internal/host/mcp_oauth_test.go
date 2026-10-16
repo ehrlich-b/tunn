@@ -117,11 +117,6 @@ func newMCPOAuthFixtureWithDB(t *testing.T, db *sql.DB) *mcpOAuthFixture {
 	p.emailSender = &EmailSender{Host: "unused-in-process-email-fixture"}
 	stream := &meteringFixtureStream{}
 	tunnel := &TunnelConnection{TunnelID: "tools", TargetURL: "mcp", AccountID: owner.ID, CreatorEmail: "owner@example.com", AllowedEmails: []string{"owner@example.com"}, Stream: stream, pendingRequests: make(map[string]chan *pb.HttpResponse)}
-	registered, err := ledger.Sharing(context.Background(), &meterpb.SharingRequest{Operation: "register", Owner: owner.ID, Endpoint: "tools", Mode: "policy-only", InitialEmails: tunnel.AllowedEmails})
-	if err != nil {
-		t.Fatal(err)
-	}
-	tunnel.PolicyResourceID = registered.Resources[0].Id
 	registry.now = p.currentTime
 	p.tunnelServer.tunnels[tunnel.TunnelID] = tunnel
 	fixture := &mcpOAuthFixture{p: p, tunnel: tunnel}
@@ -164,8 +159,21 @@ type specMCPClient struct {
 	query                                                    url.Values
 }
 
+func prepareMCPAuthorityFixture(t *testing.T, f *mcpOAuthFixture) {
+	t.Helper()
+	if f.tunnel.PolicyResourceID != "" {
+		return
+	}
+	registered, err := f.p.sharingBackend().Sharing(t.Context(), &meterpb.SharingRequest{Operation: "register", Owner: f.tunnel.AccountID, Endpoint: f.tunnel.TunnelID, Mode: "policy-only", InitialEmails: f.tunnel.AllowedEmails})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.tunnel.PolicyResourceID = registered.Resources[0].Id
+}
+
 func discoverMCPClient(t *testing.T, f *mcpOAuthFixture) *specMCPClient {
 	t.Helper()
+	prepareMCPAuthorityFixture(t, f)
 	challenge := f.request("POST", "https://tools.tunn.test/mcp", `{}`, "application/json", "", nil)
 	if challenge.Code != 401 {
 		t.Fatalf("challenge: %d %s", challenge.Code, challenge.Body)

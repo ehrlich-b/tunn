@@ -413,3 +413,63 @@ table.log .c4{color:var(--ink);font-weight:700}
 .legal-content p,.legal-content ul{margin-bottom:16px;color:var(--ink2)}
 .legal-content ul{padding-left:24px}
 .legal-content li{margin-bottom:8px}
+
+/* Pricing and docs use the homepage's type, panels and command surfaces. */
+.entry-heading{padding:64px 0 28px;margin:0}
+.entry-heading h1{font-size:40px;line-height:1.15;margin-top:10px}
+.pricing-entry .plan{padding:28px;display:flex;flex-direction:column}
+.pricing-entry .plan-pro{border-color:var(--sig-bg)}
+.pricing-entry .price{margin:28px 0;flex-wrap:wrap;gap:10px}
+.pricing-entry .price b{font-size:48px;letter-spacing:-.04em}
+.pricing-entry .readings{grid-template-columns:1fr 1fr;padding:0}
+.pricing-entry .readings div{padding:16px 0;gap:8px}
+.pricing-entry .readings div+div{border-left:0}
+.pricing-entry .readings div:nth-child(even){padding-left:24px}
+.pricing-entry .readings div:nth-child(n+3){border-top:1px solid var(--plate-lo)}
+.pricing-entry .readings b{font:500 22px/1.2 var(--mono)}
+.pricing-entry .plan-foot{flex-wrap:wrap;margin-top:auto;padding-top:20px;border-top:1px solid var(--plate-lo)}
+.pricing-entry .stopbar{background:var(--plate-hi)}
+.pricing-details{max-width:900px;margin:0 auto}
+.pricing-details h2:first-child{margin-top:0}
+.docs-heading{padding-bottom:32px}
+.docs-heading figure{margin:0}
+.docs-route{display:flex;flex-direction:column;align-items:center;gap:8px;padding:24px 12px;font-size:17px}
+.docs-heading figcaption{margin-top:12px}
+.guide-index{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.guide-link{display:block;padding:22px 24px;text-decoration:none}
+.guide-link:hover{border-color:var(--sig);background:var(--plate-hi)}
+.guide-link h2{margin:8px 0 14px}
+.guide-link code{font-size:13px}
+.guide-arrow{position:absolute;right:22px;top:20px;color:var(--engrave)}
+.quickstart{grid-template-columns:200px minmax(0,1fr);padding-top:56px;scroll-margin-top:24px}
+.quickstart-body{min-width:0}
+.quickstart-body>.section-head h2{font-size:28px;margin-top:10px}
+.quickstart-intro{margin-bottom:24px}
+.quickstart .step>div{min-width:0}
+.quickstart h2[id]{scroll-margin-top:24px}
+.quickstart h3{margin:24px 0 12px}
+.docs-nav-label{padding:22px 10px 6px}
+@media (max-width:760px){
+ .entry-heading{padding:32px 0 24px}
+ .entry-heading h1{font-size:30px}
+ .pricing-entry .plan{padding:22px 18px}
+ .pricing-entry .price{margin:22px 0}
+ .pricing-entry .price b{font-size:40px}
+ .pricing-entry .price .yr{flex-basis:auto;margin-left:auto}
+ .pricing-entry .stopbar{flex-wrap:wrap}
+ .pricing-entry .stopbar p{flex-basis:calc(100% - 32px)}
+ .pricing-entry .stopbar code{margin-left:24px}
+ .docs-heading{padding-bottom:24px}
+ .guide-index{grid-template-columns:1fr;gap:12px}
+ .guide-link{padding:18px}
+ .guide-link h2{margin:6px 0 12px}
+ .quickstart{grid-template-columns:minmax(0,1fr);padding-top:32px;gap:24px}
+ .quickstart .docs-nav{position:static;flex-direction:row;flex-wrap:wrap;padding:8px;gap:4px}
+ .quickstart .docs-nav a{padding:8px;font-size:13px}
+ .quickstart .docs-nav-label{display:none}
+ .quickstart .step{grid-template-columns:24px minmax(0,1fr);gap:8px}
+ .quickstart .cmd{flex-wrap:wrap}
+ .quickstart .cmd .kbd{flex:1 1 100%;font-size:12px}
+ .quickstart .cmd .copy{min-height:36px}
+ .quickstart .step p{font-size:14px}
+}

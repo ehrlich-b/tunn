@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Validate the commands readers copy from the actual pages without logging in,
@@ -18,9 +19,10 @@ func TestDistributionCLICommands(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Read both traditional code blocks and individually copyable commands.
-	blocks := regexp.MustCompile(`(?s)(?:<pre(?:\s[^>]*)?><code>|<code class="kbd"[^>]*>)(.*?)</code>`)
-	argumentSpans := regexp.MustCompile(`</?span\b[^>]*>`)
+	files = append(files, "internal/host/templates/docs.html", "internal/host/templates/pricing.html")
+	// Read code blocks, inline commands and individually copyable commands.
+	blocks := regexp.MustCompile(`(?s)(?:<pre(?:\s[^>]*)?>|<code(?:\s[^>]*)?>)(.*?)(?:</pre>|</code>)`)
+	tags := regexp.MustCompile(`<[^>]*>`)
 	var checked int
 	for _, file := range files {
 		data, err := os.ReadFile(file)
@@ -29,8 +31,9 @@ func TestDistributionCLICommands(t *testing.T) {
 		}
 		for _, block := range blocks.FindAllStringSubmatch(string(data), -1) {
 			// Parse shell quoting and continuations without executing examples.
-			source := strings.ReplaceAll(html.UnescapeString(argumentSpans.ReplaceAllString(block[1], "")), "\\\n", "")
+			source := strings.ReplaceAll(html.UnescapeString(tags.ReplaceAllString(block[1], "")), "\\\n", "")
 			for _, line := range strings.Split(source, "\n") {
+				line = strings.TrimPrefix(strings.TrimSpace(line), "$ ")
 				if !strings.HasPrefix(strings.TrimSpace(line), "tunn ") {
 					continue
 				}
@@ -50,6 +53,10 @@ func TestDistributionCLICommands(t *testing.T) {
 					if len(args) != 2 {
 						t.Errorf("unexpected login arguments: %s", line)
 					}
+				case "usage":
+					if _, err := parseMeteringOptions("usage", args[2:], time.Now()); err != nil {
+						t.Errorf("%s: %s: %v", file, line, err)
+					}
 				case "connector-check":
 					if _, err := parseConnectorCheckFlags(args[2:]); err != nil {
 						t.Errorf("%s: %s: %v", file, line, err)
@@ -66,6 +73,7 @@ func TestDistributionCLICommands(t *testing.T) {
 						t.Errorf("%s: %s: %v", file, line, err)
 					}
 				}
+				t.Logf("%s: %s", filepath.Base(file), line)
 				checked++
 			}
 		}

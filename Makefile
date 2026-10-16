@@ -309,10 +309,14 @@ cert-renew:
 
 cert-install-schedule:
 	@mkdir -p "$(HOME)/Library/LaunchAgents" "$(HOME)/.config/tunn"
-	@umask 077; python3 scripts/cert-renewal-plist.py > "$(HOME)/Library/LaunchAgents/com.ehrlich.tunn-cert-renewal.plist"
+	@umask 077; python3 scripts/cert-renewal-plist.py --install
 	@launchctl bootout "gui/$$(id -u)/com.ehrlich.tunn-cert-renewal" >/dev/null 2>&1 || true
 	@launchctl bootstrap "gui/$$(id -u)" "$(HOME)/Library/LaunchAgents/com.ehrlich.tunn-cert-renewal.plist"
 	@echo "Installed daily certificate renewal check."
+
+.PHONY: test-cert-renewal-schedule
+test-cert-renewal-schedule:
+	python3 scripts/test_cert_renewal_schedule.py
 
 # Create certs directory structure
 certs-dir:

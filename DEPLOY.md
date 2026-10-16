@@ -44,3 +44,6 @@ After configuring renewal credentials, `make cert-install-schedule` renders a
 private launchd job using the current checkout and your home directory. Keep
 that checkout in place while the job is installed. The daily job runs
 `renew-certs.sh`, which renews and publishes the certificate for that deployment.
+The job is validated and installed atomically with mode 0600; a failed render
+leaves the previous definition in place, and installation replaces any symlink
+at the destination without changing its target.

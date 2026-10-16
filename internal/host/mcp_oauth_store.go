@@ -90,6 +90,9 @@ func newMCPOAuthStore(db *sql.DB) (*mcpOAuthStore, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := migrateMCPRefreshStore(db); err != nil {
+		return nil, err
+	}
 	return &mcpOAuthStore{db: db}, nil
 }
 

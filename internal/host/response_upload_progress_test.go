@@ -134,9 +134,11 @@ func TestHTTPFidelityCompletedResponseWithOpenWireUpload(t *testing.T) {
 			waitResponseSignal(t, returned)
 			if tunnel != nil {
 				assertUploadResponseCleanup(t, tunnel, closes)
-				// Interrupting HTTP/1 input can cancel the request before Read
-				// returns, so handler return alone is not a reader barrier.
-				waitResponseSignal(t, upload.readStopped)
+				select {
+				case <-upload.readStopped:
+				default:
+					t.Error("handler returned before the wire upload Read stopped")
+				}
 				if upload.closes.Load() != 1 {
 					t.Errorf("upload body closes=%d", upload.closes.Load())
 				}

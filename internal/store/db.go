@@ -79,19 +79,34 @@ func DB() *sql.DB {
 	return globalDB
 }
 
-// InitForTest initializes an in-memory database for testing
+// InitForTest initializes a disposable database for testing. Its temporary
+// directory is left in os.TempDir for the test runner to clean up after exit.
+// File backing preserves the schema and fixtures when cancellation causes
+// database/sql to discard and replace a connection.
 func InitForTest() (*sql.DB, error) {
-	testDB, err := sql.Open("sqlite", ":memory:")
+	dir, err := os.MkdirTemp("", "tunn-test-db-")
+	if err != nil {
+		return nil, err
+	}
+	initialized := false
+	defer func() {
+		if !initialized {
+			_ = os.RemoveAll(dir)
+		}
+	}()
+	testDB, err := sql.Open("sqlite", filepath.Join(dir, "test.db"))
 	if err != nil {
 		return nil, err
 	}
 	if err := initSchema(testDB); err != nil {
+		_ = testDB.Close()
 		return nil, err
 	}
 	if _, err := testDB.Exec(`CREATE TABLE ops_fixture(id INTEGER PRIMARY KEY,value TEXT); INSERT INTO ops_fixture VALUES(1,'disposable-local')`); err != nil {
 		_ = testDB.Close()
 		return nil, err
 	}
+	initialized = true
 	return testDB, nil
 }
 

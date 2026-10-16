@@ -289,7 +289,7 @@ func (s *durableControlStream) Send(m *pb.TunnelMessage) error {
 	}
 }
 
-func TestDurablePublisherSurvivesTwoYearsWithoutIdentityProvider(t *testing.T) {
+func TestDurablePublisherSurvives48HoursWithoutIdentityProvider(t *testing.T) {
 	p := durableFixture(t)
 	var seconds atomic.Int64
 	seconds.Store(time.Now().Unix())
@@ -321,7 +321,7 @@ func TestDurablePublisherSurvivesTwoYearsWithoutIdentityProvider(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const lifetime = 2 * 365 * 24 * time.Hour
+	const lifetime = 48 * time.Hour
 	const interval = 4 * time.Minute
 	for step := 0; step < int(lifetime/interval); step++ {
 		seconds.Add(240)

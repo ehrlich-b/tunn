@@ -175,44 +175,137 @@ func TestDurableLoginAndLegacyReplacement(t *testing.T) {
 type durableLeaseSender struct{ sent func(*pb.TunnelMessage) error }
 
 func (s durableLeaseSender) Send(m *pb.TunnelMessage) error { return s.sent(m) }
-func TestDurableClientPublisherRefreshesFor48Hours(t *testing.T) {
+
+// Value copies preserve the distinction between pending and committed state.
+// Real-file atomicity and cross-process locking have separate regression tests.
+type memoryCredentialPersistence struct {
+	state   savedCredentials
+	mirrors int
+}
+
+func (s *memoryCredentialPersistence) lock(context.Context, string) (func(), error) {
+	return func() {}, nil
+}
+func (s *memoryCredentialPersistence) read(string) (*savedCredentials, error) {
+	state := s.state
+	return &state, nil
+}
+func (s *memoryCredentialPersistence) write(_ string, state *savedCredentials) error {
+	s.state = *state
+	return nil
+}
+func (s *memoryCredentialPersistence) mirror(_, token string) error {
+	if token != s.state.Access || s.state.Pending != "" {
+		return fmt.Errorf("mirrored uncommitted credentials")
+	}
+	s.mirrors++
+	return nil
+}
+
+func TestDurableClientPublisherRefreshesForTwoYearsWithoutIdentityProvider(t *testing.T) {
 	m, state := credentialFixture(t)
 	var seconds atomic.Int64
 	seconds.Store(time.Now().Unix())
 	clock := func() time.Time { return time.Unix(seconds.Load(), 0) }
 	m.Now = clock
-	state.Expires = clock().Add(300 * time.Second)
+	var providerUnavailable, authorized, revoked atomic.Bool
+	var providerCalls, rotations atomic.Int64
+	currentRefresh := state.Refresh
+	lastRequest := ""
+	m.HTTPClient = &http.Client{Transport: meteringTransportFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Host == "identity.test" {
+			providerCalls.Add(1)
+			if providerUnavailable.Load() {
+				return &http.Response{StatusCode: 503, Body: io.NopCloser(strings.NewReader("provider unavailable"))}, nil
+			}
+			authorized.Store(true)
+			return loginJSON(map[string]bool{"authorized": true}), nil
+		}
+		if r.URL.Host != "relay.test" {
+			return nil, fmt.Errorf("unexpected external request: %s", r.URL)
+		}
+		switch r.URL.Path {
+		case "/api/device/code":
+			return loginJSON(DeviceCodeResponse{DeviceCode: "fixture-code", UserCode: "ABC-123", VerificationURIComplete: "https://relay.test/login?code=ABC-123", ExpiresIn: 600, Interval: 1}), nil
+		case "/api/device/token":
+			if !authorized.Load() || r.URL.Query().Get("durable") != "1" {
+				return nil, fmt.Errorf("device login was not authorized")
+			}
+			return refreshFixtureResponse(r, state.Access, state.Refresh), nil
+		case "/api/device/refresh":
+			if revoked.Load() {
+				return &http.Response{StatusCode: 401, Body: io.NopCloser(strings.NewReader("revoked"))}, nil
+			}
+			var input struct {
+				Refresh string `json:"refresh_token"`
+				Request string `json:"request_id"`
+			}
+			if json.NewDecoder(r.Body).Decode(&input) != nil || input.Refresh != currentRefresh || len(input.Request) < 32 || input.Request == lastRequest {
+				return nil, fmt.Errorf("client did not rotate its saved credential and request ID")
+			}
+			lastRequest = input.Request
+			n := rotations.Add(1)
+			currentRefresh = fmt.Sprintf("refresh-%d", n)
+			return refreshFixtureResponse(r, fmt.Sprintf("access-%d", n), currentRefresh), nil
+		default:
+			return nil, fmt.Errorf("unexpected relay request: %s", r.URL)
+		}
+	})}
+	login := &LoginClient{ServerAddr: "relay.test", HTTPClient: m.HTTPClient, Output: io.Discard, OpenBrowser: func(string) {
+		response, err := m.HTTPClient.Get("https://identity.test/authorize")
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = response.Body.Close()
+	}}
+	if err := login.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	providerUnavailable.Store(true)
+	response, err := m.HTTPClient.Get("https://identity.test/authorize")
+	if err != nil || response.StatusCode != 503 {
+		t.Fatal("provider outage fixture did not reject a new login", err)
+	}
+	_ = response.Body.Close()
+	providerCalls.Store(0)
+	state, err = readCredentialState(m.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.Expires = clock().Add(5 * time.Minute)
 	if err := saveCredentialState(m.path, state); err != nil {
 		t.Fatal(err)
 	}
-	var rotations atomic.Int64
-	m.HTTPClient = &http.Client{Transport: meteringTransportFunc(func(r *http.Request) (*http.Response, error) {
-		n := rotations.Add(1)
-		return refreshFixtureResponse(r, fmt.Sprintf("access-%d", n), fmt.Sprintf("refresh-%d", n)), nil
-	})}
-	ctx, cancel := context.WithCancel(context.Background())
+	persistence := &memoryCredentialPersistence{state: *state}
+	m.persistence = persistence
+	const lifetime = 2 * 365 * 24 * time.Hour
+	const interval = 4 * time.Minute
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	var renewals int
 	sender := durableLeaseSender{sent: func(msg *pb.TunnelMessage) error {
 		reg := msg.GetRegisterClient()
-		if reg == nil || reg.AuthToken == "" || reg.TunnelId != "" {
-			t.Error("renewal mutated tunnel registration")
+		if reg == nil || reg.AuthToken != fmt.Sprintf("access-%d", renewals+1) || reg.TunnelId != "" {
+			t.Error("renewal mutated tunnel registration or reused the old access token")
 		}
 		renewals++
-		seconds.Add(240)
-		if renewals == 720 {
-			cancel()
+		seconds.Add(int64(interval / time.Second))
+		if renewals == int(lifetime/interval) {
+			revoked.Store(true)
 		}
 		return nil
 	}}
-	seconds.Add(240)
+	seconds.Add(int64(interval / time.Second))
 	publisher := &ServeClient{Credentials: m}
-	if err := publisher.maintainDeviceLease(ctx, sender, state.Access, time.Millisecond); err != nil {
-		t.Fatal(err)
+	// Advance the credential clock on each renewal while polling immediately;
+	// no two-year wall-clock wait or production interval change is needed.
+	if err := publisher.maintainDeviceLease(ctx, sender, state.Access, time.Nanosecond); err == nil || !LoginRequired(err) {
+		t.Fatal("revocation did not end the running publisher promptly", err)
 	}
-	if renewals != 720 || rotations.Load() != 720 {
-		t.Fatal("publisher stopped renewing", renewals)
+	if renewals != int(lifetime/interval) || rotations.Load() != int64(lifetime/interval) || providerCalls.Load() != 0 || persistence.mirrors != renewals {
+		t.Fatal("publisher stopped renewing or contacted its original provider", renewals, rotations.Load(), providerCalls.Load())
 	}
+	t.Logf("publisher rotated and sent %d access tokens over %s without the original provider, then stopped on revocation", renewals, lifetime)
 }
 func TestDurableConnect401RetriesBeforeReadingSSH(t *testing.T) {
 	m, state := credentialFixture(t)

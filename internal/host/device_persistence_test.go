@@ -178,3 +178,29 @@ func TestDurableClientRecoversAfterLoginAndRelayRestart(t *testing.T) {
 	}
 	t.Log("client recovered a lost committed rotation after a 72-hour outage, reopened login database and replacement resource relay; revocation requires login")
 }
+
+// The fast client lifetime test exercises every renewal. Check the production
+// issuer's age decisions separately with real SQLite and a real provider login.
+func TestDurableDeviceRenewsAfterTwoYearsWithoutIdentityProvider(t *testing.T) {
+	p := durableFixture(t)
+	now := time.Now().Truncate(time.Second)
+	p.now = func() time.Time { return now }
+	token := durableProviderLogin(t, p)
+	for year := 1; year <= 2; year++ {
+		now = now.Add(365 * 24 * time.Hour)
+		response, next := durableRefresh(p, token.Refresh, fmt.Sprintf("%043d", year))
+		if response.Code != 200 || next.Device != token.Device || next.Refresh == token.Refresh {
+			t.Fatal("device stopped renewing with age", year, response.Code)
+		}
+		if _, _, _, err := parseDeviceToken(next.Access, p.getJWTSigningKey(), now); err != nil {
+			t.Fatal("issuer returned an invalid access token", err)
+		}
+		token = next
+	}
+	if _, err := p.devices.db.Exec(`UPDATE durable_devices SET revoked=? WHERE id=?`, now.Unix(), token.Device); err != nil {
+		t.Fatal(err)
+	}
+	if response, _ := durableRefresh(p, token.Refresh, "revoked-device-request-identifier"); response.Code != 401 {
+		t.Fatal("two-year-old revoked device still refreshed", response.Code)
+	}
+}

@@ -8,7 +8,11 @@ import (
 )
 
 func TestInitForTestEscapesTemporaryPath(t *testing.T) {
-	tmpDir := filepath.Join(t.TempDir(), "uri#valid?percent%25")
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpDir := filepath.Join(base, "uri#valid?percent%25")
 	if err := os.Mkdir(tmpDir, 0700); err != nil {
 		t.Fatal(err)
 	}

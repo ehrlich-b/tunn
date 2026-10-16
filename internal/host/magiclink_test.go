@@ -20,6 +20,7 @@ func newMagicLinkServerWithStorage(t *testing.T, secret string) (*ProxyServer, *
 	if err != nil {
 		t.Fatalf("store.InitForTest: %v", err)
 	}
+	t.Cleanup(func() { _ = db.Close() })
 	s := storage.NewLocalStorage(db)
 	p := &ProxyServer{
 		config:  &config.Config{JWTSecret: secret},

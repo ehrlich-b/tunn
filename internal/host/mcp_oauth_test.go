@@ -88,6 +88,7 @@ func newMCPOAuthFixture(t *testing.T) *mcpOAuthFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = db.Close() })
 	return newMCPOAuthFixtureWithDB(t, db)
 }
 

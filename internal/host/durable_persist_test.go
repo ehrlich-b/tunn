@@ -162,6 +162,7 @@ func TestDogfoodPublisherPersistsSevenDays(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = db.Close() })
 	var seconds atomic.Int64
 	seconds.Store(time.Now().Unix())
 	clock := func() time.Time { return time.Unix(seconds.Load(), 0) }

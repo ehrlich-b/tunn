@@ -1050,10 +1050,10 @@ func runServe(args []string) {
 				output.State("stopped", "Canceled", "", "", 0)
 				return
 			}
-			if client.RetryableCredentialError(err) {
-				output.State("offline", "Cannot reach tunn", "Login server unavailable. Restore your connection, then retry.", relayCheck(cfg.ServerAddr), 0)
+			if loginRelayFailure(err) {
+				output.State("offline", "Cannot reach tunn", relayCause(err)+". "+relayRecovery(err)+".", relayCheck(cfg.ServerAddr), 0)
 			} else {
-				output.State("auth_expired", "Sign in to start a tunnel", loginCause(err), loginCommand(), 0)
+				output.State("error", "Sign in to start a tunnel", loginCause(err), loginCommand(), 0)
 			}
 			os.Exit(1)
 		}

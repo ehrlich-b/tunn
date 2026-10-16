@@ -136,6 +136,16 @@ func (l *LoginClient) Run(ctx context.Context) error {
 	return nil
 }
 
+// DeviceCodeHTTPError retains the HTTP status for login failure guidance.
+type DeviceCodeHTTPError struct {
+	StatusCode int
+	body       string
+}
+
+func (e *DeviceCodeHTTPError) Error() string {
+	return fmt.Sprintf("request returned status %d: %s", e.StatusCode, e.body)
+}
+
 // requestDeviceCode requests a device code from the server
 func (l *LoginClient) requestDeviceCode(ctx context.Context) (*DeviceCodeResponse, error) {
 	purpose := "publisher"
@@ -158,7 +168,7 @@ func (l *LoginClient) requestDeviceCode(ctx context.Context) (*DeviceCodeRespons
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("request returned status %d: %s", resp.StatusCode, string(body))
+		return nil, &DeviceCodeHTTPError{StatusCode: resp.StatusCode, body: string(body)}
 	}
 
 	var deviceResp DeviceCodeResponse

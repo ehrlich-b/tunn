@@ -89,7 +89,7 @@ Global options go before the command
 }
 
 func shellURL(value string) string {
-	if strings.ContainsAny(value, " \\;&|$`'\"()<>\t\r\n") {
+	if strings.ContainsAny(value, " \\;&|$`'\"()<>[]*?{}~#\t\r\n") {
 		return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 	}
 	return value
@@ -148,7 +148,18 @@ func loginCause(err error) string {
 	if errors.Is(err, client.ErrNotLoggedIn) {
 		return "No saved login on this machine"
 	}
-	return "Login expired or revoked"
+	if client.LoginRequired(err) || client.AuthenticationFailure(err) {
+		return "Login expired or revoked"
+	}
+	return "Sign-in failed"
+}
+
+func loginRelayFailure(err error) bool {
+	var network net.Error
+	var response *client.DeviceCodeHTTPError
+	return client.RetryableCredentialError(err) || errors.As(err, &network) ||
+		errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, context.DeadlineExceeded) ||
+		(errors.As(err, &response) && response.StatusCode >= 500 && response.StatusCode <= 599)
 }
 func showHTTPLoginRequired(o *terminal.Output, err error) bool {
 	if !client.LoginRequired(err) {

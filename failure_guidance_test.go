@@ -520,3 +520,118 @@ func TestRefusedInventoryKeepsInvocationAndConfig(t *testing.T) {
 		}
 	}
 }
+
+func TestHTTPFirstRunLoginFailures(t *testing.T) {
+	if os.Getenv("TUNN_GUIDANCE_ENROLL_CHILD") == "1" {
+		if !stdinIsTerminal() {
+			t.Fatal("first-run enrollment needs terminal stdin")
+		}
+		os.Args = []string{"tunn", "--verbosity", "none", "--insecure", "http", "3000"}
+		main()
+		return
+	}
+	script, err := exec.LookPath("script")
+	if err != nil {
+		t.Skip("script is required for terminal stdin")
+	}
+	for _, code := range []int{0, 500, 502, 503, 504, 400, 401} {
+		t.Run(fmt.Sprint(code), func(t *testing.T) {
+			relay := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodPost || r.URL.Path != "/api/device/code" {
+					t.Error("wrong enrollment request", r.Method, r.URL.Path)
+				}
+				w.WriteHeader(code)
+				fmt.Fprint(w, "synthetic-token")
+			}))
+			defer relay.Close()
+			address := strings.TrimPrefix(relay.URL, "https://")
+			if code == 0 {
+				relay.Close() // No saved login, and a real refused loopback connection.
+			}
+			home := t.TempDir()
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			cmd := exec.CommandContext(ctx, script, "-qefc", shellURL(os.Args[0])+" -test.run=^TestHTTPFirstRunLoginFailures$", "/dev/null")
+			cmd.Env = append(os.Environ(), "HOME="+home, "TUNN_CONFIG_DIR="+filepath.Join(home, ".tunn"), "TUNN_GUIDANCE_ENROLL_CHILD=1", "TUNN_ENV=dev", "TUNN_PUBLIC_MODE=false", "TUNN_SECRET=", "TUNN_SERVER_ADDR="+address, "NO_COLOR=1")
+			data, err := cmd.CombinedOutput()
+			var exit *exec.ExitError
+			if !errors.As(err, &exit) || exit.ExitCode() != 1 {
+				t.Fatalf("exit %v, output %s", err, data)
+			}
+			text := string(data)
+			want := "curl --connect-timeout 5 -I https://" + address
+			cause := "Relay connection failed. Restore your connection."
+			if code == 0 {
+				cause = "Relay connection refused. Relay is down or the address is wrong."
+			} else if code < 500 {
+				cause = "Sign-in failed"
+				want = "TUNN_CONFIG_DIR=" + filepath.Join(home, ".tunn") + " tunn login"
+			}
+			if !strings.Contains(text, cause) || strings.Count(text, want) != 1 || strings.Contains(text, "expired or revoked") || strings.Contains(text, "synthetic-token") {
+				t.Fatalf("wrong first-run recovery: %s", text)
+			}
+		})
+	}
+}
+
+func TestEnrollmentNetworkClassification(t *testing.T) {
+	for _, err := range []error{
+		fmt.Errorf("device code: %w", &net.DNSError{Err: "synthetic-token", Name: "relay.example"}),
+		fmt.Errorf("device code: %w", context.DeadlineExceeded),
+		fmt.Errorf("device code: %w", &net.OpError{Op: "dial", Err: syscall.ECONNREFUSED}),
+	} {
+		if !loginRelayFailure(err) || loginCause(err) != "Sign-in failed" {
+			t.Fatalf("network enrollment error treated as rejected login: %v", err)
+		}
+	}
+	if loginRelayFailure(errors.New("invalid device code response")) || loginCause(client.ErrNotLoggedIn) != "No saved login on this machine" || loginCause(status.Error(codes.Unauthenticated, "synthetic-token")) != "Login expired or revoked" {
+		t.Fatal("login failure causes changed")
+	}
+}
+
+func TestInventoryRetryQuotesShellCharactersAndKeepsInsecure(t *testing.T) {
+	t.Setenv("TUNN_ENV", "dev")
+	previous := *insecure
+	t.Cleanup(func() { *insecure = previous })
+	relay := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer relay.Close()
+	manifest := guidanceManifest(t, strings.TrimPrefix(relay.URL, "https://"))
+	data, err := os.ReadFile(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Only the global flag permits TLS to this synthetic relay.
+	data = bytes.ReplaceAll(data, []byte("insecure: true"), []byte("insecure: false"))
+	for _, name := range []string{"host[1].yaml", "host].yaml", "host*.yaml", "host?.yaml", "host{a,b}.yaml", "~host.yaml", "#host.yaml", "host's.yaml"} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(filepath.Dir(manifest), name)
+			if err := os.WriteFile(path, data, 0600); err != nil {
+				t.Fatal(err)
+			}
+			for _, command := range []string{"hosts", "list", "status"} {
+				for _, machine := range []bool{false, true} {
+					*insecure = true
+					args := []string{"--config", path}
+					want := "tunn --insecure " + command + " --config '" + strings.ReplaceAll(path, "'", "'\\''") + "'"
+					if machine {
+						args = append(args, "--json")
+						want += " --json"
+					}
+					var out, errout bytes.Buffer
+					err := hostCommand(context.Background(), command, args, &out, &errout)
+					writeHostError(&out, &errout, err, args)
+					if machine {
+						e := decodeFailure(t, errout.String())
+						if e.NextAction != want || e.HTTPStatus != 503 {
+							t.Fatal(e)
+						}
+					} else if strings.Count(errout.String(), want) != 1 {
+						t.Fatal(errout.String())
+					}
+				}
+			}
+		})
+	}
+}

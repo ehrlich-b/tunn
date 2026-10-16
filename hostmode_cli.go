@@ -191,7 +191,11 @@ func hostCommand(ctx context.Context, command string, args []string, out, errout
 	}
 	api := hostmode.API{Server: server, Token: token, Insecure: c.Insecure || *insecure}
 	if command == "hosts" {
-		retry := "tunn " + invoked
+		retry := "tunn "
+		if *insecure {
+			retry += "--insecure "
+		}
+		retry += invoked
 		fs.Visit(func(f *flag.Flag) {
 			if f.Name == "config" {
 				retry += " --config " + shellURL(*path)

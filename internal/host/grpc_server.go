@@ -675,7 +675,9 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 			result, err := s.sharing.Sharing(stream.Context(), &meterpb.SharingRequest{Operation: "register", Owner: accountID, Endpoint: tunnelID, Mode: mode, InitialEmails: allowedEmails})
 			if err != nil || result == nil || len(result.Resources) != 1 {
 				if registeredWithStorage {
-					_ = s.storage.UnregisterTunnel(stream.Context(), tunnelID)
+					ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+					defer cancel()
+					_ = s.storage.UnregisterTunnel(ctx, tunnelID)
 				}
 				return rejectTunnelRegistration(stream, "Web permission authority unavailable.")
 			}
@@ -689,7 +691,9 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		result, err := s.sharing.Sharing(stream.Context(), &meterpb.SharingRequest{Operation: "register", Owner: accountID, Endpoint: tunnelID, Mode: "policy-only"})
 		if err != nil || result == nil || len(result.Resources) != 1 {
 			if registeredWithStorage {
-				_ = s.storage.UnregisterTunnel(stream.Context(), tunnelID)
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				_ = s.storage.UnregisterTunnel(ctx, tunnelID)
 			}
 			return rejectTunnelRegistration(stream, "Endpoint policy authority unavailable.")
 		}
@@ -702,7 +706,9 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		s.mu.Unlock()
 		// Unregister from storage if we registered
 		if registeredWithStorage && s.storage != nil {
-			if err := s.storage.UnregisterTunnel(stream.Context(), tunnelID); err != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if err := s.storage.UnregisterTunnel(ctx, tunnelID); err != nil {
 				common.LogError("failed to unregister duplicate tunnel", "tunnel_id", tunnelID, "error", err)
 			}
 		}

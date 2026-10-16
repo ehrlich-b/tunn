@@ -99,7 +99,7 @@ func TestPublishedTunnelOwnerSurvivesPrimarySwitch(t *testing.T) {
 			}
 			watched, stop := p.watchWebPermission(httptest.NewRequest("GET", "https://primary-switch.tunn.test/events", nil), tunnel, bucket, false)
 			defer stop()
-			if _, err := p.storage.(storage.AccountEmailStorage).MutateAccountEmail(ctx, owner.ID, "new-primary@example.com", "link"); err != nil {
+			if _, err := p.storage.(storage.AccountEmailStorage).LinkAccountEmail(ctx, owner.ID, "new-primary@example.com", "primary-switch-link", time.Now().Add(time.Minute)); err != nil {
 				t.Fatal(err)
 			}
 			changed := emailAction(t, f, oldSession, url.Values{"action": {"primary"}, "email": {"new-primary@example.com"}})

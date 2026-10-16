@@ -3,6 +3,7 @@ package terminal
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/ehrlich-b/tunn/internal/inspection"
 	"strings"
 	"testing"
 	"time"
@@ -177,5 +178,35 @@ func TestWrapKeepsWordsWhole(t *testing.T) {
 	lines := Wrap("Private by default; visitors use tunn connect.", 39, 2)
 	if len(lines) != 2 || lines[0] != "Private by default; visitors use tunn" || lines[1] != "  connect." {
 		t.Fatal(lines)
+	}
+}
+
+func TestRequestTimingLiveOutput(t *testing.T) {
+	for _, jsonOutput := range []bool{false, true} {
+		var out, errout bytes.Buffer
+		o := New(&out, &errout, jsonOutput)
+		o.TTY = true
+		o.Width = 40
+		o.Request(Event{Method: "GET", Path: "/slow", Status: 200, Timing: inspection.NewTiming(2600000, 2600000, 2640000, 2640000)})
+		if jsonOutput {
+			var event Event
+			if err := json.Unmarshal(out.Bytes(), &event); err != nil {
+				t.Fatal(err)
+			}
+			if event.Timing == nil || event.Timing.SlowSide != "app" {
+				t.Fatal(out.String())
+			}
+		} else {
+			for _, want := range []string{"app 2.6 s", "tunnel 40.0 ms", "app TTFB", "tunnel TTFB", "slow: app"} {
+				if !strings.Contains(strings.Join(strings.Fields(out.String()), " "), want) {
+					t.Fatalf("missing %q: %s", want, out.String())
+				}
+			}
+			for _, line := range strings.Split(out.String(), "\n") {
+				if cells(line) > 40 {
+					t.Fatalf("overflow: %s", line)
+				}
+			}
+		}
 	}
 }

@@ -208,3 +208,37 @@ App device credentials and pairing invitation secrets are suppressed by the
 shared inspection filter, including opt-in local body capture. They cannot be
 supplied as reconstructed replay inputs. Relay hops preserve explicit credential
 precedence even when a request nominates authentication fields in `Connection`.
+
+## Is it my app or the tunnel?
+
+The live request view and both inspectors show `app 2.6 s · tunnel 40 ms`,
+plus app and tunnel TTFB (time to first response byte). App time starts after
+the publisher has fully sent the request to your origin and includes waiting
+for and reading the response. Time blocked sending response chunks to the relay
+is excluded. Tunnel time is relay elapsed time minus that app time; it includes
+transport, connection setup, request upload, queues and waiting for the visitor
+to read. It is not a pure network latency measurement. TTFB uses the same split, through the origin's first response byte
+and the relay's receipt of response headers. These clocks measure durations;
+the machines do not need synchronized clocks. The split covers streamed
+forwarding, after access and quota checks; it excludes browser-to-relay latency.
+
+A side taking at least one second is marked `slow: app`, `slow: tunnel`, or
+`slow: app and tunnel`. For a slow app, check the handler and its dependencies.
+For a slow tunnel, compare a direct request with the same response size and
+check the publisher's connection and the visitor's download speed. Large
+responses can take time even when TTFB is fast.
+
+Timing appears after the request finishes. Old publishers or relays, interrupted
+requests, and local replays can show `Timing unavailable`; that does not mean
+zero overhead. Upgrade both ends for the split. The publisher waits up to
+three seconds after origin EOF for relay timing, then records it as unavailable.
+This does not end the visitor response; check the web inspector after it completes.
+SSE timing appears at EOF.
+WebSocket and TCP timing is not split. tunn adds no `Server-Timing` header;
+these measurements stay with the publisher and authenticated owner inspector.
+
+Run `make test-request-timing` for a local TLS/gRPC relay, publisher and delayed
+origin. It reports paired direct-versus-tunnel p50/p95 overhead for 1 KB,
+300 KB, 3 MB, and eight parallel 300 KB requests. Each request has a ten-second
+deadline and its full byte count is checked. Loopback numbers do not measure
+internet latency. Scheduling noise can make paired overhead negative.

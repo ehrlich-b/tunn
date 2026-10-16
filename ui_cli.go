@@ -377,7 +377,7 @@ func attachCLI(ctx context.Context, s *client.ServeClient, o *terminal.Output, v
 		if e.Status == 413 {
 			message = "Body rejected; edge limit is 100 MiB"
 		}
-		o.Request(terminal.Event{At: e.At.Format(time.RFC3339Nano), Method: e.Method, Path: e.Path, Status: e.Status, DurationMS: e.DurationMS, RequestBytes: e.RequestBytes, ResponseBytes: e.ResponseBytes, ActiveStreams: m.ActiveStreams, State: state, Message: message})
+		o.Request(terminal.Event{At: e.At.Format(time.RFC3339Nano), Method: e.Method, Path: e.Path, Status: e.Status, DurationMS: e.DurationMS, Timing: e.Timing, RequestBytes: e.RequestBytes, ResponseBytes: e.ResponseBytes, ActiveStreams: m.ActiveStreams, State: state, Message: message})
 	}
 	go func() {
 		ticker := time.NewTicker(15 * time.Second)

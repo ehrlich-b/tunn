@@ -45,6 +45,7 @@ func NewHistory() (*History, error) {
 func (h *History) Session() string { return h.session }
 
 func clone(event Event) Event {
+	event.Timing = event.Timing.Clone()
 	event.Body = nil
 	event.BodyCaptured = false
 	event.Headers = make(map[string]string, len(event.Headers))
@@ -181,6 +182,14 @@ func (c *Capture) RequestRead(n int, err error) {
 	}
 	c.event.Truncated = c.event.RequestBytes > BodyLimit
 }
+func (c *Capture) SetTiming(timing *Timing) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.finished {
+		c.event.Timing = timing.Clone()
+	}
+}
+
 func (c *Capture) ResponseWrite(n int) {
 	c.mu.Lock()
 	if !c.finished {

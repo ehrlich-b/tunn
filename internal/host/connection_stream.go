@@ -12,14 +12,16 @@ import (
 )
 
 type connectionEvent struct {
-	accept    *pb.ConnectionAccept
-	data      []byte
-	halfClose bool
-	trailers  []*pb.HttpHeader
-	close     *pb.ConnectionClose
+	accept        *pb.ConnectionAccept
+	data          []byte
+	halfClose     bool
+	trailers      []*pb.HttpHeader
+	originTotalUS int64
+	close         *pb.ConnectionClose
 }
 
 type pendingConnection struct {
+	timing       *pb.RequestTiming // Owned only by the HTTP response goroutine.
 	events       chan connectionEvent
 	done         chan struct{}
 	closeOnce    sync.Once
@@ -44,7 +46,7 @@ func connectionMessageID(msg *pb.TunnelMessage) (string, connectionEvent) {
 	case *pb.TunnelMessage_ConnectionData:
 		return message.ConnectionData.ConnectionId, connectionEvent{data: message.ConnectionData.Data}
 	case *pb.TunnelMessage_ConnectionHalfClose:
-		return message.ConnectionHalfClose.ConnectionId, connectionEvent{halfClose: true, trailers: message.ConnectionHalfClose.Trailers}
+		return message.ConnectionHalfClose.ConnectionId, connectionEvent{halfClose: true, trailers: message.ConnectionHalfClose.Trailers, originTotalUS: message.ConnectionHalfClose.OriginTotalUs}
 	case *pb.TunnelMessage_ConnectionClose:
 		return message.ConnectionClose.ConnectionId, connectionEvent{close: message.ConnectionClose}
 	default:

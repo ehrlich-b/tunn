@@ -739,3 +739,8 @@ check-downloads:
 
 test-deploy-guard:
 	nice -n 10 go test -p 2 ./internal/downloads ./cmd/check-downloads -run "Staged|DeployGuard" -count=1
+
+# Loopback TLS/gRPC relay, publisher, delayed origin and paired latency samples.
+.PHONY: test-request-timing
+test-request-timing:
+	go test $(GO_TEST_FLAGS) -p 2 -count=1 -v -timeout=2m -run '^TestRequestTiming' ./internal/inspection ./internal/client ./internal/host ./internal/terminal

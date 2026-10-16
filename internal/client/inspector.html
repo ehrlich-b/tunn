@@ -22,6 +22,11 @@ async function api(path,options={}){
  if(!response.ok)throw new Error(await response.text());
  return response.json();
 }
+function timingText(e){
+ const t=e.timing;if(!t)return 'Timing unavailable';
+ const ms=n=>n>=1000?(n/1000).toFixed(1)+' s':n.toFixed(1)+' ms';
+ return 'app '+ms(t.origin_total_ms)+' · tunnel '+ms(t.tunnel_total_ms)+' · app TTFB '+ms(t.origin_ttfb_ms)+' · tunnel TTFB '+ms(t.tunnel_ttfb_ms)+(t.slow_side?' · slow: '+t.slow_side:'');
+}
 async function refresh(){
  if(refreshing)return;refreshing=true;
  try{
@@ -29,7 +34,7 @@ async function refresh(){
   const body=document.querySelector('#events');body.replaceChildren();
   for(const e of events.slice().reverse()){
    const row=document.createElement('tr');row.dataset.id=e.id;row.tabIndex=0;
-   for(const value of [new Date(e.at).toLocaleTimeString(),e.protocol+' / '+e.method,e.path,(e.status||'')+' '+e.terminal_reason,e.duration_ms+' ms',e.request_bytes+' / '+e.response_bytes]){
+   for(const value of [new Date(e.at).toLocaleTimeString(),e.protocol+' / '+e.method,e.path,(e.status||'')+' '+e.terminal_reason,e.duration_ms+' ms · '+timingText(e),e.request_bytes+' / '+e.response_bytes]){
     const cell=document.createElement('td');cell.textContent=value;row.append(cell);
    }
    row.onclick=()=>show(e);row.onkeydown=event=>{if(event.key==='Enter')show(e)};body.append(row);
@@ -46,7 +51,7 @@ function field(box,label,value,multiline=false){
 function show(e){
  selected=e.id;const box=document.querySelector('#detail');box.replaceChildren();
  const title=document.createElement('h2');title.textContent=(e.replay_of?'Replay of #'+e.replay_of:'Delivery #'+e.id)+' · '+e.method+' '+e.path;box.append(title);
- const metadata=document.createElement('pre');metadata.textContent=JSON.stringify({connection_id:e.connection_id,protocol:e.protocol,status:e.status,terminal_reason:e.terminal_reason,duration_ms:e.duration_ms,request_bytes:e.request_bytes,response_bytes:e.response_bytes,body_complete:e.body_complete},null,2);box.append(metadata);
+ const metadata=document.createElement('pre');metadata.textContent=JSON.stringify({connection_id:e.connection_id,protocol:e.protocol,status:e.status,terminal_reason:e.terminal_reason,duration_ms:e.duration_ms,timing:e.timing,request_bytes:e.request_bytes,response_bytes:e.response_bytes,body_complete:e.body_complete},null,2);box.append(metadata);
  const note=document.createElement('p');
  note.textContent=e.protocol!=='http'?'Metadata only: replay unsupported for '+e.protocol+'.':e.metadata_truncated?'Metadata incomplete; replay unavailable.':e.truncated?'Request exceeds 64 KiB; replay unavailable.':!e.body_complete?'Request body incomplete; replay unavailable.':e.replayable?'Complete replayable capture.':'Redacted or missing fields require explicit reconstruction before replay.';
  box.append(note);

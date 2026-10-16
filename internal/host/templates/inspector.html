@@ -151,6 +151,11 @@ function drawTrace() {
   peaks.forEach(([x, h]) => { if (x - 10 < last) x = last + 10; d += ' H' + (x - 6).toFixed(1) + ' L' + x.toFixed(1) + ' ' + (80 - h).toFixed(1) + ' L' + (x + 5).toFixed(1) + ' ' + (80 + h / 4).toFixed(1) + ' L' + (x + 9).toFixed(1) + ' 80'; last = x + 9; });
   $('trace').setAttribute('d', d + ' H1000'); $('trace-scale').textContent = Math.round(span / 1000) + ' s';
 }
+function timingText(e){
+ const t=e.timing;if(!t)return 'Timing unavailable';
+ const ms=n=>n>=1000?(n/1000).toFixed(1)+' s':n.toFixed(1)+' ms';
+ return 'app '+ms(t.origin_total_ms)+' · tunnel '+ms(t.tunnel_total_ms)+' · app TTFB '+ms(t.origin_ttfb_ms)+' · tunnel TTFB '+ms(t.tunnel_ttfb_ms)+(t.slow_side?' · slow: '+t.slow_side:'');
+}
 function rows() {
   const container = $('requests'); container.replaceChildren();
   $('count').textContent = events.length + ' / 50'; drawTrace();
@@ -160,7 +165,7 @@ function rows() {
     row.type = 'button'; row.dataset.requestId = String(event.id); row.setAttribute('aria-pressed', String(!!selected && selected.id === event.id));
     row.setAttribute('aria-label', event.method + ' ' + event.path + ', status ' + event.status);
     row.append(text('span', event.status || '—', 'status ' + statusClass(event.status)), text('span', event.method, 'method'));
-    const path = text('span', '', 'code'); path.append(text('span', event.path, 'path'), text('span', new Date(event.at).toLocaleTimeString() + (event.replay_of ? ' · Replay' : ''), 'row-time')); row.append(path, text('span', event.duration_ms + ' ms', 'duration'));
+    const path = text('span', '', 'code'); path.append(text('span', event.path, 'path'), text('span', new Date(event.at).toLocaleTimeString() + (event.replay_of ? ' · Replay' : ''), 'row-time')); path.append(text('span', timingText(event), 'row-time')); row.append(path, text('span', event.duration_ms + ' ms', 'duration'));
     row.addEventListener('click', () => { if (replaying) return; selected = event; renderDetail(); rows(); }); container.append(row);
   });
 }
@@ -169,7 +174,7 @@ function renderDetail() {
   detail.append(text('div', 'Request ' + event.id + (event.replay_of ? ' · replay of ' + event.replay_of : ''), 'eyebrow'), text('h2', event.method + ' ' + event.path, 'detail-title code'));
   const labels = text('div', '', 'detail-labels'); labels.append(text('span', event.status || '—', 'status ' + statusClass(event.status)), ...(event.terminal_reason === 'complete' ? [] : [text('span', 'Ended early', 'muted')])); detail.append(labels);
   const facts = text('div', '', 'facts');
-  [['Duration', event.duration_ms + ' ms'], ['Received', new Date(event.at).toLocaleString()], ['Sent', byteCount(event.request_bytes)], ['Returned', byteCount(event.response_bytes)]].forEach(([label,value]) => { const fact = text('div',''); fact.append(text('span', label, 'fact-label'), text('span', value, 'fact-value')); facts.append(fact); }); detail.append(facts);
+  [['Timing', timingText(event)], ['Duration', event.duration_ms + ' ms'], ['Received', new Date(event.at).toLocaleString()], ['Sent', byteCount(event.request_bytes)], ['Returned', byteCount(event.response_bytes)]].forEach(([label,value]) => { const fact = text('div',''); fact.append(text('span', label, 'fact-label'), text('span', value, 'fact-value')); facts.append(fact); }); detail.append(facts);
   detail.append(text('h3', 'Request headers'));
   const headers = Object.entries(event.headers || {}).sort(([a],[b]) => a.localeCompare(b)).map(([key,value]) => key + ': ' + value).join('\n'); detail.append(text('pre', headers || 'No headers retained.'));
   detail.append(text('h3', 'Request body')); const body = text('div', '', 'body-note'); body.append(text('strong', byteCount(event.request_bytes) + ' · Not stored'), text('span', event.request_bytes ? 'Bodies aren’t stored. Paste the original to replay it.' : 'This request had no body.')); detail.append(body);

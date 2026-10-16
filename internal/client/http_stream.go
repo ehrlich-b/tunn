@@ -6,10 +6,13 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/ehrlich-b/tunn/internal/common"
+	"github.com/ehrlich-b/tunn/internal/inspection"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
 )
 
@@ -17,7 +20,10 @@ import (
 // shared receiver must never wait for an origin to consume its upload.
 const inboundQueueChunks = 16
 
+type requestTimingKey struct{}
+
 type inboundConnection struct {
+	completion  chan *pb.ConnectionClose
 	bodyWriter  *io.PipeWriter
 	cancel      context.CancelFunc
 	closeOnce   sync.Once
@@ -84,9 +90,10 @@ func (m *inboundConnectionManager) open(ctx context.Context, client *ServeClient
 	}
 
 	bodyReader, bodyWriter := io.Pipe()
-	connectionCtx, cancel := context.WithCancel(ctx)
+	completion := make(chan *pb.ConnectionClose, 1)
+	connectionCtx, cancel := context.WithCancel(context.WithValue(ctx, requestTimingKey{}, completion))
 	connection := &inboundConnection{
-		bodyWriter: bodyWriter, cancel: cancel,
+		bodyWriter: bodyWriter, cancel: cancel, completion: completion,
 		input: make(chan []byte, inboundQueueChunks), done: connectionCtx.Done(),
 		inputError: make(chan error, 1),
 	}
@@ -324,6 +331,16 @@ func (m *inboundConnectionManager) halfClose(connectionID string) {
 	}
 }
 
+func (m *inboundConnectionManager) complete(closed *pb.ConnectionClose) {
+	if connection := m.get(closed.ConnectionId); connection != nil {
+		select {
+		case connection.completion <- closed:
+		default:
+		}
+	}
+	m.close(closed.ConnectionId, closed.ErrorMessage)
+}
+
 func (m *inboundConnectionManager) close(connectionID, message string) {
 	connection := m.get(connectionID)
 	if connection == nil {
@@ -382,7 +399,39 @@ func (s *ServeClient) handleStreamingHTTPRequest(ctx context.Context, sender mes
 	status, responseBytes, reason := http.StatusBadGateway, int64(0), "target_error"
 	if capture != nil {
 		defer func() {
-			if ctx.Err() != nil {
+			relayCompleted := false
+			if open.RequestTiming && reason == "complete" {
+				if completion, ok := ctx.Value(requestTimingKey{}).(chan *pb.ConnectionClose); ok {
+					// A slow response consumer may finish well after origin EOF.
+					// Bound only this metadata wait, not the visitor response lifetime.
+					timer := time.NewTimer(3 * time.Second)
+					defer timer.Stop()
+					var closed *pb.ConnectionClose
+					select {
+					case closed = <-completion:
+					case <-ctx.Done():
+						// The receiver publishes the result before cancelling the stream.
+						select {
+						case closed = <-completion:
+						default:
+						}
+					case <-timer.C:
+					}
+					if closed != nil {
+						relayCompleted = closed.ErrorMessage == ""
+						if !relayCompleted {
+							reason = "relay_error"
+						}
+					}
+					if closed != nil && closed.Timing != nil {
+						v := closed.Timing
+						capture.mu.Lock()
+						capture.event.Timing = inspection.NewTiming(v.OriginTtfbUs, v.OriginTotalUs, v.RelayTtfbUs, v.RelayTotalUs)
+						capture.mu.Unlock()
+					}
+				}
+			}
+			if ctx.Err() != nil && !relayCompleted {
 				reason = "canceled"
 			}
 			capture.finishReason(status, responseBytes, reason)
@@ -414,7 +463,32 @@ func (s *ServeClient) handleStreamingHTTPRequest(ctx context.Context, sender mes
 		Transport:     transport,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
+	// Uploads can wait on the visitor. Charge the app only after the full
+	// request has reached the origin, and exclude relay response backpressure.
+	var timingMu sync.Mutex
+	var originStart, firstResponseByte time.Time
+	request = request.WithContext(httptrace.WithClientTrace(request.Context(), &httptrace.ClientTrace{
+		WroteRequest: func(info httptrace.WroteRequestInfo) {
+			if info.Err == nil {
+				timingMu.Lock()
+				originStart = time.Now()
+				timingMu.Unlock()
+			}
+		},
+		GotFirstResponseByte: func() {
+			timingMu.Lock()
+			firstResponseByte = time.Now()
+			timingMu.Unlock()
+		},
+	}))
 	response, err := httpClient.Do(request)
+	var originTTFB, originTotal time.Duration
+	timingMu.Lock()
+	if !originStart.IsZero() {
+		originTTFB = max(0, firstResponseByte.Sub(originStart))
+		originTotal = time.Since(originStart)
+	}
+	timingMu.Unlock()
 	if err != nil {
 		common.LogDebug("streaming target failed", "error", err)
 		sendConnectionRejection(sender, open.ConnectionId, "failed to reach local target")
@@ -445,10 +519,12 @@ func (s *ServeClient) handleStreamingHTTPRequest(ctx context.Context, sender mes
 				ConnectionId: open.ConnectionId,
 				Success:      true,
 				HttpResponse: &pb.HttpResponseHead{
-					StatusCode:   int32(response.StatusCode),
-					Headers:      headers,
-					HeaderFields: fields,
-					TrailerNames: trailerNames,
+					StatusCode:    int32(response.StatusCode),
+					Headers:       headers,
+					HeaderFields:  fields,
+					TrailerNames:  trailerNames,
+					OriginTtfbUs:  max(1, originTTFB.Microseconds()),
+					OriginTotalUs: max(1, originTotal.Microseconds()),
 				},
 			},
 		},
@@ -465,7 +541,9 @@ func (s *ServeClient) handleStreamingHTTPRequest(ctx context.Context, sender mes
 	}
 	buffer := make([]byte, common.StreamChunkSize)
 	for {
+		readStart := time.Now()
 		n, readErr := response.Body.Read(buffer)
+		originTotal += time.Since(readStart)
 		if n > 0 {
 			responseBytes += int64(n)
 			chunk := append([]byte(nil), buffer[:n]...)
@@ -487,7 +565,7 @@ func (s *ServeClient) handleStreamingHTTPRequest(ctx context.Context, sender mes
 			}
 			if err := sender.Send(&pb.TunnelMessage{
 				Message: &pb.TunnelMessage_ConnectionHalfClose{
-					ConnectionHalfClose: &pb.ConnectionHalfClose{ConnectionId: open.ConnectionId, Trailers: trailers},
+					ConnectionHalfClose: &pb.ConnectionHalfClose{ConnectionId: open.ConnectionId, Trailers: trailers, OriginTotalUs: max(1, originTotal.Microseconds())},
 				},
 			}); err != nil {
 				reason = "relay_error"

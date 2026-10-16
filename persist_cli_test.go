@@ -30,7 +30,7 @@ func TestPublisherLoginRequiredExitHelper(t *testing.T) {
 // A rejected login stops the service once with a status its unit does not
 // restart and a single line that names the command to run.
 func TestPublisherLoginRequiredExitsWithoutRestart(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "forge-ssh")
+	dir := filepath.Join(t.TempDir(), "build-host-ssh")
 	cmd := exec.Command(os.Args[0], "-test.run=^TestPublisherLoginRequiredExitHelper$")
 	cmd.Env = append(os.Environ(), "TUNN_LOGIN_REQUIRED_CHILD=1", "TUNN_CONFIG_DIR="+dir)
 	var stderr strings.Builder

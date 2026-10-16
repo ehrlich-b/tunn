@@ -94,7 +94,7 @@ Atlassian, n8n and SilverBullet; tool-vendor tutorials. Distribution should put 
 working example at these intent points, with founder disclosure. For Reddit,
 use an explicitly permitted weekly promotion thread, e.g.
 [r/devops weekly self-promotion](https://www.reddit.com/r/devops/comments/1u68lsg/weekly_self_promotion_thread/),
-and recheck the current thread/rules before the coordinator posts.
+and recheck the current thread/rules before the operator posts.
 
 Suggested experiment, not a forecast: first 100 activated accounts → 10 verified
 Pro subscriptions → $60 MRR at $6. Measure activation (first successful ingress),

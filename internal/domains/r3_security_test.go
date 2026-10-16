@@ -16,8 +16,8 @@ import (
 
 func TestR3PendingClaimProofReclaim(t *testing.T) {
 	for _, tc := range []struct{ incumbent, contender string }{
-		{"*.ehrlich.dev", "*.apps.ehrlich.dev"},
-		{"*.apps.ehrlich.dev", "dashboard.apps.ehrlich.dev"},
+		{"*.example.com", "*.apps.example.com"},
+		{"*.apps.example.com", "dashboard.apps.example.com"},
 		{"work.example.com", "work.example.com"},
 	} {
 		t.Run(tc.incumbent+"/"+tc.contender, func(t *testing.T) {
@@ -98,7 +98,7 @@ func TestR3VerifiedClaimSurvivesLeaseLoss(t *testing.T) {
 	if err := r.Refresh(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.Add(ctx, &pb.Domain{Name: "*.ehrlich.dev", Tunnel: "second", Owner: "two"}); status.Code(err) != codes.AlreadyExists {
+	if _, err := r.Add(ctx, &pb.Domain{Name: "*.example.com", Tunnel: "second", Owner: "two"}); status.Code(err) != codes.AlreadyExists {
 		t.Fatalf("lost lease surrendered verified owner: %v", err)
 	}
 }
@@ -232,7 +232,7 @@ func TestR3ConcreteFailureConsumesWildcardBudget(t *testing.T) {
 	if _, err := r.Verify(ctx, concrete); status.Code(err) != codes.Unavailable {
 		t.Fatal(err)
 	}
-	if _, err := r.Certificate(ctx, &pb.Domain{Name: "dashboard.apps.ehrlich.dev"}); status.Code(err) != codes.ResourceExhausted || calls != 1 {
+	if _, err := r.Certificate(ctx, &pb.Domain{Name: "dashboard.apps.example.com"}); status.Code(err) != codes.ResourceExhausted || calls != 1 {
 		t.Fatalf("separate wildcard budget: %v calls=%d", err, calls)
 	}
 }
@@ -246,7 +246,7 @@ func TestR3WildcardReservationRevokesOrder(t *testing.T) {
 				if _, err := r.Verify(ctx, parent); err != nil {
 					t.Fatal(err)
 				}
-				in := &pb.Domain{Name: "dashboard.apps.ehrlich.dev"}
+				in := &pb.Domain{Name: "dashboard.apps.example.com"}
 				if fail {
 					r.issuer = issuerFunc(func(_ context.Context, name string, _ PresentChallenge) ([]byte, []byte, error) {
 						cert, key := fakeCert(t, name, r.now())

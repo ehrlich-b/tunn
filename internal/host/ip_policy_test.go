@@ -333,7 +333,7 @@ func TestIPPolicyDomainAppAndCallbackBeforeAuthentication(t *testing.T) {
 	p.meter = ledger
 	appResource(t, p, tunnel, "private")
 	setHostPolicy(t, p, tunnel.TunnelID, []string{"192.0.2.0/24"}, nil)
-	cookie := appSessionCookie(t, p, bryanEmail, "github", true, appHost)
+	cookie := appSessionCookie(t, p, appOwnerEmail, "github", true, appHost)
 	for _, path := range []string{"/report", appCallback + "?token=invalid"} {
 		for _, authenticated := range []bool{false, true} {
 			r := httptest.NewRequest("GET", "https://"+appHost+path, nil)

@@ -161,7 +161,7 @@ func TestMagicLinkCompleteLoginReturnDeviceAndRestartReplay(t *testing.T) {
 func TestMagicLinkRequestValidationDoesNotSendMail(t *testing.T) {
 	for _, tc := range []struct{ name, body string }{
 		{"missing_email", `{}`},
-		{"unicode_mailbox", `{"email":"ｅhrlich.bryan@gmail.com"}`},
+		{"unicode_mailbox", `{"email":"ｏwner@example.com"}`},
 		{"malformed_email", `{"email":"not-an-address"}`},
 		{"display_name", `{"email":"Owner <owner@example.invalid>"}`},
 		{"header_injection", `{"email":"owner@example.invalid\r\nBcc: other@example.invalid"}`},

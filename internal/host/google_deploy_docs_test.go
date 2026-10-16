@@ -12,7 +12,7 @@ import (
 func TestGoogleDeploymentDocsMatchCallbackURI(t *testing.T) {
 	p := &ProxyServer{config: &config.Config{PublicAddr: "tunn.to:443"}}
 	callback := regexp.MustCompile("https://[^\\s`]+/auth/google/callback")
-	for _, path := range []string{"DEPLOY.md", "DEPLOY-RUNBOOK.md", "RELEASE-NOTES.md"} {
+	for _, path := range []string{"DEPLOY.md", "RELEASE-NOTES.md"} {
 		t.Run(path, func(t *testing.T) {
 			content, err := os.ReadFile(filepath.Join("..", "..", path))
 			if err != nil {

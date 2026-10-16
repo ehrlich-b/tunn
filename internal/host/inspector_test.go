@@ -414,8 +414,8 @@ func TestWebInspectorCrossNodeOriginalIngressAndReplay(t *testing.T) {
 
 func TestWebInspectorDomainAppReplayPreservesIdentityGates(t *testing.T) {
 	p, tunnel, pub := appProxyFixture(t)
-	central := appSessionCookie(t, p, bryanEmail, "github", true, "")
-	app := appSessionCookie(t, p, bryanEmail, "github", true, appHost)
+	central := appSessionCookie(t, p, appOwnerEmail, "github", true, "")
+	app := appSessionCookie(t, p, appOwnerEmail, "github", true, appHost)
 	stream := tunnel.Stream.(*meteringFixtureStream)
 	tunnel.Capabilities = map[string]bool{common.CapabilityHTTPStreamV1: true, common.CapabilityHTTPOriginReplayV1: true}
 	var forwarded []map[string]string

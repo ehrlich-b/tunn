@@ -293,7 +293,7 @@ func TestAccountEmailsCapture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = p.storage.(storage.AccountEmailStorage).MutateAccountEmail(context.Background(), a.ID, "bryan@example.com", "link"); err != nil {
+	if _, err = p.storage.(storage.AccountEmailStorage).MutateAccountEmail(context.Background(), a.ID, "owner@example.com", "link"); err != nil {
 		t.Fatal(err)
 	}
 	c := emailSession(t, p, a.PrimaryEmail)

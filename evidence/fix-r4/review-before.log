@@ -1,7 +1,0 @@
-=== RUN   TestR4PublicAPIExposesCompetingProof
-    r4_reclaim_test.go:59: owner POST: status=409 body="Domain already claimed\n"; owner GET: status=200 body="{}\n"; backend=rpc error: code = AlreadyExists desc = unverified claim: prove ownership with TXT _tunn-verification.apps.example.com = dv-fafc0a3bf9cfbba6fbf2bf8ef26b43ca.tunn.test and retry add within 24 hours
-    r4_reclaim_test.go:61: public API discarded the unique competing DNS proof; CLI cannot perform reclaim (target also absent from list=true)
---- FAIL: TestR4PublicAPIExposesCompetingProof (0.02s)
-FAIL
-FAIL	github.com/ehrlich-b/tunn/internal/host	0.024s
-FAIL

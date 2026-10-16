@@ -43,6 +43,6 @@ not changed by a code deployment. Checkout remains unavailable unless the
 billing gate, valid Stripe checkout URL and webhook secret are configured.
 
 Payment returns and client references do not grant entitlements. Activation
-requires the existing reviewed fulfillment workflow; see [GO-LIVE.md](GO-LIVE.md).
+requires the existing reviewed fulfillment workflow; see [account operations](docs/ACCOUNT-OPERATIONS.md).
 No usage billing, automatic overage, SLA or unvalidated capacity promise is
 included in these plans. Custom domains retain their existing feature gates.

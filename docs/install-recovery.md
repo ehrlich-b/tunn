@@ -23,7 +23,7 @@ Generating a new machine label or logging in to another account is not recovery.
 
 Before stopping, upgrading or rotating anything, retain an **independent admin
 route**: a trusted console or an existing management connection that does not
-depend on tunn. This applies to forge, rig and the standalone relay. Availability
+depend on tunn. This applies to build-host, my-workstation and the standalone relay. Availability
 ends at logout/sleep/WSL shutdown unless the operator has arranged an appropriate
 user manager. There is no automatic machine enrollment or login refresh.
 
@@ -118,7 +118,7 @@ owner instead provisions the configured client secret privately into
 not validate JWT signatures, prove account continuity or contact the relay.
 
 Actual activation is a separate native acceptance step in
-[install-native-acceptance.md](install-native-acceptance.md). Per-user launchd,
+[the native validation checklist](#native-validation). Per-user launchd,
 systemd and Task Scheduler definitions contain executable/configuration paths,
 not token values. A second macOS install queries the registered job rather than
 bootstrapping it twice. Linux refuses an existing foreign fragment; Windows
@@ -195,61 +195,23 @@ was manually deleted, an absent-definition result is not proof that an orphaned
 native registration stopped; inspect it through the independent admin route.
 Windows stop errors leave the XML and registration for native diagnosis.
 
-## Local evidence and outstanding acceptance
+## Fixture checks
 
-```sh
-bash -n scripts/verify-install-recovery.sh
-bash scripts/verify-install-recovery.sh --fixtures
-bash scripts/verify-install-recovery.sh --native-plan
-```
+Run `bash scripts/verify-install-recovery.sh --fixtures` to build and exercise
+disposable artifact, service-manager, TLS and SQLite fixtures without activation.
+See [self-hosting.md](self-hosting.md) for the single-node relay distribution.
 
-The fixture gate builds offline under `.scratch`, exercises stateful fake
-launchd/systemd/Task Scheduler executors with explicit roots, checks the real
-CLI's previews and local diagnostics, and runs private TLS/SQLite distribution
-export/import plus interrupted upgrades and rollback. It never activates a
-native manager, installs a login item, logs in, reaches a hosted service or uses
-an owner's token. Failures are nonzero and no required assertion is skipped.
+## Native validation
 
-See [self-hosting.md](self-hosting.md) for the bounded single-node distribution
-and [the AI-host kit](../deploy/ai-hosts/README.md) for the existing SSH/MCP/
-dashboard canary. `--token-lifecycle preserve` explicitly checks retained
-host-mode capabilities; default `rotate` still requires refreshed capabilities
-for the legacy ordinary-publisher kit. Neither digest continuity nor a fake
-manager establishes actual machine/account identity: native inventory and
-authenticated reconnection must be checked on the same account.
+Use disposable hosts and an independent administrative connection. Stage an
+architecture-correct binary and private configuration before service activation.
+On each supported OS, verify install, service start/stop, restart, authenticated
+reconnection, interrupted upgrade, rollback and removal with explicit retention.
+Check account identity and revocation using fresh credentials from the test relay.
+The fixture gate does not establish native service or external-provider behavior.
 
-Native service lifecycle on macOS/Linux/Windows/WSL, actual phone/OpenClaw
-authentication, the two physical-host recovery windows, and day-14 dogfood
-remain **REQUIRED/UNRUN**. The release workflow publishes macOS/Linux artifacts;
+The release workflow publishes macOS/Linux artifacts;
 Windows has a generated task definition but no packaged release artifact in this
 checkout. README declares MIT but an approved full license text is absent.
 License packaging and distribution rights remain unresolved; no license or
-ownership was invented. Local rehearsals are not permission to publish a release.
-
-Recorded local validation on 2026-10-10, Go 1.26.2, using the offline Mac
-resource wrapper and clone-local caches (JSON output flags change reporting only):
-
-| Command | Measured result |
-| --- | --- |
-| `make -j1 build vet test-ai-hosts test-hostmode-compile` | PASS; 21 kit tests, 11 test-bearing packages compiled, 4 packages have no tests |
-| `make -j1 test-hostmode` | PASS; 69 top-level tests + 81 subtests, 1 existing Cyrillic-homograph test skipped, 8 package runs |
-| `bash -n scripts/verify-install-recovery.sh` | PASS |
-| `bash scripts/verify-install-recovery.sh --fixtures` | PASS; 21 kit + 16 recovery Python tests, Go service/config/credential fixtures, no fixture skips |
-| `make -j1 test-hostmode-loopback` | FAIL (environment); loopback bind returns `operation not permitted`; REQUIRED/UNRUN on a socket-capable host |
-| `make -j1 test-race` | FAIL (environment); 154 top-level tests + 189 subtests pass, 12 listener failures, 1 existing skip; 8 test-bearing packages pass and 3 abort/fail |
-| `git diff --check` | PASS |
-
-The race suite aborts client/host packages at listener failures; unexecuted tests
-are not counted as passes or skips. No new skip, listener fallback or changed
-expected result was introduced. The existing homograph skip is counted separately
-from four packages with no tests. Remaining coordinator command, after staging
-offline caches in a socket-capable clone with the documented environment:
-
-```sh
-# macOS; Linux uses nice -n 15 in place of taskpolicy -b nice -n 15
- taskpolicy -b nice -n 15 make -j1 test-hostmode-loopback test-race
-```
-
-This remains a promotion gate. Review the native OS plan with
-`bash scripts/verify-install-recovery.sh --native-plan`; Bryan runs any real
-service, login, recovery or deployment operation himself.
+ownership was invented.

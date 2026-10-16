@@ -1,8 +1,8 @@
 # Operator and app contract
 
-`*.apps.ehrlich.dev` is a publisher-owned namespace. A single-label name maps to
+`*.apps.example.com` is a publisher-owned namespace. A single-label name maps to
 that publisher's namespace-bound tunnel; nested names and the bare
-`apps.ehrlich.dev` are excluded. Existing concrete domain bindings keep their
+`apps.example.com` are excluded. Existing concrete domain bindings keep their
 original contract. Verified exact/wildcard claims exclude overlapping claims.
 Unverified claims expire after 24 hours and do not establish exclusive ownership.
 When a pending claim conflicts, `tunn domain add` returns a unique competing DNS
@@ -81,7 +81,7 @@ must reach the HTTP-01 listener directly, and TCP/443 must reach tunn TLS.
 Existing node-secret/TLS RPC protection distributes challenges and certificates.
 
 REQUIRED-UNRUN: real production CA issuance/renewal after DNS changes, real GitHub/email
-login as Bryan and another account, and a browser SSO acceptance check across
+login as the owner and another account, and a browser SSO acceptance check across
 apps/relay nodes. Local test CA success does not constitute production issuance.
 
 ## Certificate authority, storage, and renewal
@@ -162,17 +162,15 @@ affected ingress until every verifier rejects the key. Other app implementations
 must document and test their actual cache and leeway settings.
 
 The cache parameters follow the [PyJWT 2.10.1 client implementation](https://github.com/jpadilla/pyjwt/blob/2.10.1/jwt/jwks_client.py).
-Run `python3 evidence/fix-r3-domains/verifier-regression.py` with PyJWT 2.10.1 and
-cryptography to test this exact snippet using local synthetic keys: a removed key
-is accepted at cache age 59 seconds and rejected at 61, 181, and 301 seconds;
-the new key and the existing identity-validation boundaries are checked too.
+When testing key removal, verify the verifier rejects removed keys after its
+60-second JWKS cache expires and continues to accept the replacement key.
 
 Python verifier (`pip install 'PyJWT[crypto]'`; call at app ingress):
 
 ```python
 import jwt
 ISSUER = "https://tunn.to:443"  # Match TUNN_PUBLIC_ADDR/login authority exactly.
-HOST = "dashboard.apps.ehrlich.dev"
+HOST = "dashboard.apps.example.com"
 keys = jwt.PyJWKClient("https://tunn.to/.well-known/tunn-jwks.json", lifespan=60, cache_keys=False)
 def verify(headers):
     token = headers["X-Tunn-Identity"]

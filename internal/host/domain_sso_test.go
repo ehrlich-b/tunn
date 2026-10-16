@@ -25,7 +25,7 @@ import (
 	"github.com/golang-jwt/jwt/v4"
 )
 
-const bryanEmail = "ehrlich.bryan@gmail.com"
+const appOwnerEmail = "owner@example.com"
 
 func appKeyFile(t *testing.T, p *ProxyServer) ed25519.PublicKey {
 	t.Helper()
@@ -52,7 +52,7 @@ func appProxyFixtureDB(t *testing.T) (*ProxyServer, *TunnelConnection, ed25519.P
 	p.config.PublicAddr = "tunn.test"
 	p.config.GitHubClientID = "fixture-client"
 	p.emailSender = new(accountsMailCapture)
-	d, err := registry.Add(context.Background(), &domainpb.Domain{Name: "*.apps.ehrlich.dev", Tunnel: "dashboard", Owner: "ad38bf44-0c4a-40ce-bdee-2d8579bf63cc"})
+	d, err := registry.Add(context.Background(), &domainpb.Domain{Name: "*.apps.example.com", Tunnel: "dashboard", Owner: "ad38bf44-0c4a-40ce-bdee-2d8579bf63cc"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,14 +71,14 @@ func appProxyFixtureDB(t *testing.T) (*ProxyServer, *TunnelConnection, ed25519.P
 	}
 	db.SetMaxOpenConns(1)
 	t.Cleanup(func() { db.Close() })
-	if _, err := db.Exec(`INSERT INTO accounts(id,primary_email,plan,created_at) VALUES(?,?,'free',1)`, tunnel.AccountID, bryanEmail); err != nil {
+	if _, err := db.Exec(`INSERT INTO accounts(id,primary_email,plan,created_at) VALUES(?,?,'free',1)`, tunnel.AccountID, appOwnerEmail); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO account_emails(email,account_id,verified_via,added_at) VALUES(?,?,'github',1)`, bryanEmail, tunnel.AccountID); err != nil {
+	if _, err := db.Exec(`INSERT INTO account_emails(email,account_id,verified_via,added_at) VALUES(?,?,'github',1)`, appOwnerEmail, tunnel.AccountID); err != nil {
 		t.Fatal(err)
 	}
 	p.storage = storage.NewLocalStorage(db)
-	tunnel.CreatorEmail = bryanEmail
+	tunnel.CreatorEmail = appOwnerEmail
 	return p, tunnel, appKeyFile(t, p), db
 }
 func appSessionCookie(t *testing.T, p *ProxyServer, email, provider string, verified bool, aud string) *http.Cookie {
@@ -117,13 +117,13 @@ func TestDomainAppAccountOwnerAndSignedIdentity(t *testing.T) {
 		verified        bool
 		want            int
 	}{
-		{bryanEmail, "google", true, 200}, {"EHRLICH.BRYAN@GMAIL.COM", "google", true, 200},
-		{"other@gmail.com", "google", true, 403}, {"ehrlich.bryan+apps@gmail.com", "google", true, 403}, {"ehrlich.bryan@gmail.com.evil.test", "google", true, 403}, {"еhrlich.bryan@gmail.com", "google", true, 302}, {"ｅhrlich.bryan@gmail.com", "google", true, 302},
-		{bryanEmail, "github", true, 200}, {bryanEmail, "magic_link", true, 200}, {"other@gmail.com", "github", true, 403}, {"other@example.com", "magic_link", true, 403}, {bryanEmail, "google", false, 302},
+		{appOwnerEmail, "google", true, 200}, {"OWNER@EXAMPLE.COM", "google", true, 200},
+		{"other@gmail.com", "google", true, 403}, {"owner+apps@example.com", "google", true, 403}, {"owner@example.com.evil.test", "google", true, 403}, {"оwner@example.com", "google", true, 302}, {"ｏwner@example.com", "google", true, 302},
+		{appOwnerEmail, "github", true, 200}, {appOwnerEmail, "magic_link", true, 200}, {"other@gmail.com", "github", true, 403}, {"other@example.com", "magic_link", true, 403}, {appOwnerEmail, "google", false, 302},
 	} {
 		headers = nil
-		r := httptest.NewRequest("GET", "https://dashboard.apps.ehrlich.dev/", nil)
-		r.AddCookie(appSessionCookie(t, p, tc.email, tc.provider, tc.verified, "dashboard.apps.ehrlich.dev"))
+		r := httptest.NewRequest("GET", "https://dashboard.apps.example.com/", nil)
+		r.AddCookie(appSessionCookie(t, p, tc.email, tc.provider, tc.verified, "dashboard.apps.example.com"))
 		r.Header.Set(identity.Header, "spoof")
 		r.Header.Set("Connection", "X-Tunn-Identity, x-tunn-user-email")
 		r.Header["x-tunn-user-email"] = []string{"evil@gmail.com"}
@@ -138,7 +138,7 @@ func TestDomainAppAccountOwnerAndSignedIdentity(t *testing.T) {
 			}
 			continue
 		}
-		if headers[identity.EmailHeader] != bryanEmail {
+		if headers[identity.EmailHeader] != appOwnerEmail {
 			t.Fatalf("email=%v", headers)
 		}
 		token, err := jwt.Parse(headers[identity.Header], func(tok *jwt.Token) (interface{}, error) {
@@ -151,7 +151,7 @@ func TestDomainAppAccountOwnerAndSignedIdentity(t *testing.T) {
 			t.Fatalf("assertion=%v", err)
 		}
 		claims := token.Claims.(jwt.MapClaims)
-		if !claims.VerifyAudience("dashboard.apps.ehrlich.dev", true) || claims.VerifyAudience("other.apps.ehrlich.dev", true) || claims["email"] != bryanEmail || claims["sub"] != tunnel.AccountID || claims["account_id"] != tunnel.AccountID || claims["provider"] != tc.provider || claims["idp"] != tc.provider || claims["email_verified"] != true || claims["iss"] != "https://tunn.test" {
+		if !claims.VerifyAudience("dashboard.apps.example.com", true) || claims.VerifyAudience("other.apps.example.com", true) || claims["email"] != appOwnerEmail || claims["sub"] != tunnel.AccountID || claims["account_id"] != tunnel.AccountID || claims["provider"] != tc.provider || claims["idp"] != tc.provider || claims["email_verified"] != true || claims["iss"] != "https://tunn.test" {
 			t.Fatal(claims)
 		}
 		if claims["exp"].(float64)-claims["iat"].(float64) != 120 {
@@ -161,8 +161,8 @@ func TestDomainAppAccountOwnerAndSignedIdentity(t *testing.T) {
 			t.Fatal("session leaked to app")
 		}
 	}
-	for _, token := range []string{relayJWT(t, p, bryanEmail), "tunn_gr_fake", "tunn_mcp_fake"} {
-		r := httptest.NewRequest("GET", "https://dashboard.apps.ehrlich.dev/", nil)
+	for _, token := range []string{relayJWT(t, p, appOwnerEmail), "tunn_gr_fake", "tunn_mcp_fake"} {
+		r := httptest.NewRequest("GET", "https://dashboard.apps.example.com/", nil)
 		r.Header.Set("Tunn-Authorization", "Bearer "+token)
 		w := httptest.NewRecorder()
 		p.createHandler().ServeHTTP(w, r)
@@ -170,8 +170,8 @@ func TestDomainAppAccountOwnerAndSignedIdentity(t *testing.T) {
 			t.Fatal("bearer bypassed account gate", w.Code)
 		}
 	}
-	r := httptest.NewRequest("GET", "https://dashboard.apps.ehrlich.dev/", nil)
-	r.AddCookie(appSessionCookie(t, p, bryanEmail, "google", true, "other.apps.ehrlich.dev"))
+	r := httptest.NewRequest("GET", "https://dashboard.apps.example.com/", nil)
+	r.AddCookie(appSessionCookie(t, p, appOwnerEmail, "google", true, "other.apps.example.com"))
 	w := httptest.NewRecorder()
 	p.createHandler().ServeHTTP(w, r)
 	if w.Code != 302 {
@@ -194,7 +194,7 @@ func TestDomainSSOBrowserBindingReplayAndRepeatApp(t *testing.T) {
 	p, _, _ := appProxyFixture(t)
 	handler := p.createHandler()
 	initial := httptest.NewRecorder()
-	handler.ServeHTTP(initial, httptest.NewRequest("GET", "https://dashboard.apps.ehrlich.dev/report?q=1", nil))
+	handler.ServeHTTP(initial, httptest.NewRequest("GET", "https://dashboard.apps.example.com/report?q=1", nil))
 	if initial.Code != 302 {
 		t.Fatal(initial.Code)
 	}
@@ -211,7 +211,7 @@ func TestDomainSSOBrowserBindingReplayAndRepeatApp(t *testing.T) {
 		t.Fatal("wrong login providers")
 	}
 	r := httptest.NewRequest("GET", login, nil)
-	r.AddCookie(appSessionCookie(t, p, bryanEmail, "google", true, ""))
+	r.AddCookie(appSessionCookie(t, p, appOwnerEmail, "google", true, ""))
 	w = httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
 	if w.Code != 302 {
@@ -221,7 +221,7 @@ func TestDomainSSOBrowserBindingReplayAndRepeatApp(t *testing.T) {
 	for _, bad := range []string{"missing-cookie", "different-cookie", "different-host", "tamper"} {
 		target := callback
 		if bad == "different-host" {
-			target = strings.Replace(target, "dashboard.apps.ehrlich.dev", "other.apps.ehrlich.dev", 1)
+			target = strings.Replace(target, "dashboard.apps.example.com", "other.apps.example.com", 1)
 		}
 		if bad == "tamper" {
 			target += "x"
@@ -265,7 +265,7 @@ func TestDomainSSOBrowserBindingReplayAndRepeatApp(t *testing.T) {
 	if repeat.Code != 400 {
 		t.Fatal("handoff replay accepted")
 	}
-	r = httptest.NewRequest("GET", "https://dashboard.apps.ehrlich.dev/report?q=1", nil)
+	r = httptest.NewRequest("GET", "https://dashboard.apps.example.com/report?q=1", nil)
 	r.AddCookie(session)
 	w = httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
@@ -274,16 +274,16 @@ func TestDomainSSOBrowserBindingReplayAndRepeatApp(t *testing.T) {
 	}
 	// A central account session serves another app handoff without another IdP login.
 	r = httptest.NewRequest("GET", login, nil)
-	r.AddCookie(appSessionCookie(t, p, bryanEmail, "google", true, ""))
+	r.AddCookie(appSessionCookie(t, p, appOwnerEmail, "google", true, ""))
 	w = httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
 	u, _ := url.Parse(w.Header().Get("Location"))
-	if u.Host != "dashboard.apps.ehrlich.dev" || u.Path != appCallback {
+	if u.Host != "dashboard.apps.example.com" || u.Path != appCallback {
 		t.Fatal("repeat SSO reauthenticated")
 	}
 }
 func TestGoogleLookalikesAreRejectedBeforeNormalization(t *testing.T) {
-	for _, email := range []string{"ｅhrlich.bryan@gmail.com", "еhrlich.bryan@gmail.com", " ehrlich.bryan@gmail.com", "a@@gmail.com"} {
+	for _, email := range []string{"ｏwner@example.com", "оwner@example.com", " owner@example.com", "a@@gmail.com"} {
 		if validGoogleEmail(email) {
 			t.Fatalf("accepted %q", email)
 		}
@@ -304,7 +304,7 @@ func TestDomainIdentityHeadersCannotBeSpoofedOnPublicPlatform(t *testing.T) {
 	}
 	r := httptest.NewRequest("GET", "https://api.tunn.test/", nil)
 	r.Header.Set(identity.Header, "spoof")
-	r.Header["x-tunn-user-email"] = []string{bryanEmail}
+	r.Header["x-tunn-user-email"] = []string{appOwnerEmail}
 	w := httptest.NewRecorder()
 	p.createHandler().ServeHTTP(w, r)
 	if w.Code != 200 {
@@ -320,7 +320,7 @@ func TestGoogleCallbackRejectsUnverifiedEmailAndLookalikes(t *testing.T) {
 	for _, tc := range []struct {
 		email    string
 		verified bool
-	}{{bryanEmail, false}, {"ｅhrlich.bryan@gmail.com", true}, {"еhrlich.bryan@gmail.com", true}, {"ehrlİch.bryan@gmail.com", true}} {
+	}{{appOwnerEmail, false}, {"ｏwner@example.com", true}, {"оwner@example.com", true}, {"ownİr@example.com", true}} {
 		p, _, _, _ := webSharingFixture(t)
 		p.config.GoogleClientID = "fixture-id"
 		p.config.GoogleClientSecret = "fixture-secret"

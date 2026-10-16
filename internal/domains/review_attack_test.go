@@ -12,7 +12,7 @@ import (
 func TestReviewUnverifiedWildcardCannotSquatNamespace(t *testing.T) {
 	r, _, _ := domainFixture(t, nil)
 	ctx := context.Background()
-	attacker := addDomain(t, r, "*.ehrlich.dev", "attacker", "two")
+	attacker := addDomain(t, r, "*.example.com", "attacker", "two")
 	if attacker.State != "pending" {
 		t.Fatal(attacker.State)
 	}
@@ -22,7 +22,7 @@ func TestReviewUnverifiedWildcardCannotSquatNamespace(t *testing.T) {
 	if err := r.Refresh(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.Add(ctx, &pb.Domain{Name: "*.apps.ehrlich.dev", Tunnel: "dashboard", Owner: "one"}); err != nil {
+	if _, err := r.Add(ctx, &pb.Domain{Name: "*.apps.example.com", Tunnel: "dashboard", Owner: "one"}); err != nil {
 		t.Fatalf("unverified ancestor still blocks rightful owner after one year: %v", err)
 	}
 }
@@ -53,9 +53,9 @@ func TestReviewReservationLossCancelsInflightCertificate(t *testing.T) {
 		cert, key := fakeCert(t, name, r.now())
 		return cert, key, nil
 	})
-	pair, err := r.Certificate(ctx, &pb.Domain{Name: "dashboard.apps.ehrlich.dev"})
+	pair, err := r.Certificate(ctx, &pb.Domain{Name: "dashboard.apps.example.com"})
 	if err == nil && len(pair.KeyPem) > 0 {
-		_, nextErr := r.Certificate(ctx, &pb.Domain{Name: "dashboard.apps.ehrlich.dev"})
+		_, nextErr := r.Certificate(ctx, &pb.Domain{Name: "dashboard.apps.example.com"})
 		t.Fatalf("authority returned certificate/key to requesting relay after reservation moved; subsequent lookup correctly denies: %v", nextErr)
 	}
 }
@@ -71,7 +71,7 @@ func TestReviewWildcardTXTChangeDuringIssuance(t *testing.T) {
 		cert, key := fakeCert(t, name, r.now())
 		return cert, key, nil
 	})
-	if _, err := r.Certificate(ctx, &pb.Domain{Name: "dashboard.apps.ehrlich.dev"}); err == nil {
+	if _, err := r.Certificate(ctx, &pb.Domain{Name: "dashboard.apps.example.com"}); err == nil {
 		t.Fatal("lost TXT proof still published certificate")
 	}
 	var count int

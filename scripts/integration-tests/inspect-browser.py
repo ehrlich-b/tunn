@@ -38,6 +38,6 @@ dom = (scratch / "inspect-browser-dom.html").read_text()
 if result.returncode or 'data-inspect-acceptance="PASS"' not in dom:
     diagnostic = (scratch / "inspect-browser.log").read_text()
     if "Operation not permitted" in diagnostic and "Failed to bind()" in diagnostic:
-        sys.exit("REQUIRED/UNRUN: Chrome profile listener denied; run the browser fixture on the coordinator host")
+        sys.exit("REQUIRED/UNRUN: Chrome profile listener denied; run the browser fixture on the operator host")
     sys.exit(f"FAIL: browser fixture (exit {result.returncode}); see .scratch/inspect-browser-dom.html and .scratch/inspect-browser.log")
 print("PASS: actual serverless Chrome UI journey; API/target transport is covered separately")

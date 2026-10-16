@@ -38,7 +38,7 @@ func TestParseDomainOptions(t *testing.T) {
 }
 
 func TestParseWildcardDomainOptions(t *testing.T) {
-	for _, args := range [][]string{{"add", "*.apps.ehrlich.dev"}, {"add", "*.apps.ehrlich.dev", "--tunnel", "dashboard"}, {"verify", "*.apps.ehrlich.dev"}, {"delete", "*.apps.ehrlich.dev"}} {
+	for _, args := range [][]string{{"add", "*.apps.example.com"}, {"add", "*.apps.example.com", "--tunnel", "dashboard"}, {"verify", "*.apps.example.com"}, {"delete", "*.apps.example.com"}} {
 		if _, err := parseDomainOptions(args); err != nil {
 			t.Fatalf("%v: %v", args, err)
 		}

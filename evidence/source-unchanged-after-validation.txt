@@ -1,1 +1,0 @@
-All source/Dockerfile/module/test hashes match source-manifest.json.

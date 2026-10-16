@@ -23,7 +23,7 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-// Coordinator-only acceptance: requires loopback listeners and permission to
+// operator-only acceptance: requires loopback listeners and permission to
 // execute native OpenSSH. The offline edge gate compiles but never runs it.
 func TestLoopbackEdgeOpenSSHAndHTTPSSharePort(t *testing.T) {
 	sshBinary, err := exec.LookPath("ssh")

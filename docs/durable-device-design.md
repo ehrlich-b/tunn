@@ -30,4 +30,4 @@ This follows the rotation and privilege restriction guidance in [RFC 9700 sectio
 
 ## Verification
 
-Exercise real SQLite transactions and in-process HTTP/control-stream fixtures for code consumption, expiry, rotation, bounded retry, older-generation reuse, revocation, management isolation, legacy compatibility, server binding, clock skew, atomic file permissions, cross-process coordination, transient/terminal errors and a continuously connected publisher over a simulated 48 hours. Run package tests, race tests and build with clone-local Go caches. Loopback-bind tests denied by the sandbox are recorded as REQUIRED-UNRUN with their exact command. Commit locally; never push or deploy.
+Exercise real SQLite transactions and in-process HTTP/control-stream fixtures for code consumption, expiry, rotation, bounded retry, older-generation reuse, revocation, management isolation, legacy compatibility, server binding, clock skew, atomic file permissions, cross-process coordination, transient/terminal errors and a continuously connected publisher over a simulated 48 hours. Run package tests, race tests and the build; the full integration suite requires loopback sockets.

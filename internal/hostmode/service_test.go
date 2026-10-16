@@ -13,11 +13,11 @@ import (
 func TestServiceGolden(t *testing.T) {
 	for _, platform := range []string{"darwin", "linux", "windows"} {
 		t.Run(platform, func(t *testing.T) {
-			s := ServiceSpec{OS: platform, Home: "/home/owner", Binary: "/opt/tunn/bin/tunn", Config: "/home/owner/.config/tunn/host.yaml", Username: "OWNER\\bryan", UID: 501}
+			s := ServiceSpec{OS: platform, Home: "/home/owner", Binary: "/opt/tunn/bin/tunn", Config: "/home/owner/.config/tunn/host.yaml", Username: "OWNER\\you", UID: 501}
 			if platform == "windows" {
-				s.Home = `C:\Users\bryan`
+				s.Home = `C:\Users\you`
 				s.Binary = `C:\Program Files\tunn\tunn.exe`
-				s.Config = `C:\Users\bryan\.config\tunn\host.yaml`
+				s.Config = `C:\Users\you\.config\tunn\host.yaml`
 			}
 			got, err := s.Unit()
 			if err != nil {

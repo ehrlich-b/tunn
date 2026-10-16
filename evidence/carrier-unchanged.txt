@@ -1,2 +1,0 @@
-HEAD 8cb0b92505fdaaaf7497005aea7521e84f157ee1
-status --porcelain: empty

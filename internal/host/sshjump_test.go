@@ -64,7 +64,7 @@ func jumpPublish(t *testing.T, p *ProxyServer, target string, allowed []string) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	stream.incoming <- &pb.TunnelMessage{Message: &pb.TunnelMessage_RegisterClient{RegisterClient: &pb.RegisterClient{TunnelId: "forge-ssh", TargetUrl: "tcp", EndpointProtocol: "tcp", AuthToken: token, TunnelKey: p.config.WellKnownKey, AllowedEmails: allowed, Capabilities: []string{common.CapabilityConnectionStreamV1}}}}
+	stream.incoming <- &pb.TunnelMessage{Message: &pb.TunnelMessage_RegisterClient{RegisterClient: &pb.RegisterClient{TunnelId: "build-host-ssh", TargetUrl: "tcp", EndpointProtocol: "tcp", AuthToken: token, TunnelKey: p.config.WellKnownKey, AllowedEmails: allowed, Capabilities: []string{common.CapabilityConnectionStreamV1}}}}
 	hostDone := make(chan struct{})
 	go func() { defer close(hostDone); _ = p.tunnelServer.EstablishTunnel(stream) }()
 	select {
@@ -186,7 +186,7 @@ func TestLoopbackNativeSSHJump(t *testing.T) {
 	_, relayPort, _ := net.SplitHostPort(relay.Addr().String())
 	known := filepath.Join(recipient, "known_hosts")
 	writePins := func(originPin, relayPin ssh.PublicKey) {
-		data := append([]byte("forge-ssh "), ssh.MarshalAuthorizedKey(originPin)...)
+		data := append([]byte("build-host-ssh "), ssh.MarshalAuthorizedKey(originPin)...)
 		data = append(data, []byte("[127.0.0.1]:"+relayPort+" ")...)
 		data = append(data, ssh.MarshalAuthorizedKey(relayPin)...)
 		if err := os.WriteFile(known, data, 0600); err != nil {
@@ -262,7 +262,7 @@ func TestLoopbackNativeSSHJump(t *testing.T) {
 	t.Logf("automated native enrollment and confirmation: %s", time.Since(enrollmentStart))
 	for _, session := range []string{"first", "second"} {
 		start := time.Now()
-		output, err := native(current.Username, "forge-ssh")
+		output, err := native(current.Username, "build-host-ssh")
 		if err != nil || string(output) != "native-jump-ok" {
 			t.Fatalf("%s session: %s %v", session, output, err)
 		}
@@ -271,7 +271,7 @@ func TestLoopbackNativeSSHJump(t *testing.T) {
 	strangerFile := filepath.Join(recipient, "stranger_key")
 	stranger := jumpKey(t, strangerFile)
 	selectedKey = strangerFile
-	output, err := native(current.Username, "forge-ssh")
+	output, err := native(current.Username, "build-host-ssh")
 	if err == nil || !bytes.Contains(output, []byte("SSH endpoint access denied")) {
 		t.Fatalf("unknown key admitted: %s %v", output, err)
 	}
@@ -281,13 +281,13 @@ func TestLoopbackNativeSSHJump(t *testing.T) {
 	if _, err := p.sshKeys.Add(context.Background(), "stranger@example.com", string(ssh.MarshalAuthorizedKey(stranger.PublicKey()))); err != nil {
 		t.Fatal(err)
 	}
-	output, err = native(current.Username, "forge-ssh")
+	output, err = native(current.Username, "build-host-ssh")
 	if err == nil || !bytes.Contains(output, []byte("SSH endpoint access denied")) {
 		t.Fatalf("registered stranger admitted: %s %v", output, err)
 	}
 	selectedKey = aliceFile
 	for _, tc := range []struct{ name, resource, login string }{
-		{"wrong resource", "missing-resource", current.Username}, {"wrong origin user", "forge-ssh", "not-a-real-origin-user"}, {"relay loopback", "127.0.0.1", current.Username},
+		{"wrong resource", "missing-resource", current.Username}, {"wrong origin user", "build-host-ssh", "not-a-real-origin-user"}, {"relay loopback", "127.0.0.1", current.Username},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if output, err := native(tc.login, tc.resource); err == nil {
@@ -304,7 +304,7 @@ func TestLoopbackNativeSSHJump(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			writePins(tc.origin, tc.relay)
-			output, err := native(current.Username, "forge-ssh")
+			output, err := native(current.Username, "build-host-ssh")
 			if err == nil || !bytes.Contains(output, []byte("Host key verification failed")) {
 				t.Fatalf("host substitution: %s %v", output, err)
 			}
@@ -325,7 +325,7 @@ func TestLoopbackNativeSSHJump(t *testing.T) {
 		t.Fatal(err)
 	}
 	start := time.Now()
-	output, err = run(sftpBin, "-F", cfgFile, "-J", "tunn@pilot-relay", "-b", batch, current.Username+"@forge-ssh")
+	output, err = run(sftpBin, "-F", cfgFile, "-J", "tunn@pilot-relay", "-b", batch, current.Username+"@build-host-ssh")
 	if err != nil {
 		t.Fatalf("sftp: %s %v", output, err)
 	}
@@ -338,7 +338,7 @@ func TestLoopbackNativeSSHJump(t *testing.T) {
 	if err := os.WriteFile(authorized, nil, 0600); err != nil {
 		t.Fatal(err)
 	}
-	output, err = native(current.Username, "forge-ssh")
+	output, err = native(current.Username, "build-host-ssh")
 	if err == nil || !bytes.Contains(output, []byte("Permission denied")) {
 		t.Fatalf("relay-only shell grant: %s %v", output, err)
 	}
@@ -346,7 +346,7 @@ func TestLoopbackNativeSSHJump(t *testing.T) {
 		t.Fatal(err)
 	}
 	prepare()
-	active := exec.CommandContext(ctx, sshBin, "-F", cfgFile, "-J", "tunn@pilot-relay", current.Username+"@forge-ssh", "printf ready; cat")
+	active := exec.CommandContext(ctx, sshBin, "-F", cfgFile, "-J", "tunn@pilot-relay", current.Username+"@build-host-ssh", "printf ready; cat")
 	stdout, err := active.StdoutPipe()
 	if err != nil {
 		t.Fatal(err)
@@ -391,7 +391,7 @@ func TestLoopbackNativeSSHJump(t *testing.T) {
 		t.Fatal("removed person retained origin session")
 	}
 	jumpPublish(t, p, origin.Addr().String(), []string{"owner@example.com"})
-	if output, err := native(current.Username, "forge-ssh"); err == nil || !bytes.Contains(output, []byte("SSH endpoint access denied")) {
+	if output, err := native(current.Username, "build-host-ssh"); err == nil || !bytes.Contains(output, []byte("SSH endpoint access denied")) {
 		t.Fatalf("removed person: %s %v", output, err)
 	}
 	entries, err := os.ReadDir(recipient)
@@ -470,11 +470,11 @@ func TestSSHJumpLiveKeyRevocationAndReusedTransport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := session.Start("tcp --name forge-ssh"); err != nil {
+	if err := session.Start("tcp --name build-host-ssh"); err != nil {
 		t.Fatal(err)
 	}
 	_ = sshLine(t, bufio.NewReader(stdout))
-	stream, err := c.Dial("tcp", "forge-ssh:22")
+	stream, err := c.Dial("tcp", "build-host-ssh:22")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -505,10 +505,10 @@ func TestSSHJumpLiveKeyRevocationAndReusedTransport(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("revoked stream survived")
 	}
-	if _, err := c.Dial("tcp", "forge-ssh:22"); err == nil {
+	if _, err := c.Dial("tcp", "build-host-ssh:22"); err == nil {
 		t.Fatal("removed key opened channel on reused transport")
 	}
-	for _, target := range []string{"forge-ssh:23", "forge-ssh:443", "127.0.0.1:22", "localhost:22"} {
+	for _, target := range []string{"build-host-ssh:23", "build-host-ssh:443", "127.0.0.1:22", "localhost:22"} {
 		if _, err := c.Dial("tcp", target); err == nil {
 			t.Fatal("arbitrary target allowed", target)
 		}
@@ -518,7 +518,7 @@ func TestSSHJumpLiveKeyRevocationAndReusedTransport(t *testing.T) {
 func TestSSHJumpPinsResourceGeneration(t *testing.T) {
 	p, c, _ := sshRelay(t, true)
 	stop := jumpPublish(t, p, "127.0.0.1:1", []string{"owner@example.com"})
-	original, _ := p.tunnelServer.GetTunnel("forge-ssh")
+	original, _ := p.tunnelServer.GetTunnel("build-host-ssh")
 	keys, err := p.sshKeys.List(context.Background(), sshTestAccountID(t, p, "owner@example.com"))
 	if err != nil || len(keys) != 1 {
 		t.Fatal(keys, err)
@@ -528,14 +528,14 @@ func TestSSHJumpPinsResourceGeneration(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Simulate a name being reused after authorization and before local ingress.
-	replacement := &TunnelConnection{TunnelID: "forge-ssh", EndpointProtocol: "tcp"}
+	replacement := &TunnelConnection{TunnelID: "build-host-ssh", EndpointProtocol: "tcp"}
 	p.tunnelServer.mu.Lock()
-	p.tunnelServer.tunnels["forge-ssh"] = replacement
+	p.tunnelServer.tunnels["build-host-ssh"] = replacement
 	p.tunnelServer.mu.Unlock()
-	r := httptest.NewRequest(http.MethodConnect, "https://forge-ssh.tunn.test/", nil)
+	r := httptest.NewRequest(http.MethodConnect, "https://build-host-ssh.tunn.test/", nil)
 	r = r.WithContext(context.WithValue(r.Context(), sshConnectTunnelKey{}, original))
 	w := httptest.NewRecorder()
-	_ = p.proxyToLocal(w, r, "forge-ssh")
+	_ = p.proxyToLocal(w, r, "build-host-ssh")
 	if w.Code != http.StatusForbidden {
 		t.Fatal("resource generation not pinned", w.Code, w.Body.String())
 	}
@@ -544,9 +544,9 @@ func TestSSHJumpPinsResourceGeneration(t *testing.T) {
 	}
 	// Restore the original publisher for orderly teardown.
 	p.tunnelServer.mu.Lock()
-	p.tunnelServer.tunnels["forge-ssh"] = original
+	p.tunnelServer.tunnels["build-host-ssh"] = original
 	p.tunnelServer.mu.Unlock()
-	for _, target := range []string{"forge-ssh:23", "forge-ssh:443", "forge-ssh:65535", "127.0.0.1:22", "localhost:22"} {
+	for _, target := range []string{"build-host-ssh:23", "build-host-ssh:443", "build-host-ssh:65535", "127.0.0.1:22", "localhost:22"} {
 		if conn, err := c.Dial("tcp", target); err == nil {
 			_ = conn.Close()
 			t.Fatal("arbitrary destination admitted", target)
@@ -561,7 +561,7 @@ func TestSSHJumpAdmissionRequiresPersonGrant(t *testing.T) {
 		t.Fatal(err)
 	}
 	jumpPublish(t, p, "127.0.0.1:1", nil) // Even a public raw endpoint is not a jump grant.
-	tunnel, _ := p.tunnelServer.GetTunnel("forge-ssh")
+	tunnel, _ := p.tunnelServer.GetTunnel("build-host-ssh")
 	stranger := sshSigner(t)
 	pub := string(ssh.MarshalAuthorizedKey(stranger.PublicKey()))
 	key, err := p.sshKeys.Add(context.Background(), "stranger@example.com", pub)

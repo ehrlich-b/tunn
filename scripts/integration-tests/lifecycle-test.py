@@ -301,7 +301,7 @@ class Lifecycle:
             self.stop(process)
         if failed:
             # Logs can contain fixture tokens. Retain them privately for local
-            # diagnosis, but do not dump them into CI or coordinator output.
+            # diagnosis, but do not dump them into CI or operator output.
             print(f"Private diagnostic logs: {self.work}", file=sys.stderr)
 
 

@@ -1,6 +1,6 @@
 # Enterprise zero trust: the order after OIDC
 
-Research: 2026-10-11; code baseline: `7f5d619`. The 13:10 and 13:11 entries in [the live inbox](../IDEAS-INBOX.md) narrow this delivery to **Okta, Entra ID and Google Workspace OIDC sign-in, with organization-scoped group sharing**. Everything below is a roadmap, not a claim of implemented enterprise controls.
+The current scope is **Okta, Entra ID and Google Workspace OIDC sign-in, with organization-scoped group sharing**. Everything below is a roadmap, not a claim of implemented enterprise controls.
 
 The share-button thesis is “share this app with the Engineering group; recipients use their existing company login and browser.” The organization's issuer is authoritative for membership. A domain-shaped email alone must never grant group access. The origin must prevent access around the proxy. [NIST SP 800-207](https://csrc.nist.gov/pubs/sp/800/207/final) requires resource-focused, explicit decisions informed by identity and device state; [BeyondCorp](https://research.google/pubs/beyondcorp-a-new-approach-to-enterprise-security/) demonstrates that network location cannot substitute for those decisions. OIDC alone implements only part of that model.
 

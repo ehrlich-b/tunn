@@ -1,5 +1,0 @@
-=== RUN   TestR4PublicAPIExposesCompetingProof
-    r4_reclaim_test.go:59: owner POST: status=409 body="unverified claim: prove ownership with TXT _tunn-verification.apps.example.com = dv-65af0e5a195b943bdcd41c9c47b8194d.tunn.test and retry add within 24 hours\n"; owner GET: status=200 body="{}\n"; backend=rpc error: code = AlreadyExists desc = unverified claim: prove ownership with TXT _tunn-verification.apps.example.com = dv-65af0e5a195b943bdcd41c9c47b8194d.tunn.test and retry add within 24 hours
---- PASS: TestR4PublicAPIExposesCompetingProof (0.38s)
-PASS
-ok  	github.com/ehrlich-b/tunn/internal/host	1.402s

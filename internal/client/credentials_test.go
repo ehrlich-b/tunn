@@ -241,7 +241,7 @@ func TestDurableConnect401RetriesBeforeReadingSSH(t *testing.T) {
 		}
 		return &http.Response{StatusCode: 200, Status: "200 OK", Header: make(http.Header), Body: &durableResponseReader{body: r.Body, received: &uploaded}}, nil
 	})
-	connector := &ConnectClient{EndpointURL: "https://forge-ssh.relay.test/.well-known/tunn-connect", Credentials: m}
+	connector := &ConnectClient{EndpointURL: "https://build-host-ssh.relay.test/.well-known/tunn-connect", Credentials: m}
 	var output strings.Builder
 	if err := connector.connectStreams(context.Background(), &http.Client{Transport: transport}, input, &output); err != nil {
 		t.Fatal(err)
@@ -364,7 +364,7 @@ func TestDurablePublisherRetriesFailedRenewalWithinReplayWindow(t *testing.T) {
 }
 
 func TestLoginRequiredClassification(t *testing.T) {
-	t.Setenv("TUNN_CONFIG_DIR", filepath.Join(t.TempDir(), "forge"))
+	t.Setenv("TUNN_CONFIG_DIR", filepath.Join(t.TempDir(), "build-host"))
 	cases := []struct {
 		err       error
 		login     bool
@@ -391,7 +391,7 @@ func TestLoginRequiredClassification(t *testing.T) {
 		}
 	}
 	message := LoginRequiredMessage()
-	if strings.Contains(message, "\n") || !strings.Contains(message, "TUNN_CONFIG_DIR="+filepath.Join(filepath.Dir(os.Getenv("TUNN_CONFIG_DIR")), "forge")+" tunn login") {
+	if strings.Contains(message, "\n") || !strings.Contains(message, "TUNN_CONFIG_DIR="+filepath.Join(filepath.Dir(os.Getenv("TUNN_CONFIG_DIR")), "build-host")+" tunn login") {
 		t.Fatal("login message does not name the fix on one line:", message)
 	}
 }

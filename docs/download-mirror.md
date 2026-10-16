@@ -18,7 +18,7 @@ metacharacters are not accepted in the server's base.
 
 The installer uses only `https://tunn.to/dl` by default and verifies SHA256SUMS.
 Failed downloads, missing manifests and checksum mismatches cannot overwrite an
-existing install. There is no forge fallback. The installer uses a temporary
+existing install. Downloads use the configured HTTPS mirror. The installer uses a temporary
 file and atomic rename and accepts a writable `TUNN_INSTALL_DIR`
 (default `$HOME/.local/bin`), without automatically using sudo.
 There is no tunn self-update command; rerun the installer to update.

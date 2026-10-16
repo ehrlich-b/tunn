@@ -76,7 +76,7 @@ func TestSSHIdentityContinuityAcrossPrimaryFormAndProviderMerge(t *testing.T) {
 		}
 	}()
 	jumpPublish(t, p, origin.Addr().String(), []string{owner.PrimaryEmail})
-	active, err := jump.Dial("tcp", "forge-ssh:22")
+	active, err := jump.Dial("tcp", "build-host-ssh:22")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ func TestSSHIdentityContinuityAcrossPrimaryFormAndProviderMerge(t *testing.T) {
 	other := dial(otherSigner)
 	refused := func() {
 		t.Helper()
-		if c, err := other.Dial("tcp", "forge-ssh:22"); err == nil {
+		if c, err := other.Dial("tcp", "build-host-ssh:22"); err == nil {
 			_ = c.Close()
 			t.Fatal("different account credential admitted")
 		}
@@ -165,7 +165,7 @@ func TestSSHIdentityContinuityAcrossPrimaryFormAndProviderMerge(t *testing.T) {
 			echo(active, stage)
 			time.Sleep(100 * time.Millisecond)
 		}
-		next, err := jump.Dial("tcp", "forge-ssh:22")
+		next, err := jump.Dial("tcp", "build-host-ssh:22")
 		if err != nil {
 			t.Fatal("new channel on existing jump transport:", err)
 		}

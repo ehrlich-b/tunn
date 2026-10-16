@@ -280,7 +280,7 @@ class SelfhostTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         if not shutil.which("openssl"):
-            raise RuntimeError("REQUIRED/UNRUN: coordinator must stage openssl for fixture TLS generation")
+            raise RuntimeError("REQUIRED/UNRUN: operator must stage openssl for fixture TLS generation")
         cls.temporary = tempfile.TemporaryDirectory(prefix="selfhost TLS fixture ")
         cls.addClassCleanup(cls.temporary.cleanup)
         cls.tls = Path(cls.temporary.name)

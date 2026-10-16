@@ -1,13 +1,13 @@
 # Organization SSO and group sharing
 
-Research: 2026-10-11; baseline: `7f5d619`. [BRIEF](../BRIEF.md) and the complete [live inbox](../IDEAS-INBOX.md) govern scope: the 13:10 cut and 13:11 addition authorize only **Okta, Microsoft Entra ID and Google Workspace OIDC sign-in and group sharing**. SAML, identity linking, SCIM, posture, AI identities and outbound OIDC-provider endpoints are deferred. The previous design is preserved in [docs/durable-device-design.md](docs/durable-device-design.md). Read the short [enterprise roadmap](ENTERPRISE-ZT.md) first.
+The current scope is **Okta, Microsoft Entra ID and Google Workspace OIDC sign-in and group sharing**. SAML, identity linking, SCIM, posture, AI identities and outbound OIDC-provider endpoints are deferred. The previous design is preserved in [docs/durable-device-design.md](docs/durable-device-design.md). Read the short [enterprise roadmap](ENTERPRISE-ZT.md) first.
 
 ## Value, effort and build order
 
 | Rank | Role | Value / effort | Decision |
 | --- | --- | --- | --- |
 | 1 | Identity-aware proxy using customer OIDC and group policy | High / medium | Build now, using existing resource share/revoke. Upstream company sign-in, not a new consumer identity provider. |
-| 2 | Signed app identity at the proxy | High / medium | Integrate the `tunn-apps-domain` lane's reviewed JWT/JWKS commit when available; no duplicate signer. |
+| 2 | Signed app identity at the proxy | High / medium | Use the existing app-domain JWT/JWKS implementation; no duplicate signer. |
 | 3 | SAML service provider for org login | Customer-dependent / high | Deferred; add for a customer unable to use OIDC. |
 | 4 | Brokered OIDC issuer for apps needing their own login | Selective / high | Deferred plumbing. A proxy cannot automatically create app accounts or native application roles. |
 | 5 | SAML IdP for legacy applications | Narrow / very high | Deferred stretch behind independent security review. |
@@ -48,4 +48,4 @@ Use a maintained SP library, never hand-written XML-DSig. `crewjam/saml` provide
 
 Future attack corpus: XSW variants, duplicate IDs/ambiguous assertions, signature stripping and comment-injected NameID; validate the exact signed node and canonicalization result. Persist assertion-ID replay protection; bound skew and enforce audience/recipient/destination/outstanding `InResponseTo`; bind opaque RelayState to a stored safe redirect; pin metadata and overlap keys during rotation. Begin SP-initiated only, reject unsolicited IdP initiation, and explicitly scope encrypted assertions and SLO/session revocation. The original SAML corpus is **deferred by the scope cut**, not passed.
 
-[docs/org-sso.md](docs/org-sso.md) records setup and review/deploy prerequisites: tenant binding, group API permissions, cookie trust, origin bypass and offboarding bounds. [Validation evidence](docs/org-sso-validation.md) records the fixture and full-suite results. Full suite plus race required; commit locally, never push/deploy or touch billing.
+[docs/org-sso.md](docs/org-sso.md) records setup and review/deploy prerequisites: tenant binding, group API permissions, cookie trust, origin bypass and offboarding bounds. Run the full suite and race checks before enabling org SSO.

@@ -7,7 +7,7 @@ set -Eeuo pipefail
 
 DOMAIN="${TUNN_CERT_DOMAIN:-tunn.to}"
 FLY_APP="${TUNN_FLY_APP:-tunn}"
-CERT_EMAIL="${TUNN_CERT_EMAIL:-ehrlich.bryan@gmail.com}"
+CERT_EMAIL="${TUNN_CERT_EMAIL:-owner@example.com}"
 CERTBOT_ROOT="${TUNN_CERTBOT_ROOT:-${HOME}/.config/tunn/certbot}"
 CERTBOT_CONFIG_DIR="${CERTBOT_ROOT}/config"
 CERTBOT_WORK_DIR="${CERTBOT_ROOT}/work"

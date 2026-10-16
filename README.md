@@ -12,7 +12,7 @@ Copy the printed `/mcp` URL to your cloud client's connector settings. Keep your
 local process running. [Connect to Claude.ai and ChatGPT](https://tunn.to/mcp-to-claude),
 [compare with ngrok](https://tunn.to/ngrok-alternative), or see
 [pricing](https://tunn.to/pricing). Hosted pages describe this release after the
-coordinator deploys it; the local guides work from this checkout now.
+operator deploys it; the local guides work from this checkout now.
 
 Free: 5 concurrent tunnels, 1,000,000 admissions and 10 GB metered transfer per UTC
 month across your account, plus 1 reserved name. Pro: $5/month or $48/year, 25 tunnels,
@@ -310,9 +310,8 @@ and metering sequence; [the 2.0 design](docs/DESIGN-2.0.md) for architecture;
 and [the commercial thesis](docs/COMMERCIAL-THESIS.md) for the buyer and payment
 test.
 
-For supervised SSH, wingthing MCP, and private dashboard access on forge and
-rig, see the [AI host deployment kit](deploy/ai-hosts/README.md), including its
-security prerequisites and two-phase restart canary.
+For supervised endpoints, see [host mode](docs/host-mode.md) and the
+[install/recovery guide](docs/install-recovery.md).
 
 ## Self-Host
 
@@ -362,7 +361,6 @@ make test-dogfood-memory # Same regression assertions without socket binds
 make test-metering-contract # Durable usage/grant and forwarding contract (no sockets)
 make integration-test-metering # Local TLS relay/publisher/CLI grant lifecycle
 make test-mcp # Run the focused stdio/Streamable HTTP bridge tests
-make test-ai-hosts # Offline deployment-kit unit and shell syntax checks
 make test-websocket # Local TLS relay, auth, headers, rotation, 100 sockets
 make test-websocket-memory # Same WebSocket stack over net.Pipe; no socket binds
 make test-sdk-contract # Go SDK lifecycle, external consumer and required loopback parity

@@ -128,7 +128,7 @@ func TestPebbleWildcardHTTP01(t *testing.T) {
 	if _, err := r.Verify(ctx, d); err != nil {
 		t.Fatal(err)
 	}
-	pair, err := r.Certificate(ctx, &pb.Domain{Name: "dashboard.apps.ehrlich.dev"})
+	pair, err := r.Certificate(ctx, &pb.Domain{Name: "dashboard.apps.example.com"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,10 +140,10 @@ func TestPebbleWildcardHTTP01(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := leaf.VerifyHostname("dashboard.apps.ehrlich.dev"); err != nil {
+	if err := leaf.VerifyHostname("dashboard.apps.example.com"); err != nil {
 		t.Fatal(err)
 	}
-	cached, err := r.Certificate(ctx, &pb.Domain{Name: "dashboard.apps.ehrlich.dev"})
+	cached, err := r.Certificate(ctx, &pb.Domain{Name: "dashboard.apps.example.com"})
 	if err != nil || string(cached.CertificatePem) != string(pair.CertificatePem) {
 		t.Fatal("certificate not reused", err)
 	}

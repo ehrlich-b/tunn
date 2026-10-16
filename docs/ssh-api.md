@@ -195,13 +195,13 @@ sshd, recipients need only OpenSSH:
 
 ```sh
 # Publisher (tunn installed and logged in; keep this process running):
-tunn tcp --account-only --name forge-ssh --allow alice@example.com 127.0.0.1:22
+tunn tcp --account-only --name build-host-ssh --allow alice@example.com 127.0.0.1:22
 # Recipient, after one-time email/key linking and verifying both host keys:
-ssh -J tunn@tunn.to:443 deploy@forge-ssh
-sftp -J tunn@tunn.to:443 deploy@forge-ssh
+ssh -J tunn@tunn.to:443 deploy@build-host-ssh
+sftp -J tunn@tunn.to:443 deploy@build-host-ssh
 ```
 
-The jump host resolves `forge-ssh:22` to the publisher's configured target. It
+The jump host resolves `build-host-ssh:22` to the publisher's configured target. It
 terminates only the outer SSH transport; the inner host key, login and encrypted
 session belong to the origin. A relay grant does not authorize an OS user.
 Registered keys still need a matching endpoint email grant (or ownership),
@@ -350,82 +350,3 @@ filtering, ordinary metering/grants, anonymous limits, key linking, token
 rotation, request inspection/replay, raw TCP half-close, stdio MCP and expiry.
 Existing socket-based tests remain mandatory and may need an environment that
 permits loopback binds.
-
-## Security fixes and review comparison (2026-10-11)
-
-The reviewed SSH candidate was `aa5d8eaefd32448ba278ffcac02779d3a8f2c941`.
-The SSH commit was rebased as `c2a252c179bed4838cf23cda429ff8c5fe6080f1`
-onto the latest durable-credentials base available for this work,
-`4b7364503e428837b6fdb98e8c2ce4605b05da90`. No billing implementation,
-production configuration, deployment or remote Git history was changed.
-
-| Finding | Fix | Regression against the reviewed candidate |
-| --- | --- | --- |
-| F1: reachable SSH-library denial of service | Select `golang.org/x/crypto v0.58.0`; update its required dependencies and Go 1.26 build/compiler configuration. | `TestReviewSSHDependencyPatched` fails with the selected v0.41.0 dependency and passes with v0.58.0. Ordinary agent/Unix-channel rejections also remain covered. |
-| F2: stalled authority lookup exceeds revocation deadline | Pass context through account, email and operational-state SQL; close the stream independently at the three-second check deadline; reject expired authority. | `TestReviewRevocationHasFiveSecondDeadline` fails with a successfully committed revocation and held SQLite pool lease. Both context-aware and deliberately cancellation-ignoring storage variants pass after the fix. |
-| F3: pending link restores removed key | Atomically advance revocation generation and remove pending email/signature challenges. Completion checks generation in its transaction. An existing SSH session can only update an existing linked key. | `TestReviewPendingLinkCannotUndoRevocation` fails before the fix and passes afterward. Additional tests cover concurrent completion/removal, legacy-schema migration, restart, stale signatures and old sessions. |
-| F4: account holder squats a foreign public key | Record ownership only after a fresh, one-time key signature bound to the authenticated verified identity, or the authenticating SSH key plus deliberate email confirmation. A challenge alone reserves nothing. | `TestReviewCannotRegisterAnotherPersonsKey` fails before the fix and passes afterward. HTTP and real CLI tests cover private files, agent signing, public-key-only rejection, mismatched signer/key/identity, replay and fresh re-enrollment. |
-| F5: direct forwarding skips budgets and retains idle transports | Separate bounded transport/channel counters for key, canonical account and IP; release on closure; expire consumers after their last channel ends. | `TestReviewDirectForwardIdentityBudgets` and `TestReviewDirectForwardIdleExpiryAndRelease` fail before the fix and pass afterward, including multiplexing and origins that remain open after an input half-close. Additional tests cover transport limits, aliases and counter release. |
-| F6: private target existence oracle | Resolve linked identity before target lookup; use uniform admission denial for offline, unauthorized and budget-denied targets. Release completed admission charges before delivering a rejection. | `TestReviewAnonymousTargetOracle` fails on both port 22 and legacy 80 before the fix and passes afterward under `-race`. |
-
-The reviewer reproductions from `review_host_test.go` and
-`review_registry_test.go` were ported into the permanent package suites. F1's
-review reproduction was dependency/source inspection, not a malicious packet
-or exhaustion test; the permanent dependency guard requires at least v0.56.0,
-the minimum for [GO-2026-6354](https://pkg.go.dev/vuln/GO-2026-6354) and
-[GO-2026-6355](https://pkg.go.dev/vuln/GO-2026-6355), which also includes the
-[GO-2026-5016](https://pkg.go.dev/vuln/GO-2026-5016) rejected-channel fix.
-
-All comparisons use installed Go 1.27.2 on Linux/amd64, actual loopback/Unix
-listeners and umask `022`. The first inherited-umask runs exposed group-writable
-fixture-directory failures on both bases. Umask `077` instead invalidated a
-fixture's intended 0644 file permission. Neither production security check was
-relaxed; the final comparisons use `022` on both sides. Two intermediate full
-runs hit the existing one-second MCP fixture shutdown deadline; unchanged MCP
-suites then passed five repetitions on both base and fixed trees. An intermediate SSH inspection fixture also observed its asynchronous event
-before completion; its failure log is retained. An initial
-native enrollment disconnect and a teardown EOF race were repaired in the SSH
-session lifecycle; the final native and race suites exercise that lifecycle.
-
-Full execution logs and the built Linux binary are retained in this forge at
-`/work/lanes/tunn-sshj/validation/`, outside the tracked repository. The
-original-candidate full-suite comparison excludes only the newly copied
-`TestReview*` regressions; those same regressions run separately with `-race`
-and fail for every reported finding on `aa5d8ea`.
-
-### Additional dependency-scan results
-
-`govulncheck v1.9.0` source analysis of `./internal/sshfront ./internal/host`
-reports 23 reachable advisories on the durable base and six on the fixed tree.
-The remaining six are inherited findings in unchanged `google.golang.org/grpc
-v1.76.0` and `github.com/quic-go/quic-go v0.56.0`: GO-2026-6443,
-GO-2026-6348, GO-2026-6061, GO-2026-4762, GO-2026-5676 and GO-2025-4233.
-Both scans exit with status 3. These dependency advisories need separate work;
-this change does not claim a clean vulnerability scan or authorize public
-enablement. The source scan reports no reachable `x/crypto` advisory after the
-upgrade. The stripped-binary scan conservatively reports eight advisories,
-including uncalled xDS/OpenPGP paths; source results distinguish those paths.
-
-### Completed checks
-
-| Check | Result | Evidence in the forge validation directory |
-| --- | --- | --- |
-| Durable base: `go test -p=2 ./... -count=1` | PASS, including loopback fixtures | `base-durable-full-022.log` |
-| Original candidate: all original tests, `go test -p=2 ./... -skip '^TestReview' -count=1` | PASS, including native OpenSSH fixture | `base-aa-full-022.log` |
-| Fixed tree: `go test -p=1 -parallel=1 ./... -count=1` | PASS, including every loopback and native fixture | `final-full-verified.log` |
-| Original candidate: six finding regressions with `-race` | Expected FAIL for all six; no race warnings | `base-regression-proof.log` |
-| Fixed tree: identical six finding regressions with `-race` | PASS; stalled committed revocation closes in 3.003 seconds or less | `final-regression-proof.log` |
-| Durable base: full SSH/auth/relay packages with `-race`, plus CLI/store/client | PASS | `base-durable-race.log`, `base-durable-cli-store-race.log`, `base-durable-client-race.log` |
-| Fixed tree: `go test -p=1 -race . ./internal/host ./internal/sshfront ./internal/common ./internal/client ./internal/storage ./internal/store ./internal/relaytransport -count=1` | PASS; no race warnings | `final-race.log` |
-| Final forwarding-lifetime refinement: complete sshfront race suite and host jump/native tests | PASS, including an origin that remains open after input EOF | `final-sshfront-race.log`, `closed-channel-lifetime.log` |
-| `go vet ./...` | PASS | `verified-vet.log` |
-
-The final native OpenSSH run under `-race` completed in 2.42 seconds. Its first
-and second sessions took 249 ms and 204 ms; byte-for-byte verification of a
-random 64 KiB SFTP download took 418 ms. It rejected unknown/non-granted keys,
-wrong resources/users, relay loopback targets, substituted origin/relay host
-keys and a relay grant without an origin-authorized key. Stopping the publisher
-closed the active origin session in 5.94 ms; live key removal on a reused jump
-transport closed it in 979 ms. These are fixture observations, not production
-latency promises. The held-database regression separately verifies the
-five-second cutoff under stalled authority lookup.

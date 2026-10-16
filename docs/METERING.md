@@ -214,7 +214,7 @@ local processes, uses literal loopback IPs, and creates disposable SQLite state
 under `.scratch`. Socket-restricted sandboxes cannot run the E2E/full suite;
 that is not a reason to skip or weaken those tests.
 
-Bryan's entry paid-tier target is **about $12/year** (about $1/month), with a
+the operator's entry paid-tier target is **about $12/year** (about $1/month), with a
 monthly request and bandwidth cap. The intended purchase should be a no-brainer,
 strictly cheaper than a VPS and easier than a VPN. The plan allowances above are code defaults, not a new Starter entitlement or
 a billing reconciliation implementation. Shared owner caps impose a tighter ceiling;

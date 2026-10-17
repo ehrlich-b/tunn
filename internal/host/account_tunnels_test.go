@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/ehrlich-b/tunn/internal/common"
+	"github.com/ehrlich-b/tunn/internal/domains"
+	domainpb "github.com/ehrlich-b/tunn/pkg/proto/domainv1"
 	internalpb "github.com/ehrlich-b/tunn/pkg/proto/internalv1"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
 	"google.golang.org/grpc"
@@ -204,5 +206,27 @@ func TestAccountTunnelsAccountMerge(t *testing.T) {
 		if len(rows) != 2 {
 			t.Fatalf("merged account %s lost live connections: %+v", merged.ID, rows)
 		}
+	}
+}
+
+type accountTunnelDomains struct {
+	domains.Backend
+	rows []*domainpb.Domain
+}
+
+func (d accountTunnelDomains) List(context.Context, *domainpb.Owner) (*domainpb.DomainList, error) {
+	return &domainpb.DomainList{Domains: d.rows}, nil
+}
+
+func TestAccountTunnelsAppDisplayNameDoesNotRebindURL(t *testing.T) {
+	f := newWebInspectorFixture(t, 0, 0)
+	f.p.domains = accountTunnelDomains{rows: []*domainpb.Domain{
+		{Name: "*.apps.example.com", State: "ready", VerifiedUntil: time.Now().Add(time.Hour).Unix(), AppNames: []*domainpb.AppName{{Label: "dashboard", Tunnel: "api"}}},
+		{Name: "unrelated.example.com", State: "ready", VerifiedUntil: time.Now().Add(time.Hour).Unix(), Tunnel: "dashboard"},
+		{Name: "*.other.example.com", State: "ready", VerifiedUntil: time.Now().Add(time.Hour).Unix(), AppNames: []*domainpb.AppName{{Label: "other-app", Tunnel: "dashboard"}}},
+	}}
+	rows, complete := f.p.accountTunnels(context.Background(), f.tunnel.AccountID)
+	if !complete || len(rows) != 1 || rows[0].Name != "dashboard" || rows[0].PublicURL != "https://dashboard.apps.example.com" {
+		t.Fatalf("display name rebound connection URL: %+v", rows)
 	}
 }

@@ -147,18 +147,19 @@ func (p *ProxyServer) accountTunnels(ctx context.Context, owner string) ([]accou
 			complete = false
 		} else {
 			for i := range rows {
+				tunnelID := rows[i].Name
 				for _, domain := range domains.GetDomains() {
 					if domain.State != "ready" || domain.VerifiedUntil <= time.Now().Unix() {
 						continue
 					}
 					if strings.HasPrefix(domain.Name, "*.") {
 						for _, app := range domain.AppNames {
-							if app.Tunnel == rows[i].Name {
+							if app.Tunnel == tunnelID {
 								rows[i].Name, rows[i].Kind, rows[i].PublicURL = app.Label, "app", "https://"+app.Label+strings.TrimPrefix(domain.Name, "*")
 								break
 							}
 						}
-					} else if domain.Tunnel == rows[i].Name {
+					} else if domain.Tunnel == tunnelID {
 						rows[i].Kind, rows[i].PublicURL = "app", "https://"+domain.Name
 					}
 				}

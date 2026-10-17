@@ -241,6 +241,7 @@ func transientRegistration(err *permanentTunnelError) bool {
 
 // runOnce establishes a single gRPC tunnel connection and handles messages until disconnection
 func (s *ServeClient) runOnce(ctx context.Context) error {
+	ownerCtx := ctx
 	if s.Credentials != nil {
 		token, err := s.Credentials.Token(ctx, false)
 		if err != nil {
@@ -299,7 +300,19 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 	if s.HostID != "" {
 		ctx = metadata.AppendToOutgoingContext(ctx, "tunn-host-id", s.HostID)
 	}
-	stream, err := client.EstablishTunnel(ctx)
+	// Keep the transport alive briefly on an intentional owner shutdown so
+	// the relay receives a clean-stop message before gRPC cancellation.
+	streamCtx, stopStream := context.WithCancel(context.WithoutCancel(ctx))
+	var gracefulDone chan struct{}
+	defer func() {
+		if gracefulDone != nil && ownerCtx.Err() != nil {
+			<-gracefulDone
+		}
+		stopStream()
+	}()
+	stopEarlyCancel := context.AfterFunc(ctx, stopStream)
+	defer stopEarlyCancel()
+	stream, err := client.EstablishTunnel(streamCtx)
 	if err != nil {
 		return fmt.Errorf("failed to establish tunnel: %w", err)
 	}
@@ -421,6 +434,38 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 	if s.Credentials != nil && !containsString(regResp.Capabilities, deviceReauthCapability) {
 		return &permanentTunnelError{err: fmt.Errorf("relay lacks durable publisher renewal; update the relay")}
 	}
+	// Wrap stream with mutex for thread-safe sends
+	sender := &streamSender{stream: stream}
+	messageLoopDone := make(chan struct{})
+	if containsString(regResp.Capabilities, "graceful-stop-v1") && stopEarlyCancel() {
+		workers.Add(1)
+		gracefulDone = make(chan struct{})
+		go func() {
+			defer workers.Done()
+			defer close(gracefulDone)
+			<-ctx.Done()
+			if ownerCtx.Err() != nil {
+				sent := make(chan struct{})
+				go func() {
+					_ = sender.Send(&pb.TunnelMessage{Message: &pb.TunnelMessage_GracefulStop{GracefulStop: &pb.GracefulStop{}}})
+					close(sent)
+				}()
+				select {
+				case <-sent:
+				case <-time.After(time.Second):
+				}
+				select {
+				case <-messageLoopDone:
+				case <-time.After(time.Second):
+				}
+				stopStream()
+				<-sent
+			} else {
+				stopStream()
+			}
+		}()
+	}
+
 	if s.OnRegistered != nil {
 		s.OnRegistered(regResp.PublicUrl)
 	}
@@ -474,9 +519,6 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 
 	}
 
-	// Wrap stream with mutex for thread-safe sends
-	sender := &streamSender{stream: stream}
-
 	// Create a derived context that we cancel when this connection ends
 	connCtx, connCancel := context.WithCancel(ctx)
 	defer connCancel() // Cancel health check goroutine when connection ends
@@ -501,7 +543,8 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 		}()
 	}
 	// Enter message processing loop
-	err = s.processMessagesOwned(ctx, stream, sender, cancel)
+	err = s.processMessagesOwned(streamCtx, stream, sender, cancel)
+	close(messageLoopDone)
 	select {
 	case refreshErr := <-renewalError:
 		return &permanentTunnelError{err: refreshErr}

@@ -33,8 +33,12 @@ message TunnelMessage {
     ConnectionHalfClose connection_half_close = 13;
     ConnectionClose connection_close = 14;
     UpdateAccessToken update_access_token = 15;
+    GracefulStop graceful_stop = 16;
   }
 }
+
+// Explicit publisher shutdown; transport failure is never a graceful stop.
+message GracefulStop {}
 
 // RegisterClient is sent by the client (tunn serve) when it first connects
 // to register a new tunnel with the proxy server.

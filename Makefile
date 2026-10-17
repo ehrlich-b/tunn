@@ -12,6 +12,10 @@ DOCKER_IMAGE := $(APP_NAME):latest
 FLY_APP_NAME := $(APP_NAME)
 .DEFAULT_GOAL := all
 
+.PHONY: test-tunnel-alerts
+test-tunnel-alerts:
+	go test $(GO_TEST_FLAGS) -race -p 2 -timeout=120s -v -run '^TestTunnelAlerts' ./internal/host ./internal/store
+
 .PHONY: test-app-devices test-app-devices-browser
 test-app-devices:
 	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=180s -run '^TestAppDevice' ./internal/host ./sdk

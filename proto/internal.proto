@@ -13,6 +13,7 @@ service InternalService {
 // LoginNodeDB is the service that only the login node implements.
 // Non-login nodes proxy these calls to the login node.
 service LoginNodeDB {
+  rpc TunnelAlert(TunnelAlertRequest) returns (TunnelAlertResponse);
   // Usage tracking
   rpc RecordUsage(RecordUsageRequest) returns (RecordUsageResponse);
   rpc GetMonthlyUsage(GetMonthlyUsageRequest) returns (GetMonthlyUsageResponse);
@@ -48,6 +49,22 @@ service LoginNodeDB {
   rpc BeginBillingCheckout(BeginBillingCheckoutRequest) returns (BeginBillingCheckoutResponse);
   // Live app credentials and expiring concurrency leases; never carries raw secrets.
   rpc AppDeviceCheck(AppDeviceCheckRequest) returns (AppDeviceCheckResponse);
+}
+
+message TunnelAlertRequest {
+  string operation = 1; // up, heartbeat, down, graceful, error, settings, save_settings
+  string account_id = 2;
+  string tunnel = 3;
+  string session = 4;
+  string last_error = 5;
+  bool enabled = 6;
+  int64 threshold_seconds = 7;
+  bool on_graceful_stop = 8;
+}
+message TunnelAlertResponse {
+  bool enabled = 1;
+  int64 threshold_seconds = 2;
+  bool on_graceful_stop = 3;
 }
 
 

@@ -22,6 +22,7 @@ import (
 	meterpb "github.com/ehrlich-b/tunn/pkg/proto/meteringv1"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
 	"github.com/golang-jwt/jwt/v4"
+	"github.com/google/uuid"
 	"golang.org/x/time/rate"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -81,6 +82,7 @@ type TunnelServer struct {
 
 // TunnelConnection represents an active tunnel connection
 type TunnelConnection struct {
+	alertSession       string
 	PolicyResourceID   string // MCP policy generation; separate from browser sharing
 	ResourceID         string
 	ExposureMode       string
@@ -257,7 +259,7 @@ func NewTunnelServer(cfg *config.Config, userTokens map[string]string, accounts 
 func (s *TunnelServer) SetSharingBackend(backend metering.SharingBackend) { s.sharing = backend }
 
 // EstablishTunnel implements the bidirectional streaming RPC for tunnel control
-func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelServer) error {
+func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelServer) (resultErr error) {
 	common.LogInfo("new tunnel stream established")
 
 	// Wait for the initial RegisterClient message
@@ -444,6 +446,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 			if errors.Is(err, storage.ErrNotAvailable) {
 				return rejectTunnelRegistration(stream, "Account service temporarily unavailable.")
 			}
+			s.reportExpiredPublisher(stream.Context(), tunnelID, regClient.AuthToken)
 			respMsg := &pb.TunnelMessage{
 				Message: &pb.TunnelMessage_RegisterResponse{
 					RegisterResponse: &pb.RegisterResponse{
@@ -548,6 +551,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		bandwidthPlan = "ssh-anonymous"
 	}
 	conn := &TunnelConnection{
+		alertSession:       uuid.NewString(),
 		anonymousSSH:       viaSSH && sshIdentity.anonymous,
 		HostID:             hostID,
 		TunnelID:           tunnelID,
@@ -759,7 +763,13 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 	s.hostSeen(conn)
 
 	// Cleanup on disconnect
+	var alertCancel context.CancelFunc
+	var alertDone chan struct{}
 	defer func() {
+		if alertCancel != nil {
+			alertCancel()
+			<-alertDone
+		}
 		s.hostSeen(conn)
 		conn.closePendingConnections()
 		s.mu.Lock()
@@ -768,10 +778,20 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 
 		// Unregister from login node if we registered
 		if registeredWithStorage && s.storage != nil && s.storage.Available() {
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			if err := s.storage.UnregisterTunnel(ctx, tunnelID); err != nil {
-				common.LogError("failed to unregister tunnel from login node", "tunnel_id", tunnelID, "error", err)
+			if _, ok := s.storage.(storage.TunnelAlerts); ok && alertCancel != nil {
+				operation, lastError := "down", "Publisher connection lost"
+				if resultErr == nil {
+					operation, lastError = "graceful", ""
+				} else if status.Code(resultErr) == codes.Unauthenticated {
+					lastError = "Invalid or expired token. Run tunn login to refresh."
+				}
+				_ = s.reportAvailability(conn, operation, lastError)
+			} else {
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				if err := s.storage.UnregisterTunnel(ctx, tunnelID); err != nil {
+					common.LogError("failed to unregister tunnel from login node", "tunnel_id", tunnelID, "error", err)
+				}
 			}
 		}
 
@@ -785,7 +805,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 			RegisterResponse: &pb.RegisterResponse{
 				Success:      true,
 				PublicUrl:    publicURL,
-				Capabilities: []string{common.CapabilityHTTPStreamV1, common.CapabilityConnectionStreamV1, common.CapabilityWebSocketV1, common.CapabilityHTTPResponseTrailersV1, common.CapabilityHTTPRequestHeadersV1, deviceReauthCapability, "web-sharing-v1", webhook.Capability},
+				Capabilities: []string{common.CapabilityHTTPStreamV1, common.CapabilityConnectionStreamV1, common.CapabilityWebSocketV1, common.CapabilityHTTPResponseTrailersV1, common.CapabilityHTTPRequestHeadersV1, deviceReauthCapability, "web-sharing-v1", webhook.Capability, "graceful-stop-v1"},
 			},
 		},
 	}
@@ -797,6 +817,15 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 	}
 
 	common.LogInfo("tunnel registered", "tunnel_id", tunnelID, "url", publicURL)
+	if registeredWithStorage {
+		// Report before reading further messages so a fast disconnect cannot
+		// overtake the first availability record.
+		_ = s.reportAvailability(conn, "up", "")
+		alertCtx, cancel := context.WithCancel(stream.Context())
+		alertCancel = cancel
+		alertDone = make(chan struct{})
+		go func() { defer close(alertDone); s.availabilityHeartbeats(alertCtx, conn) }()
+	}
 
 	// Run device message processing separately so lease expiry can return the
 	// RPC even when a peer stops reading or a data-plane delivery is blocked.
@@ -838,6 +867,8 @@ func (s *TunnelServer) processTunnelMessages(conn *TunnelConnection, stream pb.T
 		}
 		// Handle different message types
 		switch m := msg.Message.(type) {
+		case *pb.TunnelMessage_GracefulStop:
+			return nil
 		case *pb.TunnelMessage_RegisterClient:
 			if lease == nil {
 				return status.Error(codes.Unauthenticated, "unexpected device renewal")

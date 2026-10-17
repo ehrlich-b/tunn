@@ -715,6 +715,10 @@ func (p *ProxyServer) Run(ctx context.Context) error {
 	}
 
 	// Wait for either an error or context cancellation
+	if p.isLoginNode {
+		wg.Add(1)
+		go func() { defer wg.Done(); p.tunnelAlertLoop(ctx) }()
+	}
 	select {
 	case err := <-errChan:
 		return err
@@ -911,6 +915,7 @@ func (p *ProxyServer) createHandler() http.Handler {
 	// Account page (requires auth)
 	mux.HandleFunc("/account", p.handleAccount)
 	mux.HandleFunc("/account/emails", p.handleAccountEmails)
+	mux.HandleFunc("/account/tunnel-alerts", p.handleTunnelAlertSettings)
 	mux.HandleFunc("/account/inspect", p.handleInspectorPage)
 	mux.HandleFunc("/api/inspector/", p.handleInspectorAPI)
 	mux.HandleFunc("/pricing", p.handlePricing)

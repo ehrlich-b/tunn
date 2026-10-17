@@ -1,9 +1,13 @@
 package host
 
 import (
+	"context"
+	"crypto/tls"
 	"fmt"
+	"net"
 	"net/smtp"
 	"strings"
+	"time"
 )
 
 // EmailSender sends emails via SMTP
@@ -36,7 +40,15 @@ func NewEmailSender(host, port, user, password, from string) *EmailSender {
 // Send sends an email via SMTP
 func (s *EmailSender) Send(to, subject, body string) error {
 	addr := fmt.Sprintf("%s:%s", s.Host, s.Port)
+	// Auth (nil if no credentials - some SMTP servers allow unauthenticated)
+	var auth smtp.Auth
+	if s.User != "" && s.Password != "" {
+		auth = smtp.PlainAuth("", s.User, s.Password, s.Host)
+	}
+	return smtp.SendMail(addr, auth, s.From, []string{to}, s.message(to, subject, body))
+}
 
+func (s *EmailSender) message(to, subject, body string) []byte {
 	// Build email message
 	msg := strings.Builder{}
 	_, _ = fmt.Fprintf(&msg, "From: %s\r\n", s.From)
@@ -47,13 +59,57 @@ func (s *EmailSender) Send(to, subject, body string) error {
 	msg.WriteString("\r\n")
 	msg.WriteString(body)
 
-	// Auth (nil if no credentials - some SMTP servers allow unauthenticated)
-	var auth smtp.Auth
-	if s.User != "" && s.Password != "" {
-		auth = smtp.PlainAuth("", s.User, s.Password, s.Host)
-	}
+	return []byte(msg.String())
+}
 
-	return smtp.SendMail(addr, auth, s.From, []string{to}, []byte(msg.String()))
+// SendContext uses the same SMTP configuration and message format with a
+// bounded connection lifetime, so the alert worker can join server shutdown.
+func (s *EmailSender) SendContext(ctx context.Context, to, subject, body string) error {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", net.JoinHostPort(s.Host, s.Port))
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	deadline, _ := ctx.Deadline()
+	if err = conn.SetDeadline(deadline); err != nil {
+		return err
+	}
+	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stop()
+	c, err := smtp.NewClient(conn, s.Host)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	if ok, _ := c.Extension("STARTTLS"); ok {
+		if err = c.StartTLS(&tls.Config{ServerName: s.Host, MinVersion: tls.VersionTLS12}); err != nil {
+			return err
+		}
+	}
+	if s.User != "" && s.Password != "" {
+		if err = c.Auth(smtp.PlainAuth("", s.User, s.Password, s.Host)); err != nil {
+			return err
+		}
+	}
+	if err = c.Mail(s.From); err != nil {
+		return err
+	}
+	if err = c.Rcpt(to); err != nil {
+		return err
+	}
+	w, err := c.Data()
+	if err != nil {
+		return err
+	}
+	if _, err = w.Write(s.message(to, subject, body)); err != nil {
+		return err
+	}
+	if err = w.Close(); err != nil {
+		return err
+	}
+	return c.Quit()
 }
 
 // SendMagicLink sends a magic link email for passwordless login

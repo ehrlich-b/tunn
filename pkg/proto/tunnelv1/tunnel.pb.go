@@ -42,6 +42,7 @@ type TunnelMessage struct {
 	//	*TunnelMessage_ConnectionHalfClose
 	//	*TunnelMessage_ConnectionClose
 	//	*TunnelMessage_UpdateAccessToken
+	//	*TunnelMessage_GracefulStop
 	Message       isTunnelMessage_Message `protobuf_oneof:"message"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -219,6 +220,15 @@ func (x *TunnelMessage) GetUpdateAccessToken() *UpdateAccessToken {
 	return nil
 }
 
+func (x *TunnelMessage) GetGracefulStop() *GracefulStop {
+	if x != nil {
+		if x, ok := x.Message.(*TunnelMessage_GracefulStop); ok {
+			return x.GracefulStop
+		}
+	}
+	return nil
+}
+
 type isTunnelMessage_Message interface {
 	isTunnelMessage_Message()
 }
@@ -283,6 +293,10 @@ type TunnelMessage_UpdateAccessToken struct {
 	UpdateAccessToken *UpdateAccessToken `protobuf:"bytes,15,opt,name=update_access_token,json=updateAccessToken,proto3,oneof"`
 }
 
+type TunnelMessage_GracefulStop struct {
+	GracefulStop *GracefulStop `protobuf:"bytes,16,opt,name=graceful_stop,json=gracefulStop,proto3,oneof"`
+}
+
 func (*TunnelMessage_RegisterClient) isTunnelMessage_Message() {}
 
 func (*TunnelMessage_RegisterResponse) isTunnelMessage_Message() {}
@@ -312,6 +326,45 @@ func (*TunnelMessage_ConnectionHalfClose) isTunnelMessage_Message() {}
 func (*TunnelMessage_ConnectionClose) isTunnelMessage_Message() {}
 
 func (*TunnelMessage_UpdateAccessToken) isTunnelMessage_Message() {}
+
+func (*TunnelMessage_GracefulStop) isTunnelMessage_Message() {}
+
+// Explicit publisher shutdown; transport failure is never a graceful stop.
+type GracefulStop struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GracefulStop) Reset() {
+	*x = GracefulStop{}
+	mi := &file_proto_tunnel_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GracefulStop) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GracefulStop) ProtoMessage() {}
+
+func (x *GracefulStop) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_tunnel_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GracefulStop.ProtoReflect.Descriptor instead.
+func (*GracefulStop) Descriptor() ([]byte, []int) {
+	return file_proto_tunnel_proto_rawDescGZIP(), []int{1}
+}
 
 // RegisterClient is sent by the client (tunn serve) when it first connects
 // to register a new tunnel with the proxy server.
@@ -355,7 +408,7 @@ type RegisterClient struct {
 
 func (x *RegisterClient) Reset() {
 	*x = RegisterClient{}
-	mi := &file_proto_tunnel_proto_msgTypes[1]
+	mi := &file_proto_tunnel_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -367,7 +420,7 @@ func (x *RegisterClient) String() string {
 func (*RegisterClient) ProtoMessage() {}
 
 func (x *RegisterClient) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_tunnel_proto_msgTypes[1]
+	mi := &file_proto_tunnel_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -380,7 +433,7 @@ func (x *RegisterClient) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegisterClient.ProtoReflect.Descriptor instead.
 func (*RegisterClient) Descriptor() ([]byte, []int) {
-	return file_proto_tunnel_proto_rawDescGZIP(), []int{1}
+	return file_proto_tunnel_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *RegisterClient) GetTunnelId() string {
@@ -484,7 +537,7 @@ type RegisterResponse struct {
 
 func (x *RegisterResponse) Reset() {
 	*x = RegisterResponse{}
-	mi := &file_proto_tunnel_proto_msgTypes[2]
+	mi := &file_proto_tunnel_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -496,7 +549,7 @@ func (x *RegisterResponse) String() string {
 func (*RegisterResponse) ProtoMessage() {}
 
 func (x *RegisterResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_tunnel_proto_msgTypes[2]
+	mi := &file_proto_tunnel_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -509,7 +562,7 @@ func (x *RegisterResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegisterResponse.ProtoReflect.Descriptor instead.
 func (*RegisterResponse) Descriptor() ([]byte, []int) {
-	return file_proto_tunnel_proto_rawDescGZIP(), []int{2}
+	return file_proto_tunnel_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *RegisterResponse) GetSuccess() bool {
@@ -554,7 +607,7 @@ type ProxyRequest struct {
 
 func (x *ProxyRequest) Reset() {
 	*x = ProxyRequest{}
-	mi := &file_proto_tunnel_proto_msgTypes[3]
+	mi := &file_proto_tunnel_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -566,7 +619,7 @@ func (x *ProxyRequest) String() string {
 func (*ProxyRequest) ProtoMessage() {}
 
 func (x *ProxyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_tunnel_proto_msgTypes[3]
+	mi := &file_proto_tunnel_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -579,7 +632,7 @@ func (x *ProxyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProxyRequest.ProtoReflect.Descriptor instead.
 func (*ProxyRequest) Descriptor() ([]byte, []int) {
-	return file_proto_tunnel_proto_rawDescGZIP(), []int{3}
+	return file_proto_tunnel_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *ProxyRequest) GetConnectionId() string {
@@ -611,7 +664,7 @@ type ProxyResponse struct {
 
 func (x *ProxyResponse) Reset() {
 	*x = ProxyResponse{}
-	mi := &file_proto_tunnel_proto_msgTypes[4]
+	mi := &file_proto_tunnel_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -623,7 +676,7 @@ func (x *ProxyResponse) String() string {
 func (*ProxyResponse) ProtoMessage() {}
 
 func (x *ProxyResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_tunnel_proto_msgTypes[4]
+	mi := &file_proto_tunnel_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -636,7 +689,7 @@ func (x *ProxyResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProxyResponse.ProtoReflect.Descriptor instead.
 func (*ProxyResponse) Descriptor() ([]byte, []int) {
-	return file_proto_tunnel_proto_rawDescGZIP(), []int{4}
+	return file_proto_tunnel_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ProxyResponse) GetConnectionId() string {
@@ -671,7 +724,7 @@ type HealthCheck struct {
 
 func (x *HealthCheck) Reset() {
 	*x = HealthCheck{}
-	mi := &file_proto_tunnel_proto_msgTypes[5]
+	mi := &file_proto_tunnel_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -683,7 +736,7 @@ func (x *HealthCheck) String() string {
 func (*HealthCheck) ProtoMessage() {}
 
 func (x *HealthCheck) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_tunnel_proto_msgTypes[5]
+	mi := &file_proto_tunnel_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -696,7 +749,7 @@ func (x *HealthCheck) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HealthCheck.ProtoReflect.Descriptor instead.
 func (*HealthCheck) Descriptor() ([]byte, []int) {
-	return file_proto_tunnel_proto_rawDescGZIP(), []int{5}
+	return file_proto_tunnel_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *HealthCheck) GetTimestamp() int64 {
@@ -719,7 +772,7 @@ type HealthCheckResponse struct {
 
 func (x *HealthCheckResponse) Reset() {
 	*x = HealthCheckResponse{}
-	mi := &file_proto_tunnel_proto_msgTypes[6]
+	mi := &file_proto_tunnel_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -731,7 +784,7 @@ func (x *HealthCheckResponse) String() string {
 func (*HealthCheckResponse) ProtoMessage() {}
 
 func (x *HealthCheckResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_tunnel_proto_msgTypes[6]
+	mi := &file_proto_tunnel_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -744,7 +797,7 @@ func (x *HealthCheckResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HealthCheckResponse.ProtoReflect.Descriptor instead.
 func (*HealthCheckResponse) Descriptor() ([]byte, []int) {
-	return file_proto_tunnel_proto_rawDescGZIP(), []int{6}
+	return file_proto_tunnel_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *HealthCheckResponse) GetTimestamp() int64 {
@@ -784,7 +837,7 @@ type HttpRequest struct {
 
 func (x *HttpRequest) Reset() {
 	*x = HttpRequest{}
-	mi := &file_proto_tunnel_proto_msgTypes[7]
+	mi := &file_proto_tunnel_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -796,7 +849,7 @@ func (x *HttpRequest) String() string {
 func (*HttpRequest) ProtoMessage() {}
 
 func (x *HttpRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_tunnel_proto_msgTypes[7]
+	mi := &file_proto_tunnel_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -809,7 +862,7 @@ func (x *HttpRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HttpRequest.ProtoReflect.Descriptor instead.
 func (*HttpRequest) Descriptor() ([]byte, []int) {
-	return file_proto_tunnel_proto_rawDescGZIP(), []int{7}
+	return file_proto_tunnel_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *HttpRequest) GetConnectionId() string {
@@ -879,7 +932,7 @@ type HttpResponse struct {
 
 func (x *HttpResponse) Reset() {
 	*x = HttpResponse{}
-	mi := &file_proto_tunnel_proto_msgTypes[8]
+	mi := &file_proto_tunnel_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -891,7 +944,7 @@ func (x *HttpResponse) String() string {
 func (*HttpResponse) ProtoMessage() {}
 
 func (x *HttpResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_tunnel_proto_msgTypes[8]
+	mi := &file_proto_tunnel_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -904,7 +957,7 @@ func (x *HttpResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HttpResponse.ProtoReflect.Descriptor instead.
 func (*HttpResponse) Descriptor() ([]byte, []int) {
-	return file_proto_tunnel_proto_rawDescGZIP(), []int{8}
+	return file_proto_tunnel_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *HttpResponse) GetConnectionId() string {
@@ -967,7 +1020,7 @@ type HttpHeader struct {
 
 func (x *HttpHeader) Reset() {
 	*x = HttpHeader{}
-	mi := &file_proto_tunnel_proto_msgTypes[9]
+	mi := &file_proto_tunnel_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -979,7 +1032,7 @@ func (x *HttpHeader) String() string {
 func (*HttpHeader) ProtoMessage() {}
 
 func (x *HttpHeader) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_tunnel_proto_msgTypes[9]
+	mi := &file_proto_tunnel_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -992,7 +1045,7 @@ func (x *HttpHeader) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HttpHeader.ProtoReflect.Descriptor instead.
 func (*HttpHeader) Descriptor() ([]byte, []int) {
-	return file_proto_tunnel_proto_rawDescGZIP(), []int{9}
+	return file_proto_tunnel_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *HttpHeader) GetName() string {
@@ -1022,7 +1075,7 @@ type StreamClosed struct {
 
 func (x *StreamClosed) Reset() {
 	*x = StreamClosed{}
-	mi := &file_proto_tunnel_proto_msgTypes[10]
+	mi := &file_proto_tunnel_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1034,7 +1087,7 @@ func (x *StreamClosed) String() string {
 func (*StreamClosed) ProtoMessage() {}
 
 func (x *StreamClosed) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_tunnel_proto_msgTypes[10]
+	mi := &file_proto_tunnel_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1047,7 +1100,7 @@ func (x *StreamClosed) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StreamClosed.ProtoReflect.Descriptor instead.
 func (*StreamClosed) Descriptor() ([]byte, []int) {
-	return file_proto_tunnel_proto_rawDescGZIP(), []int{10}
+	return file_proto_tunnel_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *StreamClosed) GetConnectionId() string {
@@ -1081,7 +1134,7 @@ type ConnectionOpen struct {
 
 func (x *ConnectionOpen) Reset() {
 	*x = ConnectionOpen{}
-	mi := &file_proto_tunnel_proto_msgTypes[11]
+	mi := &file_proto_tunnel_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1093,7 +1146,7 @@ func (x *ConnectionOpen) String() string {
 func (*ConnectionOpen) ProtoMessage() {}
 
 func (x *ConnectionOpen) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_tunnel_proto_msgTypes[11]
+	mi := &file_proto_tunnel_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1106,7 +1159,7 @@ func (x *ConnectionOpen) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConnectionOpen.ProtoReflect.Descriptor instead.
 func (*ConnectionOpen) Descriptor() ([]byte, []int) {
-	return file_proto_tunnel_proto_rawDescGZIP(), []int{11}
+	return file_proto_tunnel_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ConnectionOpen) GetConnectionId() string {
@@ -1159,7 +1212,7 @@ type HttpRequestHead struct {
 
 func (x *HttpRequestHead) Reset() {
 	*x = HttpRequestHead{}
-	mi := &file_proto_tunnel_proto_msgTypes[12]
+	mi := &file_proto_tunnel_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1171,7 +1224,7 @@ func (x *HttpRequestHead) String() string {
 func (*HttpRequestHead) ProtoMessage() {}
 
 func (x *HttpRequestHead) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_tunnel_proto_msgTypes[12]
+	mi := &file_proto_tunnel_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1184,7 +1237,7 @@ func (x *HttpRequestHead) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HttpRequestHead.ProtoReflect.Descriptor instead.
 func (*HttpRequestHead) Descriptor() ([]byte, []int) {
-	return file_proto_tunnel_proto_rawDescGZIP(), []int{12}
+	return file_proto_tunnel_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *HttpRequestHead) GetMethod() string {
@@ -1236,7 +1289,7 @@ type ConnectionAccept struct {
 
 func (x *ConnectionAccept) Reset() {
 	*x = ConnectionAccept{}
-	mi := &file_proto_tunnel_proto_msgTypes[13]
+	mi := &file_proto_tunnel_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1248,7 +1301,7 @@ func (x *ConnectionAccept) String() string {
 func (*ConnectionAccept) ProtoMessage() {}
 
 func (x *ConnectionAccept) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_tunnel_proto_msgTypes[13]
+	mi := &file_proto_tunnel_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1261,7 +1314,7 @@ func (x *ConnectionAccept) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConnectionAccept.ProtoReflect.Descriptor instead.
 func (*ConnectionAccept) Descriptor() ([]byte, []int) {
-	return file_proto_tunnel_proto_rawDescGZIP(), []int{13}
+	return file_proto_tunnel_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *ConnectionAccept) GetConnectionId() string {
@@ -1310,7 +1363,7 @@ type HttpResponseHead struct {
 
 func (x *HttpResponseHead) Reset() {
 	*x = HttpResponseHead{}
-	mi := &file_proto_tunnel_proto_msgTypes[14]
+	mi := &file_proto_tunnel_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1322,7 +1375,7 @@ func (x *HttpResponseHead) String() string {
 func (*HttpResponseHead) ProtoMessage() {}
 
 func (x *HttpResponseHead) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_tunnel_proto_msgTypes[14]
+	mi := &file_proto_tunnel_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1335,7 +1388,7 @@ func (x *HttpResponseHead) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HttpResponseHead.ProtoReflect.Descriptor instead.
 func (*HttpResponseHead) Descriptor() ([]byte, []int) {
-	return file_proto_tunnel_proto_rawDescGZIP(), []int{14}
+	return file_proto_tunnel_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *HttpResponseHead) GetStatusCode() int32 {
@@ -1392,7 +1445,7 @@ type ConnectionData struct {
 
 func (x *ConnectionData) Reset() {
 	*x = ConnectionData{}
-	mi := &file_proto_tunnel_proto_msgTypes[15]
+	mi := &file_proto_tunnel_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1404,7 +1457,7 @@ func (x *ConnectionData) String() string {
 func (*ConnectionData) ProtoMessage() {}
 
 func (x *ConnectionData) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_tunnel_proto_msgTypes[15]
+	mi := &file_proto_tunnel_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1417,7 +1470,7 @@ func (x *ConnectionData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConnectionData.ProtoReflect.Descriptor instead.
 func (*ConnectionData) Descriptor() ([]byte, []int) {
-	return file_proto_tunnel_proto_rawDescGZIP(), []int{15}
+	return file_proto_tunnel_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *ConnectionData) GetConnectionId() string {
@@ -1450,7 +1503,7 @@ type ConnectionHalfClose struct {
 
 func (x *ConnectionHalfClose) Reset() {
 	*x = ConnectionHalfClose{}
-	mi := &file_proto_tunnel_proto_msgTypes[16]
+	mi := &file_proto_tunnel_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1462,7 +1515,7 @@ func (x *ConnectionHalfClose) String() string {
 func (*ConnectionHalfClose) ProtoMessage() {}
 
 func (x *ConnectionHalfClose) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_tunnel_proto_msgTypes[16]
+	mi := &file_proto_tunnel_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1475,7 +1528,7 @@ func (x *ConnectionHalfClose) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConnectionHalfClose.ProtoReflect.Descriptor instead.
 func (*ConnectionHalfClose) Descriptor() ([]byte, []int) {
-	return file_proto_tunnel_proto_rawDescGZIP(), []int{16}
+	return file_proto_tunnel_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *ConnectionHalfClose) GetConnectionId() string {
@@ -1513,7 +1566,7 @@ type ConnectionClose struct {
 
 func (x *ConnectionClose) Reset() {
 	*x = ConnectionClose{}
-	mi := &file_proto_tunnel_proto_msgTypes[17]
+	mi := &file_proto_tunnel_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1525,7 +1578,7 @@ func (x *ConnectionClose) String() string {
 func (*ConnectionClose) ProtoMessage() {}
 
 func (x *ConnectionClose) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_tunnel_proto_msgTypes[17]
+	mi := &file_proto_tunnel_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1538,7 +1591,7 @@ func (x *ConnectionClose) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConnectionClose.ProtoReflect.Descriptor instead.
 func (*ConnectionClose) Descriptor() ([]byte, []int) {
-	return file_proto_tunnel_proto_rawDescGZIP(), []int{17}
+	return file_proto_tunnel_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *ConnectionClose) GetConnectionId() string {
@@ -1573,7 +1626,7 @@ type UpdateAccessToken struct {
 
 func (x *UpdateAccessToken) Reset() {
 	*x = UpdateAccessToken{}
-	mi := &file_proto_tunnel_proto_msgTypes[18]
+	mi := &file_proto_tunnel_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1585,7 +1638,7 @@ func (x *UpdateAccessToken) String() string {
 func (*UpdateAccessToken) ProtoMessage() {}
 
 func (x *UpdateAccessToken) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_tunnel_proto_msgTypes[18]
+	mi := &file_proto_tunnel_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1598,7 +1651,7 @@ func (x *UpdateAccessToken) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateAccessToken.ProtoReflect.Descriptor instead.
 func (*UpdateAccessToken) Descriptor() ([]byte, []int) {
-	return file_proto_tunnel_proto_rawDescGZIP(), []int{18}
+	return file_proto_tunnel_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *UpdateAccessToken) GetAccessTokenSha256() []byte {
@@ -1620,7 +1673,7 @@ type WebhookPolicy struct {
 
 func (x *WebhookPolicy) Reset() {
 	*x = WebhookPolicy{}
-	mi := &file_proto_tunnel_proto_msgTypes[19]
+	mi := &file_proto_tunnel_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1632,7 +1685,7 @@ func (x *WebhookPolicy) String() string {
 func (*WebhookPolicy) ProtoMessage() {}
 
 func (x *WebhookPolicy) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_tunnel_proto_msgTypes[19]
+	mi := &file_proto_tunnel_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1645,7 +1698,7 @@ func (x *WebhookPolicy) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WebhookPolicy.ProtoReflect.Descriptor instead.
 func (*WebhookPolicy) Descriptor() ([]byte, []int) {
-	return file_proto_tunnel_proto_rawDescGZIP(), []int{19}
+	return file_proto_tunnel_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *WebhookPolicy) GetProvider() string {
@@ -1682,7 +1735,7 @@ type RequestTiming struct {
 
 func (x *RequestTiming) Reset() {
 	*x = RequestTiming{}
-	mi := &file_proto_tunnel_proto_msgTypes[20]
+	mi := &file_proto_tunnel_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1694,7 +1747,7 @@ func (x *RequestTiming) String() string {
 func (*RequestTiming) ProtoMessage() {}
 
 func (x *RequestTiming) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_tunnel_proto_msgTypes[20]
+	mi := &file_proto_tunnel_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1707,7 +1760,7 @@ func (x *RequestTiming) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RequestTiming.ProtoReflect.Descriptor instead.
 func (*RequestTiming) Descriptor() ([]byte, []int) {
-	return file_proto_tunnel_proto_rawDescGZIP(), []int{20}
+	return file_proto_tunnel_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *RequestTiming) GetOriginTtfbUs() int64 {
@@ -1742,7 +1795,7 @@ var File_proto_tunnel_proto protoreflect.FileDescriptor
 
 const file_proto_tunnel_proto_rawDesc = "" +
 	"\n" +
-	"\x12proto/tunnel.proto\x12\atunn.v1\"\xa8\b\n" +
+	"\x12proto/tunnel.proto\x12\atunn.v1\"\xe6\b\n" +
 	"\rTunnelMessage\x12B\n" +
 	"\x0fregister_client\x18\x01 \x01(\v2\x17.tunn.v1.RegisterClientH\x00R\x0eregisterClient\x12H\n" +
 	"\x11register_response\x18\x02 \x01(\v2\x19.tunn.v1.RegisterResponseH\x00R\x10registerResponse\x12<\n" +
@@ -1759,8 +1812,10 @@ const file_proto_tunnel_proto_rawDesc = "" +
 	"\x0fconnection_data\x18\f \x01(\v2\x17.tunn.v1.ConnectionDataH\x00R\x0econnectionData\x12R\n" +
 	"\x15connection_half_close\x18\r \x01(\v2\x1c.tunn.v1.ConnectionHalfCloseH\x00R\x13connectionHalfClose\x12E\n" +
 	"\x10connection_close\x18\x0e \x01(\v2\x18.tunn.v1.ConnectionCloseH\x00R\x0fconnectionClose\x12L\n" +
-	"\x13update_access_token\x18\x0f \x01(\v2\x1a.tunn.v1.UpdateAccessTokenH\x00R\x11updateAccessTokenB\t\n" +
-	"\amessage\"\xf2\x03\n" +
+	"\x13update_access_token\x18\x0f \x01(\v2\x1a.tunn.v1.UpdateAccessTokenH\x00R\x11updateAccessToken\x12<\n" +
+	"\rgraceful_stop\x18\x10 \x01(\v2\x15.tunn.v1.GracefulStopH\x00R\fgracefulStopB\t\n" +
+	"\amessage\"\x0e\n" +
+	"\fGracefulStop\"\xf2\x03\n" +
 	"\x0eRegisterClient\x12\x1b\n" +
 	"\ttunnel_id\x18\x01 \x01(\tR\btunnelId\x12\x1d\n" +
 	"\n" +
@@ -1893,71 +1948,73 @@ func file_proto_tunnel_proto_rawDescGZIP() []byte {
 	return file_proto_tunnel_proto_rawDescData
 }
 
-var file_proto_tunnel_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
+var file_proto_tunnel_proto_msgTypes = make([]protoimpl.MessageInfo, 26)
 var file_proto_tunnel_proto_goTypes = []any{
 	(*TunnelMessage)(nil),       // 0: tunn.v1.TunnelMessage
-	(*RegisterClient)(nil),      // 1: tunn.v1.RegisterClient
-	(*RegisterResponse)(nil),    // 2: tunn.v1.RegisterResponse
-	(*ProxyRequest)(nil),        // 3: tunn.v1.ProxyRequest
-	(*ProxyResponse)(nil),       // 4: tunn.v1.ProxyResponse
-	(*HealthCheck)(nil),         // 5: tunn.v1.HealthCheck
-	(*HealthCheckResponse)(nil), // 6: tunn.v1.HealthCheckResponse
-	(*HttpRequest)(nil),         // 7: tunn.v1.HttpRequest
-	(*HttpResponse)(nil),        // 8: tunn.v1.HttpResponse
-	(*HttpHeader)(nil),          // 9: tunn.v1.HttpHeader
-	(*StreamClosed)(nil),        // 10: tunn.v1.StreamClosed
-	(*ConnectionOpen)(nil),      // 11: tunn.v1.ConnectionOpen
-	(*HttpRequestHead)(nil),     // 12: tunn.v1.HttpRequestHead
-	(*ConnectionAccept)(nil),    // 13: tunn.v1.ConnectionAccept
-	(*HttpResponseHead)(nil),    // 14: tunn.v1.HttpResponseHead
-	(*ConnectionData)(nil),      // 15: tunn.v1.ConnectionData
-	(*ConnectionHalfClose)(nil), // 16: tunn.v1.ConnectionHalfClose
-	(*ConnectionClose)(nil),     // 17: tunn.v1.ConnectionClose
-	(*UpdateAccessToken)(nil),   // 18: tunn.v1.UpdateAccessToken
-	(*WebhookPolicy)(nil),       // 19: tunn.v1.WebhookPolicy
-	(*RequestTiming)(nil),       // 20: tunn.v1.RequestTiming
-	nil,                         // 21: tunn.v1.HttpRequest.HeadersEntry
-	nil,                         // 22: tunn.v1.HttpResponse.HeadersEntry
-	nil,                         // 23: tunn.v1.HttpRequestHead.HeadersEntry
-	nil,                         // 24: tunn.v1.HttpResponseHead.HeadersEntry
+	(*GracefulStop)(nil),        // 1: tunn.v1.GracefulStop
+	(*RegisterClient)(nil),      // 2: tunn.v1.RegisterClient
+	(*RegisterResponse)(nil),    // 3: tunn.v1.RegisterResponse
+	(*ProxyRequest)(nil),        // 4: tunn.v1.ProxyRequest
+	(*ProxyResponse)(nil),       // 5: tunn.v1.ProxyResponse
+	(*HealthCheck)(nil),         // 6: tunn.v1.HealthCheck
+	(*HealthCheckResponse)(nil), // 7: tunn.v1.HealthCheckResponse
+	(*HttpRequest)(nil),         // 8: tunn.v1.HttpRequest
+	(*HttpResponse)(nil),        // 9: tunn.v1.HttpResponse
+	(*HttpHeader)(nil),          // 10: tunn.v1.HttpHeader
+	(*StreamClosed)(nil),        // 11: tunn.v1.StreamClosed
+	(*ConnectionOpen)(nil),      // 12: tunn.v1.ConnectionOpen
+	(*HttpRequestHead)(nil),     // 13: tunn.v1.HttpRequestHead
+	(*ConnectionAccept)(nil),    // 14: tunn.v1.ConnectionAccept
+	(*HttpResponseHead)(nil),    // 15: tunn.v1.HttpResponseHead
+	(*ConnectionData)(nil),      // 16: tunn.v1.ConnectionData
+	(*ConnectionHalfClose)(nil), // 17: tunn.v1.ConnectionHalfClose
+	(*ConnectionClose)(nil),     // 18: tunn.v1.ConnectionClose
+	(*UpdateAccessToken)(nil),   // 19: tunn.v1.UpdateAccessToken
+	(*WebhookPolicy)(nil),       // 20: tunn.v1.WebhookPolicy
+	(*RequestTiming)(nil),       // 21: tunn.v1.RequestTiming
+	nil,                         // 22: tunn.v1.HttpRequest.HeadersEntry
+	nil,                         // 23: tunn.v1.HttpResponse.HeadersEntry
+	nil,                         // 24: tunn.v1.HttpRequestHead.HeadersEntry
+	nil,                         // 25: tunn.v1.HttpResponseHead.HeadersEntry
 }
 var file_proto_tunnel_proto_depIdxs = []int32{
-	1,  // 0: tunn.v1.TunnelMessage.register_client:type_name -> tunn.v1.RegisterClient
-	2,  // 1: tunn.v1.TunnelMessage.register_response:type_name -> tunn.v1.RegisterResponse
-	3,  // 2: tunn.v1.TunnelMessage.proxy_request:type_name -> tunn.v1.ProxyRequest
-	4,  // 3: tunn.v1.TunnelMessage.proxy_response:type_name -> tunn.v1.ProxyResponse
-	5,  // 4: tunn.v1.TunnelMessage.health_check:type_name -> tunn.v1.HealthCheck
-	6,  // 5: tunn.v1.TunnelMessage.health_check_response:type_name -> tunn.v1.HealthCheckResponse
-	7,  // 6: tunn.v1.TunnelMessage.http_request:type_name -> tunn.v1.HttpRequest
-	8,  // 7: tunn.v1.TunnelMessage.http_response:type_name -> tunn.v1.HttpResponse
-	10, // 8: tunn.v1.TunnelMessage.stream_closed:type_name -> tunn.v1.StreamClosed
-	11, // 9: tunn.v1.TunnelMessage.connection_open:type_name -> tunn.v1.ConnectionOpen
-	13, // 10: tunn.v1.TunnelMessage.connection_accept:type_name -> tunn.v1.ConnectionAccept
-	15, // 11: tunn.v1.TunnelMessage.connection_data:type_name -> tunn.v1.ConnectionData
-	16, // 12: tunn.v1.TunnelMessage.connection_half_close:type_name -> tunn.v1.ConnectionHalfClose
-	17, // 13: tunn.v1.TunnelMessage.connection_close:type_name -> tunn.v1.ConnectionClose
-	18, // 14: tunn.v1.TunnelMessage.update_access_token:type_name -> tunn.v1.UpdateAccessToken
-	19, // 15: tunn.v1.RegisterClient.webhook_policy:type_name -> tunn.v1.WebhookPolicy
-	21, // 16: tunn.v1.HttpRequest.headers:type_name -> tunn.v1.HttpRequest.HeadersEntry
-	9,  // 17: tunn.v1.HttpRequest.header_fields:type_name -> tunn.v1.HttpHeader
-	22, // 18: tunn.v1.HttpResponse.headers:type_name -> tunn.v1.HttpResponse.HeadersEntry
-	9,  // 19: tunn.v1.HttpResponse.header_fields:type_name -> tunn.v1.HttpHeader
-	9,  // 20: tunn.v1.HttpResponse.trailers:type_name -> tunn.v1.HttpHeader
-	12, // 21: tunn.v1.ConnectionOpen.http_request:type_name -> tunn.v1.HttpRequestHead
-	23, // 22: tunn.v1.HttpRequestHead.headers:type_name -> tunn.v1.HttpRequestHead.HeadersEntry
-	9,  // 23: tunn.v1.HttpRequestHead.header_fields:type_name -> tunn.v1.HttpHeader
-	14, // 24: tunn.v1.ConnectionAccept.http_response:type_name -> tunn.v1.HttpResponseHead
-	24, // 25: tunn.v1.HttpResponseHead.headers:type_name -> tunn.v1.HttpResponseHead.HeadersEntry
-	9,  // 26: tunn.v1.HttpResponseHead.header_fields:type_name -> tunn.v1.HttpHeader
-	9,  // 27: tunn.v1.ConnectionHalfClose.trailers:type_name -> tunn.v1.HttpHeader
-	20, // 28: tunn.v1.ConnectionClose.timing:type_name -> tunn.v1.RequestTiming
-	0,  // 29: tunn.v1.TunnelService.EstablishTunnel:input_type -> tunn.v1.TunnelMessage
-	0,  // 30: tunn.v1.TunnelService.EstablishTunnel:output_type -> tunn.v1.TunnelMessage
-	30, // [30:31] is the sub-list for method output_type
-	29, // [29:30] is the sub-list for method input_type
-	29, // [29:29] is the sub-list for extension type_name
-	29, // [29:29] is the sub-list for extension extendee
-	0,  // [0:29] is the sub-list for field type_name
+	2,  // 0: tunn.v1.TunnelMessage.register_client:type_name -> tunn.v1.RegisterClient
+	3,  // 1: tunn.v1.TunnelMessage.register_response:type_name -> tunn.v1.RegisterResponse
+	4,  // 2: tunn.v1.TunnelMessage.proxy_request:type_name -> tunn.v1.ProxyRequest
+	5,  // 3: tunn.v1.TunnelMessage.proxy_response:type_name -> tunn.v1.ProxyResponse
+	6,  // 4: tunn.v1.TunnelMessage.health_check:type_name -> tunn.v1.HealthCheck
+	7,  // 5: tunn.v1.TunnelMessage.health_check_response:type_name -> tunn.v1.HealthCheckResponse
+	8,  // 6: tunn.v1.TunnelMessage.http_request:type_name -> tunn.v1.HttpRequest
+	9,  // 7: tunn.v1.TunnelMessage.http_response:type_name -> tunn.v1.HttpResponse
+	11, // 8: tunn.v1.TunnelMessage.stream_closed:type_name -> tunn.v1.StreamClosed
+	12, // 9: tunn.v1.TunnelMessage.connection_open:type_name -> tunn.v1.ConnectionOpen
+	14, // 10: tunn.v1.TunnelMessage.connection_accept:type_name -> tunn.v1.ConnectionAccept
+	16, // 11: tunn.v1.TunnelMessage.connection_data:type_name -> tunn.v1.ConnectionData
+	17, // 12: tunn.v1.TunnelMessage.connection_half_close:type_name -> tunn.v1.ConnectionHalfClose
+	18, // 13: tunn.v1.TunnelMessage.connection_close:type_name -> tunn.v1.ConnectionClose
+	19, // 14: tunn.v1.TunnelMessage.update_access_token:type_name -> tunn.v1.UpdateAccessToken
+	1,  // 15: tunn.v1.TunnelMessage.graceful_stop:type_name -> tunn.v1.GracefulStop
+	20, // 16: tunn.v1.RegisterClient.webhook_policy:type_name -> tunn.v1.WebhookPolicy
+	22, // 17: tunn.v1.HttpRequest.headers:type_name -> tunn.v1.HttpRequest.HeadersEntry
+	10, // 18: tunn.v1.HttpRequest.header_fields:type_name -> tunn.v1.HttpHeader
+	23, // 19: tunn.v1.HttpResponse.headers:type_name -> tunn.v1.HttpResponse.HeadersEntry
+	10, // 20: tunn.v1.HttpResponse.header_fields:type_name -> tunn.v1.HttpHeader
+	10, // 21: tunn.v1.HttpResponse.trailers:type_name -> tunn.v1.HttpHeader
+	13, // 22: tunn.v1.ConnectionOpen.http_request:type_name -> tunn.v1.HttpRequestHead
+	24, // 23: tunn.v1.HttpRequestHead.headers:type_name -> tunn.v1.HttpRequestHead.HeadersEntry
+	10, // 24: tunn.v1.HttpRequestHead.header_fields:type_name -> tunn.v1.HttpHeader
+	15, // 25: tunn.v1.ConnectionAccept.http_response:type_name -> tunn.v1.HttpResponseHead
+	25, // 26: tunn.v1.HttpResponseHead.headers:type_name -> tunn.v1.HttpResponseHead.HeadersEntry
+	10, // 27: tunn.v1.HttpResponseHead.header_fields:type_name -> tunn.v1.HttpHeader
+	10, // 28: tunn.v1.ConnectionHalfClose.trailers:type_name -> tunn.v1.HttpHeader
+	21, // 29: tunn.v1.ConnectionClose.timing:type_name -> tunn.v1.RequestTiming
+	0,  // 30: tunn.v1.TunnelService.EstablishTunnel:input_type -> tunn.v1.TunnelMessage
+	0,  // 31: tunn.v1.TunnelService.EstablishTunnel:output_type -> tunn.v1.TunnelMessage
+	31, // [31:32] is the sub-list for method output_type
+	30, // [30:31] is the sub-list for method input_type
+	30, // [30:30] is the sub-list for extension type_name
+	30, // [30:30] is the sub-list for extension extendee
+	0,  // [0:30] is the sub-list for field type_name
 }
 
 func init() { file_proto_tunnel_proto_init() }
@@ -1981,6 +2038,7 @@ func file_proto_tunnel_proto_init() {
 		(*TunnelMessage_ConnectionHalfClose)(nil),
 		(*TunnelMessage_ConnectionClose)(nil),
 		(*TunnelMessage_UpdateAccessToken)(nil),
+		(*TunnelMessage_GracefulStop)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -1988,7 +2046,7 @@ func file_proto_tunnel_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_tunnel_proto_rawDesc), len(file_proto_tunnel_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   25,
+			NumMessages:   26,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

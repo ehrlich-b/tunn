@@ -247,7 +247,7 @@ func (p *ProxyServer) authorizeDomainApp(w http.ResponseWriter, r *http.Request,
 	account, status := p.appAccountAccess(r.WithContext(check), session, owner, tunnel)
 	stop()
 	if status != http.StatusOK {
-		http.Error(w, http.StatusText(status), status)
+		p.writeAuthError(w, r, http.StatusText(status), status, "Ask the app owner to share access, or sign in with a different account.")
 		return nil, false
 	}
 	session["account_id"] = account.ID

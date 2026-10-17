@@ -13,7 +13,7 @@ import (
 var webAssets embed.FS
 
 func serveWebAsset(w http.ResponseWriter, r *http.Request) bool {
-	if !strings.HasPrefix(r.URL.Path, "/assets/") {
+	if r.URL.Path != "/favicon.ico" && !strings.HasPrefix(r.URL.Path, "/assets/") {
 		return false
 	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
@@ -22,6 +22,9 @@ func serveWebAsset(w http.ResponseWriter, r *http.Request) bool {
 		return true
 	}
 	name := strings.TrimPrefix(r.URL.Path, "/assets/")
+	if r.URL.Path == "/favicon.ico" {
+		name = "favicon.ico"
+	}
 	if !fs.ValidPath(name) {
 		http.NotFound(w, r)
 		return true

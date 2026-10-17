@@ -30,7 +30,17 @@ func withSiteChrome(page string) string {
 	for _, current := range []string{"home", "docs", "pricing", "ngrok", "signin", "status", "none"} {
 		page = strings.ReplaceAll(page, "<!--site-header:"+current+"-->", siteHeader(current))
 	}
-	return strings.ReplaceAll(page, "<!--site-footer-->", pageFooter)
+	return withPageHead(strings.ReplaceAll(page, "<!--site-footer-->", pageFooter))
+}
+
+// iconHead is shared by every server-rendered document.
+const iconHead = `<link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48">
+<link rel="icon" type="image/svg+xml" href="/assets/favicon.svg" sizes="any">
+<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png" sizes="180x180">
+<link rel="manifest" href="/assets/site.webmanifest">`
+
+func withPageHead(page string) string {
+	return strings.Replace(page, "</head>", iconHead+"</head>", 1)
 }
 
 // writePageStart writes the HTML head and opening body tags with header
@@ -39,7 +49,7 @@ func writePageStart(w io.Writer, title string) {
 }
 
 func writePageStartAt(w io.Writer, title, current string) {
-	_, _ = fmt.Fprintf(w, `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#FFFFFF"><title>%s</title><style>%s</style></head><body>`, title, baseCSS)
+	_, _ = fmt.Fprintf(w, `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#FFFFFF"><title>%s</title><style>%s</style>%s</head><body>`, title, baseCSS, iconHead)
 	_, _ = fmt.Fprint(w, siteHeader(current), `<main id="main" class="page-container">`)
 }
 

@@ -114,7 +114,7 @@ func setOAuthCookie(w http.ResponseWriter, state string, maxAge int) {
 func requireOAuthBrowser(w http.ResponseWriter, r *http.Request, state string) bool {
 	cookie, err := r.Cookie(oauthCookieName)
 	if err != nil || state == "" || subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(state)) != 1 {
-		http.Error(w, "Invalid login state", http.StatusBadRequest)
+		writeBrowserAuthError(w, r, "Invalid login state", http.StatusBadRequest, "Sign in again in this browser to start a new login.", "")
 		return false
 	}
 	setOAuthCookie(w, "", -1)

@@ -21,7 +21,7 @@ a{color:var(--ink);text-underline-offset:3px}
 p a,li a,td a,.prose a{color:var(--sig-ink);text-decoration:underline}
 :focus-visible{outline:2px solid var(--sig);outline-offset:2px}
 code,pre,kbd,.mono{font-family:var(--mono)}
-code{font-size:.88em;background:var(--glass);padding:1px 5px;border-radius:4px;border:1px solid var(--plate-lo)}
+code{overflow-wrap:anywhere;font-size:.88em;background:var(--glass);padding:1px 5px;border-radius:4px;border:1px solid var(--plate-lo)}
 button{font:inherit;cursor:pointer}
 img,svg{max-width:100%}
 [hidden]{display:none!important}
@@ -104,12 +104,13 @@ h3{font:600 16px/1.35 var(--sans)}
 
 /* command box */
 .cmd{display:flex;align-items:center;gap:12px;padding:10px 12px 10px 14px}
-.cmd .kbd{font-size:14px;white-space:nowrap;overflow-x:auto;scrollbar-width:none}
-.cmd .copy{margin-left:auto}
+.cmd .kbd{min-width:0;font-size:14px;white-space:nowrap;overflow-x:auto;scrollbar-width:none}
+.cmd .copy{margin-left:auto;flex-shrink:0}
 .copy-status{font:400 13px/1 var(--sans);color:var(--engrave)}
 .copy-status:not(:empty){margin-top:8px}
 
 /* marketing hero */
+.hero>*{min-width:0}
 .hero{display:grid;grid-template-columns:1fr 1fr;gap:48px;align-items:center;padding:72px 0 56px}
 .hero h1{font-size:40px;line-height:1.15;margin-top:10px}
 .hero .sub{margin:16px 0 24px}
@@ -135,7 +136,7 @@ h3{font:600 16px/1.35 var(--sans)}
 .bigurl{font:600 22px/1.3 var(--mono);overflow-wrap:anywhere}
 /* access ladder */
 .ladder{display:grid;grid-template-columns:repeat(4,1fr);gap:0;padding:0}
-.rung{display:flex;flex-direction:column;gap:12px;padding:18px}
+.rung{min-width:0;display:flex;flex-direction:column;gap:12px;padding:18px}
 .rung+.rung{border-left:1px solid var(--plate-lo)}
 .rung .glass{padding:8px 10px;font-size:13px;line-height:1.4;white-space:nowrap;overflow-x:auto;scrollbar-width:none}
 .rung p{font:400 14px/1.5 var(--sans);color:var(--ink2)}
@@ -330,7 +331,8 @@ pre code,.glass code{background:none;padding:0;border:0;font-size:inherit;color:
 @media (max-width:760px){.gate-steps{display:none}.gate .sub{font-size:15px}.term-box pre,.guide pre{white-space:pre-wrap;overflow-wrap:anywhere}}
 .grid-bg{background-image:none}
 /* Flags never split across lines. */
-.f,p code,td code,li code{white-space:nowrap}
+.f{white-space:nowrap}
+p code,td code,li code{white-space:normal;overflow-wrap:anywhere}
 @media (max-width:760px){
  .chain{grid-template-columns:1fr;gap:0;justify-items:center}
  .chain .node{width:100%;flex-direction:row;justify-content:space-between;align-items:center;padding:10px 12px}
@@ -473,3 +475,27 @@ table.log .c4{color:var(--ink);font-weight:700}
  .quickstart .cmd .copy{min-height:36px}
  .quickstart .step p{font-size:14px}
 }
+
+/* Account management surfaces. */
+.management{max-width:960px;padding-top:40px;overflow-wrap:anywhere}
+.management h1{margin:0 0 12px}
+.management h2,.management h3{margin:24px 0 12px}
+.management p{margin:12px 0;color:var(--ink2)}
+.management .card{margin:20px 0}
+.management .card h2{margin:0 0 12px}
+.management form{margin:16px 0}
+.management label{display:block;margin:12px 0}
+.management input,.management select{margin-top:6px;min-width:0;max-width:100%}
+.management input[type=datetime-local]{width:100%;padding:8px 12px;border:1px solid var(--plate-lo);border-radius:6px;background:var(--plate);color:var(--ink);font:inherit}
+.management .share-form{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:16px;align-items:end}
+.management .share-form .btn{margin-bottom:12px}
+.management .link-tools{display:flex;align-items:center;gap:12px}
+.management .link-tools input{flex:1;margin:0}
+.management table{width:100%;text-align:left;border-collapse:collapse;table-layout:fixed;font-size:13px}
+.management td,.management th{padding:10px 8px;border-bottom:1px solid var(--plate-lo);vertical-align:top}
+.management .card>code{display:block;margin:12px 0}
+.management .danger{color:var(--err-ink)}
+.recovery{max-width:640px;padding:48px 0}
+.recovery h1{margin:12px 0}
+.recovery p{margin-bottom:24px;color:var(--ink2)}
+@media(max-width:760px){.management{padding-top:28px}.management .share-form{grid-template-columns:minmax(0,1fr);gap:0}.management .share-form .btn{margin-top:12px}.management .link-tools{flex-wrap:wrap}.management .link-tools input{flex-basis:100%}.management .btn{white-space:normal;line-height:1.4;padding-top:10px;padding-bottom:10px}}

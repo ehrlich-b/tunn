@@ -386,12 +386,14 @@ func (p *ProxyServer) handleDevices(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	writePageStart(w, "tunn - Devices")
-	_, _ = fmt.Fprint(w, `<h1>Devices</h1><p>Publisher devices can publish and connect to tunnels; management devices administer the account. Revocation stops management access and renewal immediately; publisher leases expire within five minutes.</p>`)
+	_, _ = fmt.Fprint(w, `<section class="management"><h1>Devices</h1><p>Publisher devices can publish and connect to tunnels; management devices administer the account. Revocation stops management access and renewal immediately; publisher leases expire within five minutes.</p>`)
 	for _, d := range list {
-		_, _ = fmt.Fprintf(w, `<p><strong>%s</strong> <code>%s</code> Created: %s; last refresh: %s; revoked: %t</p>`, html.EscapeString(d.Name), html.EscapeString(d.ID), time.Unix(d.Created, 0).UTC().Format(time.RFC3339), time.Unix(d.LastUsed, 0).UTC().Format(time.RFC3339), d.Revoked != 0)
+		_, _ = fmt.Fprintf(w, `<section class="card"><h2>%s</h2><code>%s</code><p>Created: %s; last refresh: %s; revoked: %t</p>`, html.EscapeString(d.Name), html.EscapeString(d.ID), time.Unix(d.Created, 0).UTC().Format(time.RFC3339), time.Unix(d.LastUsed, 0).UTC().Format(time.RFC3339), d.Revoked != 0)
 		if d.Revoked == 0 {
-			_, _ = fmt.Fprintf(w, `<form method="post" action="/account/devices"><input type="hidden" name="csrf_token" value="%s"><input type="hidden" name="device_id" value="%s"><button>Revoke device</button></form>`, html.EscapeString(csrf), html.EscapeString(d.ID))
+			_, _ = fmt.Fprintf(w, `<form method="post" action="/account/devices"><input type="hidden" name="csrf_token" value="%s"><input type="hidden" name="device_id" value="%s"><button class="btn danger">Revoke device</button></form>`, html.EscapeString(csrf), html.EscapeString(d.ID))
 		}
+		_, _ = fmt.Fprint(w, `</section>`)
 	}
+	_, _ = fmt.Fprint(w, `</section>`)
 	writePageEnd(w)
 }

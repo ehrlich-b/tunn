@@ -69,37 +69,37 @@ func newOIDCPKCEVerifier() (string, error) {
 }
 func (p *ProxyServer) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 	if p.config.GoogleClientID == "" || p.config.GoogleClientSecret == "" {
-		http.Error(w, "Google login is not configured", 503)
+		p.writeAuthError(w, r, "Google login is not configured", 503, "Sign in again to start a new Google login.")
 		return
 	}
 	state := r.URL.Query().Get("state")
 	oauth, err := p.parseOAuthState(state)
 	if err != nil || !requireOAuthBrowser(w, r, state) {
 		if err != nil {
-			http.Error(w, "Invalid Google login state", 400)
+			p.writeAuthError(w, r, "Invalid Google login state", 400, "Sign in again to start a new Google login.")
 		}
 		return
 	}
 	cookie, err := r.Cookie(googleStateCookie)
 	if err != nil {
-		http.Error(w, "Missing Google login binding", 400)
+		p.writeAuthError(w, r, "Missing Google login binding", 400, "Sign in again to start a new Google login.")
 		return
 	}
 	token, err := jwt.Parse(cookie.Value, func(*jwt.Token) (interface{}, error) { return p.getJWTSigningKey(), nil }, jwt.WithValidMethods([]string{"HS256"}))
 	if err != nil || !token.Valid {
-		http.Error(w, "Invalid Google login binding", 400)
+		p.writeAuthError(w, r, "Invalid Google login binding", 400, "Sign in again to start a new Google login.")
 		return
 	}
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok || claims["type"] != "google_pkce" || claims["state"] != state {
-		http.Error(w, "Invalid Google login binding", 400)
+		p.writeAuthError(w, r, "Invalid Google login binding", 400, "Sign in again to start a new Google login.")
 		return
 	}
 	verifier, _ := claims["verifier"].(string)
 	http.SetCookie(w, &http.Cookie{Name: googleStateCookie, Value: "", Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: -1})
 	code := r.URL.Query().Get("code")
 	if code == "" || verifier == "" {
-		http.Error(w, "Missing Google authorization", 400)
+		p.writeAuthError(w, r, "Missing Google authorization", 400, "Sign in again to start a new Google login.")
 		return
 	}
 	h := p.googleHTTPClient
@@ -109,13 +109,13 @@ func (p *ProxyServer) handleGoogleCallback(w http.ResponseWriter, r *http.Reques
 	values := url.Values{"client_id": {p.config.GoogleClientID}, "client_secret": {p.config.GoogleClientSecret}, "redirect_uri": {p.googleCallbackURL()}, "grant_type": {"authorization_code"}, "code": {code}, "code_verifier": {verifier}}
 	req, err := http.NewRequestWithContext(r.Context(), "POST", googleTokenURL, strings.NewReader(values.Encode()))
 	if err != nil {
-		http.Error(w, "Google login unavailable", 502)
+		p.writeAuthError(w, r, "Google login unavailable", 502, "Sign in again to start a new Google login.")
 		return
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	resp, err := h.Do(req)
 	if err != nil {
-		http.Error(w, "Google login unavailable", 502)
+		p.writeAuthError(w, r, "Google login unavailable", 502, "Sign in again to start a new Google login.")
 		return
 	}
 	var result struct {
@@ -124,18 +124,18 @@ func (p *ProxyServer) handleGoogleCallback(w http.ResponseWriter, r *http.Reques
 	err = json.NewDecoder(io.LimitReader(resp.Body, 65536)).Decode(&result)
 	resp.Body.Close()
 	if err != nil || resp.StatusCode != 200 || result.AccessToken == "" {
-		http.Error(w, "Google authorization refused", 401)
+		p.writeAuthError(w, r, "Google authorization refused", 401, "Sign in again to start a new Google login.")
 		return
 	}
 	req, err = http.NewRequestWithContext(r.Context(), "GET", googleUserInfoURL, nil)
 	if err != nil {
-		http.Error(w, "Google login unavailable", 502)
+		p.writeAuthError(w, r, "Google login unavailable", 502, "Sign in again to start a new Google login.")
 		return
 	}
 	req.Header.Set("Authorization", "Bearer "+result.AccessToken)
 	resp, err = h.Do(req)
 	if err != nil {
-		http.Error(w, "Google identity unavailable", 502)
+		p.writeAuthError(w, r, "Google identity unavailable", 502, "Sign in again to start a new Google login.")
 		return
 	}
 	var identity struct {
@@ -147,34 +147,34 @@ func (p *ProxyServer) handleGoogleCallback(w http.ResponseWriter, r *http.Reques
 	err = json.NewDecoder(io.LimitReader(resp.Body, 65536)).Decode(&identity)
 	resp.Body.Close()
 	if err != nil || resp.StatusCode != 200 || identity.Sub == "" || !identity.Verified || identity.Email == "" {
-		http.Error(w, "A verified Google email is required", 403)
+		p.writeAuthError(w, r, "A verified Google email is required", 403, "Sign in again to start a new Google login.")
 		return
 	}
 	if !validGoogleEmail(identity.Email) {
-		http.Error(w, "Invalid Google email", 403)
+		p.writeAuthError(w, r, "Invalid Google email", 403, "Sign in again to start a new Google login.")
 		return
 	}
 	email := strings.ToLower(identity.Email)
 	if p.storage == nil || !p.storage.Available() {
-		http.Error(w, "Account authority unavailable", 503)
+		p.writeAuthError(w, r, "Account authority unavailable", 503, "Sign in again to start a new Google login.")
 		return
 	}
 	if !common.GoogleAuthoritativeEmail(email, identity.HostedDomain, identity.Verified) {
-		http.Error(w, "Google does not verify current ownership of this email; sign in with a fresh email link", 403)
+		p.writeAuthError(w, r, "Google does not verify current ownership of this email; sign in with a fresh email link", 403, "Sign in again to start a new Google login.")
 		return
 	}
 	identityStore, ok := p.storage.(storage.GoogleIdentityStorage)
 	if !ok {
-		http.Error(w, "Account identity authority unavailable", 503)
+		p.writeAuthError(w, r, "Account identity authority unavailable", 503, "Sign in again to start a new Google login.")
 		return
 	}
 	account, err := identityStore.FindOrCreateGoogleIdentity(r.Context(), identity.Sub, email, identity.HostedDomain, identity.Verified)
 	if err != nil {
-		http.Error(w, "Google identity cannot be linked; sign in with a fresh email link", 403)
+		p.writeAuthError(w, r, "Google identity cannot be linked; sign in with a fresh email link", 403, "Sign in again to start a new Google login.")
 		return
 	}
 	if err = p.signedSession(w, jwt.MapClaims{"account_id": account.ID, "email": email, "sub": identity.Sub, "provider": "google", "email_verified": true, "google_authoritative": true, "issuer": common.GoogleIssuer}, authCookieName, "."+p.config.Domain, authCookieLifetime); err != nil {
-		http.Error(w, "Login unavailable", 500)
+		p.writeAuthError(w, r, "Login unavailable", 500, "Sign in again to start a new Google login.")
 		return
 	}
 	if oauth.DeviceUserCode != "" {

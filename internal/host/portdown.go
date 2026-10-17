@@ -3,6 +3,7 @@ package host
 import (
 	_ "embed"
 	"errors"
+	"html"
 	"html/template"
 	"net/http"
 	"strings"
@@ -12,7 +13,7 @@ import (
 //go:embed templates/port-down.html
 var portDownHTML string
 
-var portDownTemplate = template.Must(template.New("port-down").Parse(portDownHTML))
+var portDownTemplate = template.Must(template.New("port-down").Parse(strings.Replace(portDownHTML, "</head>", "{{.Icons}}</head>", 1)))
 
 // localTargetRejectedError reports that the publisher could not open its local target.
 type localTargetRejectedError struct{ message string }
@@ -38,6 +39,10 @@ func (p *ProxyServer) writeLocalAppDown(w http.ResponseWriter, r *http.Request) 
 	if p.Domain != "" {
 		css = strings.ReplaceAll(css, "url(/assets/", "url(https://"+p.Domain+"/assets/")
 	}
+	icons := iconHead
+	if p.Domain != "" {
+		icons = strings.ReplaceAll(icons, `href="/`, `href="https://`+html.EscapeString(p.Domain)+`/`)
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -45,5 +50,6 @@ func (p *ProxyServer) writeLocalAppDown(w http.ResponseWriter, r *http.Request) 
 	_ = portDownTemplate.Execute(w, struct {
 		Host, Path, Time string
 		CSS              template.CSS
-	}{requestHostname(r.Host), r.URL.Path, time.Now().UTC().Format("15:04:05"), template.CSS(css)})
+		Icons            template.HTML
+	}{requestHostname(r.Host), r.URL.Path, time.Now().UTC().Format("15:04:05"), template.CSS(css), template.HTML(icons)})
 }

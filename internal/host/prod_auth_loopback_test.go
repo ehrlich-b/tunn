@@ -31,6 +31,7 @@ func TestProdAuthMCPOAuthMemoryHTTPSLifecycle(t *testing.T) {
 func prodAuthHTTPSOAuthLifecycle(t *testing.T, memory bool) {
 	t.Helper()
 	f := newMCPOAuthFixture(t)
+	prepareMCPAuthorityFixture(t, f)
 	var forwarded atomic.Int64
 	stream := f.tunnel.Stream.(*meteringFixtureStream)
 	originalHook := stream.hook

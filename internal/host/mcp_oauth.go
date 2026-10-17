@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/ehrlich-b/tunn/internal/common"
+	"github.com/ehrlich-b/tunn/internal/mcpauth"
 	"github.com/ehrlich-b/tunn/internal/storage"
 	internalpb "github.com/ehrlich-b/tunn/pkg/proto/internalv1"
 	meterpb "github.com/ehrlich-b/tunn/pkg/proto/meteringv1"
@@ -144,7 +145,7 @@ func (p *ProxyServer) handleMCPOAuth(w http.ResponseWriter, r *http.Request) {
 		writeOAuthJSON(w, 200, map[string]any{
 			"issuer": issuer, "authorization_endpoint": issuer + "/oauth/authorize", "token_endpoint": issuer + "/oauth/token",
 			"registration_endpoint": issuer + "/oauth/register", "response_types_supported": []string{"code"},
-			"grant_types_supported": []string{"authorization_code"}, "token_endpoint_auth_methods_supported": []string{"none"},
+			"grant_types_supported": []string{"authorization_code", "refresh_token"}, "token_endpoint_auth_methods_supported": []string{"none"},
 			"authorization_response_iss_parameter_supported": true, "code_challenge_methods_supported": []string{"S256"}, "scopes_supported": []string{"mcp"},
 		})
 	case "/oauth/register":
@@ -198,8 +199,8 @@ func (p *ProxyServer) handleMCPRegistration(w http.ResponseWriter, r *http.Reque
 			return
 		}
 	}
-	if len(client.Name) > 128 || client.AuthMethod != "" && client.AuthMethod != "none" || len(client.GrantTypes) > 0 && !slices.Equal(client.GrantTypes, []string{"authorization_code"}) || len(client.ResponseTypes) > 0 && !slices.Equal(client.ResponseTypes, []string{"code"}) {
-		oauthProblem(w, 400, "invalid_client_metadata", "Only public authorization-code clients are supported")
+	if len(client.Name) > 128 || client.AuthMethod != "" && client.AuthMethod != "none" || !validMCPGrants(client.GrantTypes) || len(client.ResponseTypes) > 0 && !slices.Equal(client.ResponseTypes, []string{"code"}) {
+		oauthProblem(w, 400, "invalid_client_metadata", "Use public authorization-code clients with optional refresh_token")
 		return
 	}
 	if client.Name == "" {
@@ -211,7 +212,10 @@ func (p *ProxyServer) handleMCPRegistration(w http.ResponseWriter, r *http.Reque
 		oauthProblem(w, 500, "server_error", "Could not register client")
 		return
 	}
-	client.AuthMethod, client.GrantTypes, client.ResponseTypes, client.IssuedAt = "none", []string{"authorization_code"}, []string{"code"}, time.Now().Unix()
+	if len(client.GrantTypes) == 0 {
+		client.GrantTypes = []string{"authorization_code", "refresh_token"}
+	}
+	client.AuthMethod, client.ResponseTypes, client.IssuedAt = "none", []string{"code"}, p.currentTime().Unix()
 	if err := p.mcpOAuth.register(r.Context(), &client); err != nil {
 		oauthProblem(w, 503, "temporarily_unavailable", "Client registry unavailable or full")
 		return
@@ -253,7 +257,10 @@ func (p *ProxyServer) mcpUserAllowed(ctx context.Context, email string, tunnel *
 		return true
 	}
 	bucket, err := p.storage.GetEmailBucket(ctx, email)
-	return err == nil && isEmailBucketAllowed(bucket, tunnel.AllowedEmails)
+	if err != nil {
+		return false
+	}
+	return isEmailBucketAllowed(bucket, tunnel.AllowedEmails)
 }
 
 func (p *ProxyServer) handleMCPAuthorize(w http.ResponseWriter, r *http.Request) {
@@ -319,8 +326,15 @@ func (p *ProxyServer) handleMCPAuthorize(w http.ResponseWriter, r *http.Request)
 		p.redirectMCPResult(w, r, auth, "error", "access_denied")
 		return
 	}
-	auth.Owner, auth.Email = owner.ID, email
+	person, err := p.storage.GetAccountByEmail(r.Context(), common.NormalizeEmail(email))
+	resource, resourceErr := p.mcpCurrentResource(r.Context(), tunnel, owner.ID)
+	if err != nil || person == nil || resourceErr != nil {
+		oauthProblem(w, 503, "temporarily_unavailable", "Authorization authority unavailable")
+		return
+	}
+	auth.Owner, auth.Email, auth.Person, auth.Generation = owner.ID, common.NormalizeEmail(email), person.ID, resource.Id
 	consentID, err := randomOAuthValue("")
+	auth.ConsentID = consentID
 	if err != nil || p.mcpOAuth.saveConsent(r.Context(), consentID, auth) != nil {
 		oauthProblem(w, 503, "temporarily_unavailable", "Could not prepare consent")
 		return
@@ -340,7 +354,7 @@ func (p *ProxyServer) handleMCPAuthorize(w http.ResponseWriter, r *http.Request)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; img-src 'self'; manifest-src 'self'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'")
 	writePageStart(w, "tunn - Connect MCP tools")
-	_, _ = fmt.Fprintf(w, `<h1>Allow %s to use %s tools?</h1><p>Signed in as %s. This allows access to the MCP capabilities exposed by this tunnel for one hour. The owner can revoke access at any time.</p><p>Client redirect: <code>%s</code></p><form method="post" action="/oauth/authorize"><input type="hidden" name="authorization" value="%s"><input type="hidden" name="csrf_token" value="%s"><button name="decision" value="allow">Allow</button><button name="decision" value="deny">Deny</button></form>`, html.EscapeString(client.Name), html.EscapeString(auth.Endpoint), html.EscapeString(email), html.EscapeString(auth.RedirectURI), html.EscapeString(signed), html.EscapeString(csrf))
+	_, _ = fmt.Fprintf(w, `<h1>Allow %s to use %s tools?</h1><p>Signed in as %s. This allows access to the MCP capabilities exposed by this tunnel with one-hour access tokens and rotating refresh for up to 30 days. The owner can revoke access at any time.</p><p>Client redirect: <code>%s</code></p><form method="post" action="/oauth/authorize"><input type="hidden" name="authorization" value="%s"><input type="hidden" name="csrf_token" value="%s"><button name="decision" value="allow">Allow</button><button name="decision" value="deny">Deny</button></form>`, html.EscapeString(client.Name), html.EscapeString(auth.Endpoint), html.EscapeString(email), html.EscapeString(auth.RedirectURI), html.EscapeString(signed), html.EscapeString(csrf))
 	writePageEnd(w)
 }
 
@@ -452,8 +466,12 @@ func (p *ProxyServer) handleMCPToken(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if form.Get("grant_type") == "refresh_token" {
+		p.handleMCPRefresh(w, r)
+		return
+	}
 	if form.Get("grant_type") != "authorization_code" {
-		oauthProblem(w, 400, "unsupported_grant_type", "Use authorization_code")
+		oauthProblem(w, 400, "unsupported_grant_type", "Use authorization_code or refresh_token")
 		return
 	}
 	if _, err := p.mcpOAuth.client(r.Context(), form.Get("client_id")); err != nil {
@@ -481,18 +499,7 @@ func (p *ProxyServer) handleMCPToken(w http.ResponseWriter, r *http.Request) {
 		oauthProblem(w, 400, "invalid_grant", "Tunnel ownership changed or endpoint unavailable")
 		return
 	}
-	accessToken, err := randomOAuthValue("tunn_mcp_")
-	if err != nil {
-		oauthProblem(w, 500, "server_error", "Could not issue access token")
-		return
-	}
-	tokenDigest := sha256.Sum256([]byte(accessToken))
-	_, err = p.meter.CreateGrant(r.Context(), &meterpb.Grant{Owner: auth.Owner, Endpoint: auth.Endpoint, Consumer: "oauth:" + auth.ClientID, TokenSha256: tokenDigest[:], ExpiresAt: time.Now().Add(mcpAccessTokenLifetime).UnixMilli()})
-	if err != nil {
-		oauthProblem(w, 503, "temporarily_unavailable", "Grant ledger unavailable")
-		return
-	}
-	writeOAuthJSON(w, 200, map[string]any{"access_token": accessToken, "token_type": "Bearer", "expires_in": int(mcpAccessTokenLifetime.Seconds()), "scope": auth.Scope})
+	p.issueMCPCredentials(w, r, auth, 0, [sha256.Size]byte{})
 }
 
 // Owner management accepts a session on the HTML page (CSRF for disconnects),
@@ -543,26 +550,19 @@ func (p *ProxyServer) handleMCPClients(w http.ResponseWriter, r *http.Request) {
 		}
 		p.mcpOAuth.mu.Lock()
 		defer p.mcpOAuth.mu.Unlock()
-		if _, err := p.mcpOAuth.db.ExecContext(r.Context(), `DELETE FROM mcp_oauth_consents WHERE owner=? AND endpoint=? AND client=?`, owner.ID, endpoint, clientID); err != nil {
-			http.Error(w, "Authorization service unavailable", http.StatusServiceUnavailable)
-			return
-		}
-		if _, err := p.mcpOAuth.db.ExecContext(r.Context(), `DELETE FROM mcp_oauth_codes WHERE owner=? AND endpoint=? AND client=?`, owner.ID, endpoint, clientID); err != nil {
-			http.Error(w, "Authorization service unavailable", http.StatusServiceUnavailable)
-			return
-		}
-		grants, err := p.meter.ListGrants(r.Context(), &meterpb.ListGrantsRequest{Owner: owner.ID, Endpoint: endpoint})
+		tx, err := p.mcpOAuth.refreshTx(r.Context())
 		if err != nil {
-			http.Error(w, "Grant ledger unavailable", http.StatusServiceUnavailable)
+			http.Error(w, "Authorization service unavailable", 503)
 			return
 		}
-		for _, grant := range grants.Grants {
-			if grant.Consumer == "oauth:"+clientID && !grant.Revoked {
-				if _, err := p.meter.RevokeGrant(r.Context(), &meterpb.Grant{Owner: owner.ID, Endpoint: endpoint, Id: grant.Id}); err != nil {
-					http.Error(w, "Could not revoke connected client", http.StatusServiceUnavailable)
-					return
-				}
-			}
+		err = mcpauth.Revoke(r.Context(), tx, owner.ID, endpoint, clientID, "")
+		if err == nil {
+			err = tx.Commit()
+		}
+		_ = tx.Rollback()
+		if err != nil {
+			http.Error(w, "Authorization service unavailable", 503)
+			return
 		}
 		if page {
 			http.Redirect(w, r, "/account/mcp?"+url.Values{"tunnel": {endpoint}}.Encode(), http.StatusSeeOther)
@@ -580,26 +580,33 @@ func (p *ProxyServer) handleMCPClients(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Grant ledger unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	type connection struct {
-		ClientID  string `json:"client_id"`
-		Name      string `json:"client_name"`
-		Tunnel    string `json:"tunnel"`
-		GrantID   string `json:"grant_id"`
-		ExpiresAt int64  `json:"expires_at"`
-		Revoked   bool   `json:"revoked"`
+	connections, err := p.mcpOAuth.connections(r.Context(), owner.ID, endpoint)
+	if err != nil {
+		http.Error(w, "Authorization service unavailable", http.StatusServiceUnavailable)
+		return
 	}
-	connections := []connection{}
+	type connectionKey struct{ tunnel, client string }
+	consents := make(map[connectionKey]int, len(connections))
+	for i, c := range connections {
+		consents[connectionKey{c.Tunnel, c.ClientID}] = i
+	}
 	for _, grant := range grants.Grants {
 		if !strings.HasPrefix(grant.Consumer, "oauth:") {
 			continue
 		}
 		clientID := strings.TrimPrefix(grant.Consumer, "oauth:")
+		if i, ok := consents[connectionKey{grant.Endpoint, clientID}]; ok {
+			if !grant.Revoked && grant.ExpiresAt > p.currentTime().UnixMilli() {
+				connections[i].GrantID = grant.Id
+			}
+			continue
+		}
 		client, err := p.mcpOAuth.client(r.Context(), clientID)
 		if err != nil {
 			http.Error(w, "Client registry unavailable", http.StatusServiceUnavailable)
 			return
 		}
-		connections = append(connections, connection{clientID, client.Name, grant.Endpoint, grant.Id, grant.ExpiresAt, grant.Revoked})
+		connections = append(connections, mcpOAuthConnection{clientID, client.Name, grant.Endpoint, grant.Id, grant.ExpiresAt, grant.Revoked})
 	}
 	if !page {
 		writeOAuthJSON(w, 200, map[string]any{"clients": connections})

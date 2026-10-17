@@ -24,9 +24,27 @@ For longer work, return a job ID. Prices and quotas come from [pricing](https://
 and `tunn usage`; name protection depends on the plan and available reservations.
 
 Visit `https://<relay-domain>/account/mcp` to see connected clients and disconnect
-one on a particular tunnel. Disconnect invalidates its current tokens, pending
-authorization codes and pending consent forms on that tunnel. New access needs
-fresh approval. Tokens expire after one hour; there are no refresh tokens.
+one on a particular tunnel. Disconnect revokes its access tokens, refresh token
+families, pending authorization codes and consent forms on that tunnel. New
+access needs fresh approval. Access tokens expire after one hour. Clients with
+refresh enabled also receive a refresh token with an absolute lifetime ending
+30 days after consent; rotation never extends that deadline. Every refresh token
+is single use: a successful refresh returns a new access token and refresh token
+and immediately invalidates the previous access token. Save the new refresh token
+atomically and serialize refresh requests.
+
+Replay detection is strict: reuse of a retained, rotated refresh token revokes
+the whole family, including tokens returned to a concurrent winning request.
+There is no retry grace period, so a lost response can require fresh consent.
+The last 1,024 digests are retained; older replays are rejected without revoking
+the current family. After the 30-day deadline, connect again with browser consent.
+
+To remove a person, restart the publisher with that person removed from `--allow`.
+MCP checks the live list, including verified email aliases and domain entries;
+the owner always retains access. Removing a person revokes their consents, codes,
+access tokens and refresh families across clients. Adding them back requires new
+consent. MCP invitations do not become web-sharing permissions for a private
+HTTP app later published on the same name.
 Rotating the publisher's manual endpoint token does not revoke OAuth grants.
 
 Owner automation can use a tunn owner bearer with:
@@ -40,7 +58,12 @@ Clients discover RFC 9728 metadata from the unauthenticated `/mcp` bearer
 challenge, then RFC 8414 metadata on the platform origin. Registration supports
 RFC 7591 public clients (`token_endpoint_auth_method: none`), exact HTTPS or
 loopback HTTP redirect URIs, and authorization-code grants with mandatory S256
-PKCE. Include the exact connector URL as `resource` in both authorization and
+PKCE. New registrations enable `authorization_code` and `refresh_token` by
+default. Explicit code-only registrations and previously saved code-only clients
+continue without refresh; register a new client to enable it. Refresh uses a
+form-encoded POST to `/oauth/token` with `grant_type=refresh_token`, `client_id`,
+the current `refresh_token` and the same exact `resource`; scope may be omitted or
+`mcp`. Include the exact connector URL as `resource` in both authorization and
 token requests. Request scope `mcp`. The token permits this tunnel's exposed MCP
 capabilities only at `/mcp`; it does not grant tunn account or management access.
 Registration is capped at five requests per five minutes per verified peer;

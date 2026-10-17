@@ -405,16 +405,20 @@ func TestMCPRefreshBounds(t *testing.T) {
 		}
 		current = next
 	}
-	if err := s.rotateRefresh(t.Context(), id, refreshTestBinding, current, digest); !errors.Is(err, errMCPRefreshCapacity) {
-		t.Fatalf("rotation cap: %v", err)
+	next := sha256.Sum256([]byte("beyond-pruning-window"))
+	if err := s.rotateRefresh(t.Context(), id, refreshTestBinding, current, next); err != nil {
+		t.Fatalf("rotation beyond window: %v", err)
+	}
+	if err := s.rotateRefresh(t.Context(), id, refreshTestBinding, digest, next); !errors.Is(err, errMCPRefreshInvalid) {
+		t.Fatalf("pruned replay: %v", err)
 	}
 	refreshCount(t, s.db, "mcp_oauth_refresh_tokens", mcpRefreshMaxTokens)
 	var after int64
 	if err := s.db.QueryRow(`SELECT expires FROM mcp_oauth_refresh_families WHERE id=?`, id).Scan(&after); err != nil || after != expiry {
 		t.Fatalf("rotation extended lifetime: %d != %d: %v", after, expiry, err)
 	}
-	// Replay evidence is still present at capacity.
-	if err := s.rotateRefresh(t.Context(), id, refreshTestBinding, digest, current); !errors.Is(err, errMCPRefreshReplay) {
+	// Recent replay evidence is still present at capacity.
+	if err := s.rotateRefresh(t.Context(), id, refreshTestBinding, current, next); !errors.Is(err, errMCPRefreshReplay) {
 		t.Fatalf("replay at capacity: %v", err)
 	}
 	// Populate capacity in one transaction, without 10,000 fsyncs.
@@ -626,5 +630,21 @@ func TestMCPRefreshDigestOnly(t *testing.T) {
 	}
 	if bytes.Contains(logs.Bytes(), []byte(sentinel)) {
 		t.Fatal("bearer secret in logs")
+	}
+}
+
+func TestMCPRefreshOwnerCapacityIsolation(t *testing.T) {
+	s, _ := refreshFixture(t)
+	for i := 0; i < mcpRefreshMaxOwnerFamilies; i++ {
+		createTestRefresh(t, s, fmt.Sprintf("owner-token-%d", i))
+	}
+	digest := sha256.Sum256([]byte("another-owner"))
+	if _, err := s.createRefreshFamily(t.Context(), refreshTestBinding, digest, time.Now().Add(time.Hour)); !errors.Is(err, errMCPRefreshCapacity) {
+		t.Fatalf("owner cap: %v", err)
+	}
+	other := refreshTestBinding
+	other.OwnerID = "44444444-4444-4444-8444-444444444444"
+	if _, err := s.createRefreshFamily(t.Context(), other, digest, time.Now().Add(time.Hour)); err != nil {
+		t.Fatalf("one owner blocked another: %v", err)
 	}
 }

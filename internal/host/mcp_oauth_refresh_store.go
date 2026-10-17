@@ -7,13 +7,15 @@ import (
 	"errors"
 	"time"
 
+	"github.com/ehrlich-b/tunn/internal/mcpauth"
 	"github.com/google/uuid"
 )
 
 const (
-	mcpRefreshMaxFamilies = 10000
-	mcpRefreshMaxTokens   = 128 // includes spent digests needed for replay detection
-	mcpRefreshMaxLifetime = 30 * 24 * time.Hour
+	mcpRefreshMaxFamilies      = 10000
+	mcpRefreshMaxOwnerFamilies = 64
+	mcpRefreshMaxTokens        = 1024 // includes spent digests needed for replay detection
+	mcpRefreshMaxLifetime      = 30 * 24 * time.Hour
 )
 
 var (
@@ -92,6 +94,15 @@ func (s *mcpOAuthStore) refreshTx(ctx context.Context) (*sql.Tx, error) {
 }
 
 func deleteMCPRefreshFamily(ctx context.Context, tx *sql.Tx, id int64) error {
+	var linked int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM mcp_oauth_sessions WHERE family=?`, id).Scan(&linked); err != nil {
+		return err
+	}
+	if linked != 0 {
+		if err := mcpauth.RevokeFamily(ctx, tx, id); err != nil {
+			return err
+		}
+	}
 	// Delete explicitly too: existing DB connections need not enable foreign keys.
 	if _, err := tx.ExecContext(ctx, `DELETE FROM mcp_oauth_refresh_tokens WHERE family=?`, id); err != nil {
 		return err
@@ -101,15 +112,39 @@ func deleteMCPRefreshFamily(ctx context.Context, tx *sql.Tx, id int64) error {
 }
 
 func cleanupMCPRefreshFamilies(ctx context.Context, tx *sql.Tx, now int64) error {
+	rows, err := tx.QueryContext(ctx, `SELECT s.family FROM mcp_oauth_sessions s JOIN mcp_oauth_refresh_families f ON f.id=s.family WHERE f.expires<=?`, now)
+	if err != nil {
+		return err
+	}
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		ids = append(ids, id)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if err := mcpauth.RevokeFamily(ctx, tx, id); err != nil {
+			return err
+		}
+	}
+
 	if _, err := tx.ExecContext(ctx, `DELETE FROM mcp_oauth_refresh_tokens WHERE family IN (SELECT id FROM mcp_oauth_refresh_families WHERE expires<=?)`, now); err != nil {
 		return err
 	}
-	_, err := tx.ExecContext(ctx, `DELETE FROM mcp_oauth_refresh_families WHERE expires<=?`, now)
+	_, err = tx.ExecContext(ctx, `DELETE FROM mcp_oauth_refresh_families WHERE expires<=?`, now)
 	return err
 }
 
 // createRefreshFamily starts an absolute lifetime; rotations cannot extend it.
-// Capacity is fail-closed, never evicting active families or replay evidence.
+// Capacity is fail-closed; spent evidence is bounded separately during rotation.
 func (s *mcpOAuthStore) createRefreshFamily(ctx context.Context, binding mcpRefreshBinding, digest [sha256.Size]byte, expires time.Time) (int64, error) {
 	if !binding.valid() || digest == [sha256.Size]byte{} {
 		return 0, errMCPRefreshInvalid
@@ -119,7 +154,17 @@ func (s *mcpOAuthStore) createRefreshFamily(ctx context.Context, binding mcpRefr
 		return 0, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	now := time.Now()
+	id, err := s.createRefreshFamilyTx(ctx, tx, binding, digest, expires)
+	if err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return id, nil
+}
+func (s *mcpOAuthStore) createRefreshFamilyTx(ctx context.Context, tx *sql.Tx, binding mcpRefreshBinding, digest [sha256.Size]byte, expires time.Time) (int64, error) {
+	now := s.now()
 	if expires.Unix() <= now.Unix() || expires.After(now.Add(mcpRefreshMaxLifetime)) {
 		return 0, errMCPRefreshInvalid
 	}
@@ -130,7 +175,11 @@ func (s *mcpOAuthStore) createRefreshFamily(ctx context.Context, binding mcpRefr
 	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM mcp_oauth_refresh_families`).Scan(&count); err != nil {
 		return 0, err
 	}
-	if count >= mcpRefreshMaxFamilies {
+	var owned int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM mcp_oauth_refresh_families WHERE owner=?`, binding.OwnerID).Scan(&owned); err != nil {
+		return 0, err
+	}
+	if count >= mcpRefreshMaxFamilies || owned >= mcpRefreshMaxOwnerFamilies {
 		return 0, errMCPRefreshCapacity
 	}
 	result, err := tx.ExecContext(ctx, `INSERT INTO mcp_oauth_refresh_families(owner,person,client,resource,generation,expires) VALUES(?,?,?,?,?,?)`, binding.OwnerID, binding.PersonID, binding.ClientID, binding.Resource, binding.Generation, expires.Unix())
@@ -144,15 +193,12 @@ func (s *mcpOAuthStore) createRefreshFamily(ctx context.Context, binding mcpRefr
 	if _, err := tx.ExecContext(ctx, `INSERT INTO mcp_oauth_refresh_tokens(family,digest) VALUES(?,?)`, id, digest[:]); err != nil {
 		return 0, err
 	}
-	if err := tx.Commit(); err != nil {
-		return 0, err
-	}
 	return id, nil
 }
 
-func boundMCPRefreshFamily(ctx context.Context, tx *sql.Tx, id int64, binding mcpRefreshBinding) error {
+func (s *mcpOAuthStore) boundMCPRefreshFamily(ctx context.Context, tx *sql.Tx, id int64, binding mcpRefreshBinding) error {
 	var found int
-	err := tx.QueryRowContext(ctx, `SELECT 1 FROM mcp_oauth_refresh_families WHERE id=? AND owner=? AND person=? AND client=? AND resource=? AND generation=? AND expires>?`, id, binding.OwnerID, binding.PersonID, binding.ClientID, binding.Resource, binding.Generation, time.Now().Unix()).Scan(&found)
+	err := tx.QueryRowContext(ctx, `SELECT 1 FROM mcp_oauth_refresh_families WHERE id=? AND owner=? AND person=? AND client=? AND resource=? AND generation=? AND expires>?`, id, binding.OwnerID, binding.PersonID, binding.ClientID, binding.Resource, binding.Generation, s.now().Unix()).Scan(&found)
 	if errors.Is(err, sql.ErrNoRows) {
 		return errMCPRefreshInvalid
 	}
@@ -161,7 +207,8 @@ func boundMCPRefreshFamily(ctx context.Context, tx *sql.Tx, id int64, binding mc
 
 // rotateRefresh atomically consumes one digest and installs its successor.
 // Reusing any spent digest commits deletion of the entire family, including the
-// winner of an earlier rotation. Callers must treat replay as a committed change.
+// winner of an earlier rotation. The oldest spent digest is pruned at capacity;
+// replay of pruned evidence is rejected without invalidating the family. Callers must treat replay as a committed change.
 func (s *mcpOAuthStore) rotateRefresh(ctx context.Context, id int64, binding mcpRefreshBinding, previous, next [sha256.Size]byte) error {
 	if id <= 0 || !binding.valid() || previous == [sha256.Size]byte{} || next == [sha256.Size]byte{} {
 		return errMCPRefreshInvalid
@@ -171,7 +218,17 @@ func (s *mcpOAuthStore) rotateRefresh(ctx context.Context, id int64, binding mcp
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if err := boundMCPRefreshFamily(ctx, tx, id, binding); err != nil {
+	err = s.rotateRefreshTx(ctx, tx, id, binding, previous, next)
+	if err != nil && !errors.Is(err, errMCPRefreshReplay) {
+		return err
+	}
+	if commitErr := tx.Commit(); commitErr != nil {
+		return commitErr
+	}
+	return err
+}
+func (s *mcpOAuthStore) rotateRefreshTx(ctx context.Context, tx *sql.Tx, id int64, binding mcpRefreshBinding, previous, next [sha256.Size]byte) error {
+	if err := s.boundMCPRefreshFamily(ctx, tx, id, binding); err != nil {
 		return err
 	}
 	var used int
@@ -185,9 +242,6 @@ func (s *mcpOAuthStore) rotateRefresh(ctx context.Context, id int64, binding mcp
 		if err := deleteMCPRefreshFamily(ctx, tx, id); err != nil {
 			return err
 		}
-		if err := tx.Commit(); err != nil {
-			return err
-		}
 		return errMCPRefreshReplay
 	}
 	var count int
@@ -195,7 +249,9 @@ func (s *mcpOAuthStore) rotateRefresh(ctx context.Context, id int64, binding mcp
 		return err
 	}
 	if count >= mcpRefreshMaxTokens {
-		return errMCPRefreshCapacity
+		if _, err := tx.ExecContext(ctx, `DELETE FROM mcp_oauth_refresh_tokens WHERE rowid IN (SELECT rowid FROM mcp_oauth_refresh_tokens WHERE family=? AND used=1 ORDER BY rowid LIMIT 1)`, id); err != nil {
+			return err
+		}
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE mcp_oauth_refresh_tokens SET used=1 WHERE family=? AND digest=?`, id, previous[:]); err != nil {
 		return err
@@ -204,7 +260,7 @@ func (s *mcpOAuthStore) rotateRefresh(ctx context.Context, id int64, binding mcp
 	if _, err := tx.ExecContext(ctx, `INSERT INTO mcp_oauth_refresh_tokens(family,digest) VALUES(?,?)`, id, next[:]); err != nil {
 		return err
 	}
-	return tx.Commit()
+	return nil
 }
 
 // revokeRefreshFamily is idempotent and scoped to the complete binding, so it
@@ -229,14 +285,14 @@ func (s *mcpOAuthStore) revokeRefreshFamily(ctx context.Context, id int64, bindi
 }
 
 // cleanupRefreshFamilies is safe to call at startup or from maintenance. Creation
-// also performs cleanup; cleanup never removes spent digests of a live family.
+// also performs cleanup.
 func (s *mcpOAuthStore) cleanupRefreshFamilies(ctx context.Context) error {
 	tx, err := s.refreshTx(ctx)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if err := cleanupMCPRefreshFamilies(ctx, tx, time.Now().Unix()); err != nil {
+	if err := cleanupMCPRefreshFamilies(ctx, tx, s.now().Unix()); err != nil {
 		return err
 	}
 	return tx.Commit()

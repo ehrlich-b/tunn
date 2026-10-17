@@ -13,6 +13,7 @@ import (
 
 	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/ehrlich-b/tunn/internal/config"
+	"github.com/ehrlich-b/tunn/internal/mcpauth"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/meteringv1"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
@@ -146,7 +147,7 @@ func (s *Store) Sharing(ctx context.Context, in *pb.SharingRequest) (*pb.Sharing
 			err := tx.QueryRowContext(ctx, `SELECT id,owner,mode FROM web_resources WHERE endpoint=?`, in.Endpoint).Scan(&r.Id, &r.Owner, &r.Mode)
 			fresh := errors.Is(err, sql.ErrNoRows) || err == nil && r.Owner != in.Owner
 			if in.Operation == "register" {
-				if len(in.InitialEmails) > s.maxResourcePeople {
+				if in.Mode != "policy-only" && len(in.InitialEmails) > s.maxResourcePeople {
 					return ErrCapacity
 				}
 				if in.Mode != "private" && in.Mode != "public" && in.Mode != "legacy-public" && in.Mode != "policy-only" {
@@ -156,6 +157,9 @@ func (s *Store) Sharing(ctx context.Context, in *pb.SharingRequest) (*pb.Sharing
 					return err
 				}
 				if fresh && err == nil {
+					if err := mcpauth.Revoke(ctx, tx, r.Owner, r.Endpoint, "", ""); err != nil {
+						return err
+					}
 					if err = s.retireSharingGrants(ctx, tx, "resource-retired", `g.endpoint=?`, r.Id); err != nil {
 						return err
 					}
@@ -189,7 +193,12 @@ func (s *Store) Sharing(ctx context.Context, in *pb.SharingRequest) (*pb.Sharing
 				if _, err = tx.ExecContext(ctx, `INSERT INTO web_resources(endpoint,owner,id,mode) VALUES(?,?,?,?) ON CONFLICT(endpoint) DO UPDATE SET owner=excluded.owner,id=excluded.id,mode=excluded.mode`, r.Endpoint, r.Owner, r.Id, r.Mode); err != nil {
 					return err
 				}
-				if fresh {
+				if r.Mode == "policy-only" {
+					// MCP uses the live publisher allow list, never durable web invitations.
+					if err = mcpauth.ReconcileAllowed(ctx, tx, r.Owner, r.Endpoint, in.InitialEmails); err != nil {
+						return err
+					}
+				} else if fresh {
 					for _, email := range in.InitialEmails {
 						if err = s.sharePerson(ctx, tx, r, normalizeSharingTarget(email), s.now().AddDate(100, 0, 0).UnixMilli(), true); err != nil {
 							return err
@@ -197,7 +206,7 @@ func (s *Store) Sharing(ctx context.Context, in *pb.SharingRequest) (*pb.Sharing
 					}
 				}
 			} else {
-				if err != nil || r.Owner != in.Owner || r.Mode == "policy-only" || in.ResourceId != "" && in.ResourceId != r.Id {
+				if err != nil || r.Owner != in.Owner || in.ResourceId != "" && in.ResourceId != r.Id {
 					return fmt.Errorf("resource not found")
 				}
 				switch in.Operation {
@@ -256,6 +265,9 @@ func (s *Store) Sharing(ctx context.Context, in *pb.SharingRequest) (*pb.Sharing
 }
 
 func (s *Store) revokePerson(ctx context.Context, tx *sql.Tx, r *pb.WebResource, email string) error {
+	if err := mcpauth.Revoke(ctx, tx, r.Owner, r.Endpoint, "", email); err != nil {
+		return err
+	}
 	rows, err := tx.QueryContext(ctx, `SELECT data FROM meter_grants WHERE owner=? AND endpoint=?`, r.Owner, r.Id)
 	if err != nil {
 		return err

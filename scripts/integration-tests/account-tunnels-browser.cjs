@@ -38,10 +38,11 @@ const apex = `https://tunn.test:${port}`;
     await page.locator('.live-tunnel').waitFor();
     assert.match(await page.locator('.live-tunnel').innerText(),/webhooks/);
     assert.match(await page.locator('.live-tunnel').innerText(),/HTTP/);
+    await page.locator('.live-tunnel-name').click();
     assert.match(await page.locator('.live-tunnel').innerText(),/1\.2\.3/);
     assert.match(await page.locator('.live-tunnel').innerText(),/linux\/amd64/);
     assert.equal((await request(context,`https://webhooks.tunn.test:${port}/health`)).status(),200);
-    await page.waitForFunction(() => document.querySelector('.live-tunnel dd:last-child time'));
+    await page.waitForFunction(() => /Last request (now|\d+[mhd] ago)/.test(document.querySelector('.live-tunnel-details').textContent));
     const snapshot = await request(context,apex+'/api/account/tunnels');
     assert.equal(snapshot.status(),200); assert.ok(snapshot.headers()['cache-control'].includes('no-store'));
     const listing = await snapshot.json(); assert.equal(listing.tunnels.length,1); assert.ok(listing.tunnels[0].last_request);
@@ -56,6 +57,14 @@ const apex = `https://tunn.test:${port}`;
     assert.deepEqual((await otherListing.json()).tunnels,[]);
     const anonymous = await browser.newContext({ignoreHTTPSErrors:true});
     assert.equal((await request(anonymous,apex+'/api/account/tunnels')).status(),302);
+    const signInShots = [];
+    const signIn = await anonymous.newPage();
+    await signIn.goto(apex+'/auth/login');
+    for (const theme of ['light','dark']) for (const width of [390,1440]) {
+      await signIn.emulateMedia({colorScheme:theme}); await signIn.setViewportSize({width,height:1000});
+      assert.equal(await signIn.evaluate(() => document.documentElement.scrollWidth <= innerWidth),true);
+      const file = `signin-${width}-${theme}.png`; await signIn.screenshot({path:path.join(evidence,file),fullPage:true}); signInShots.push(file);
+    }
     await anonymous.close(); await other.context.close();
     let polls = 0; page.on('request',r => { if (r.url().endsWith('/api/account/tunnels')) polls++; });
     // Dispatch the browser visibility event deterministically in headless mode.
@@ -70,7 +79,96 @@ const apex = `https://tunn.test:${port}`;
     assert.equal(await page.evaluate(() => window.accountPageIdentity),'preserved','page reloaded');
     assert.deepEqual(errors,[]);
     await page.screenshot({path:path.join(evidence,'account-disconnected-390.png'),fullPage:true});
-    const report = {result:'PASS',connected_without_reload:true,disconnected_without_reload:true,other_account_isolated:true,anonymous_requires_sign_in:true,hidden_visibility_event_stops_polling:true,resumes_on_visible:true,viewport_widths:[390,1440],browser_errors:errors};
+    // Exercise the production renderer with deterministic account snapshots.
+    // The journey above uses real authenticated endpoints and publisher connections.
+    await page.clock.install({time:new Date('2026-10-17T20:00:00Z')});
+    await page.clock.pauseAt(new Date('2026-10-17T20:00:01Z'));
+    const names = ['forge-ssh','ehrlich-grafana','ehrlich-dash','apps-dash','apps-grafana','apps-home','apps-pmo','webhooks'];
+    function fixture(count) {
+      return Array.from({length:count}, (_,i) => ({
+        name:names[i] || `regional-background-worker-${String(i+1).padStart(2,'0')}`,
+        kind:['TCP','HTTP','HTTP','app','app','app','MCP','HTTP'][i%8],
+        public_url:i===0 ? 'https://forge-ssh.development-infrastructure.example.test' : `https://${names[i] || `regional-background-worker-${i+1}`}.personal-applications.example.test${i%8===6?'/mcp':''}`,
+        connected_since:new Date(Date.UTC(2026,9,17,18)-i*3600000).toISOString(),
+        client_version:'1.2.3',client_host:'linux/amd64',
+        last_request:i===count-1 ? undefined : new Date(Date.UTC(2026,9,17,19,59)-Math.floor(i/2)*60000).toISOString()
+      })).reverse();
+    }
+    let data = {complete:true,tunnels:[]}, failed = false;
+    await page.route('**/api/account/tunnels',route => failed ? route.fulfill({status:503,body:'Unavailable'}) : route.fulfill({json:data}));
+    async function update() {
+      const response = page.waitForResponse(r => r.url().endsWith('/api/account/tunnels'));
+      await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+      await response; await page.waitForTimeout(60);
+    }
+    const shots = [], metrics = [];
+    for (const count of [0,1,8,30]) {
+      data = {complete:true,tunnels:fixture(count)};
+      await update();
+      await page.waitForFunction(n => document.querySelectorAll('.live-tunnel').length===n,count);
+      assert.equal(await page.locator('#live-tunnels-summary').innerText(),count?`${count} online`:'None online');
+      assert.equal(await page.locator('.live-tunnel:visible').count(),Math.min(5,count));
+      assert.equal(await page.locator('.live-tunnel details[open]').count(),0);
+      if (count>5) assert.equal(await page.locator('#live-tunnels-more').innerText(),`+${count-5} more`);
+      const sorted = [...data.tunnels].sort((a,b) => (Date.parse(b.last_request)||0)-(Date.parse(a.last_request)||0) || a.name.localeCompare(b.name));
+      assert.deepEqual(await page.locator('.live-tunnel-name').allTextContents(),sorted.map(t=>t.name));
+      for (const theme of ['light','dark']) for (const width of [390,1440]) {
+        await page.emulateMedia({colorScheme:theme}); await page.setViewportSize({width,height:1000});
+        await page.evaluate(() => scrollTo(0,0));
+        const measurement = await page.locator('.live-tunnels').evaluate(section => ({height:section.getBoundingClientRect().height,width:section.getBoundingClientRect().width,overflow:document.documentElement.scrollWidth>innerWidth}));
+        assert.equal(measurement.overflow,false,'horizontal overflow');
+        assert.ok(measurement.height <= (width===390?420:260),`section height ${measurement.height} at ${width}, count ${count}`);
+        for (const row of await page.locator('.live-tunnel:visible summary').all()) {
+          const box = await row.boundingBox(); assert.ok(box.height <= (width===390?58:22),'row wraps beyond design');
+        }
+        const text = await page.locator('.live-tunnels').innerText();
+        assert.doesNotMatch(text,/polling|interval|tab|cach|every.*second|retrying|currently connected/i);
+        const file = `tunnels-${count}-${width}-${theme}.png`;
+        await page.screenshot({path:path.join(evidence,file),fullPage:true});
+        shots.push(file); metrics.push({count,theme,viewport:width,...measurement,file});
+      }
+      if (count===8) {
+        await page.setViewportSize({width:1440,height:1000});
+        await page.locator('#live-tunnels-more').click();
+        assert.equal(await page.locator('.live-tunnel:visible').count(),8);
+        assert.equal(await page.locator('#live-tunnels-more').getAttribute('aria-expanded'),'true');
+        // Native disclosure is keyboard accessible; a public link stays a link.
+        await page.locator('.live-tunnel summary').first().focus(); await page.keyboard.press('Enter');
+        assert.equal(await page.locator('.live-tunnel details[open]').count(),1);
+        assert.match(await page.locator('.live-tunnel-details:visible').innerText(),/Client 1\.2\.3 · linux\/amd64 · Last request/);
+        await update(); assert.equal(await page.locator('.live-tunnel details[open]').count(),1,'refresh lost disclosure state');
+        await page.locator('.live-tunnel summary').first().evaluate(node=>node.blur());
+        for (const theme of ['light','dark']) {
+          await page.emulateMedia({colorScheme:theme});
+          const height = await page.locator('.live-tunnels').evaluate(s=>s.getBoundingClientRect().height);
+          assert.ok(height<=260,`expanded section height ${height}`);
+          const file = `tunnels-8-1440-${theme}-expanded-details.png`;
+          await page.screenshot({path:path.join(evidence,file),fullPage:true});shots.push(file);metrics.push({count,theme,viewport:1440,height,expanded:true,details:true,file});
+        }
+        await page.locator('.live-tunnel-name').first().click();
+        assert.equal(await page.locator('.live-tunnel details[open]').count(),0);
+        await page.locator('#live-tunnels-more').click();
+        assert.equal(await page.locator('.live-tunnel:visible').count(),5);
+      }
+    }
+    const beforeFailure = await page.locator('#live-tunnel-list').innerHTML();
+    failed = true; await update();
+    assert.equal(await page.locator('#live-tunnel-list').innerHTML(),beforeFailure,'failed poll changed list');
+    assert.equal(await page.locator('#live-tunnels-stale').isVisible(),false);
+    await page.clock.fastForward(60000); await update();
+    assert.equal(await page.locator('#live-tunnels-stale').isVisible(),false,'stale warning at exactly 60 seconds');
+    await page.clock.fastForward(61000); await update();
+    assert.equal(await page.locator('#live-tunnels-stale').innerText(),'last updated 2 min ago');
+    assert.equal(await page.locator('#live-tunnel-list').innerHTML(),beforeFailure);
+    await page.screenshot({path:path.join(evidence,'tunnels-stale-1440-dark.png'),fullPage:true});
+    failed = false; data = {complete:false,tunnels:[]}; await update();
+    assert.equal(await page.locator('#live-tunnel-list').innerHTML(),beforeFailure,'partial response cleared good list');
+    data = {complete:true,tunnels:fixture(1)}; await update();
+    assert.equal(await page.locator('#live-tunnels-stale').isVisible(),false,'fresh response did not clear warning');
+    data = {complete:true,tunnels:[]}; await update();
+    assert.equal(await page.locator('.live-tunnel').count(),0,'disconnect did not drop row');
+    assert.deepEqual(errors,[]);
+    const report = {result:'PASS',connected_without_reload:true,disconnected_without_reload:true,other_account_isolated:true,anonymous_requires_sign_in:true,hidden_visibility_event_stops_polling:true,resumes_on_visible:true,failed_poll_keeps_list:true,partial_response_keeps_list:true,stale_after_60_seconds:true,recovers_after_outage:true,sort_by_last_request_then_name:true,inline_expansion_and_keyboard_details:true,viewport_widths:[390,1440],shots,signInShots,metrics,browser_errors:errors};
     fs.writeFileSync(path.join(evidence,'account-browser.json'),JSON.stringify(report,null,2)+'\n');
     console.log(JSON.stringify(report));
     await context.close();

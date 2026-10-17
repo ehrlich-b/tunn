@@ -3,6 +3,7 @@ package host
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/ehrlich-b/tunn/internal/domains"
+	"github.com/ehrlich-b/tunn/internal/inspection"
 	domainpb "github.com/ehrlich-b/tunn/pkg/proto/domainv1"
 	internalpb "github.com/ehrlich-b/tunn/pkg/proto/internalv1"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
@@ -167,8 +169,8 @@ func TestAccountTunnelsUnavailableRelay(t *testing.T) {
 		t.Fatalf("partial: %d %s", response.Code, response.Body)
 	}
 	page := f.call("GET", "/account", nil, f.cookie, nil)
-	if !strings.Contains(page.Body.String(), "Some relays are unavailable") {
-		t.Fatal("outage presented as complete")
+	if strings.Contains(page.Body.String(), "retrying automatically") || !strings.Contains(page.Body.String(), "1 online") {
+		t.Fatal("available rows hidden or implementation copy shown")
 	}
 }
 
@@ -228,5 +230,46 @@ func TestAccountTunnelsAppDisplayNameDoesNotRebindURL(t *testing.T) {
 	rows, complete := f.p.accountTunnels(context.Background(), f.tunnel.AccountID)
 	if !complete || len(rows) != 1 || rows[0].Name != "dashboard" || rows[0].PublicURL != "https://dashboard.apps.example.com" {
 		t.Fatalf("display name rebound connection URL: %+v", rows)
+	}
+}
+
+// Both the server-rendered page and update endpoint use activity order and the
+// first page is bounded even before JavaScript runs.
+func TestAccountTunnelsCompactInitialViewAndOrder(t *testing.T) {
+	f := newWebInspectorFixture(t, 0, 0)
+	f.seed(t)
+	// This connection has activity; all the alphabetically earlier idle ones
+	// must follow it, ordered by name despite insertion and map iteration order.
+	for i := 7; i >= 1; i-- {
+		name := fmt.Sprintf("a-worker-%d", i)
+		f.p.tunnelServer.tunnels[name] = &TunnelConnection{TunnelID: name, AccountID: f.tunnel.AccountID, TargetURL: "http", Connected: time.Now().Add(-2 * time.Hour)}
+	}
+	rows := accountTunnelRows(t, f, f.cookie)
+	if len(rows) != 8 || rows[0].Name != "api" || rows[1].Name != "a-worker-1" || rows[7].Name != "a-worker-7" {
+		t.Fatalf("activity/name order: %+v", rows)
+	}
+	// A newly active connection must move above the previously active one.
+	time.Sleep(1100 * time.Millisecond) // Wire timestamps have one-second precision.
+	recent := f.p.tunnelServer.tunnels["a-worker-7"]
+	h, err := inspection.NewHistory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.Begin("latest", "GET", "/health", nil, 0, 0).Finish(200, "text/plain", "complete")
+	recent.inspector = h
+	rows = accountTunnelRows(t, f, f.cookie)
+	if rows[0].Name != "a-worker-7" || rows[1].Name != "api" {
+		t.Fatalf("latest activity: %+v", rows)
+	}
+	page := f.call("GET", "/account", nil, f.cookie, nil)
+	body := page.Body.String()
+	if page.Code != 200 || !strings.Contains(body, "8 online") || !strings.Contains(body, "+3 more") || strings.Count(body, ` hidden><details>`) != 3 {
+		t.Fatalf("compact initial view: %d %s", page.Code, body)
+	}
+	if strings.Contains(body, "Updates every") || strings.Contains(body, "Currently connected") || strings.Contains(body, "Connected since") {
+		t.Fatal("initial view contains old status or metadata cards")
+	}
+	if rows[2].Duration() != "2h" || rows[2].URLStart()+rows[2].URLEnd() != rows[2].PublicURL {
+		t.Fatalf("relative duration or URL: %+v", rows[2])
 	}
 }

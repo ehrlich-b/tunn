@@ -33,7 +33,7 @@ func TestAccountTunnelsBrowserJourney(t *testing.T) {
 	p.googleHTTPClient = googleFixtureTransport(t, p, true)
 	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, "healthy") }))
 	defer origin.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
 	defer cancel()
 	publisherCtx, disconnect := context.WithCancel(ctx)
 	defer disconnect()

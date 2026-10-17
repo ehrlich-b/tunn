@@ -32,6 +32,10 @@ func runHostCommand(command string, args []string) {
 }
 
 func hostCommand(ctx context.Context, command string, args []string, out, errout io.Writer) error {
+	return hostCommandWithRunner(ctx, command, args, out, errout, hostmode.ExecCommand)
+}
+
+func hostCommandWithRunner(ctx context.Context, command string, args []string, out, errout io.Writer, run hostmode.CommandRunner) error {
 	invoked := command
 	if command == "list" || command == "status" {
 		command = "hosts"
@@ -159,7 +163,7 @@ func hostCommand(ctx context.Context, command string, args []string, out, errout
 				return &cliCommandError{cause: err, state: "error", title: "Command failed", detail: "Check command options", command: "tunn --help"}
 			}
 		}
-		result, err := spec.Manage(action, hostmode.ExecCommand)
+		result, err := spec.Manage(action, run)
 		if action == "status" {
 			return serviceStatusResult(out, result, err)
 		}

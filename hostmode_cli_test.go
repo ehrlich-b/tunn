@@ -87,10 +87,23 @@ func TestHostCLICredentialErrorsStayRedacted(t *testing.T) {
 			}
 			for _, action := range []string{"check", "install", "restart"} {
 				t.Run(action, func(t *testing.T) {
+					// Keep any service artifacts inside the test even if validation moves.
+					home := t.TempDir()
+					t.Setenv("HOME", home)
+					t.Setenv("USERPROFILE", home)
+					t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+					var calls [][]string
+					run := func(name string, args ...string) ([]byte, error) {
+						calls = append(calls, append([]string{name}, args...))
+						return nil, errors.New("unexpected service command")
+					}
 					// Install and restart must run without --dry-run to check credentials.
 					args := []string{action, "--config", path}
 					var out, stderr bytes.Buffer
-					err := hostCommand(context.Background(), "service", args, &out, &stderr)
+					err := hostCommandWithRunner(context.Background(), "service", args, &out, &stderr, run)
+					if len(calls) != 0 {
+						t.Fatalf("credential error ran service commands: %v", calls)
+					}
 					if err == nil {
 						t.Fatal("invalid credential accepted")
 					}

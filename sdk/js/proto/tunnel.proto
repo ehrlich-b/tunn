@@ -180,6 +180,8 @@ message ConnectionOpen {
   string protocol = 2;
   string source_address = 3;
   HttpRequestHead http_request = 4;
+  // Ask this publisher to wait for private relay completion timing.
+  bool request_timing = 5;
 }
 
 // HttpRequestHead carries HTTP metadata without buffering the body.
@@ -210,6 +212,8 @@ message HttpResponseHead {
   // Declared response trailer names; values arrive only in the terminal
   // ConnectionHalfClose after a successful EOF, never in an error close.
   repeated string trailer_names = 4;
+  int64 origin_ttfb_us = 5;
+  int64 origin_total_us = 6;
 }
 
 // ConnectionData carries an ordered chunk. Direction is implicit from which
@@ -227,6 +231,7 @@ message ConnectionHalfClose {
   // http-response-trailers-v1; at most 64 fields and 16 KiB of metadata.
   // TCP, WebSocket and HTTP request half-closes leave this field empty.
   repeated HttpHeader trailers = 2;
+  int64 origin_total_us = 3;
 }
 
 // ConnectionClose terminates both directions. error_message is empty for a
@@ -234,6 +239,8 @@ message ConnectionHalfClose {
 message ConnectionClose {
   string connection_id = 1;
   string error_message = 2;
+  // Publisher-only completion metadata; never an application header.
+  RequestTiming timing = 3;
 }
 
 // UpdateAccessToken rotates the endpoint-scoped capability while a tunnel is
@@ -247,4 +254,12 @@ message WebhookPolicy {
   string provider = 1; // stripe, github, slack, shopify, hmac-sha256
   bytes secret = 2; // HMAC key; never log or persist on the relay
   uint32 tolerance_seconds = 3; // 1–3600; use 300 for body-only providers
+}
+
+// Durations use each process's monotonic clock; no clock synchronization needed.
+message RequestTiming {
+  int64 origin_ttfb_us = 1;
+  int64 origin_total_us = 2;
+  int64 relay_ttfb_us = 3;
+  int64 relay_total_us = 4;
 }

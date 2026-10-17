@@ -4,6 +4,7 @@ package terminal
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/ehrlich-b/tunn/internal/inspection"
 	"io"
 	"os"
 	"strconv"
@@ -19,28 +20,29 @@ import (
 // Event is one JSON line. Existing inventory JSON has its own unchanged schema.
 // Durations use milliseconds; traffic counts use bytes.
 type Event struct {
-	Type          string   `json:"type"`
-	URL           string   `json:"url,omitempty"`
-	Target        string   `json:"target,omitempty"`
-	Access        string   `json:"access,omitempty"`
-	EndpointToken bool     `json:"endpoint_token,omitempty"`
-	AllowedEmails []string `json:"requested_emails,omitempty"`
-	State         string   `json:"state,omitempty"`
-	At            string   `json:"at,omitempty"`
-	Method        string   `json:"method,omitempty"`
-	Path          string   `json:"path,omitempty"`
-	Status        int      `json:"status"`
-	DurationMS    int64    `json:"duration_ms"`
-	RequestBytes  int64    `json:"request_bytes"`
-	ResponseBytes int64    `json:"response_bytes"`
-	ActiveStreams int64    `json:"active_streams"`
-	RetryDelayMS  int64    `json:"retry_delay_ms,omitempty"`
-	Detail        string   `json:"detail,omitempty"`
-	Message       string   `json:"message,omitempty"`
-	Command       string   `json:"command,omitempty"`
-	Cause         string   `json:"cause,omitempty"`
-	NextAction    string   `json:"next_action,omitempty"`
-	HTTPStatus    int      `json:"http_status,omitempty"`
+	Type          string             `json:"type"`
+	URL           string             `json:"url,omitempty"`
+	Target        string             `json:"target,omitempty"`
+	Access        string             `json:"access,omitempty"`
+	EndpointToken bool               `json:"endpoint_token,omitempty"`
+	AllowedEmails []string           `json:"requested_emails,omitempty"`
+	State         string             `json:"state,omitempty"`
+	At            string             `json:"at,omitempty"`
+	Method        string             `json:"method,omitempty"`
+	Path          string             `json:"path,omitempty"`
+	Status        int                `json:"status"`
+	Timing        *inspection.Timing `json:"timing,omitempty"`
+	DurationMS    int64              `json:"duration_ms"`
+	RequestBytes  int64              `json:"request_bytes"`
+	ResponseBytes int64              `json:"response_bytes"`
+	ActiveStreams int64              `json:"active_streams"`
+	RetryDelayMS  int64              `json:"retry_delay_ms,omitempty"`
+	Detail        string             `json:"detail,omitempty"`
+	Message       string             `json:"message,omitempty"`
+	Command       string             `json:"command,omitempty"`
+	Cause         string             `json:"cause,omitempty"`
+	NextAction    string             `json:"next_action,omitempty"`
+	HTTPStatus    int                `json:"http_status,omitempty"`
 }
 
 type Output struct {
@@ -451,6 +453,10 @@ func (o *Output) Request(e Event) {
 		row += "  edge cap: 100 MiB"
 	}
 	o.line(o.Out, row)
+	if e.Timing != nil {
+		// Use a separate wrapping line so narrow terminals retain all four values.
+		o.wrapped(o.Out, "  "+e.Timing.Summary())
+	}
 	if e.Status == 413 && narrow {
 		o.line(o.Out, strings.Repeat(" ", methodWidth+1)+"edge cap 100 MiB")
 	}

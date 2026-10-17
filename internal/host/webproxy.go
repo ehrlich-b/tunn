@@ -688,6 +688,7 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 				replayOf = replay.originalID
 			}
 			capture := history.Begin(session.event.RequestId, r.Method, r.URL.RequestURI(), headers, r.ContentLength, replayOf)
+			r = r.WithContext(context.WithValue(r.Context(), requestTimingCaptureKey{}, capture))
 			r.Body = &inspection.Body{ReadCloser: r.Body, Capture: capture}
 			observed := &inspection.Response{ResponseWriter: meterWriter.ResponseWriter, Capture: capture, Status: http.StatusOK}
 			// Keep the metering writer outermost: buffered and streamed adapters

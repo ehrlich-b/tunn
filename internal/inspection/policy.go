@@ -22,6 +22,7 @@ const (
 // Event contains bounded, process-local debugging data. Body is only
 // retained when explicitly enabled; arbitrary application payloads may be secret.
 type Event struct {
+	Timing            *Timing           `json:"timing,omitempty"`
 	ID                uint64            `json:"id"`
 	At                time.Time         `json:"at"`
 	ConnectionID      string            `json:"connection_id"`

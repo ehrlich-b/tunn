@@ -360,6 +360,7 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 				AccessTokenSha256: accessTokenDigest,
 				Capabilities: []string{
 					common.CapabilityHTTPStreamV1,
+					common.CapabilityRequestTimingV1,
 					common.CapabilityConnectionStreamV1,
 					common.CapabilityWebSocketV1,
 					common.CapabilityHTTPResponseTrailersV1,
@@ -651,7 +652,7 @@ func (s *ServeClient) processMessagesOwned(ctx context.Context, stream MessageSt
 			connections.halfClose(m.ConnectionHalfClose.ConnectionId)
 
 		case *pb.TunnelMessage_ConnectionClose:
-			connections.close(m.ConnectionClose.ConnectionId, m.ConnectionClose.ErrorMessage)
+			connections.complete(m.ConnectionClose)
 
 		case *pb.TunnelMessage_RegisterResponse:
 			return &permanentTunnelError{err: fmt.Errorf("duplicate registration response"), kind: FailureProtocol}

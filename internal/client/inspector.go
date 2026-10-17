@@ -281,6 +281,7 @@ func (r *inspectionReader) Close() error {
 }
 
 func cloneInspectionEvent(event InspectionEvent, body bool) InspectionEvent {
+	event.Timing = event.Timing.Clone()
 	clean := make(map[string]string, len(event.Headers))
 	for k, v := range event.Headers {
 		clean[k] = v

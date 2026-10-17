@@ -10,8 +10,11 @@ import (
 	"time"
 
 	"github.com/ehrlich-b/tunn/internal/common"
+	"github.com/ehrlich-b/tunn/internal/inspection"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
 )
+
+type requestTimingCaptureKey struct{}
 
 const streamResponseHeaderTimeout = 30 * time.Second
 
@@ -55,7 +58,9 @@ func (b *streamingHTTPRequestBody) Close() error {
 // proxyStreamingHTTPOverGRPC carries HTTP metadata and body chunks on the
 // connection-oriented data path. Unlike the legacy path, the response may
 // remain open indefinitely for SSE and MCP standalone event streams.
-func (p *ProxyServer) proxyStreamingHTTPOverGRPC(w http.ResponseWriter, r *http.Request, tunnel *TunnelConnection) error {
+func (p *ProxyServer) proxyStreamingHTTPOverGRPC(w http.ResponseWriter, r *http.Request, tunnel *TunnelConnection) (resultErr error) {
+	started := time.Now()
+	timing := &pb.RequestTiming{}
 	headers, fields, ok := p.negotiatedRequestHeaders(w, r, tunnel)
 	if !ok {
 		return nil
@@ -72,11 +77,29 @@ func (p *ProxyServer) proxyStreamingHTTPOverGRPC(w http.ResponseWriter, r *http.
 	if err != nil {
 		return err
 	}
+	pending.timing = timing
 	defer tunnel.removePendingConnection(connectionID, pending)
-	defer sendConnectionClose(tunnel.Stream.Context(), tunnel, connectionID, "")
+	defer func() {
+		var result *pb.RequestTiming
+		if resultErr == nil && timing.OriginTotalUs > 0 {
+			timing.RelayTotalUs = time.Since(started).Microseconds()
+			result = timing
+			if capture, ok := r.Context().Value(requestTimingCaptureKey{}).(*inspection.Capture); ok {
+				capture.SetTiming(inspection.NewTiming(timing.OriginTtfbUs, timing.OriginTotalUs, timing.RelayTtfbUs, timing.RelayTotalUs))
+			}
+		}
+		cleanup, stop := context.WithTimeout(tunnel.Stream.Context(), 100*time.Millisecond)
+		defer stop()
+		message := ""
+		if resultErr != nil {
+			message = "HTTP delivery failed"
+		}
+		_ = tunnel.SendMessageContext(cleanup, &pb.TunnelMessage{Message: &pb.TunnelMessage_ConnectionClose{ConnectionClose: &pb.ConnectionClose{ConnectionId: connectionID, Timing: result, ErrorMessage: message}}})
+	}()
 
 	open := &pb.ConnectionOpen{
 		ConnectionId:  connectionID,
+		RequestTiming: tunnel.Supports(common.CapabilityRequestTimingV1),
 		Protocol:      "http",
 		SourceAddress: r.RemoteAddr,
 		HttpRequest: &pb.HttpRequestHead{
@@ -171,6 +194,9 @@ func (p *ProxyServer) proxyStreamingHTTPOverGRPC(w http.ResponseWriter, r *http.
 			if err := checkMeteredResponse(r, responseSize); err != nil {
 				return err
 			}
+			timing.OriginTtfbUs = event.accept.HttpResponse.OriginTtfbUs
+			timing.OriginTotalUs = event.accept.HttpResponse.OriginTotalUs
+			timing.RelayTtfbUs = time.Since(started).Microseconds()
 			firstEvent, err := waitStreamingHTTPResponseStart(r, pending, event.accept.HttpResponse, requestResult, &requestFinished, headerTimer.C)
 			if err != nil {
 				return err
@@ -401,6 +427,9 @@ func (p *ProxyServer) writeStreamingHTTPResponse(
 				flusher.Flush()
 			}
 		case event.halfClose:
+			if pending.timing != nil && event.originTotalUS > 0 {
+				pending.timing.OriginTotalUs = event.originTotalUS
+			}
 			if err := validateResponseTrailers(tunnel, head.TrailerNames, event.trailers); err != nil {
 				return truncatedHTTPResponse(err)
 			}

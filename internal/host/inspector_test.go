@@ -542,3 +542,31 @@ func TestWebInspectorOldPublisherHistoryWithoutReplay(t *testing.T) {
 		t.Fatal("unsafe replay allowed without publisher negotiation")
 	}
 }
+
+func TestRequestTimingOwnerInspector(t *testing.T) {
+	f := newWebInspectorFixture(t, 0, 0)
+	f.stream.hook = func(message *pb.TunnelMessage) error {
+		if end := message.GetConnectionHalfClose(); end != nil {
+			id := end.ConnectionId
+			f.tunnel.routeConnectionMessage(&pb.TunnelMessage{Message: &pb.TunnelMessage_ConnectionAccept{ConnectionAccept: &pb.ConnectionAccept{ConnectionId: id, Success: true, HttpResponse: &pb.HttpResponseHead{StatusCode: 202, OriginTtfbUs: 123, OriginTotalUs: 200}}}})
+			f.tunnel.routeConnectionMessage(&pb.TunnelMessage{Message: &pb.TunnelMessage_ConnectionData{ConnectionData: &pb.ConnectionData{ConnectionId: id, Data: []byte("ok")}}})
+			f.tunnel.routeConnectionMessage(&pb.TunnelMessage{Message: &pb.TunnelMessage_ConnectionHalfClose{ConnectionHalfClose: &pb.ConnectionHalfClose{ConnectionId: id, OriginTotalUs: 456}}})
+		}
+		return nil
+	}
+	event := f.seed(t)
+	if event.Timing == nil || event.Timing.OriginTTFBMS != .123 || event.Timing.OriginTotalMS != .456 {
+		t.Fatalf("timing=%+v", event.Timing)
+	}
+	w := f.call("GET", fmt.Sprintf("/api/inspector/api/requests/%d", event.ID), nil, f.cookie, nil)
+	var got inspection.Event
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if w.Code != 200 || got.Timing == nil || got.Timing.OriginTotalMS != .456 {
+		t.Fatalf("owner timing: %d %s", w.Code, w.Body)
+	}
+	if w.Header().Get("Server-Timing") != "" {
+		t.Fatal("private measurements exposed")
+	}
+}

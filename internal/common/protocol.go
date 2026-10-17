@@ -5,6 +5,7 @@ const (
 	// Clients that omit it remain compatible with relays using buffered
 	// HttpRequest and HttpResponse messages.
 	CapabilityHTTPStreamV1           = "http-stream-v1"
+	CapabilityRequestTimingV1        = "request-timing-v1"
 	CapabilityConnectionStreamV1     = "connection-stream-v1"
 	CapabilityWebSocketV1            = "websocket-v1"
 	CapabilityHTTPResponseTrailersV1 = "http-response-trailers-v1"

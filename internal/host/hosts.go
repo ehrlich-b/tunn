@@ -13,6 +13,7 @@ import (
 
 	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/ehrlich-b/tunn/internal/hostmode"
+	"github.com/ehrlich-b/tunn/internal/storage"
 	"github.com/ehrlich-b/tunn/internal/store"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/meteringv1"
 )
@@ -58,7 +59,10 @@ func (s *TunnelServer) hostAccount(token string, create bool) (*store.Account, e
 		}
 		return s.accounts.FindOrCreateByEmails([]string{email}, "host")
 	}
-	return a, err
+	if err != nil {
+		return nil, fmt.Errorf("%w: host account lookup: %v", storage.ErrNotAvailable, err)
+	}
+	return a, nil
 }
 
 func (s *TunnelServer) HandleHosts(w http.ResponseWriter, r *http.Request) {

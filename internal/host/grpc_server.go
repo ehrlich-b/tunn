@@ -496,7 +496,10 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		if err == nil && account == nil && configuredUser {
 			account, err = s.storage.FindOrCreateByEmails(stream.Context(), []string{creatorEmail}, "configured-user")
 		}
-		if err != nil || account == nil || account.ID == "" {
+		if err != nil {
+			return rejectTunnelRegistration(stream, "Account service temporarily unavailable.")
+		}
+		if account == nil || account.ID == "" {
 			return rejectTunnelRegistration(stream, "Account could not be verified. Run 'tunn login' again.")
 		}
 		plan = account.Plan
@@ -508,6 +511,9 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 
 	if hostID != "" {
 		account, err := s.hostAccount(regClient.AuthToken, false)
+		if errors.Is(err, storage.ErrNotAvailable) {
+			return rejectTunnelRegistration(stream, "Account service temporarily unavailable.")
+		}
 		kind := targetURL
 		if kind == "unix-http" {
 			kind = "unix"
@@ -683,7 +689,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 					defer cancel()
 					_ = s.storage.UnregisterTunnel(ctx, tunnelID)
 				}
-				return rejectTunnelRegistration(stream, "Web permission authority unavailable.")
+				return rejectTunnelRegistration(stream, policyRegistrationFailure(err, "Web permission"))
 			}
 			conn.ResourceID = result.Resources[0].Id
 		}
@@ -700,7 +706,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 				defer cancel()
 				_ = s.storage.UnregisterTunnel(ctx, tunnelID)
 			}
-			return rejectTunnelRegistration(stream, "Endpoint policy authority unavailable.")
+			return rejectTunnelRegistration(stream, policyRegistrationFailure(err, "Endpoint policy"))
 		}
 		conn.PolicyResourceID = result.Resources[0].Id
 	}
@@ -1064,4 +1070,16 @@ func (l *publisherDeviceLease) active(now time.Time) bool {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 	return now.Before(l.expiry)
+}
+
+// Only authority failures use retryable registration replies. Ledger validation
+// and admission errors carry gRPC codes for both local and remote backends.
+func policyRegistrationFailure(err error, authority string) string {
+	switch status.Code(err) {
+	case codes.InvalidArgument, codes.FailedPrecondition, codes.PermissionDenied,
+		codes.Unauthenticated, codes.NotFound, codes.AlreadyExists, codes.ResourceExhausted:
+		return authority + " registration denied: " + status.Convert(err).Message()
+	default:
+		return authority + " authority unavailable."
+	}
 }

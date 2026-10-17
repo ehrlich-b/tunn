@@ -30,16 +30,18 @@ import (
 )
 
 type durablePublisherFixture struct {
-	login       *ProxyServer
-	relay       *ProxyServer
-	remote      *storage.ProxyStorage
-	connection  *grpc.ClientConn
-	publisher   *client.ServeClient
-	token       durableTokenFixture
-	seconds     atomic.Int64
-	lookupError atomic.Bool
-	refreshes   atomic.Int64
-	events      chan client.LifecycleEvent
+	login             *ProxyServer
+	relay             *ProxyServer
+	remote            *storage.ProxyStorage
+	connection        *grpc.ClientConn
+	publisher         *client.ServeClient
+	token             durableTokenFixture
+	seconds           atomic.Int64
+	lookupError       atomic.Bool
+	secondLookupError atomic.Bool
+	lookups           atomic.Int64
+	refreshes         atomic.Int64
+	events            chan client.LifecycleEvent
 }
 
 func newDurablePublisherFixture(t *testing.T) *durablePublisherFixture {
@@ -54,8 +56,11 @@ func newDurablePublisherFixture(t *testing.T) *durablePublisherFixture {
 	// operations cross the real proxy-storage gRPC connection to the login node.
 	loginListener := bufconn.Listen(1 << 20)
 	loginServer := grpc.NewServer(grpc.UnaryInterceptor(func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-		if info.FullMethod == internalpb.LoginNodeDB_GetAccount_FullMethodName && f.lookupError.Load() {
-			return nil, status.Error(codes.Unavailable, "synthetic account lookup failure")
+		if info.FullMethod == internalpb.LoginNodeDB_GetAccount_FullMethodName {
+			lookup := f.lookups.Add(1)
+			if f.lookupError.Load() || f.secondLookupError.Load() && lookup%2 == 0 {
+				return nil, status.Error(codes.Unavailable, "synthetic account lookup failure")
+			}
 		}
 		return handler(ctx, req)
 	}))

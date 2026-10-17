@@ -471,6 +471,11 @@ func TestLoginRequiredClassification(t *testing.T) {
 		{&permanentTunnelError{err: fmt.Errorf("registration failed: Account service temporarily unavailable."), kind: FailureRegistration}, false, true},
 		{&permanentTunnelError{err: fmt.Errorf("registration failed: Tunnel ownership could not be verified. Please try again later."), kind: FailureRegistration}, false, true},
 		{&permanentTunnelError{err: fmt.Errorf("registration failed: Device token expired during registration; retry renewal."), kind: FailureRegistration}, false, true},
+		{&permanentTunnelError{err: fmt.Errorf("registration failed: Web permission authority unavailable."), kind: FailureRegistration}, false, true},
+		{&permanentTunnelError{err: fmt.Errorf("registration failed: Endpoint policy authority unavailable."), kind: FailureRegistration}, false, true},
+		{&permanentTunnelError{err: fmt.Errorf("Web permission authority unavailable."), kind: FailureProtocol}, false, false},
+		{&permanentTunnelError{err: fmt.Errorf("registration failed: Account could not be verified. Run 'tunn login' again."), kind: FailureRegistration}, true, false},
+		{&permanentTunnelError{err: fmt.Errorf("registration failed: Account suspended or status unavailable."), kind: FailureRegistration}, false, false},
 		{&permanentTunnelError{err: fmt.Errorf("registration failed: tunnel ID already in use"), kind: FailureRegistration}, false, false},
 		{&permanentTunnelError{err: fmt.Errorf("relay lacks durable publisher renewal; update the relay")}, false, false},
 	}

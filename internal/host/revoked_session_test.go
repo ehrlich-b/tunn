@@ -71,7 +71,7 @@ func TestRevokedBrowserSessionMatchesSignedOut(t *testing.T) {
 				if w := appLogoutPost(t, p, cookie); w.Code != 302 {
 					t.Fatalf("logout: %d %s", w.Code, w.Body)
 				}
-				routes := []string{"/account", "/api/account/tunnels", "/upgrade", "/api/billing/status", "/account/emails", "/account/devices", "/account/app-devices", "/api/app-devices", "/account/inspect", "/api/inspector/endpoints", "/account/sharing"}
+				routes := []string{"/account", "/api/account/tunnels", "/account/audit", "/account/audit.csv", "/account/audit.json", "/api/account/audit/00000000000000000000000000000000", "/upgrade", "/api/billing/status", "/account/emails", "/account/devices", "/account/app-devices", "/api/app-devices", "/account/inspect", "/api/inspector/endpoints", "/account/sharing"}
 				for _, path := range routes {
 					for _, accept := range []string{"text/html", "application/json"} {
 						t.Run(nameOfSessionRoute(path, accept, cycle), func(t *testing.T) {
@@ -116,7 +116,7 @@ func TestBrowserSessionLookupFailuresRemainUnavailable(t *testing.T) {
 		{"unavailable", nil},
 	} {
 		p.storage = failure.storage
-		for _, path := range []string{"/account", "/api/account/tunnels", "/account/emails", "/account/devices", "/account/app-devices", "/api/app-devices", "/account/inspect", "/api/inspector/endpoints", "/account/sharing"} {
+		for _, path := range []string{"/account", "/api/account/tunnels", "/account/audit", "/account/audit.csv", "/account/audit.json", "/api/account/audit/00000000000000000000000000000000", "/account/emails", "/account/devices", "/account/app-devices", "/api/app-devices", "/account/inspect", "/api/inspector/endpoints", "/account/sharing"} {
 			t.Run(failure.name+path, func(t *testing.T) {
 				r := httptest.NewRequest("GET", "https://tunn.test"+path, nil)
 				r.AddCookie(cookie)

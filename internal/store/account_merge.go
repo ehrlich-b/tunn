@@ -19,7 +19,7 @@ ON CONFLICT(account_id,month) DO UPDATE SET bytes_used=account_usage.bytes_used+
 		return err
 	}
 	// Metering is optional; account-only stores need not initialize the ledger.
-	for _, table := range []string{"meter_usage", "meter_events", "meter_grants", "web_resources", "account_provider_identities", "sharing_audit", "sharing_mutation_rate", "ip_policies", "app_devices", "app_device_invitations"} {
+	for _, table := range []string{"meter_audit_retention", "meter_usage", "meter_events", "meter_grants", "web_resources", "account_provider_identities", "sharing_audit", "sharing_mutation_rate", "ip_policies", "app_devices", "app_device_invitations"} {
 		var exists int
 		if err := tx.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&exists); err != nil {
 			return err
@@ -27,7 +27,15 @@ ON CONFLICT(account_id,month) DO UPDATE SET bytes_used=account_usage.bytes_used+
 		if exists == 0 {
 			continue
 		}
-		if table == "ip_policies" {
+		if table == "meter_audit_retention" {
+			// A merge keeps the shorter explicit privacy preference.
+			if _, err := tx.Exec(`INSERT INTO meter_audit_retention(owner,days) SELECT ?,days FROM meter_audit_retention WHERE owner=? ON CONFLICT(owner) DO UPDATE SET days=min(meter_audit_retention.days,excluded.days)`, to, from); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(`DELETE FROM meter_audit_retention WHERE owner=?`, from); err != nil {
+				return err
+			}
+		} else if table == "ip_policies" {
 			// Preserve every scope across identity merges. Conflicting defaults
 			// or endpoint policies block both address families until edited.
 			if _, err := tx.Exec(`INSERT INTO ip_policies(owner,endpoint,data)

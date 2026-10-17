@@ -713,6 +713,11 @@ func (p *ProxyServer) Run(ctx context.Context) error {
 		}
 	}()
 
+	if ledger, ok := p.meter.(*metering.Store); ok && p.isLoginNode {
+		wg.Add(1)
+		go func() { defer wg.Done(); ledger.RunAuditRetention(ctx) }()
+	}
+
 	// Start login node discovery loop and usage flush loop (for non-login nodes)
 	if !p.isLoginNode {
 		wg.Add(2)
@@ -886,6 +891,10 @@ func (p *ProxyServer) createHandler() http.Handler {
 	// Account page (requires auth)
 	mux.HandleFunc("/account", p.handleAccount)
 	mux.HandleFunc("/api/account/tunnels", p.handleAccountTunnels)
+	mux.HandleFunc("/account/audit", p.handleAudit)
+	mux.HandleFunc("/account/audit.csv", p.handleAudit)
+	mux.HandleFunc("/account/audit.json", p.handleAudit)
+	mux.HandleFunc("/api/account/audit/", p.handleAudit)
 	mux.HandleFunc("/account/emails", p.handleAccountEmails)
 	mux.HandleFunc("/account/inspect", p.handleInspectorPage)
 	mux.HandleFunc("/api/inspector/", p.handleInspectorAPI)

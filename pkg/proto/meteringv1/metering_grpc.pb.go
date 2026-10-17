@@ -20,6 +20,7 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
+	Metering_Audit_FullMethodName          = "/metering.Metering/Audit"
 	Metering_IPPolicy_FullMethodName       = "/metering.Metering/IPPolicy"
 	Metering_EndpointPolicy_FullMethodName = "/metering.Metering/EndpointPolicy"
 	Metering_Sharing_FullMethodName        = "/metering.Metering/Sharing"
@@ -39,6 +40,7 @@ const (
 //
 // Only the login node serves this API, behind the existing node-secret interceptor.
 type MeteringClient interface {
+	Audit(ctx context.Context, in *AuditRequest, opts ...grpc.CallOption) (*AuditResponse, error)
 	IPPolicy(ctx context.Context, in *IPPolicyRequest, opts ...grpc.CallOption) (*IPPolicy, error)
 	EndpointPolicy(ctx context.Context, in *EndpointPolicyRequest, opts ...grpc.CallOption) (*EndpointPolicyResponse, error)
 	Sharing(ctx context.Context, in *SharingRequest, opts ...grpc.CallOption) (*SharingResponse, error)
@@ -59,6 +61,16 @@ type meteringClient struct {
 
 func NewMeteringClient(cc grpc.ClientConnInterface) MeteringClient {
 	return &meteringClient{cc}
+}
+
+func (c *meteringClient) Audit(ctx context.Context, in *AuditRequest, opts ...grpc.CallOption) (*AuditResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AuditResponse)
+	err := c.cc.Invoke(ctx, Metering_Audit_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *meteringClient) IPPolicy(ctx context.Context, in *IPPolicyRequest, opts ...grpc.CallOption) (*IPPolicy, error) {
@@ -177,6 +189,7 @@ func (c *meteringClient) Export(ctx context.Context, in *ExportRequest, opts ...
 //
 // Only the login node serves this API, behind the existing node-secret interceptor.
 type MeteringServer interface {
+	Audit(context.Context, *AuditRequest) (*AuditResponse, error)
 	IPPolicy(context.Context, *IPPolicyRequest) (*IPPolicy, error)
 	EndpointPolicy(context.Context, *EndpointPolicyRequest) (*EndpointPolicyResponse, error)
 	Sharing(context.Context, *SharingRequest) (*SharingResponse, error)
@@ -199,6 +212,9 @@ type MeteringServer interface {
 // pointer dereference when methods are called.
 type UnimplementedMeteringServer struct{}
 
+func (UnimplementedMeteringServer) Audit(context.Context, *AuditRequest) (*AuditResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Audit not implemented")
+}
 func (UnimplementedMeteringServer) IPPolicy(context.Context, *IPPolicyRequest) (*IPPolicy, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method IPPolicy not implemented")
 }
@@ -251,6 +267,24 @@ func RegisterMeteringServer(s grpc.ServiceRegistrar, srv MeteringServer) {
 		t.testEmbeddedByValue()
 	}
 	s.RegisterService(&Metering_ServiceDesc, srv)
+}
+
+func _Metering_Audit_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AuditRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MeteringServer).Audit(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Metering_Audit_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MeteringServer).Audit(ctx, req.(*AuditRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _Metering_IPPolicy_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -458,6 +492,10 @@ var Metering_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "metering.Metering",
 	HandlerType: (*MeteringServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "Audit",
+			Handler:    _Metering_Audit_Handler,
+		},
 		{
 			MethodName: "IPPolicy",
 			Handler:    _Metering_IPPolicy_Handler,

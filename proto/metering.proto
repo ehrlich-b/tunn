@@ -5,6 +5,7 @@ import "google/protobuf/empty.proto";
 
 // Only the login node serves this API, behind the existing node-secret interceptor.
 service Metering {
+  rpc Audit(AuditRequest) returns (AuditResponse);
   rpc IPPolicy(IPPolicyRequest) returns (.metering.IPPolicy);
 
   rpc EndpointPolicy(EndpointPolicyRequest) returns (EndpointPolicyResponse);
@@ -159,4 +160,24 @@ message EndpointPolicyRequest {
 message EndpointPolicyResponse {
   bytes policy_json = 1;
   Decision decision = 2;
+}
+
+// Reads only existing ingress metadata. Zero retention preserves capacity-based retention.
+message AuditRequest {
+  string owner = 1;
+  string operation = 2; // list or retention
+  string endpoint = 3;
+  string request_id = 4;
+  int32 status_class = 5;
+  int64 since = 6;
+  int64 until = 7;
+  int64 before_started = 8;
+  string before_id = 9;
+  int32 limit = 10;
+  int32 retention_days = 11; // 0 (existing policy), 7, 30, or 90
+}
+message AuditResponse {
+  repeated Event events = 1;
+  bool has_more = 2;
+  int32 retention_days = 3;
 }

@@ -164,7 +164,9 @@ func (s *ServeClient) Run(ctx context.Context) error {
 		}
 		var permanent *permanentTunnelError
 		isPermanent := errors.As(err, &permanent)
-		if s.Credentials != nil && !authRetried && (AuthenticationFailure(err) || isPermanent && transientRegistration(permanent)) {
+		// Account-service outages use reconnect backoff; only an authentication
+		// rejection or an explicit renewal request needs a forced refresh.
+		if s.Credentials != nil && !authRetried && (AuthenticationFailure(err) || isPermanent && transientRegistration(permanent) && strings.Contains(permanent.Error(), "retry renewal")) {
 			token, refreshErr := s.Credentials.Token(ctx, true)
 			if refreshErr == nil {
 				s.AuthToken = token

@@ -170,6 +170,9 @@ func TestDurableClientRecoversAfterLoginAndRelayRestart(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("reconnected resource relay did not stop")
 	}
+	if _, err := manager.Token(context.Background(), true); err != nil {
+		t.Fatal("recovered refresh secret could not rotate", err)
+	}
 	if _, err := db.Exec(`UPDATE durable_devices SET revoked=? WHERE id=?`, clock().Unix(), token.Device); err != nil {
 		t.Fatal(err)
 	}

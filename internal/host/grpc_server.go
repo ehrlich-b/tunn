@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -440,6 +441,9 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		extractedEmail, err := s.validatePublisherToken(stream.Context(), regClient.AuthToken)
 		if err != nil {
 			common.LogError("JWT validation failed", "tunnel_id", tunnelID, "error", err)
+			if errors.Is(err, storage.ErrNotAvailable) {
+				return rejectTunnelRegistration(stream, "Account service temporarily unavailable.")
+			}
 			respMsg := &pb.TunnelMessage{
 				Message: &pb.TunnelMessage_RegisterResponse{
 					RegisterResponse: &pb.RegisterResponse{
@@ -1023,8 +1027,11 @@ func (s *TunnelServer) validatePublisherToken(ctx context.Context, raw string) (
 			return "", storage.ErrNotAvailable
 		}
 		account, err := s.storage.GetAccount(ctx, signedAccountID(raw))
-		if err != nil || account == nil || account.OperationalState != "active" {
-			return "", fmt.Errorf("device account unavailable")
+		if err != nil {
+			return "", fmt.Errorf("%w: device account lookup: %v", storage.ErrNotAvailable, err)
+		}
+		if account == nil || account.OperationalState != "active" {
+			return "", fmt.Errorf("device account missing or not active")
 		}
 		return account.PrimaryEmail, nil
 	}

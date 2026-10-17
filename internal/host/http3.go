@@ -29,6 +29,21 @@ const http3UDPPayloadSize = 1200
 // it cannot reach the peer and raise the validated size used for stream data.
 type http3PacketConn struct{ net.PacketConn }
 
+// Preserve quic-go's socket-buffer tuning without exposing UDP OOB methods.
+func (c http3PacketConn) SetReadBuffer(size int) error {
+	if socket, ok := c.PacketConn.(interface{ SetReadBuffer(int) error }); ok {
+		return socket.SetReadBuffer(size)
+	}
+	return errors.ErrUnsupported
+}
+
+func (c http3PacketConn) SetWriteBuffer(size int) error {
+	if socket, ok := c.PacketConn.(interface{ SetWriteBuffer(int) error }); ok {
+		return socket.SetWriteBuffer(size)
+	}
+	return errors.ErrUnsupported
+}
+
 func (c http3PacketConn) WriteTo(b []byte, addr net.Addr) (int, error) {
 	if len(b) > http3UDPPayloadSize {
 		return 0, &net.OpError{Op: "write", Net: "udp", Addr: addr, Err: syscall.EMSGSIZE}

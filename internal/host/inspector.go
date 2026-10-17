@@ -63,12 +63,16 @@ func (p *ProxyServer) inspectorOwner(w http.ResponseWriter, r *http.Request) *st
 		http.Error(w, "Owner sign-in required. Sign in again to refresh your session.", http.StatusUnauthorized)
 		return nil
 	}
-	account, err := p.sessionAccount(r, claims)
+	account, err := p.browserSessionAccount(w, r, claims)
 	if err != nil {
 		http.Error(w, "Account service unavailable", http.StatusServiceUnavailable)
 		return nil
 	}
-	if account == nil || account.ID == "" || account.OperationalState != "active" {
+	if account == nil {
+		http.Error(w, "Owner sign-in required. Sign in again to refresh your session.", http.StatusUnauthorized)
+		return nil
+	}
+	if account.ID == "" || account.OperationalState != "active" {
 		http.Error(w, "Active owner account required", http.StatusForbidden)
 		return nil
 	}

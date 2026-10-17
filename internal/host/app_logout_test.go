@@ -113,7 +113,7 @@ func TestAppLogoutLiveAuthorityAndHandoff(t *testing.T) {
 			if w := appLogoutPost(t, p, platform); w.Code != 302 {
 				t.Fatal("logout", w.Code, w.Body)
 			}
-			if open(old) != 403 || open(other) != 200 {
+			if open(old) != 302 || open(other) != 200 {
 				t.Fatal("revocation did not isolate the signed-out account")
 			}
 			select {
@@ -126,8 +126,8 @@ func TestAppLogoutLiveAuthorityAndHandoff(t *testing.T) {
 			r.AddCookie(platform)
 			w := httptest.NewRecorder()
 			handler.ServeHTTP(w, r)
-			if w.Code != 403 {
-				t.Fatal("old platform session reissued SSO", w.Code)
+			if w.Code != 302 || !strings.HasPrefix(w.Header().Get("Location"), "/auth/login?") {
+				t.Fatal("old platform session did not require sign-in", w.Code)
 			}
 			r = httptest.NewRequest("GET", callback, nil)
 			r.AddCookie(start.Result().Cookies()[0])
@@ -143,7 +143,7 @@ func TestAppLogoutLiveAuthorityAndHandoff(t *testing.T) {
 			}
 			// Reinitializing local storage demonstrates durable revocation.
 			p.storage = storage.NewLocalStorage(db)
-			if open(old) != 403 {
+			if open(old) != 302 {
 				t.Fatal("revocation lost after storage restart")
 			}
 			fresh := appSessionCookie(t, p, appOwnerEmail, "github", true, "dashboard.apps.example.com")
@@ -249,7 +249,7 @@ func TestAppLogoutCannotBeUndoneByEmailSessionRenewal(t *testing.T) {
 						if w := appLogoutPost(t, p, platform); w.Code != 302 {
 							t.Fatalf("interleaved logout: %d %s", w.Code, w.Body)
 						}
-						if code := open(app); code != 403 {
+						if code := open(app); code != 302 {
 							t.Fatalf("old app cookie after logout: %d", code)
 						}
 					}
@@ -294,7 +294,7 @@ func TestAppLogoutCannotBeUndoneByEmailSessionRenewal(t *testing.T) {
 					r.AddCookie(renewed)
 					w = httptest.NewRecorder()
 					handler.ServeHTTP(w, r)
-					if w.Code != 403 {
+					if w.Code != 302 || !strings.HasPrefix(w.Header().Get("Location"), "/auth/login?") {
 						t.Fatalf("email update restored app SSO after logout: %d %s", w.Code, w.Body)
 					}
 				}

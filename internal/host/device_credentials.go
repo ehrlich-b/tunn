@@ -325,12 +325,16 @@ func (p *ProxyServer) handleDevices(w http.ResponseWriter, r *http.Request) {
 	var account *storage.Account
 	var err error
 	if claims, valid := p.accountSession(r); valid {
-		account, err = p.sessionAccount(r, claims)
+		account, err = p.browserSessionAccount(w, r, claims)
 	} else {
 		account, err = p.storage.GetAccountByEmail(r.Context(), email)
 	}
-	if err != nil || account == nil {
+	if err != nil {
 		http.Error(w, "Account unavailable", 503)
+		return
+	}
+	if account == nil {
+		http.Redirect(w, r, "/login?return_to=/account/devices", 302)
 		return
 	}
 	if r.Method == http.MethodPost {

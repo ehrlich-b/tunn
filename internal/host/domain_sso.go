@@ -133,6 +133,25 @@ func (p *ProxyServer) sessionAccount(r *http.Request, claims jwt.MapClaims) (*st
 	}
 	return nil, nil
 }
+
+// browserSessionAccount clears credentials rejected by live account authority.
+// Lookup failures preserve the cookie so the visitor can retry after recovery.
+func (p *ProxyServer) browserSessionAccount(w http.ResponseWriter, r *http.Request, claims jwt.MapClaims) (*storage.Account, error) {
+	account, err := p.sessionAccount(r, claims)
+	if err == nil && account == nil {
+		p.clearBrowserSessionCookie(w, r)
+	}
+	return account, err
+}
+
+func (p *ProxyServer) clearBrowserSessionCookie(w http.ResponseWriter, r *http.Request) {
+	if p.customerHost(r.Host) {
+		http.SetCookie(w, &http.Cookie{Name: appCookie, Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: -1})
+	} else {
+		p.clearAuthCookie(w)
+	}
+}
+
 func (p *ProxyServer) setAccountCookie(w http.ResponseWriter, account *storage.Account, email, provider string) error {
 	if account == nil || account.ID == "" || !validGoogleEmail(email) {
 		return fmt.Errorf("verified account required")
@@ -185,19 +204,26 @@ func (p *ProxyServer) handleDomainLogin(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	session, ok := p.accountSession(r)
-	if !ok {
+	signedOut := func() {
 		// Keep the redirect on the platform origin; arbitrary customer return URLs
 		// never enter the ordinary OAuth sanitizer.
 		target := "https://" + p.loginAuthority() + r.URL.RequestURI()
 		http.Redirect(w, r, "/auth/login?return_to="+url.QueryEscape(target), 302)
+	}
+	if !ok {
+		signedOut()
 		return
 	}
-	account, err := p.sessionAccount(r, session)
+	account, err := p.browserSessionAccount(w, r, session)
 	if err != nil {
 		http.Error(w, "Account authority unavailable", 503)
 		return
 	}
-	if account == nil || account.OperationalState != "active" {
+	if account == nil {
+		signedOut()
+		return
+	}
+	if account.OperationalState != "active" {
 		http.Error(w, "Access denied", 403)
 		return
 	}
@@ -281,6 +307,11 @@ func (p *ProxyServer) authorizeDomainApp(w http.ResponseWriter, r *http.Request,
 	check, stop := appAuthorityContext(r)
 	account, status := p.appAccountAccess(r.WithContext(check), session, owner, tunnel)
 	stop()
+	if status == http.StatusUnauthorized {
+		p.clearBrowserSessionCookie(w, r)
+		p.startDomainSSO(w, r)
+		return nil, false
+	}
 	if status != http.StatusOK {
 		// A denied app session must not pin this browser to the old account
 		// after it signs in again on the platform. Retrying the app starts SSO.
@@ -298,7 +329,10 @@ func (p *ProxyServer) appAccountAccess(r *http.Request, session jwt.MapClaims, o
 	if err != nil {
 		return nil, http.StatusServiceUnavailable
 	}
-	if account == nil || owner == nil || account.OperationalState != "active" || owner.OperationalState != "active" {
+	if account == nil {
+		return nil, http.StatusUnauthorized
+	}
+	if owner == nil || account.OperationalState != "active" || owner.OperationalState != "active" {
 		return nil, http.StatusForbidden
 	}
 	emails := make([]string, 0, len(account.Emails))

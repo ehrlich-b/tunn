@@ -1083,12 +1083,16 @@ func (p *ProxyServer) handleAccount(w http.ResponseWriter, r *http.Request) {
 	if org, ok := p.getOrgSession(r); ok {
 		data.Email = org.Email
 	} else if claims, ok := p.accountSession(r); ok {
-		live, err := p.sessionAccount(r, claims)
+		live, err := p.browserSessionAccount(w, r, claims)
 		if err != nil {
 			http.Error(w, "Account service unavailable", 503)
 			return
 		}
-		if live != nil && live.ID == account.ID {
+		if live == nil {
+			http.Redirect(w, r, "/auth/login?return_to="+url.QueryEscape(r.URL.RequestURI()), http.StatusFound)
+			return
+		}
+		if live.ID == account.ID {
 			data.Emails = live.Emails
 			data.EmailCSRF, err = p.createCSRFToken(r, accountEmailsPath)
 			if err != nil {

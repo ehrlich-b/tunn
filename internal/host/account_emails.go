@@ -35,13 +35,13 @@ func (p *ProxyServer) handleAccountEmails(w http.ResponseWriter, r *http.Request
 		http.Redirect(w, r, "/auth/login?return_to="+url.QueryEscape(r.URL.RequestURI()), 302)
 		return
 	}
-	account, err := p.sessionAccount(r, claims)
+	account, err := p.browserSessionAccount(w, r, claims)
 	if err != nil {
 		http.Error(w, "Account service unavailable", 503)
 		return
 	}
 	if account == nil {
-		http.Error(w, "Sign in again to manage emails", 401)
+		http.Redirect(w, r, "/auth/login?return_to="+url.QueryEscape(r.URL.RequestURI()), 302)
 		return
 	}
 	if account.OperationalState == "suspended" {

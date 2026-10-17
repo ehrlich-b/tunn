@@ -136,8 +136,11 @@ func (p *ProxyServer) handleDocs(w http.ResponseWriter, r *http.Request) {
 func (p *ProxyServer) revenueAccount(w http.ResponseWriter, r *http.Request) *storage.Account {
 	w.Header().Set("Cache-Control", "no-store")
 	email, ok := p.getAuthFromCookie(r)
-	if !ok {
+	signedOut := func() {
 		http.Redirect(w, r, "/auth/login?return_to="+url.QueryEscape(r.URL.RequestURI()), http.StatusFound)
+	}
+	if !ok {
+		signedOut()
 		return nil
 	}
 	if p.storage == nil || !p.storage.Available() {
@@ -149,12 +152,16 @@ func (p *ProxyServer) revenueAccount(w http.ResponseWriter, r *http.Request) *st
 	var a *storage.Account
 	var err error
 	if claims, ok := p.accountSession(r); ok {
-		a, err = p.sessionAccount(r, claims)
+		a, err = p.browserSessionAccount(w, r, claims)
 	} else {
 		a, err = p.storage.GetAccountByEmail(r.Context(), email)
 	}
-	if err != nil || a == nil {
+	if err != nil {
 		p.writeAuthError(w, r, "Account service unavailable. Please retry.", 503, "Sign in again. If this keeps happening, try again later.")
+		return nil
+	}
+	if a == nil {
+		signedOut()
 		return nil
 	}
 	return a

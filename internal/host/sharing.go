@@ -120,8 +120,15 @@ func (p *ProxyServer) sharingOwner(w http.ResponseWriter, r *http.Request, brows
 		email, header, capability, ok = p.getAuthFromTunnelBearer(r, &TunnelConnection{})
 		ok = ok && !capability
 	}
+	signedOut := func() {
+		if browser {
+			http.Redirect(w, r, "/auth/login?return_to="+url.QueryEscape(r.URL.RequestURI()), 302)
+		} else {
+			http.Error(w, "Owner sign-in required", 401)
+		}
+	}
 	if !ok {
-		http.Error(w, "Owner sign-in required", 401)
+		signedOut()
 		return nil
 	}
 	if p.storage == nil || !p.storage.Available() || p.sharingBackend() == nil {
@@ -132,14 +139,22 @@ func (p *ProxyServer) sharingOwner(w http.ResponseWriter, r *http.Request, brows
 	var err error
 	if browser {
 		if claims, valid := p.accountSession(r); valid {
-			a, err = p.sessionAccount(r, claims)
+			a, err = p.browserSessionAccount(w, r, claims)
 		} else {
 			a, err = p.storage.GetAccountByEmail(r.Context(), common.NormalizeEmail(email))
 		}
 	} else {
 		a, err = p.bearerAccount(r, email, header)
 	}
-	if err != nil || a == nil || a.ID == "" || a.OperationalState != "active" {
+	if err != nil {
+		http.Error(w, "Sharing authority unavailable", 503)
+		return nil
+	}
+	if a == nil {
+		signedOut()
+		return nil
+	}
+	if a.ID == "" || a.OperationalState != "active" {
 		http.Error(w, "Active owner account required", 403)
 		return nil
 	}

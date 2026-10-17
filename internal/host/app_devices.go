@@ -72,20 +72,27 @@ func appDomainStatus(err error) int {
 
 func (p *ProxyServer) browserAppDeviceAccount(w http.ResponseWriter, r *http.Request) (*storage.Account, string, bool) {
 	session, ok := p.accountSession(r)
-	if !ok {
+	signedOut := func() {
 		if r.URL.Path == "/account/app-devices" {
 			http.Redirect(w, r, "/auth/login?return_to="+url.QueryEscape("https://"+p.loginAuthority()+r.URL.RequestURI()), 302)
 		} else {
 			http.Error(w, "Browser sign-in required", 401)
 		}
+	}
+	if !ok {
+		signedOut()
 		return nil, "", false
 	}
-	account, err := p.sessionAccount(r, session)
+	account, err := p.browserSessionAccount(w, r, session)
 	if err != nil {
 		appAuthenticationError(w, 503)
 		return nil, "", false
 	}
-	if account == nil || account.OperationalState != "active" {
+	if account == nil {
+		signedOut()
+		return nil, "", false
+	}
+	if account.OperationalState != "active" {
 		appAuthenticationError(w, 403)
 		return nil, "", false
 	}

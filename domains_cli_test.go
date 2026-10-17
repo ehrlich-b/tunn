@@ -81,3 +81,52 @@ func TestNamespaceServeFlag(t *testing.T) {
 		}
 	}
 }
+
+func TestDomainManagementUsesOwnerLogin(t *testing.T) {
+	t.Setenv("TUNN_ENV", "dev")
+	dir := t.TempDir()
+	t.Setenv("TUNN_CONFIG_DIR", dir)
+	if err := os.WriteFile(filepath.Join(dir, "token"), []byte("scoped-publisher-token"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if r.Method != "GET" || r.URL.Path != "/api/domains" || r.Header.Get("Authorization") != "Bearer separate-owner-token" {
+			t.Errorf("wrong domain credential or request: %s %s", r.Method, r.URL.Path)
+		}
+		io.WriteString(w, `{"domains":[]}`)
+	}))
+	defer server.Close()
+	args := []string{"list", "--server", server.URL, "--insecure"}
+	// A publisher login alone must not be sent to a domain management API.
+	if err := executeDomains(args, io.Discard); err == nil || !strings.Contains(err.Error(), "tunn policy login") {
+		t.Errorf("missing owner-login guidance: %v", err)
+	}
+	if calls != 0 {
+		t.Fatalf("publisher credential sent to management API: %d calls", calls)
+	}
+	saveOwner := func(origin string) {
+		data, err := json.Marshal(map[string]any{"server": origin, "access_token": "separate-owner-token", "expires_at": "2099-01-01T00:00:00Z"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "policy-owner.json"), data, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	saveOwner(server.URL)
+	if err := executeDomains(args, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("owner domain listing: %d calls", calls)
+	}
+	saveOwner("https://another-relay.example.test")
+	if err := executeDomains(args, io.Discard); err == nil || !strings.Contains(err.Error(), "another relay") {
+		t.Errorf("wrong-origin owner credential accepted: %v", err)
+	}
+	if calls != 1 {
+		t.Fatal("owner credential sent to a different origin")
+	}
+}

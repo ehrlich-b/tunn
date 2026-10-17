@@ -453,6 +453,92 @@ func TestTwoDomainLoginJourney(t *testing.T) {
 		t.Fatal("stranger reached publisher")
 	}
 	t.Log("signed-in stranger refused with 403 on both apps; zero publisher deliveries")
+	// Platform sign-out does not visit either app host. Retain both original
+	// cookies and prove that their next requests cannot reach a publisher.
+	resp, err := owner.Get("https://tunn.test/auth/logout")
+	if err != nil {
+		t.Fatal(err)
+	}
+	confirmation, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil || resp.StatusCode != 200 {
+		t.Fatalf("logout confirmation: %v %d", err, resp.StatusCode)
+	}
+	form := url.Values{"csrf_token": {securityFormToken(t, string(confirmation))}}
+	post, err := http.NewRequest("POST", "https://tunn.test/auth/logout", strings.NewReader(form.Encode()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	post.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	post.Header.Set("Origin", "https://tunn.test")
+	resp, err = owner.Do(post)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 302 {
+		t.Fatalf("logout: %d", resp.StatusCode)
+	}
+	for _, host := range twoDomainHosts {
+		target, _ := url.Parse("https://" + host + "/")
+		found := false
+		for _, c := range owner.Jar.Cookies(target) {
+			if c.Name == appCookie {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatal("logout removed an app cookie instead of revoking it")
+		}
+		resp, err = owner.Get(target.String())
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != 403 {
+			t.Fatalf("old cookie at %s after logout: %d", host, resp.StatusCode)
+		}
+	}
+	if before != [2]int64{deliveries[0].Load(), deliveries[1].Load()} {
+		t.Fatal("logged-out cookie reached a publisher")
+	}
+	resp, err = stranger.Get("https://tunn.test/auth/logout")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatal("logout affected another user's platform session")
+	}
+	t.Log("platform logout immediately refused retained cookies on both app hosts; zero publisher deliveries; other user's session retained")
+	// HTML denials expire the rejected host cookie so the same browser can
+	// retry SSO. No browser-side cookie clearing is needed by the user.
+	for _, host := range twoDomainHosts {
+		req, err := http.NewRequest("GET", "https://"+host+"/", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Accept", "text/html")
+		resp, err = owner.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != 403 {
+			t.Fatal("HTML cookie denial", resp.StatusCode)
+		}
+	}
+	// Obtain a new platform session and both new app cookies through real SSO.
+	_, page = browse(owner, "https://"+twoDomainHosts[0]+"/")
+	signIn(owner, page, twoDomainOwner)
+	for _, host := range twoDomainHosts {
+		status, _ := browse(owner, "https://"+host+"/")
+		if status != 200 {
+			t.Fatalf("new login at %s: %d", host, status)
+		}
+	}
+	before = [2]int64{deliveries[0].Load(), deliveries[1].Load()}
+	t.Log("signing in again restored access to both app hosts")
 	if _, err := io.WriteString(input, "revoke\n"); err != nil {
 		t.Fatal(err)
 	}

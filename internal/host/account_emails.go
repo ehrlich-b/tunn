@@ -14,6 +14,7 @@ import (
 	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/ehrlich-b/tunn/internal/storage"
 	"github.com/ehrlich-b/tunn/internal/store"
+	"github.com/golang-jwt/jwt/v4"
 )
 
 const accountEmailsPath = "/account/emails"
@@ -148,7 +149,9 @@ func (p *ProxyServer) handleAccountEmails(w http.ResponseWriter, r *http.Request
 		if err == nil {
 			// This mailbox was verified by the account flow. Keep the account UUID and
 			// record mailbox proof rather than attributing a new email to Google/GitHub.
-			err = p.setAccountCookie(w, updated, updated.PrimaryEmail, "magic_link")
+			// Renew the authenticated epoch, even if logout raced the mutation.
+			// Only a new provider sign-in may snapshot the current live epoch.
+			err = p.signedSession(w, jwt.MapClaims{"session_epoch": browserSessionEpoch(claims), "account_id": updated.ID, "email": updated.PrimaryEmail, "provider": "magic_link", "email_verified": true}, authCookieName, "."+p.config.Domain, authCookieLifetime)
 		}
 	}
 	if err != nil {

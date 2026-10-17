@@ -139,6 +139,8 @@ Grafana's login settings.
 
 - Open both URLs in one fresh browser profile. Complete Google sign-in once;
   check that both dashboards load and their certificates match their hostnames.
+- Sign out on the platform. Both apps must refuse their old cookies on the
+  next request. Retry app login and sign in again to restore access.
 - Use another fresh profile and an unshared Google account. Both apps must
   return 403. A copied app link must not grant access.
 - If you shared a person into both apps, remove that person's access from both
@@ -147,11 +149,19 @@ Grafana's login settings.
   account suspension also denies that account on both apps in one action; see
   [account operations](../ACCOUNT-OPERATIONS.md).
 
-Platform sign-out clears the platform cookie. Existing app cookies can still
-work for up to one hour. Use live permission revocation or account suspension
-when access must end immediately. Removing access to one app leaves the other
-app's permission intact. These checks use tunn sessions, so an app's separate
-login session is not a substitute for checking the tunn gate.
+Platform sign-out revokes that account's browser sessions on every app host
+before clearing the platform cookie. Retained app cookies fail on the next
+request, without visiting each host. The gate checks a durable revocation epoch
+in its existing live account lookup on every request; there is no revocation
+cache or stale-access window. Idle streams recheck once per second and close
+within five seconds, including the authority timeout. Signing in again creates
+new sessions; other accounts and separately authorized device credentials are
+unaffected. If the login authority is unavailable, sign-out returns an error so
+you can retry, and app checks fail closed.
+
+Removing access to one app leaves the other app's permission intact. These
+checks use tunn sessions, so an app's separate login session is not a substitute
+for checking the tunn gate.
 
 The offline regression is `TestTwoDomainLoginJourney`:
 
@@ -162,6 +172,7 @@ go test -p 2 -count=1 -timeout 2m ./internal/host -run '^TestTwoDomainLoginJourn
 
 It starts the production relay in a test subprocess with mocked Google, DNS
 and certificate issuance, verifies two app names, and checks one login, stranger
-denial and account-wide revocation with both app cookies retained. Real Google
+denial, platform sign-out with both app cookies retained, sign-in again in the
+same browser, and account-wide suspension. Real Google
 consent, public DNS, and production CA issuance/renewal still need the live
 checks above.

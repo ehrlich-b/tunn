@@ -341,15 +341,16 @@ func protoAccountToStorage(resp *internalv1.AccountResponse) *Account {
 		plan = "pro"
 	}
 	return &Account{
-		BillingState:       resp.BillingState,
-		BillingNotice:      resp.BillingNotice,
-		OperationalState:   resp.OperationalState,
-		OperationalVersion: resp.OperationalVersion,
-		ID:                 resp.Id,
-		PrimaryEmail:       resp.PrimaryEmail,
-		Plan:               plan,
-		CreatedAt:          time.Unix(resp.CreatedAt, 0),
-		Emails:             emails,
+		BillingState:        resp.BillingState,
+		BillingNotice:       resp.BillingNotice,
+		OperationalState:    resp.OperationalState,
+		OperationalVersion:  resp.OperationalVersion,
+		BrowserSessionEpoch: resp.BrowserSessionEpoch,
+		ID:                  resp.Id,
+		PrimaryEmail:        resp.PrimaryEmail,
+		Plan:                plan,
+		CreatedAt:           time.Unix(resp.CreatedAt, 0),
+		Emails:              emails,
 	}
 }
 
@@ -480,4 +481,13 @@ func (s *ProxyStorage) mutateAccountEmail(ctx context.Context, request *internal
 		return nil, err
 	}
 	return protoAccountToStorage(resp), nil
+}
+
+func (s *ProxyStorage) RevokeBrowserSessions(ctx context.Context, id, expected string) error {
+	c := s.getClient()
+	if c == nil {
+		return ErrNotAvailable
+	}
+	_, err := c.RevokeBrowserSessions(ctx, &internalv1.RevokeBrowserSessionsRequest{AccountId: id, ExpectedEpoch: expected})
+	return err
 }

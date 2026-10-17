@@ -331,6 +331,21 @@ func TestProdAuthRoutePrincipalMatrix(t *testing.T) {
 					if w.Code != route.want[i] {
 						t.Fatalf("status = %d, want %d; body = %s", w.Code, route.want[i], w.Body)
 					}
+					// Later rows exercise a signed-in owner. Logout now revokes
+					// this cookie, so perform a new account login for those rows.
+					if principal == "owner-cookie" && route.path == "/auth/logout" && route.method == "POST" && w.Code == http.StatusFound {
+						account, err := f.p.storage.GetAccountByEmail(context.Background(), "owner@example.com")
+						if err != nil {
+							t.Fatal(err)
+						}
+						login := httptest.NewRecorder()
+						if err := f.p.setAccountCookie(login, account, "owner@example.com", "github"); err != nil {
+							t.Fatal(err)
+						}
+						cookie := login.Result().Cookies()[0]
+						f.credentials[principal] = cookie.Value
+						f.client.cookie = cookie
+					}
 					if (principal == "other-jwt" || principal == "other-cookie") && route.method == "GET" && strings.HasPrefix(route.path, "/api/") && w.Code == 200 {
 						for _, secret := range []string{f.grantID, f.client.clientID, f.fingerprint, "work.example.com", "workstation"} {
 							if strings.Contains(w.Body.String(), secret) {

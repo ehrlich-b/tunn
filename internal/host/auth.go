@@ -922,7 +922,7 @@ func (p *ProxyServer) getJWTSigningKey() []byte {
 	panic("FATAL: JWT_SECRET environment variable is required in production")
 }
 
-// handleLogout requires explicit confirmation before clearing the auth cookie.
+// handleLogout commits browser-session revocation before clearing the cookie.
 func (p *ProxyServer) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
 		if !p.isAuthenticated(r) {
@@ -947,6 +947,23 @@ func (p *ProxyServer) handleLogout(w http.ResponseWriter, r *http.Request) {
 	}
 	if !p.requireCSRFToken(w, r, "/auth/logout") {
 		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	if claims, ok := p.accountSession(r); ok {
+		ctx, cancel := appAuthorityContext(r)
+		defer cancel()
+		account, err := p.sessionAccount(r.WithContext(ctx), claims)
+		if err != nil {
+			http.Error(w, "Logout unavailable; please retry", http.StatusServiceUnavailable)
+			return
+		}
+		if account != nil {
+			authority, ok := p.storage.(storage.BrowserSessionStorage)
+			if !ok || authority.RevokeBrowserSessions(ctx, account.ID, browserSessionEpoch(claims)) != nil {
+				http.Error(w, "Logout unavailable; please retry", http.StatusServiceUnavailable)
+				return
+			}
+		}
 	}
 	p.clearAuthCookie(w)
 	http.Redirect(w, r, "/", http.StatusFound)

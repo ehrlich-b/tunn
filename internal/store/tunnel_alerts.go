@@ -50,6 +50,28 @@ CREATE TABLE IF NOT EXISTS tunnel_availability (
 	return err
 }
 
+// mergeTunnelAlerts keeps outage generations, delivery state and hourly budgets
+// intact. Conflicting explicit preferences favor fewer notifications: opt-out,
+// the longer threshold, and clean-stop alerts only when both accounts opted in.
+func mergeTunnelAlerts(tx *sql.Tx, oldID, owner string) error {
+	var exists int
+	if err := tx.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='tunnel_availability'").Scan(&exists); err != nil || exists == 0 {
+		return err
+	}
+	if _, err := tx.Exec("UPDATE tunnel_availability SET owner=? WHERE owner=?", owner, oldID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`INSERT INTO tunnel_alert_settings(account_id,enabled,threshold_seconds,on_graceful_stop)
+ SELECT ?,enabled,threshold_seconds,on_graceful_stop FROM tunnel_alert_settings WHERE account_id=?
+ ON CONFLICT(account_id) DO UPDATE SET enabled=MIN(tunnel_alert_settings.enabled,excluded.enabled),
+ threshold_seconds=MAX(tunnel_alert_settings.threshold_seconds,excluded.threshold_seconds),
+ on_graceful_stop=MIN(tunnel_alert_settings.on_graceful_stop,excluded.on_graceful_stop)`, owner, oldID); err != nil {
+		return err
+	}
+	_, err := tx.Exec("DELETE FROM tunnel_alert_settings WHERE account_id=?", oldID)
+	return err
+}
+
 func (s *TunnelAlertStore) Settings(ctx context.Context, owner string, update *TunnelAlertSettings) (TunnelAlertSettings, error) {
 	a, err := NewAccountStore(s.db).GetByIDContext(ctx, owner)
 	if err != nil {
@@ -78,6 +100,8 @@ func (s *TunnelAlertStore) Report(ctx context.Context, owner, tunnel, session, o
 	if len(lastError) > 512 || len(session) > 128 || len(tunnel) > 63 {
 		return fmt.Errorf("invalid availability report")
 	}
+	// Resolve obsolete publisher UUIDs in the write itself so a concurrent
+	// account merge cannot strand a disconnect under the absorbed owner.
 	t := now.Unix()
 	switch operation {
 	case "up":
@@ -85,20 +109,20 @@ func (s *TunnelAlertStore) Report(ctx context.Context, owner, tunnel, session, o
 			return fmt.Errorf("missing publisher generation")
 		}
 		_, err := s.db.ExecContext(ctx, `INSERT INTO tunnel_availability(tunnel,owner,session,online,seen_at)
- SELECT subdomain,account_id,?,1,? FROM reserved_subdomains WHERE subdomain=? AND account_id=?
+ SELECT subdomain,account_id,?,1,? FROM reserved_subdomains WHERE subdomain=? AND account_id=COALESCE((SELECT account_id FROM account_merges WHERE old_id=?),?)
  ON CONFLICT(tunnel) DO UPDATE SET session=excluded.session,online=1,seen_at=excluded.seen_at,graceful=0,
 	 owner=excluded.owner,down_sent=CASE WHEN owner=excluded.owner THEN down_sent ELSE 0 END,
- offline_since=CASE WHEN owner=excluded.owner THEN offline_since ELSE 0 END`, session, t, tunnel, owner)
+ offline_since=CASE WHEN owner=excluded.owner THEN offline_since ELSE 0 END`, session, t, tunnel, owner, owner)
 		return err
 	case "heartbeat":
-		_, err := s.db.ExecContext(ctx, `UPDATE tunnel_availability SET online=1,seen_at=?,graceful=0 WHERE tunnel=? AND owner=? AND session=?`, t, tunnel, owner, session)
+		_, err := s.db.ExecContext(ctx, `UPDATE tunnel_availability SET online=1,seen_at=?,graceful=0 WHERE tunnel=? AND owner=COALESCE((SELECT account_id FROM account_merges WHERE old_id=?),?) AND session=?`, t, tunnel, owner, owner, session)
 		return err
 	case "down", "graceful":
-		_, err := s.db.ExecContext(ctx, `UPDATE tunnel_availability SET online=0,offline_since=CASE WHEN online=1 THEN ? ELSE offline_since END,graceful=?,last_error=? WHERE tunnel=? AND owner=? AND session=?`, t, operation == "graceful", lastError, tunnel, owner, session)
+		_, err := s.db.ExecContext(ctx, `UPDATE tunnel_availability SET online=0,offline_since=CASE WHEN online=1 THEN ? ELSE offline_since END,graceful=?,last_error=? WHERE tunnel=? AND owner=COALESCE((SELECT account_id FROM account_merges WHERE old_id=?),?) AND session=?`, t, operation == "graceful", lastError, tunnel, owner, owner, session)
 		return err
 	case "error":
 		// An expired but correctly signed owner token can explain a reconnect failure.
-		_, err := s.db.ExecContext(ctx, `UPDATE tunnel_availability SET last_error=? WHERE tunnel=? AND owner=? AND online=0`, lastError, tunnel, owner)
+		_, err := s.db.ExecContext(ctx, `UPDATE tunnel_availability SET last_error=? WHERE tunnel=? AND owner=COALESCE((SELECT account_id FROM account_merges WHERE old_id=?),?) AND online=0`, lastError, tunnel, owner, owner)
 		return err
 	default:
 		return fmt.Errorf("unknown availability operation")
@@ -182,6 +206,6 @@ func (s *TunnelAlertStore) Expire(ctx context.Context, now time.Time) ([]string,
 }
 
 func (s *TunnelAlertStore) Delivered(ctx context.Context, a TunnelAlert) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE tunnel_availability SET down_sent=? WHERE tunnel=? AND owner=? AND last_email=?`, !a.Recovery, a.Tunnel, a.Owner, a.Attempt)
+	_, err := s.db.ExecContext(ctx, `UPDATE tunnel_availability SET down_sent=? WHERE tunnel=? AND owner=COALESCE((SELECT account_id FROM account_merges WHERE old_id=?),?) AND last_email=?`, !a.Recovery, a.Tunnel, a.Owner, a.Owner, a.Attempt)
 	return err
 }

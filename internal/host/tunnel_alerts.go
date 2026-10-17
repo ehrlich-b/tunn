@@ -29,8 +29,7 @@ func (s *TunnelServer) reportAvailability(conn *TunnelConnection, operation, las
 	return err
 }
 
-func (s *TunnelServer) availabilityHeartbeats(ctx context.Context, conn *TunnelConnection) {
-	up := s.reportAvailability(conn, "up", "") == nil
+func (s *TunnelServer) availabilityHeartbeats(ctx context.Context, conn *TunnelConnection, up bool) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 	for {

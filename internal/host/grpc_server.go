@@ -10,6 +10,7 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ehrlich-b/tunn/internal/common"
@@ -83,6 +84,7 @@ type TunnelServer struct {
 // TunnelConnection represents an active tunnel connection
 type TunnelConnection struct {
 	alertSession       string
+	gracefulStop       atomic.Bool
 	PolicyResourceID   string // MCP policy generation; separate from browser sharing
 	ResourceID         string
 	ExposureMode       string
@@ -782,15 +784,18 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 
 		// Unregister from login node if we registered
 		if registeredWithStorage && s.storage != nil && s.storage.Available() {
-			if _, ok := s.storage.(storage.TunnelAlerts); ok && alertCancel != nil {
+			unregister := true
+			if alertCancel != nil {
 				operation, lastError := "down", "Publisher connection lost"
-				if resultErr == nil {
+				if conn.gracefulStop.Load() {
 					operation, lastError = "graceful", ""
 				} else if status.Code(resultErr) == codes.Unauthenticated {
 					lastError = "Invalid or expired token. Run tunn login to refresh."
 				}
-				_ = s.reportAvailability(conn, operation, lastError)
-			} else {
+				// A login node may have been rolled back during this session.
+				unregister = status.Code(s.reportAvailability(conn, operation, lastError)) == codes.Unimplemented
+			}
+			if unregister {
 				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 				defer cancel()
 				if err := s.storage.UnregisterTunnel(ctx, tunnelID); err != nil {
@@ -821,14 +826,18 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 	}
 
 	common.LogInfo("tunnel registered", "tunnel_id", tunnelID, "url", publicURL)
-	if registeredWithStorage {
+	if _, ok := s.storage.(storage.TunnelAlerts); registeredWithStorage && ok {
 		// Report before reading further messages so a fast disconnect cannot
 		// overtake the first availability record.
-		_ = s.reportAvailability(conn, "up", "")
-		alertCtx, cancel := context.WithCancel(stream.Context())
-		alertCancel = cancel
-		alertDone = make(chan struct{})
-		go func() { defer close(alertDone); s.availabilityHeartbeats(alertCtx, conn) }()
+		// The interface alone does not imply remote RPC support. Preserve
+		// legacy admission cleanup when talking to an older login node.
+		err := s.reportAvailability(conn, "up", "")
+		if status.Code(err) != codes.Unimplemented {
+			alertCtx, cancel := context.WithCancel(stream.Context())
+			alertCancel = cancel
+			alertDone = make(chan struct{})
+			go func() { defer close(alertDone); s.availabilityHeartbeats(alertCtx, conn, err == nil) }()
+		}
 	}
 
 	// Run device message processing separately so lease expiry can return the
@@ -872,6 +881,7 @@ func (s *TunnelServer) processTunnelMessages(conn *TunnelConnection, stream pb.T
 		// Handle different message types
 		switch m := msg.Message.(type) {
 		case *pb.TunnelMessage_GracefulStop:
+			conn.gracefulStop.Store(true)
 			return nil
 		case *pb.TunnelMessage_RegisterClient:
 			if lease == nil {

@@ -33,22 +33,30 @@ func (s *LocalStorage) TunnelAlert(ctx context.Context, r *pb.TunnelAlertRequest
 		}
 		return &pb.TunnelAlertResponse{Enabled: settings.Enabled, ThresholdSeconds: settings.ThresholdSeconds, OnGracefulStop: settings.OnGracefulStop}, nil
 	}
+	account, err := s.accounts.GetByIDContext(ctx, r.AccountId)
+	if err != nil {
+		return nil, err
+	}
+	owner := account.ID
 	s.activeTunnelsMu.Lock()
 	defer s.activeTunnelsMu.Unlock()
-	if r.Operation == "up" && s.activeTunnels[r.Tunnel] != r.AccountId {
-		return nil, fmt.Errorf("publisher is not registered")
+	if r.Operation == "up" {
+		active, err := s.accounts.GetByIDContext(ctx, s.activeTunnels[r.Tunnel])
+		if err != nil || active.ID != owner {
+			return nil, fmt.Errorf("publisher is not registered")
+		}
 	}
 	session, err := alerts.Session(ctx, r.Tunnel)
 	if err != nil {
 		return nil, err
 	}
-	err = alerts.Report(ctx, r.AccountId, r.Tunnel, r.Session, r.Operation, r.LastError, s.currentTime())
+	err = alerts.Report(ctx, owner, r.Tunnel, r.Session, r.Operation, r.LastError, s.currentTime())
 	if err == nil {
 		if (r.Operation == "down" || r.Operation == "graceful") && (session == "" || session == r.Session) {
 			delete(s.activeTunnels, r.Tunnel)
 		}
 		if r.Operation == "heartbeat" && session != "" && session == r.Session {
-			s.activeTunnels[r.Tunnel] = r.AccountId
+			s.activeTunnels[r.Tunnel] = owner
 		}
 	}
 	return &pb.TunnelAlertResponse{}, err

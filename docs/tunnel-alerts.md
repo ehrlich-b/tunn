@@ -30,3 +30,14 @@ address and therefore cannot reconstruct that command.
 
 Run `make test-tunnel-alerts` for fake-mailer, login-node RPC, migration,
 durability and real-client clean-stop coverage. These tests send no real email.
+
+Verified account merges retain outage history, publisher generations, delivered
+notifications and hourly budgets. If both accounts saved preferences, opt-out
+wins, the longer threshold applies, and clean-stop alerts require both accounts
+to have opted in. Otherwise the saved preferences carry over. Existing
+publishers keep reporting through their original account identity.
+
+Older login nodes without the alert RPC still release tunnel registrations on
+disconnect; alerts become available when the login node supports them. A clean
+stop requires the publisher's explicit stop message. SSH transport loss and
+stream EOF are treated as outages.

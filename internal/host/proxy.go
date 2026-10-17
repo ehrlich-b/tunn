@@ -17,7 +17,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/quic-go/quic-go/http3"
 	"golang.org/x/net/http2"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -780,37 +779,6 @@ func (p *ProxyServer) startHTTP2Server(ctx context.Context, handler http.Handler
 	}()
 
 	if err := srv.Serve(tlsLn); err != nil && err != http.ErrServerClosed {
-		return err
-	}
-
-	return nil
-}
-
-// startHTTP3Server starts the HTTP/3 (QUIC) listener
-func (p *ProxyServer) startHTTP3Server(ctx context.Context, handler http.Handler) error {
-	srv := &http3.Server{
-		Addr:      p.HTTP3Addr,
-		Handler:   handler,
-		TLSConfig: p.tlsConfig.Clone(),
-	}
-
-	common.LogInfo("starting HTTP/3 server", "addr", p.HTTP3Addr)
-	conn, err := net.ListenPacket("udp", p.HTTP3Addr)
-	if err != nil {
-		return fmt.Errorf("failed to listen on %s: %w", p.HTTP3Addr, err)
-	}
-	defer func() { _ = conn.Close() }()
-	p.listenerStarted(listenerHTTP3)
-	defer p.listenerState.And(^uint32(listenerHTTP3))
-
-	// Start server in a goroutine
-	stopShutdown := context.AfterFunc(ctx, func() {
-		common.LogInfo("shutting down HTTP/3 server")
-		_ = srv.Close()
-	})
-	defer stopShutdown()
-
-	if err := srv.Serve(conn); err != nil && err != http.ErrServerClosed {
 		return err
 	}
 

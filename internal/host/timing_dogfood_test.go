@@ -268,7 +268,7 @@ func TestRequestTimingDogfood(t *testing.T) {
 		appMin, tunnelMin float64
 	}{
 		{"/slow-app?size=1024&delay=1100ms&body_delay=60ms", "app", 1160, 0},
-		{"/slow-visitor?size=1024&delay=5ms", "tunnel", 5, 2000},
+		{"/slow-visitor?size=1024&delay=5ms", "tunnel", 5, 4000},
 	} {
 		if _, err := fetch(ingress.URL, c.path, 1024); err != nil {
 			t.Fatal(err)
@@ -341,7 +341,7 @@ func TestRequestTimingDogfood(t *testing.T) {
 type timingSlowVisitor struct{ http.ResponseWriter }
 
 func (w *timingSlowVisitor) Write(b []byte) (int, error) {
-	time.Sleep(2 * time.Second)
+	time.Sleep(4 * time.Second)
 	return w.ResponseWriter.Write(b)
 }
 func (w *timingSlowVisitor) Flush()                      { w.ResponseWriter.(http.Flusher).Flush() }

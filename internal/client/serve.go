@@ -358,7 +358,7 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 				AccessTokenSha256: accessTokenDigest,
 				Capabilities: []string{
 					common.CapabilityHTTPStreamV1,
-					"request-timing-v1",
+					common.CapabilityRequestTimingV1,
 					common.CapabilityConnectionStreamV1,
 					common.CapabilityWebSocketV1,
 					common.CapabilityHTTPResponseTrailersV1,

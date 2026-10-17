@@ -80,7 +80,7 @@ func (p *ProxyServer) proxyStreamingHTTPOverGRPC(w http.ResponseWriter, r *http.
 	defer func() {
 		var result *pb.RequestTiming
 		if resultErr == nil && timing.OriginTotalUs > 0 {
-			timing.RelayTotalUs = max(1, time.Since(started).Microseconds())
+			timing.RelayTotalUs = time.Since(started).Microseconds()
 			result = timing
 			if capture, ok := r.Context().Value(requestTimingCaptureKey{}).(*inspection.Capture); ok {
 				capture.SetTiming(inspection.NewTiming(timing.OriginTtfbUs, timing.OriginTotalUs, timing.RelayTtfbUs, timing.RelayTotalUs))
@@ -97,7 +97,7 @@ func (p *ProxyServer) proxyStreamingHTTPOverGRPC(w http.ResponseWriter, r *http.
 
 	open := &pb.ConnectionOpen{
 		ConnectionId:  connectionID,
-		RequestTiming: tunnel.Supports("request-timing-v1"),
+		RequestTiming: tunnel.Supports(common.CapabilityRequestTimingV1),
 		Protocol:      "http",
 		SourceAddress: r.RemoteAddr,
 		HttpRequest: &pb.HttpRequestHead{
@@ -181,7 +181,7 @@ func (p *ProxyServer) proxyStreamingHTTPOverGRPC(w http.ResponseWriter, r *http.
 			}
 			timing.OriginTtfbUs = event.accept.HttpResponse.OriginTtfbUs
 			timing.OriginTotalUs = event.accept.HttpResponse.OriginTotalUs
-			timing.RelayTtfbUs = max(1, time.Since(started).Microseconds())
+			timing.RelayTtfbUs = time.Since(started).Microseconds()
 			firstEvent, err := waitStreamingHTTPResponseStart(r, pending, event.accept.HttpResponse, requestResult, &requestFinished, headerTimer.C)
 			if err != nil {
 				return err

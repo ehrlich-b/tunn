@@ -217,10 +217,11 @@ the publisher has fully sent the request to your origin and includes waiting
 for and reading the response. Time blocked sending response chunks to the relay
 is excluded. Tunnel time is relay elapsed time minus that app time; it includes
 transport, connection setup, request upload, queues and waiting for the visitor
-to read. It is not a pure network latency measurement. TTFB uses the same split, through the origin's first response byte
-and the relay's receipt of response headers. These clocks measure durations;
-the machines do not need synchronized clocks. The split covers streamed
-forwarding, after access and quota checks; it excludes browser-to-relay latency.
+to read. It is not a pure network latency measurement. TTFB uses the same
+split, through the origin's first response byte and the relay's receipt of
+response headers. These clocks measure durations; the machines do not need
+synchronized clocks. The split covers streamed forwarding, after access and
+quota checks; it excludes browser-to-relay latency.
 
 A side taking at least one second is marked `slow: app`, `slow: tunnel`, or
 `slow: app and tunnel`. For a slow app, check the handler and its dependencies.
@@ -230,10 +231,10 @@ responses can take time even when TTFB is fast.
 
 Timing appears after the request finishes. Old publishers or relays, interrupted
 requests, and local replays can show `Timing unavailable`; that does not mean
-zero overhead. Upgrade both ends for the split. The publisher waits up to
-three seconds after origin EOF for relay timing, then records it as unavailable.
-This does not end the visitor response; check the web inspector after it completes.
-SSE timing appears at EOF.
+zero overhead. Upgrade both ends for the split. If the origin responds before
+the upload finishes, app time is unknown and the split is omitted. For a slow
+download, publisher timing waits for relay delivery to finish; pending timing
+is discarded if the tunnel stream ends. SSE timing appears at EOF.
 WebSocket and TCP timing is not split. tunn adds no `Server-Timing` header;
 these measurements stay with the publisher and authenticated owner inspector.
 

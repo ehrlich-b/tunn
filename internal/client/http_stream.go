@@ -22,8 +22,42 @@ const inboundQueueChunks = 16
 
 type requestTimingKey struct{}
 
+// Completion metadata outlives the origin connection, but never the stream.
+type requestTiming struct {
+	completion   chan *pb.ConnectionClose
+	streamDone   <-chan struct{}
+	manager      *inboundConnectionManager
+	connectionID string
+}
+
+func (t *requestTiming) remove() {
+	t.manager.mu.Lock()
+	if t.manager.timings[t.connectionID] == t {
+		delete(t.manager.timings, t.connectionID)
+	}
+	t.manager.mu.Unlock()
+}
+
+func (t *requestTiming) finish(record func(*pb.ConnectionClose)) {
+	t.manager.workers.Add(1)
+	go func() {
+		defer t.manager.workers.Done()
+		defer t.remove()
+		var closed *pb.ConnectionClose
+		select {
+		case closed = <-t.completion:
+		case <-t.streamDone:
+			// Prefer a completion already received before stream shutdown.
+			select {
+			case closed = <-t.completion:
+			default:
+			}
+		}
+		record(closed)
+	}()
+}
+
 type inboundConnection struct {
-	completion  chan *pb.ConnectionClose
 	bodyWriter  *io.PipeWriter
 	cancel      context.CancelFunc
 	closeOnce   sync.Once
@@ -45,6 +79,7 @@ type inboundConnectionManager struct {
 	workers     sync.WaitGroup
 	mu          sync.RWMutex
 	connections map[string]*inboundConnection
+	timings     map[string]*requestTiming
 	slots       chan struct{}
 }
 
@@ -56,6 +91,7 @@ func newInboundConnectionManager() *inboundConnectionManager {
 func newInboundConnectionManagerWithLimit(limit int) *inboundConnectionManager {
 	return &inboundConnectionManager{
 		connections: make(map[string]*inboundConnection),
+		timings:     make(map[string]*requestTiming),
 		slots:       make(chan struct{}, limit),
 	}
 }
@@ -90,10 +126,14 @@ func (m *inboundConnectionManager) open(ctx context.Context, client *ServeClient
 	}
 
 	bodyReader, bodyWriter := io.Pipe()
-	completion := make(chan *pb.ConnectionClose, 1)
-	connectionCtx, cancel := context.WithCancel(context.WithValue(ctx, requestTimingKey{}, completion))
+	connectionCtx, cancel := context.WithCancel(ctx)
+	var timing *requestTiming
+	if open.RequestTiming && client.Inspector != nil && (open.Protocol == "http" || open.Protocol == common.HTTPOriginReplayProtocol) {
+		timing = &requestTiming{completion: make(chan *pb.ConnectionClose, 1), streamDone: ctx.Done(), manager: m, connectionID: open.ConnectionId}
+		connectionCtx = context.WithValue(connectionCtx, requestTimingKey{}, timing)
+	}
 	connection := &inboundConnection{
-		bodyWriter: bodyWriter, cancel: cancel, completion: completion,
+		bodyWriter: bodyWriter, cancel: cancel,
 		input: make(chan []byte, inboundQueueChunks), done: connectionCtx.Done(),
 		inputError: make(chan error, 1),
 	}
@@ -126,7 +166,7 @@ func (m *inboundConnectionManager) open(ctx context.Context, client *ServeClient
 	}()
 
 	m.mu.Lock()
-	if _, exists := m.connections[open.ConnectionId]; exists {
+	if m.connections[open.ConnectionId] != nil || m.timings[open.ConnectionId] != nil {
 		client.Inspector.denied()
 		m.mu.Unlock()
 		<-m.slots
@@ -136,6 +176,9 @@ func (m *inboundConnectionManager) open(ctx context.Context, client *ServeClient
 		return
 	}
 	m.connections[open.ConnectionId] = connection
+	if timing != nil {
+		m.timings[open.ConnectionId] = timing
+	}
 	m.mu.Unlock()
 
 	m.workers.Add(1)
@@ -332,12 +375,12 @@ func (m *inboundConnectionManager) halfClose(connectionID string) {
 }
 
 func (m *inboundConnectionManager) complete(closed *pb.ConnectionClose) {
-	if connection := m.get(closed.ConnectionId); connection != nil {
-		select {
-		case connection.completion <- closed:
-		default:
-		}
+	m.mu.Lock()
+	if timing := m.timings[closed.ConnectionId]; timing != nil {
+		timing.completion <- closed
+		delete(m.timings, closed.ConnectionId)
 	}
+	m.mu.Unlock()
 	m.close(closed.ConnectionId, closed.ErrorMessage)
 }
 
@@ -376,6 +419,10 @@ func (m *inboundConnectionManager) remove(connectionID string, connection *inbou
 
 func (m *inboundConnectionManager) closeAll(err error) {
 	m.mu.Lock()
+	for connectionID, timing := range m.timings {
+		timing.completion <- nil
+		delete(m.timings, connectionID)
+	}
 	connections := make([]*inboundConnection, 0, len(m.connections))
 	for connectionID, connection := range m.connections {
 		delete(m.connections, connectionID)
@@ -399,39 +446,29 @@ func (s *ServeClient) handleStreamingHTTPRequest(ctx context.Context, sender mes
 	status, responseBytes, reason := http.StatusBadGateway, int64(0), "target_error"
 	if capture != nil {
 		defer func() {
-			relayCompleted := false
-			if open.RequestTiming && reason == "complete" {
-				if completion, ok := ctx.Value(requestTimingKey{}).(chan *pb.ConnectionClose); ok {
-					// A slow response consumer may finish well after origin EOF.
-					// Bound only this metadata wait, not the visitor response lifetime.
-					timer := time.NewTimer(3 * time.Second)
-					defer timer.Stop()
-					var closed *pb.ConnectionClose
-					select {
-					case closed = <-completion:
-					case <-ctx.Done():
-						// The receiver publishes the result before cancelling the stream.
-						select {
-						case closed = <-completion:
-						default:
+			if timing, ok := ctx.Value(requestTimingKey{}).(*requestTiming); ok {
+				if reason == "complete" {
+					// Do not retain origin capacity while the visitor downloads.
+					timing.finish(func(closed *pb.ConnectionClose) {
+						if closed == nil {
+							reason = "canceled"
+						} else {
+							if closed.ErrorMessage != "" {
+								reason = "relay_error"
+							}
+							if v := closed.Timing; v != nil {
+								capture.mu.Lock()
+								capture.event.Timing = inspection.NewTiming(v.OriginTtfbUs, v.OriginTotalUs, v.RelayTtfbUs, v.RelayTotalUs)
+								capture.mu.Unlock()
+							}
 						}
-					case <-timer.C:
-					}
-					if closed != nil {
-						relayCompleted = closed.ErrorMessage == ""
-						if !relayCompleted {
-							reason = "relay_error"
-						}
-					}
-					if closed != nil && closed.Timing != nil {
-						v := closed.Timing
-						capture.mu.Lock()
-						capture.event.Timing = inspection.NewTiming(v.OriginTtfbUs, v.OriginTotalUs, v.RelayTtfbUs, v.RelayTotalUs)
-						capture.mu.Unlock()
-					}
+						capture.finishReason(status, responseBytes, reason)
+					})
+					return
 				}
+				timing.remove()
 			}
-			if ctx.Err() != nil && !relayCompleted {
+			if ctx.Err() != nil {
 				reason = "canceled"
 			}
 			capture.finishReason(status, responseBytes, reason)
@@ -484,8 +521,10 @@ func (s *ServeClient) handleStreamingHTTPRequest(ctx context.Context, sender mes
 	response, err := httpClient.Do(request)
 	var originTTFB, originTotal time.Duration
 	timingMu.Lock()
-	if !originStart.IsZero() {
-		originTTFB = max(0, firstResponseByte.Sub(originStart))
+	// A response before upload completion has no meaningful post-upload app split.
+	originTimingKnown := !originStart.IsZero() && !firstResponseByte.IsZero() && !firstResponseByte.Before(originStart)
+	if originTimingKnown {
+		originTTFB = firstResponseByte.Sub(originStart)
 		originTotal = time.Since(originStart)
 	}
 	timingMu.Unlock()
@@ -523,8 +562,8 @@ func (s *ServeClient) handleStreamingHTTPRequest(ctx context.Context, sender mes
 					Headers:       headers,
 					HeaderFields:  fields,
 					TrailerNames:  trailerNames,
-					OriginTtfbUs:  max(1, originTTFB.Microseconds()),
-					OriginTotalUs: max(1, originTotal.Microseconds()),
+					OriginTtfbUs:  originTTFB.Microseconds(),
+					OriginTotalUs: originTotal.Microseconds(),
 				},
 			},
 		},
@@ -543,7 +582,9 @@ func (s *ServeClient) handleStreamingHTTPRequest(ctx context.Context, sender mes
 	for {
 		readStart := time.Now()
 		n, readErr := response.Body.Read(buffer)
-		originTotal += time.Since(readStart)
+		if originTimingKnown {
+			originTotal += time.Since(readStart)
+		}
 		if n > 0 {
 			responseBytes += int64(n)
 			chunk := append([]byte(nil), buffer[:n]...)
@@ -565,7 +606,7 @@ func (s *ServeClient) handleStreamingHTTPRequest(ctx context.Context, sender mes
 			}
 			if err := sender.Send(&pb.TunnelMessage{
 				Message: &pb.TunnelMessage_ConnectionHalfClose{
-					ConnectionHalfClose: &pb.ConnectionHalfClose{ConnectionId: open.ConnectionId, Trailers: trailers, OriginTotalUs: max(1, originTotal.Microseconds())},
+					ConnectionHalfClose: &pb.ConnectionHalfClose{ConnectionId: open.ConnectionId, Trailers: trailers, OriginTotalUs: originTotal.Microseconds()},
 				},
 			}); err != nil {
 				reason = "relay_error"

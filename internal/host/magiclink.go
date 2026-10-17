@@ -126,7 +126,7 @@ func (p *ProxyServer) handleMagicLinkRequest(w http.ResponseWriter, r *http.Requ
 func (p *ProxyServer) handleMagicLinkVerify(w http.ResponseWriter, r *http.Request) {
 	tokenString := r.URL.Query().Get("token")
 	if tokenString == "" {
-		http.Error(w, "Missing token", http.StatusBadRequest)
+		p.writeAuthError(w, r, "Missing token", http.StatusBadRequest, "Request a new email link to sign in.")
 		return
 	}
 
@@ -134,7 +134,7 @@ func (p *ProxyServer) handleMagicLinkVerify(w http.ResponseWriter, r *http.Reque
 	email, err := p.verifyMagicLinkToken(r.Context(), tokenString)
 	if err != nil {
 		common.LogError("invalid magic link token", "error", err)
-		http.Error(w, "Invalid or expired link", http.StatusBadRequest)
+		p.writeAuthError(w, r, "Invalid or expired link", http.StatusBadRequest, "Request a new email link to sign in.")
 		return
 	}
 

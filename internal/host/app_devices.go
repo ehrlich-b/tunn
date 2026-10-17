@@ -139,7 +139,7 @@ func (p *ProxyServer) handleAppDevices(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src data:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self' data:; manifest-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
 	_, proto := p.forwardingPeer(r)
 	if !p.isPlatformHost(r.Host) || proto != "https" {
 		http.Error(w, "App devices require the trusted HTTPS login origin", 403)
@@ -429,7 +429,7 @@ var appDevicesTemplate = template.Must(template.New("app-devices").Funcs(templat
 		return time.UnixMilli(ms).UTC().Format("Jan 2, 2006 15:04 UTC")
 	},
 	"expired": func(ms int64) bool { return ms <= time.Now().UnixMilli() },
-}).Parse(appDevicesHTML))
+}).Parse(withSiteChrome(strings.Replace(appDevicesHTML, "/*site-css*/", baseCSS, 1))))
 
 func (p *ProxyServer) renderAppDevices(w http.ResponseWriter, data appDevicesPageData) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

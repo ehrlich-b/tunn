@@ -247,7 +247,12 @@ func (p *ProxyServer) authorizeDomainApp(w http.ResponseWriter, r *http.Request,
 	account, status := p.appAccountAccess(r.WithContext(check), session, owner, tunnel)
 	stop()
 	if status != http.StatusOK {
-		http.Error(w, http.StatusText(status), status)
+		// A denied app session must not pin this browser to the old account
+		// after it signs in again on the platform. Retrying the app starts SSO.
+		if status == http.StatusForbidden && acceptsHTML(r) {
+			http.SetCookie(w, &http.Cookie{Name: appCookie, Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: -1})
+		}
+		p.writeAuthError(w, r, http.StatusText(status), status, "Ask the app owner to share access, or sign in with a different account.")
 		return nil, false
 	}
 	session["account_id"] = account.ID

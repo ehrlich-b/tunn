@@ -46,6 +46,9 @@ func TestStatusRelayPublicRoutesAndDocs(t *testing.T) {
 		if w.Code != 200 || w.Header().Get("Cache-Control") != "no-store" {
 			t.Fatal(w.Code, w.Header())
 		}
+		if path == "/status" && !strings.Contains(w.Body.String(), iconHead) {
+			t.Fatal("status page missing shared icons")
+		}
 		if path == "/status.json" {
 			var v statuspage.Snapshot
 			if err = json.Unmarshal(w.Body.Bytes(), &v); err != nil || v.State != "healthy" {
@@ -141,5 +144,13 @@ func TestStatusRelayFailuresRemainUnknown(t *testing.T) {
 	w := statusRequest(p, "GET", "/status.json")
 	if w.Code != 503 || time.Since(started) > 5*time.Second {
 		t.Fatal("collector deadline", w.Code, time.Since(started))
+	}
+}
+
+func TestStatusUnknownSharedIcons(t *testing.T) {
+	p := securityProxy(securityDB(t))
+	w := statusRequest(p, "GET", "/status")
+	if w.Code != 503 || !strings.Contains(w.Body.String(), iconHead) {
+		t.Fatal("unknown status must include shared icons")
 	}
 }

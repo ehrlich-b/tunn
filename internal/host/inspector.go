@@ -95,7 +95,7 @@ func (p *ProxyServer) handleInspectorPage(w http.ResponseWriter, r *http.Request
 		http.Error(w, "Unable to prepare inspector", 503)
 		return
 	}
-	tmpl, err := template.New("inspector").Parse(webInspectorHTML)
+	tmpl, err := template.New("inspector").Parse(withPageHead(webInspectorHTML))
 	if err != nil {
 		http.Error(w, "Inspector unavailable", 500)
 		return
@@ -103,7 +103,7 @@ func (p *ProxyServer) handleInspectorPage(w http.ResponseWriter, r *http.Request
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Referrer-Policy", "no-referrer")
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'nonce-"+nonce+"'; style-src 'unsafe-inline'; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; img-src 'self'; manifest-src 'self'; script-src 'nonce-"+nonce+"'; style-src 'unsafe-inline'; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
 	_ = tmpl.Execute(w, struct {
 		Email, CSRF, Nonce string
 		CSS                template.CSS

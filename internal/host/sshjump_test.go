@@ -415,7 +415,10 @@ func TestSSHKeyLinkRequiresDeliberateConfirmation(t *testing.T) {
 	}
 	path := "https://tunn.test/auth/ssh-key?token=" + token
 	page := httptest.NewRecorder()
-	p.handleSSHKeyLink(page, httptest.NewRequest("GET", path, nil))
+	p.createHandler().ServeHTTP(page, httptest.NewRequest("GET", path, nil))
+	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), iconHead) {
+		t.Fatal("SSH confirmation is missing the shared icons", page.Code)
+	}
 	cookie := page.Result().Cookies()[0]
 	for _, tc := range []struct {
 		name, method, csrf string

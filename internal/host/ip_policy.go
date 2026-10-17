@@ -54,16 +54,16 @@ func (p *ProxyServer) checkOwnerIPPolicy(w http.ResponseWriter, r *http.Request,
 	if ippolicy.Allowed(peer, policy.AllowCidrs, policy.DenyCidrs) {
 		return true
 	}
-	writeIPPolicyDenied(w)
+	p.writeIPPolicyDenied(w)
 	return false
 }
 
-func writeIPPolicyDenied(w http.ResponseWriter) {
+func (p *ProxyServer) writeIPPolicyDenied(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Tunn-Limit-Reason", "ip_policy_denied")
 	w.WriteHeader(http.StatusForbidden)
-	_, _ = io.WriteString(w, `<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width, initial-scale=1"><title>IP address blocked — tunn</title><style>body{font:16px system-ui;max-width:560px;margin:12vh auto;padding:24px;color:#242424}h1{font-size:28px}</style></head><body><p>403 · IP restriction</p><h1>Your IP address cannot access this endpoint</h1><p>The owner has restricted which networks can connect. Signing in or using a shared link does not bypass this policy.</p><p>Connect from an allowed network or ask the endpoint owner to update the IP restrictions.</p></body></html>`)
+	_, _ = io.WriteString(w, `<!doctype html><html lang="en"><head>`+platformIconHead(p.loginAuthority())+`<meta name="viewport" content="width=device-width, initial-scale=1"><title>IP address blocked — tunn</title><style>body{font:16px system-ui;max-width:560px;margin:12vh auto;padding:24px;color:#242424}h1{font-size:28px}</style></head><body><p>403 · IP restriction</p><h1>Your IP address cannot access this endpoint</h1><p>The owner has restricted which networks can connect. Signing in or using a shared link does not bypass this policy.</p><p>Connect from an allowed network or ask the endpoint owner to update the IP restrictions.</p></body></html>`)
 }
 
 func writeIPPolicyError(w http.ResponseWriter, err error) {
@@ -144,7 +144,7 @@ func (p *ProxyServer) handleIPPolicyAPI(w http.ResponseWriter, r *http.Request) 
 	_ = json.NewEncoder(w).Encode(out)
 }
 
-var ipPolicyPage = template.Must(template.New("ip-policy").Parse(`<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width, initial-scale=1"><title>IP restrictions — tunn</title><style>` + baseCSS + `body{max-width:760px;margin:40px auto;padding:24px}h1{font-size:30px;margin:20px 0}h2{font-size:22px;margin:0 0 12px}section{background:white;border:1px solid #ddd;border-radius:12px;padding:24px;margin:20px 0}label{display:block;margin-top:16px;font-weight:600}textarea{display:block;box-sizing:border-box;width:100%;min-height:110px;margin:8px 0 20px;padding:12px;font:14px monospace;border:1px solid #aaa;border-radius:6px}button,input{box-sizing:border-box;max-width:100%;padding:10px;border:1px solid #aaa;border-radius:6px}button{cursor:pointer;margin:8px 8px 8px 0}p{margin:12px 0;line-height:1.6}.notice{border-left:3px solid #16824b;padding:12px;background:#effaf4}.error{border-left:3px solid #b43232;padding:12px;background:#fff1f1}code{overflow-wrap:anywhere}@media(max-width:480px){body{margin:12px auto;padding:16px}section{padding:18px}}</style></head><body><a href="/account">Account</a><h1>IP restrictions</h1><p>Allow trusted networks and block unwanted addresses before sign-in or sharing.</p>
+var ipPolicyPage = template.Must(template.New("ip-policy").Parse(`<!doctype html><html lang="en"><head>` + iconHead + `<meta name="viewport" content="width=device-width, initial-scale=1"><title>IP restrictions — tunn</title><style>` + baseCSS + `body{max-width:760px;margin:40px auto;padding:24px}h1{font-size:30px;margin:20px 0}h2{font-size:22px;margin:0 0 12px}section{background:white;border:1px solid #ddd;border-radius:12px;padding:24px;margin:20px 0}label{display:block;margin-top:16px;font-weight:600}textarea{display:block;box-sizing:border-box;width:100%;min-height:110px;margin:8px 0 20px;padding:12px;font:14px monospace;border:1px solid #aaa;border-radius:6px}button,input{box-sizing:border-box;max-width:100%;padding:10px;border:1px solid #aaa;border-radius:6px}button{cursor:pointer;margin:8px 8px 8px 0}p{margin:12px 0;line-height:1.6}.notice{border-left:3px solid #16824b;padding:12px;background:#effaf4}.error{border-left:3px solid #b43232;padding:12px;background:#fff1f1}code{overflow-wrap:anywhere}@media(max-width:480px){body{margin:12px auto;padding:16px}section{padding:18px}}</style></head><body><a href="/account">Account</a><h1>IP restrictions</h1><p>Allow trusted networks and block unwanted addresses before sign-in or sharing.</p>
 {{if .Saved}}<p class="notice" role="status">Policy saved. New requests use the current policy.</p>{{end}}{{if .Error}}<p class="error" role="alert">{{.Error}}</p>{{end}}
 <section><h2>{{if .Endpoint}}Endpoint: {{.Endpoint}}{{else}}Account default{{end}}</h2>
 {{if .Endpoint}}{{if .Inherited}}<p>This endpoint inherits the account default. Saving here replaces that default for this endpoint.</p>{{else}}<p>This endpoint has its own policy. Use the account default to restore inheritance.</p>{{end}}{{else}}<p>Endpoints inherit this policy unless you save an endpoint policy.</p>{{end}}

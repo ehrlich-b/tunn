@@ -141,7 +141,7 @@ func (p *ProxyServer) revenueAccount(w http.ResponseWriter, r *http.Request) *st
 		return nil
 	}
 	if p.storage == nil || !p.storage.Available() {
-		http.Error(w, "Account service unavailable. Please retry.", 503)
+		p.writeAuthError(w, r, "Account service unavailable. Please retry.", 503, "Sign in again. If this keeps happening, try again later.")
 		return nil
 	}
 	// Modern sessions are pinned to their signed account UUID. Removing an
@@ -154,7 +154,7 @@ func (p *ProxyServer) revenueAccount(w http.ResponseWriter, r *http.Request) *st
 		a, err = p.storage.GetAccountByEmail(r.Context(), email)
 	}
 	if err != nil || a == nil {
-		http.Error(w, "Account service unavailable. Please retry.", 503)
+		p.writeAuthError(w, r, "Account service unavailable. Please retry.", 503, "Sign in again. If this keeps happening, try again later.")
 		return nil
 	}
 	return a

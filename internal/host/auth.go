@@ -1082,7 +1082,7 @@ func (p *ProxyServer) handleAccount(w http.ResponseWriter, r *http.Request) {
 
 	// Render template
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	tmpl, err := template.New("account").Parse(accountHTML)
+	tmpl, err := template.New("account").Parse(withPageHead(accountHTML))
 	if err != nil {
 		common.LogError("failed to parse account template", "error", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)

@@ -27,7 +27,7 @@
     const fragment = new URLSearchParams(location.hash.slice(1));
     const handle = fragment.get("invitation"), hostname = fragment.get("hostname");
     history.replaceState(null, "", location.pathname);
-    if (root.dataset.authority !== location.origin || !handle || !hostname) {
+    if (new URL(root.dataset.authority).origin !== location.origin || !handle || !hostname) {
       get("phone-start").hidden = true; status("Invalid invitation. Create a new QR in your signed-in browser."); return;
     }
     get("phone-host").textContent = hostname;

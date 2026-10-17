@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"html/template"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -17,10 +18,16 @@ var pageTemplate = template.Must(template.New("status").Parse(pageHTML))
 func Headers(w http.ResponseWriter) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'sha256-Hu/wntVn+Hljn/ZV0lHwPR8Mk8nnRQUHxQleRx6zgFs='; style-src 'unsafe-inline'; font-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; img-src 'self'; manifest-src 'self'; script-src 'sha256-Hu/wntVn+Hljn/ZV0lHwPR8Mk8nnRQUHxQleRx6zgFs='; style-src 'unsafe-inline'; font-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 }
 func Render(w http.ResponseWriter, r *http.Request, v Snapshot, code int) {
+	RenderWithHead(w, r, v, code, "")
+}
+
+// RenderWithHead adds trusted document-head markup supplied by the relay.
+// JSON responses retain the same representation.
+func RenderWithHead(w http.ResponseWriter, r *http.Request, v Snapshot, code int, head string) {
 	Headers(w)
 	var b bytes.Buffer
 	if r.URL.Path == "/status.json" {
@@ -31,6 +38,11 @@ func Render(w http.ResponseWriter, r *http.Request, v Snapshot, code int) {
 		if err := pageTemplate.Execute(&b, v); err != nil {
 			http.Error(w, "Status unavailable", 503)
 			return
+		}
+		if head != "" {
+			body := strings.Replace(b.String(), "</head>", head+"</head>", 1)
+			b.Reset()
+			b.WriteString(body)
 		}
 	}
 	w.WriteHeader(code)

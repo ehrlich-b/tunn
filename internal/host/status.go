@@ -28,7 +28,7 @@ func (p *ProxyServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", 405)
 		return
 	}
-	unknown := func() { statuspage.Render(w, r, statuspage.Unknown(time.Now().UTC()), 503) }
+	unknown := func() { statuspage.RenderWithHead(w, r, statuspage.Unknown(time.Now().UTC()), 503, iconHead) }
 	if p.config.StatusURL == "" {
 		unknown()
 		return
@@ -69,6 +69,9 @@ func (p *ProxyServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 	if err != nil || len(body) > 1<<20 {
 		unknown()
 		return
+	}
+	if contentType == "text/html; charset=utf-8" {
+		body = []byte(withPageHead(string(body)))
 	}
 	w.Header().Set("Content-Type", contentType)
 	w.WriteHeader(resp.StatusCode)

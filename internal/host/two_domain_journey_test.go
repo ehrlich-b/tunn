@@ -495,7 +495,7 @@ func TestTwoDomainLoginJourney(t *testing.T) {
 			t.Fatal(err)
 		}
 		resp.Body.Close()
-		if resp.StatusCode != 403 {
+		if resp.StatusCode != 302 || !strings.HasPrefix(resp.Header.Get("Location"), "https://tunn.test/auth/domain?") {
 			t.Fatalf("old cookie at %s after logout: %d", host, resp.StatusCode)
 		}
 	}
@@ -511,8 +511,8 @@ func TestTwoDomainLoginJourney(t *testing.T) {
 		t.Fatal("logout affected another user's platform session")
 	}
 	t.Log("platform logout immediately refused retained cookies on both app hosts; zero publisher deliveries; other user's session retained")
-	// HTML denials expire the rejected host cookie so the same browser can
-	// retry SSO. No browser-side cookie clearing is needed by the user.
+	// Rejected host cookies have been cleared. A retry starts SSO just as
+	// it would for a visitor without a cookie.
 	for _, host := range twoDomainHosts {
 		req, err := http.NewRequest("GET", "https://"+host+"/", nil)
 		if err != nil {
@@ -524,8 +524,8 @@ func TestTwoDomainLoginJourney(t *testing.T) {
 			t.Fatal(err)
 		}
 		resp.Body.Close()
-		if resp.StatusCode != 403 {
-			t.Fatal("HTML cookie denial", resp.StatusCode)
+		if resp.StatusCode != 302 || !strings.HasPrefix(resp.Header.Get("Location"), "https://tunn.test/auth/domain?") {
+			t.Fatal("signed-out app sign-in", resp.StatusCode)
 		}
 	}
 	// Obtain a new platform session and both new app cookies through real SSO.

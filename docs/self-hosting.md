@@ -54,6 +54,17 @@ are needed: generated tunnel URLs do not include a custom listen port.
 `TUNN_HOST_MODE` requires an authenticated standalone login node. The topology
 guard is retained; do not remove it to enable cluster host mode.
 
+On SIGTERM, HTTP/3 sends GOAWAY, allows up to three seconds for draining,
+then sends CONNECTION_CLOSE before releasing its UDP socket. Give the service
+manager enough termination time for that drain. Keep `TUNN_JWT_SECRET` stable
+across restarts: HTTP/3 derives its stateless-reset key from that secret so
+clients can promptly abandon connections lost in a crash. Configurations without
+a JWT secret use the loaded TLS private key instead. Rotating the source secret
+also changes reset tokens; connections established before this support was
+installed cannot benefit retroactively. HTTP/3 rejects 0-RTT early data; TLS
+session tickets retain automatic rotation and stale tickets use a full handshake.
+HTTP/2 and the HTTP/3 Alt-Svc advertisement retain their existing behavior.
+
 Owner-run checks and foreground operation, from the staged checkout:
 
 ```sh

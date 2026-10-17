@@ -58,7 +58,16 @@ HTTP/3 is off by default in production and remains on by default in development.
 Set `TUNN_HTTP3=off` to disable the UDP listener and its `Alt-Svc` advertisement,
 or `TUNN_HTTP3=on` to enable both. Production uses HTTP/2 because reused browser
 HTTP/3 connections have stalled while reading response bodies. Enable HTTP/3
-again only after that body-stall cause is fixed and verified with browsers.
+again only after verifying complete bodies with browsers on the deployed UDP path.
+The enabled listener uses 1200-byte UDP payloads, disables MTU discovery, GSO
+and ECN, and enforces the payload ceiling after port rebinding as well. This
+avoids a reproduced stall when a path stops delivering a previously validated
+larger packet size; it does not establish the cause of every production stall.
+To trial it, set only `TUNN_HTTP3=on`, restart, and confirm Chrome's Network tab
+shows `h3` and complete homepage, stylesheet and download bodies on repeated
+requests and after 35 and 125 seconds idle. Compare headers and full-body times.
+Set `TUNN_HTTP3=off` and restart to stop the trial if bodies stall; production
+continues to default to off. There is no additional transport knob.
 Cached advertisements expire after one hour; clients can fall back to TCP.
 The startup log records the effective setting once.
 

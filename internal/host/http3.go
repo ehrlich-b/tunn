@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/ehrlich-b/tunn/internal/common"
@@ -18,6 +19,22 @@ import (
 )
 
 const http3DrainTimeout = 3 * time.Second
+
+const http3UDPPayloadSize = 1200
+
+// Expose only PacketConn so the opt-in listener uses individual UDP writes,
+// without kernel GSO or ECN. Also enforce the ceiling at the socket boundary:
+// quic-go v0.59 can restart MTU probing after migration even when discovery is
+// disabled. Reporting an oversized probe as EMSGSIZE makes it a lost probe;
+// it cannot reach the peer and raise the validated size used for stream data.
+type http3PacketConn struct{ net.PacketConn }
+
+func (c http3PacketConn) WriteTo(b []byte, addr net.Addr) (int, error) {
+	if len(b) > http3UDPPayloadSize {
+		return 0, &net.OpError{Op: "write", Net: "udp", Addr: addr, Err: syscall.EMSGSIZE}
+	}
+	return c.PacketConn.WriteTo(b, addr)
+}
 
 // Track accepted connections independently of HTTP handlers. quic-go's Close
 // waits for handlers even after Shutdown's deadline; an unresponsive handler
@@ -95,12 +112,21 @@ func (p *ProxyServer) startHTTP3Server(ctx context.Context, handler http.Handler
 		return fmt.Errorf("failed to listen on %s: %w", p.HTTP3Addr, err)
 	}
 	defer conn.Close()
-	transport := &quic.Transport{Conn: conn, StatelessResetKey: &key}
+	transport := &quic.Transport{Conn: http3PacketConn{conn}, StatelessResetKey: &key}
 	defer transport.Close()
 	// Keep TLS's automatic session-ticket rotation. Unknown tickets after a
 	// restart fall back to a full handshake. Explicitly reject early data so
 	// authenticated HTTP requests cannot be replayed across deployments.
-	earlyListener, err := transport.ListenEarly(http3.ConfigureTLSConfig(p.tlsConfig.Clone()), &quic.Config{Allow0RTT: false})
+	// A reused UDP path can lose support for a previously validated MTU.
+	// quic-go v0.59 does not reduce its packet size after that change: small
+	// HEADERS arrive, while DATA and its retransmissions are blackholed.
+	// Stay at QUIC's minimum supported UDP payload on this opt-in listener.
+	// Disabling discovery alone would retain the larger default initial size.
+	earlyListener, err := transport.ListenEarly(http3.ConfigureTLSConfig(p.tlsConfig.Clone()), &quic.Config{
+		Allow0RTT:               false,
+		InitialPacketSize:       http3UDPPayloadSize,
+		DisablePathMTUDiscovery: true,
+	})
 	if err != nil {
 		return err
 	}

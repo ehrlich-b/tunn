@@ -4,12 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Share a dev server with OAuth in one command | tunn</title>
-<meta name="description" content="Share a local dev server through an HTTPS tunnel with GitHub OAuth sign-in and an email allow-list. Includes exact tunn commands.">
+<meta name="description" content="Share a local dev server through an HTTPS tunnel with personal account sign-in and an email allow-list. Includes exact tunn commands.">
 <link rel="canonical" href="https://tunn.to/share-dev-server-oauth">
 <meta property="og:type" content="article">
 <meta property="og:site_name" content="tunn">
 <meta property="og:title" content="Share a dev server with OAuth in one command">
-<meta property="og:description" content="Share a local dev server through an HTTPS tunnel with GitHub OAuth sign-in and an email allow-list. Includes exact tunn commands.">
+<meta property="og:description" content="Share a local dev server through an HTTPS tunnel with personal account sign-in and an email allow-list. Includes exact tunn commands.">
 <meta property="og:url" content="https://tunn.to/share-dev-server-oauth">
 <link rel="stylesheet" href="/guides.css">
 <script defer src="/assets/ui.js"></script>
@@ -26,7 +26,7 @@
 <span class="arg">tunn</span> <span class="arg">login</span></code></pre>
 <p>The CLI prompts you to finish login in a browser. The single sharing command above assumes that setup is complete.</p>
 <h2>What happens when someone opens the link?</h2>
-<p>An unauthenticated browser is sent to tunn's login page. With GitHub OAuth configured, the visitor chooses GitHub and signs in. tunn checks the account's verified emails against your allow-list before forwarding the request to the local app. The creator is also allowed. The login page can also offer email links; an allow-list does not force visitors to use only OAuth.</p>
+<p>An unauthenticated browser is sent to tunn's login page. The visitor signs in to a personal account with an allowed email, using Google or an email link where offered by the relay. tunn checks the account's verified emails against your allow-list before forwarding the request to the local app. The creator is also allowed. An allow-list does not force visitors to use only OAuth.</p>
 <p>Your teammate needs a browser, without a tunn CLI installation. The relay checks access before forwarding to your app, so this sharing rule does not require adding a login screen to your app.</p>
 <h2>Allow several people or a domain</h2>
 <pre class="shell-command" tabindex="0" aria-label="Shell commands"><code><span class="arg">tunn</span> <span class="arg">3000</span> <span class="arg">--allow=alice@example.com,bob@example.com</span>

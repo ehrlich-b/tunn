@@ -26,9 +26,9 @@ First app: **four one-time domain steps, one publishing step, two browser steps*
    the app address is `https://dashboard.apps.example.com`.
 6. Open that app URL. The edge obtains its real certificate, then sends the
    browser to tunn's normal sign-in page.
-7. Select **Continue with GitHub** or **Continue with Email** using a verified
-   mailbox linked to the owning tunn account (Google is also available when
-   configured). The login returns to tunn; a one-use, browser-bound handoff returns to the app.
+7. Sign in to the owning personal account using Google or an email link where
+   offered by the relay, with a verified mailbox linked to that account.
+   The login returns to tunn; a one-use, browser-bound handoff returns to the app.
    The app receives a signed identity JWT and `X-Tunn-User-Email`.
 
 Next app: **two publisher steps and one browser step**: repeat
@@ -42,7 +42,7 @@ repeating an existing name still succeeds. Deleting the namespace removes its
 app names and keys together, preserving existing shared reservations. Returning to an already signed-in app is **one browser step**.
 Provider consent screens or reading the email link may add interactions to the first login.
 
-A different GitHub account or email receives 403 after login unless the owner
+A different account receives 403 after login unless the owner
 explicitly shares the app with that account's verified email. Use the existing
 sharing dashboard/person grants or publisher allow-list; removing access or
 letting a person grant expire takes effect on new requests and active streams.
@@ -100,7 +100,7 @@ sshd. Origin host private keys never leave the origin.
    ```
 
    Open the displayed verification URL if the browser cannot open on the server.
-   Sign in using the existing GitHub or email flow, compare the displayed device
+   Sign in using a method offered by the relay, compare the displayed device
    code with the terminal, and click **Authorize**. For email sign-in, enter the
    publisher's email, request its magic link, and open it from the inbox first.
    The terminal prints `Logged in successfully!`.

@@ -1,6 +1,6 @@
 <style>.page-container{max-width:800px}h2,p,pre{margin-bottom:20px}pre{padding:16px;background:#f6f8fa;overflow:auto}</style>
 <h1 class="page-title">How the status page checks tunn</h1>
-<p>The <a href="/status">status page</a> shows whether tunn itself is up. It doesn't check your tunnel, your app, every region or the GitHub and email sign-in providers. There is no uptime guarantee.</p>
+<p>The <a href="/status">status page</a> shows whether tunn itself is up. It doesn't check your tunnel, your app, every region or the configured sign-in providers. There is no uptime guarantee.</p>
 <h2>What we check</h2><p>A separate checker calls <code>/healthz</code> and <code>/readyz</code> on tunn.to over HTTPS once a minute. "tunn.to" is up when the first answers. "Tunnels" is up when the second also answers, which means tunn can take traffic. Only HTTP 200 counts as up; errors and timeouts count as down.</p>
 <h2>The 90-day bars</h2><p>Each bar is one UTC day, today on the right. Green means every check that day passed. Blue means every check passed but some minutes weren't checked. Amber means tunn answered but wasn't ready for traffic. Red means it didn't answer. Gray means no checks. We only show what we checked; missed minutes are never filled in later.</p>
 <p>If the last check is more than 150 seconds old, the page says "Status unknown". The page reloads every minute. If tunn.to is fully down, this page may not load either.</p>

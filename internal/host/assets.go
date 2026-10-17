@@ -40,6 +40,10 @@ func serveWebAsset(w http.ResponseWriter, r *http.Request) bool {
 		// Error pages on tunnel hosts load the shared fonts cross-origin.
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 	}
+	if name == "site.webmanifest" {
+		// Tunnel error pages link this public manifest on the platform origin.
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+	}
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Cache-Control", "public, max-age=3600")

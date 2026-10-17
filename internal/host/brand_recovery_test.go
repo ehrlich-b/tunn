@@ -97,6 +97,9 @@ func TestIPDeniedIconsUseReachablePlatformOrigin(t *testing.T) {
 					t.Fatalf("icon %s: %d %s", target, asset.Code, asset.Header().Get("Content-Type"))
 				}
 				if u.Path == "/assets/site.webmanifest" {
+					if asset.Header().Get("Access-Control-Allow-Origin") != "*" {
+						t.Fatal("cross-origin manifest blocked by CORS")
+					}
 					var manifest struct{ Icons []struct{ Src string } }
 					if err := json.Unmarshal(asset.Body.Bytes(), &manifest); err != nil || len(manifest.Icons) != 2 {
 						t.Fatal("invalid manifest", err)

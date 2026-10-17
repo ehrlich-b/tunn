@@ -20,8 +20,9 @@ tunn login
 tunn 3000 --allow alex@example.com
 ```
 
-Replace the email and send Alex the printed HTTPS URL. Alex signs in with GitHub
-or an email link. Keep the app and tunn running. Tunn opens an outbound TLS/gRPC
+Replace the email and send Alex the printed HTTPS URL. Alex signs in using a
+method offered by the relay, such as Google, an email link or company sign-in
+where configured. Keep the app and tunn running. Tunn opens an outbound TLS/gRPC
 connection to its relay and dials your app locally; it does not need an inbound
 port on your Tailscale interface. Running both does not create a port conflict.
 Your network must still allow the relay connection.

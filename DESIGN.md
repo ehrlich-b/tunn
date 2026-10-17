@@ -32,8 +32,8 @@ the namespace, rather than through a separate per-app deletion API.
 
 A verified wildcard namespace and each app's namespace name belong to a durable
 tunn account UUID. Routing rechecks that the connected publisher has that UUID.
-The owner signs in through GitHub (verified primary email), an email magic link,
-or Google when configured. All three callbacks resolve the verified identity
+The owner signs in using a method offered by the relay. Personal sign-in
+callbacks resolve the verified identity
 through the existing account authority before signing a session with account ID,
 verified email and provider. A provider is authentication metadata, not access
 policy. Google retains its existing authoritative-mailbox/subject safeguards.
@@ -57,7 +57,7 @@ account merges resolve to their surviving UUID. A stale cookie whose mailbox
 moved without that merge cannot rebind itself to another account. Legacy
 email-only or Google-only app cookies require one new sign-in for this binding.
 
-An attacker with a different GitHub account or different mailbox gets their own
+An attacker with a different account or different mailbox gets their own
 UUID and receives 403 after login unless explicitly shared. A username, claimed
 email, request header, unverified provider mailbox, or matching owner email in a
 session for a different UUID confers no ownership. Actual verified control of an

@@ -41,8 +41,9 @@ manual checks below before advertising compatibility.
    in `allowedOrigins` and update it whenever the URL changes. Add other emails
    to `--allow` only when they should reach the Gateway.
 
-3. **Open the printed HTTPS URL and sign in.** Use GitHub or a magic link with
-   an allowed email, then enter the existing Gateway token/password in the
+3. **Open the printed HTTPS URL and sign in.** Use a method offered by
+   the relay, such as Google, an email link or company sign-in where configured,
+   with an allowed email. Then enter the existing Gateway token/password in the
    Control UI. Its WebSocket connects over `wss://` using the tunn session
    cookie. Complete OpenClaw's normal device-pairing approval if prompted.
 

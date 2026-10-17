@@ -495,7 +495,8 @@ func TestTwoDomainLoginJourney(t *testing.T) {
 			t.Fatal(err)
 		}
 		resp.Body.Close()
-		if resp.StatusCode != 302 || !strings.HasPrefix(resp.Header.Get("Location"), "https://tunn.test/auth/domain?") {
+		location, locationErr := resp.Location()
+		if resp.StatusCode != 302 || locationErr != nil || location.Scheme != "https" || location.Hostname() != "tunn.test" || location.Path != "/auth/domain" || location.Query().Get("request") == "" {
 			t.Fatalf("old cookie at %s after logout: %d", host, resp.StatusCode)
 		}
 	}
@@ -524,7 +525,8 @@ func TestTwoDomainLoginJourney(t *testing.T) {
 			t.Fatal(err)
 		}
 		resp.Body.Close()
-		if resp.StatusCode != 302 || !strings.HasPrefix(resp.Header.Get("Location"), "https://tunn.test/auth/domain?") {
+		location, locationErr := resp.Location()
+		if resp.StatusCode != 302 || locationErr != nil || location.Scheme != "https" || location.Hostname() != "tunn.test" || location.Path != "/auth/domain" || location.Query().Get("request") == "" {
 			t.Fatal("signed-out app sign-in", resp.StatusCode)
 		}
 	}

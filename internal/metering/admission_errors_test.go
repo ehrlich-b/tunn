@@ -44,3 +44,42 @@ func TestR4AdmissionTranslationRequiresTypedAuthorityReason(t *testing.T) {
 		}
 	}
 }
+
+func TestPolicyDenialRequiresLedgerDetails(t *testing.T) {
+	for _, code := range []codes.Code{codes.InvalidArgument, codes.FailedPrecondition, codes.NotFound} {
+		local := policyError(code, "ledger decision")
+		for _, err := range []error{local, fmt.Errorf("wrapped: %w", local), status.Convert(local).Err()} {
+			if !IsPolicyDenial(err) || status.Code(err) != code {
+				t.Fatalf("ledger decision lost identity or code: %v", err)
+			}
+		}
+		if IsPolicyDenial(status.Error(code, "ledger decision")) {
+			t.Fatalf("untagged %v treated as policy denial", code)
+		}
+	}
+	for _, err := range []error{ErrSharingRate, ErrCapacity} {
+		if !IsPolicyDenial(err) || !IsPolicyDenial(status.Convert(err).Err()) {
+			t.Fatalf("admission decision lost identity: %v", err)
+		}
+	}
+	for _, test := range []struct {
+		code           codes.Code
+		domain, reason string
+	}{
+		{codes.FailedPrecondition, "other-service", "POLICY_DENIED"},
+		{codes.FailedPrecondition, admissionErrorDomain, "UNKNOWN_REASON"},
+		{codes.Unavailable, admissionErrorDomain, "POLICY_DENIED"},
+		{codes.FailedPrecondition, admissionErrorDomain, "CAPACITY"},
+	} {
+		s, err := status.New(test.code, "connection diagnostic").WithDetails(&errdetails.ErrorInfo{Domain: test.domain, Reason: test.reason})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if IsPolicyDenial(s.Err()) {
+			t.Fatalf("unrecognized ledger details treated as policy denial: %v", s.Err())
+		}
+	}
+	if IsPolicyDenial(nil) || IsPolicyDenial(errors.New("storage unavailable")) {
+		t.Fatal("non-policy error treated as denial")
+	}
+}

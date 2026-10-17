@@ -17,7 +17,11 @@ import (
 	"github.com/ehrlich-b/tunn/internal/store"
 	meterpb "github.com/ehrlich-b/tunn/pkg/proto/meteringv1"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/peer"
+	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 )
 
@@ -172,14 +176,14 @@ func TestServeClientMissingOrRevokedAccountStops(t *testing.T) {
 }
 
 // Use the real ledger over both in-process and production-style RPC backends.
-func registrationLedger(t *testing.T, f *durablePublisherFixture, remote bool) metering.SharingBackend {
+func registrationLedger(t *testing.T, f *durablePublisherFixture, remote bool, options ...grpc.ServerOption) metering.SharingBackend {
 	t.Helper()
 	ledger := f.login.meter.(metering.SharingBackend)
 	if !remote {
 		return ledger
 	}
 	listener := bufconn.Listen(1 << 20)
-	server := grpc.NewServer()
+	server := grpc.NewServer(options...)
 	meterpb.RegisterMeteringServer(server, f.login.meter.(meterpb.MeteringServer))
 	go func() { _ = server.Serve(listener) }()
 	t.Cleanup(func() { server.Stop(); _ = listener.Close() })
@@ -304,4 +308,95 @@ func TestServeClientRecoversFromHostAccountLookupOutage(t *testing.T) {
 		onLifecycle(event)
 	}
 	recoverRegistration(t, f, "Account service temporarily unavailable.", func() {})
+}
+
+// Keep account RPCs healthy so the rejection occurs specifically on the ledger
+// connection after account verification and the shared tunnel reservation.
+func TestServeClientRecoversFromLoginNodePolicyAuthFailure(t *testing.T) {
+	for _, target := range []string{"web", "mcp"} {
+		for _, failure := range []struct {
+			name    string
+			code    codes.Code
+			message string
+		}{
+			{"unconfigured", codes.FailedPrecondition, "internal node authentication is not configured"},
+			{"missing-metadata", codes.Unauthenticated, "missing metadata"},
+			{"invalid-secret", codes.Unauthenticated, "invalid node secret"},
+			{"blocked", codes.PermissionDenied, "temporarily blocked"},
+		} {
+			t.Run(target+"/"+failure.name, func(t *testing.T) {
+				f := newDurablePublisherFixture(t)
+				var fixed atomic.Bool
+				var calls atomic.Int64
+				// The interceptor receives controlled authentication contexts to
+				// exercise every rejection, including absent incoming metadata.
+				// No real peer is blacklisted by the invalid-secret cases.
+				interceptor := func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+					calls.Add(1)
+					authCtx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("x-node-secret", "current-secret"))
+					secret := "current-secret"
+					if failure.name == "blocked" {
+						const ip = "192.0.2.231"
+						authCtx = peer.NewContext(authCtx, &peer.Peer{Addr: &net.TCPAddr{IP: net.ParseIP(ip), Port: 1234}})
+						ipBlacklist.Lock()
+						expiry := time.Now().Add(blacklistDuration)
+						if fixed.Load() {
+							expiry = time.Now().Add(-time.Second)
+						}
+						ipBlacklist.entries[ip] = expiry
+						ipBlacklist.Unlock()
+					}
+					if !fixed.Load() {
+						switch failure.name {
+						case "unconfigured":
+							secret = ""
+						case "missing-metadata":
+							authCtx = context.Background()
+						case "invalid-secret":
+							authCtx = metadata.NewIncomingContext(authCtx, metadata.Pairs("x-node-secret", "old-secret"))
+						}
+					}
+					out, err := nodeSecretInterceptor(secret)(authCtx, req, info, func(context.Context, any) (any, error) {
+						return handler(ctx, req)
+					})
+					if err != nil && (status.Code(err) != failure.code || status.Convert(err).Message() != failure.message) {
+						t.Errorf("unexpected interceptor rejection: %v", err)
+					}
+					return out, err
+				}
+				ledger := registrationLedger(t, f, true, grpc.UnaryInterceptor(interceptor))
+				f.relay.tunnelServer.SetSharingBackend(ledger)
+				f.publisher.EndpointProtocol = "http"
+				f.publisher.RequireSharing = true
+				want := "Web permission authority unavailable."
+				if target == "mcp" {
+					f.publisher.PublicPath = "/mcp"
+					want = "Endpoint policy authority unavailable."
+				}
+				recoverRegistration(t, f, want, func() { fixed.Store(true) })
+				if got := calls.Load(); got != 4 {
+					t.Fatalf("expected three auth failures then successful registration, got %d calls", got)
+				}
+			})
+		}
+	}
+}
+
+func TestPolicyRegistrationConnectionFailuresAreTransient(t *testing.T) {
+	for _, code := range []codes.Code{
+		codes.Canceled, codes.Unknown, codes.InvalidArgument, codes.DeadlineExceeded,
+		codes.NotFound, codes.AlreadyExists, codes.PermissionDenied,
+		codes.ResourceExhausted, codes.FailedPrecondition, codes.Aborted,
+		codes.OutOfRange, codes.Unimplemented, codes.Internal, codes.Unavailable,
+		codes.DataLoss, codes.Unauthenticated,
+	} {
+		t.Run(code.String(), func(t *testing.T) {
+			for _, authority := range []string{"Web permission", "Endpoint policy"} {
+				got := policyRegistrationFailure(status.Error(code, "private connection diagnostic"), authority)
+				if want := authority + " authority unavailable."; got != want {
+					t.Fatalf("connection error exposed or terminal: %q, want %q", got, want)
+				}
+			}
+		})
+	}
 }

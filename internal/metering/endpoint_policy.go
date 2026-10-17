@@ -14,7 +14,6 @@ import (
 	"github.com/ehrlich-b/tunn/internal/trafficpolicy"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/meteringv1"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 // PolicyBackend is optional for legacy test adapters. Managed HTTP resources
@@ -50,13 +49,13 @@ func (s *Store) initEndpointPolicy() error {
 
 func (s *Store) EndpointPolicy(ctx context.Context, in *pb.EndpointPolicyRequest) (*pb.EndpointPolicyResponse, error) {
 	if in == nil || in.Owner == "" || len(in.Owner) > 254 || !resourceName.MatchString(in.Endpoint) {
-		return nil, status.Error(codes.InvalidArgument, "invalid policy owner or endpoint")
+		return nil, policyError(codes.InvalidArgument, "invalid policy owner or endpoint")
 	}
 	var replacement []byte
 	if in.Operation == "set" {
 		p, err := trafficpolicy.Decode(in.PolicyJson)
 		if err != nil {
-			return nil, status.Error(codes.InvalidArgument, err.Error())
+			return nil, policyError(codes.InvalidArgument, err.Error())
 		}
 		replacement, _ = json.Marshal(p)
 	}
@@ -69,13 +68,13 @@ func (s *Store) EndpointPolicy(ctx context.Context, in *pb.EndpointPolicyRequest
 		var resource string
 		err = tx.QueryRowContext(ctx, `SELECT id FROM web_resources WHERE owner=? AND endpoint=?`, owner, in.Endpoint).Scan(&resource)
 		if errors.Is(err, sql.ErrNoRows) {
-			return status.Error(codes.NotFound, "endpoint not found")
+			return policyError(codes.NotFound, "endpoint not found")
 		}
 		if err != nil {
 			return err
 		}
 		if in.ResourceId != "" && in.ResourceId != resource || in.Operation == "admit" && in.ResourceId == "" {
-			return status.Error(codes.NotFound, "endpoint generation changed")
+			return policyError(codes.NotFound, "endpoint generation changed")
 		}
 		var data []byte
 		err = tx.QueryRowContext(ctx, `SELECT data FROM endpoint_policies WHERE resource=?`, resource).Scan(&data)
@@ -140,7 +139,7 @@ func (s *Store) EndpointPolicy(ctx context.Context, in *pb.EndpointPolicyRequest
 				return err
 			}
 		default:
-			return status.Error(codes.InvalidArgument, "unsupported policy operation")
+			return policyError(codes.InvalidArgument, "unsupported policy operation")
 		}
 		out.PolicyJson = data
 		return nil
@@ -195,7 +194,7 @@ func (s *Store) admitEndpointPolicy(ctx context.Context, tx *sql.Tx, resource, p
 	if p.RateLimits.PerIP != nil {
 		ip, err := netip.ParseAddr(peer)
 		if err != nil || ip.Zone() != "" {
-			return nil, status.Error(codes.InvalidArgument, "canonical client IP required")
+			return nil, policyError(codes.InvalidArgument, "canonical client IP required")
 		}
 		digest := sha256.Sum256([]byte(ip.Unmap().String()))
 		if err = load("ip:"+hex.EncodeToString(digest[:]), "policy_ip_rate", p.RateLimits.PerIP); err != nil {

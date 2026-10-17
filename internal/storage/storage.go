@@ -73,15 +73,16 @@ type DeviceCode struct {
 
 // Account represents a user account (email bucket)
 type Account struct {
-	BillingNotice      string
-	BillingState       string
-	OperationalState   string
-	OperationalVersion int64
-	ID                 string
-	PrimaryEmail       string
-	Plan               string // "free" or "pro"
-	CreatedAt          time.Time
-	Emails             []AccountEmail
+	BrowserSessionEpoch string
+	BillingNotice       string
+	BillingState        string
+	OperationalState    string
+	OperationalVersion  int64
+	ID                  string
+	PrimaryEmail        string
+	Plan                string // "free" or "pro"
+	CreatedAt           time.Time
+	Emails              []AccountEmail
 }
 
 // AccountEmail represents an email in an account bucket
@@ -118,6 +119,11 @@ type GoogleIdentityStorage interface {
 type ScopedDeviceStorage interface {
 	CreateDeviceCodeForPurpose(context.Context, string, string) (*DeviceCode, error)
 	CheckManagementDevice(context.Context, string, string, string) (bool, error)
+}
+
+// BrowserSessionStorage revokes browser sessions without touching device credentials.
+type BrowserSessionStorage interface {
+	RevokeBrowserSessions(context.Context, string, string) error
 }
 
 // AccountEmailStorage is implemented locally and through the login node.

@@ -25,6 +25,7 @@ service LoginNodeDB {
 
   // Account management
   rpc GetAccount(GetAccountRequest) returns (AccountResponse);
+  rpc RevokeBrowserSessions(RevokeBrowserSessionsRequest) returns (RevokeBrowserSessionsResponse);
   rpc GetAccountByEmail(GetAccountByEmailRequest) returns (AccountResponse);
   rpc FindOrCreateByEmails(FindOrCreateByEmailsRequest) returns (AccountResponse);
   rpc MutateAccountEmail(MutateAccountEmailRequest) returns (AccountResponse);
@@ -149,6 +150,7 @@ message AccountResponse {
   int64 operational_version = 8;
   string billing_state = 9;
   string billing_notice = 10;
+  string browser_session_epoch = 11;
 }
 
 message AccountEmail {
@@ -156,6 +158,13 @@ message AccountEmail {
   string verified_via = 2;
   int64 added_at = 3;
 }
+
+message RevokeBrowserSessionsRequest {
+  string account_id = 1;
+  string expected_epoch = 2;
+}
+
+message RevokeBrowserSessionsResponse {}
 
 message GetAccountRequest {
   string account_id = 1;

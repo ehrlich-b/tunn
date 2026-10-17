@@ -448,15 +448,16 @@ func storeAccountToStorage(acc *store.Account) *Account {
 		}
 	}
 	return &Account{
-		BillingState:       acc.BillingState,
-		BillingNotice:      acc.BillingNotice,
-		OperationalState:   acc.OperationalState,
-		OperationalVersion: acc.OperationalVersion,
-		ID:                 acc.ID,
-		PrimaryEmail:       acc.PrimaryEmail,
-		Plan:               acc.Plan,
-		CreatedAt:          acc.CreatedAt,
-		Emails:             emails,
+		BillingState:        acc.BillingState,
+		BillingNotice:       acc.BillingNotice,
+		OperationalState:    acc.OperationalState,
+		OperationalVersion:  acc.OperationalVersion,
+		BrowserSessionEpoch: acc.BrowserSessionEpoch,
+		ID:                  acc.ID,
+		PrimaryEmail:        acc.PrimaryEmail,
+		Plan:                acc.Plan,
+		CreatedAt:           acc.CreatedAt,
+		Emails:              emails,
 	}
 }
 
@@ -526,4 +527,8 @@ func (s *LocalStorage) LinkAccountEmail(ctx context.Context, id, email, jti stri
 		return nil, err
 	}
 	return storeAccountToStorage(a), nil
+}
+
+func (s *LocalStorage) RevokeBrowserSessions(ctx context.Context, id, expected string) error {
+	return s.accounts.RevokeBrowserSessions(ctx, id, expected)
 }

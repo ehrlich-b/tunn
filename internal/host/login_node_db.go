@@ -268,16 +268,17 @@ func accountToProto(acc *storage.Account) *internalv1.AccountResponse {
 		}
 	}
 	return &internalv1.AccountResponse{
-		BillingState:       acc.BillingState,
-		BillingNotice:      acc.BillingNotice,
-		OperationalState:   acc.OperationalState,
-		OperationalVersion: acc.OperationalVersion,
-		Found:              true,
-		Id:                 acc.ID,
-		PrimaryEmail:       acc.PrimaryEmail,
-		Plan:               acc.Plan,
-		CreatedAt:          acc.CreatedAt.Unix(),
-		Emails:             emails,
+		BillingState:        acc.BillingState,
+		BillingNotice:       acc.BillingNotice,
+		OperationalState:    acc.OperationalState,
+		OperationalVersion:  acc.OperationalVersion,
+		BrowserSessionEpoch: acc.BrowserSessionEpoch,
+		Found:               true,
+		Id:                  acc.ID,
+		PrimaryEmail:        acc.PrimaryEmail,
+		Plan:                acc.Plan,
+		CreatedAt:           acc.CreatedAt.Unix(),
+		Emails:              emails,
 	}
 }
 
@@ -327,4 +328,14 @@ func (s *LoginNodeDBServer) MutateAccountEmail(ctx context.Context, r *internalv
 		return nil, status.Error(codes.Internal, "Account email update unavailable")
 	}
 	return accountToProto(a), nil
+}
+
+func (s *LoginNodeDBServer) RevokeBrowserSessions(ctx context.Context, r *internalv1.RevokeBrowserSessionsRequest) (*internalv1.RevokeBrowserSessionsResponse, error) {
+	if r.AccountId == "" {
+		return nil, status.Error(codes.InvalidArgument, "Account required")
+	}
+	if err := s.storage.RevokeBrowserSessions(ctx, r.AccountId, r.ExpectedEpoch); err != nil {
+		return nil, status.Error(codes.Unavailable, "Logout not committed")
+	}
+	return &internalv1.RevokeBrowserSessionsResponse{}, nil
 }

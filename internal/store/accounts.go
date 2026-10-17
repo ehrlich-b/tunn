@@ -13,15 +13,16 @@ import (
 
 // Account represents a user account (email bucket)
 type Account struct {
-	BillingNotice      string
-	BillingState       string
-	OperationalState   string
-	OperationalVersion int64
-	ID                 string
-	PrimaryEmail       string
-	Plan               string // "free" or "pro"
-	CreatedAt          time.Time
-	Emails             []AccountEmail
+	BrowserSessionEpoch string
+	BillingNotice       string
+	BillingState        string
+	OperationalState    string
+	OperationalVersion  int64
+	ID                  string
+	PrimaryEmail        string
+	Plan                string // "free" or "pro"
+	CreatedAt           time.Time
+	Emails              []AccountEmail
 }
 
 // AccountEmail represents an email in an account bucket
@@ -83,7 +84,7 @@ func (s *AccountStore) findOrCreateByEmailsTx(tx *sql.Tx, emails []string, verif
 		args[i] = email
 	}
 
-	query := `SELECT DISTINCT a.id, a.primary_email, a.plan, a.created_at
+	query := `SELECT DISTINCT a.id, a.primary_email, a.plan, a.created_at, COALESCE((SELECT epoch FROM browser_session_epochs WHERE account_id=a.id),'')
 	          FROM accounts a
 	          JOIN account_emails ae ON a.id = ae.account_id
 	          WHERE ae.email IN (` + strings.Join(placeholders, ",") + `)`
@@ -98,7 +99,7 @@ func (s *AccountStore) findOrCreateByEmailsTx(tx *sql.Tx, emails []string, verif
 	for rows.Next() {
 		var acc Account
 		var createdAtUnix int64
-		if err := rows.Scan(&acc.ID, &acc.PrimaryEmail, &acc.Plan, &createdAtUnix); err != nil {
+		if err := rows.Scan(&acc.ID, &acc.PrimaryEmail, &acc.Plan, &createdAtUnix, &acc.BrowserSessionEpoch); err != nil {
 			return nil, err
 		}
 		acc.CreatedAt = time.Unix(createdAtUnix, 0)
@@ -172,6 +173,9 @@ func (s *AccountStore) findOrCreateByEmailsTx(tx *sql.Tx, emails []string, verif
 	if err != nil {
 		return nil, err
 	}
+	if err := tx.QueryRow("SELECT COALESCE((SELECT epoch FROM browser_session_epochs WHERE account_id=?),'')", account.ID).Scan(&account.BrowserSessionEpoch); err != nil {
+		return nil, err
+	}
 	return account, nil
 }
 
@@ -188,11 +192,11 @@ func (s *AccountStore) GetByEmailContext(ctx context.Context, email string) (*Ac
 	var createdAtUnix int64
 
 	err := s.db.QueryRowContext(ctx, `
-		SELECT a.id, a.primary_email, a.plan, a.created_at
+		SELECT a.id, a.primary_email, a.plan, a.created_at, COALESCE((SELECT epoch FROM browser_session_epochs WHERE account_id=a.id),'')
 		FROM accounts a
 		JOIN account_emails ae ON a.id = ae.account_id
 		WHERE ae.email = ?
-	`, email).Scan(&account.ID, &account.PrimaryEmail, &account.Plan, &createdAtUnix)
+	`, email).Scan(&account.ID, &account.PrimaryEmail, &account.Plan, &createdAtUnix, &account.BrowserSessionEpoch)
 	if err != nil {
 		return nil, err
 	}
@@ -292,6 +296,9 @@ ON CONFLICT(account_id, machine) DO UPDATE SET last_seen=MAX(host_machines.last_
 			}
 		}
 		if err := mergeAccountAccounting(tx, acc.ID, primary.ID); err != nil {
+			return nil, err
+		}
+		if err := mergeBrowserSessions(tx, acc.ID, primary.ID); err != nil {
 			return nil, err
 		}
 		if err := mergeAccountOperations(tx, acc.ID, primary.ID); err != nil {
@@ -594,10 +601,10 @@ func (s *AccountStore) GetByIDContext(ctx context.Context, accountID string) (*A
 	var createdAtUnix int64
 
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, primary_email, plan, created_at
+		SELECT id, primary_email, plan, created_at, COALESCE((SELECT epoch FROM browser_session_epochs WHERE account_id=accounts.id),'')
 		FROM accounts
 		WHERE id = COALESCE((SELECT account_id FROM account_merges WHERE old_id = ?), ?)
-	`, accountID, accountID).Scan(&account.ID, &account.PrimaryEmail, &account.Plan, &createdAtUnix)
+	`, accountID, accountID).Scan(&account.ID, &account.PrimaryEmail, &account.Plan, &createdAtUnix, &account.BrowserSessionEpoch)
 	if err != nil {
 		return nil, err
 	}

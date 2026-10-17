@@ -204,6 +204,7 @@ const (
 	LoginNodeDB_GetDeviceCode_FullMethodName           = "/internal.LoginNodeDB/GetDeviceCode"
 	LoginNodeDB_AuthorizeDeviceCode_FullMethodName     = "/internal.LoginNodeDB/AuthorizeDeviceCode"
 	LoginNodeDB_GetAccount_FullMethodName              = "/internal.LoginNodeDB/GetAccount"
+	LoginNodeDB_RevokeBrowserSessions_FullMethodName   = "/internal.LoginNodeDB/RevokeBrowserSessions"
 	LoginNodeDB_GetAccountByEmail_FullMethodName       = "/internal.LoginNodeDB/GetAccountByEmail"
 	LoginNodeDB_FindOrCreateByEmails_FullMethodName    = "/internal.LoginNodeDB/FindOrCreateByEmails"
 	LoginNodeDB_MutateAccountEmail_FullMethodName      = "/internal.LoginNodeDB/MutateAccountEmail"
@@ -237,6 +238,7 @@ type LoginNodeDBClient interface {
 	AuthorizeDeviceCode(ctx context.Context, in *AuthorizeDeviceCodeRequest, opts ...grpc.CallOption) (*AuthorizeDeviceCodeResponse, error)
 	// Account management
 	GetAccount(ctx context.Context, in *GetAccountRequest, opts ...grpc.CallOption) (*AccountResponse, error)
+	RevokeBrowserSessions(ctx context.Context, in *RevokeBrowserSessionsRequest, opts ...grpc.CallOption) (*RevokeBrowserSessionsResponse, error)
 	GetAccountByEmail(ctx context.Context, in *GetAccountByEmailRequest, opts ...grpc.CallOption) (*AccountResponse, error)
 	FindOrCreateByEmails(ctx context.Context, in *FindOrCreateByEmailsRequest, opts ...grpc.CallOption) (*AccountResponse, error)
 	MutateAccountEmail(ctx context.Context, in *MutateAccountEmailRequest, opts ...grpc.CallOption) (*AccountResponse, error)
@@ -330,6 +332,16 @@ func (c *loginNodeDBClient) GetAccount(ctx context.Context, in *GetAccountReques
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(AccountResponse)
 	err := c.cc.Invoke(ctx, LoginNodeDB_GetAccount_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *loginNodeDBClient) RevokeBrowserSessions(ctx context.Context, in *RevokeBrowserSessionsRequest, opts ...grpc.CallOption) (*RevokeBrowserSessionsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RevokeBrowserSessionsResponse)
+	err := c.cc.Invoke(ctx, LoginNodeDB_RevokeBrowserSessions_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -493,6 +505,7 @@ type LoginNodeDBServer interface {
 	AuthorizeDeviceCode(context.Context, *AuthorizeDeviceCodeRequest) (*AuthorizeDeviceCodeResponse, error)
 	// Account management
 	GetAccount(context.Context, *GetAccountRequest) (*AccountResponse, error)
+	RevokeBrowserSessions(context.Context, *RevokeBrowserSessionsRequest) (*RevokeBrowserSessionsResponse, error)
 	GetAccountByEmail(context.Context, *GetAccountByEmailRequest) (*AccountResponse, error)
 	FindOrCreateByEmails(context.Context, *FindOrCreateByEmailsRequest) (*AccountResponse, error)
 	MutateAccountEmail(context.Context, *MutateAccountEmailRequest) (*AccountResponse, error)
@@ -542,6 +555,9 @@ func (UnimplementedLoginNodeDBServer) AuthorizeDeviceCode(context.Context, *Auth
 }
 func (UnimplementedLoginNodeDBServer) GetAccount(context.Context, *GetAccountRequest) (*AccountResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetAccount not implemented")
+}
+func (UnimplementedLoginNodeDBServer) RevokeBrowserSessions(context.Context, *RevokeBrowserSessionsRequest) (*RevokeBrowserSessionsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RevokeBrowserSessions not implemented")
 }
 func (UnimplementedLoginNodeDBServer) GetAccountByEmail(context.Context, *GetAccountByEmailRequest) (*AccountResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetAccountByEmail not implemented")
@@ -728,6 +744,24 @@ func _LoginNodeDB_GetAccount_Handler(srv interface{}, ctx context.Context, dec f
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(LoginNodeDBServer).GetAccount(ctx, req.(*GetAccountRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LoginNodeDB_RevokeBrowserSessions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RevokeBrowserSessionsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LoginNodeDBServer).RevokeBrowserSessions(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LoginNodeDB_RevokeBrowserSessions_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LoginNodeDBServer).RevokeBrowserSessions(ctx, req.(*RevokeBrowserSessionsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1018,6 +1052,10 @@ var LoginNodeDB_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetAccount",
 			Handler:    _LoginNodeDB_GetAccount_Handler,
+		},
+		{
+			MethodName: "RevokeBrowserSessions",
+			Handler:    _LoginNodeDB_RevokeBrowserSessions_Handler,
 		},
 		{
 			MethodName: "GetAccountByEmail",

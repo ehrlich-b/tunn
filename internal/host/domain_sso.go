@@ -21,6 +21,23 @@ const appNonceCookie = "__Host-tunn_sso"
 const appCallback = "/.tunn/sso/callback"
 
 func (p *ProxyServer) signedSession(w http.ResponseWriter, claims jwt.MapClaims, name, domain string, lifetime time.Duration) error {
+	// Provider logins snapshot the live epoch. App callbacks must preserve the
+	// handoff epoch, so a concurrent logout cannot mint a fresh app session.
+	if _, carried := claims["session_epoch"]; !carried && validAccountClaims(claims) {
+		if p.storage == nil || !p.storage.Available() {
+			return storage.ErrNotAvailable
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		account, err := p.storage.GetAccount(ctx, claims["account_id"].(string))
+		if err != nil {
+			return err
+		}
+		if account == nil {
+			return fmt.Errorf("account unavailable")
+		}
+		claims["session_epoch"] = account.BrowserSessionEpoch
+	}
 	claims["type"] = "session"
 	claims["iat"] = time.Now().Unix()
 	claims["exp"] = time.Now().Add(lifetime).Unix()
@@ -61,6 +78,11 @@ func (p *ProxyServer) accountSession(r *http.Request) (jwt.MapClaims, bool) {
 	}
 	return claims, true
 }
+func browserSessionEpoch(claims jwt.MapClaims) string {
+	epoch, _ := claims["session_epoch"].(string)
+	return epoch
+}
+
 func validAccountClaims(claims jwt.MapClaims) bool {
 	id, _ := claims["account_id"].(string)
 	email, _ := claims["email"].(string)
@@ -89,6 +111,19 @@ func (p *ProxyServer) sessionAccount(r *http.Request, claims jwt.MapClaims) (*st
 	account, err := p.storage.GetAccount(r.Context(), id)
 	if err != nil || account == nil {
 		return nil, err
+	}
+	// This is the existing uncached authority lookup on each app request and
+	// idle-stream poll: revocation adds no RPC or SQL query to admission.
+	// Device credentials have their own independent revocation lifecycle.
+	if claims["type"] == "session" || claims["type"] == "domain_handoff" {
+		epoch, present := claims["session_epoch"]
+		if !present {
+			// Sessions issued before this migration use the initial epoch.
+			epoch = ""
+		}
+		if epoch != account.BrowserSessionEpoch {
+			return nil, nil
+		}
 	}
 	email, _ := claims["email"].(string)
 	for _, e := range account.Emails {
@@ -166,7 +201,7 @@ func (p *ProxyServer) handleDomainLogin(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "Access denied", 403)
 		return
 	}
-	handoff := jwt.MapClaims{"type": "domain_handoff", "aud": host, "nonce": nonce, "path": path, "account_id": account.ID, "email": session["email"], "provider": session["provider"], "email_verified": true, "google_authoritative": session["google_authoritative"], "issuer": session["issuer"], "exp": time.Now().Add(time.Minute).Unix()}
+	handoff := jwt.MapClaims{"type": "domain_handoff", "session_epoch": browserSessionEpoch(session), "aud": host, "nonce": nonce, "path": path, "account_id": account.ID, "email": session["email"], "provider": session["provider"], "email_verified": true, "google_authoritative": session["google_authoritative"], "issuer": session["issuer"], "exp": time.Now().Add(time.Minute).Unix()}
 	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, handoff).SignedString(p.getJWTSigningKey())
 	if err != nil {
 		http.Error(w, "Login unavailable", 503)
@@ -224,7 +259,7 @@ func (p *ProxyServer) handleDomainCallback(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	http.SetCookie(w, &http.Cookie{Name: appNonceCookie, Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: -1})
-	if err := p.signedSession(w, jwt.MapClaims{"account_id": claims["account_id"], "email": claims["email"], "provider": claims["provider"], "email_verified": true, "google_authoritative": claims["google_authoritative"], "issuer": claims["issuer"], "aud": requestHostname(r.Host)}, appCookie, "", time.Hour); err != nil {
+	if err := p.signedSession(w, jwt.MapClaims{"session_epoch": browserSessionEpoch(claims), "account_id": claims["account_id"], "email": claims["email"], "provider": claims["provider"], "email_verified": true, "google_authoritative": claims["google_authoritative"], "issuer": claims["issuer"], "aud": requestHostname(r.Host)}, appCookie, "", time.Hour); err != nil {
 		http.Error(w, "Login unavailable", 503)
 		return
 	}

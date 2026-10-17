@@ -26,9 +26,9 @@ First app: **four one-time domain steps, one publishing step, two browser steps*
    the app address is `https://dashboard.apps.example.com`.
 6. Open that app URL. The edge obtains its real certificate, then sends the
    browser to tunn's normal sign-in page.
-7. Choose a sign-in method offered by the relay, such as Google, an email link
-   or company sign-in where configured. Use the owning tunn account; for
-   personal-email sign-in, use a verified mailbox linked to that account. The login returns to tunn; a one-use, browser-bound handoff returns to the app.
+7. Sign in to the owning personal account using Google or an email link where
+   offered by the relay, with a verified mailbox linked to that account.
+   The login returns to tunn; a one-use, browser-bound handoff returns to the app.
    The app receives a signed identity JWT and `X-Tunn-User-Email`.
 
 Next app: **two publisher steps and one browser step**: repeat

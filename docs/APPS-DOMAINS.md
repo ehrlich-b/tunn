@@ -14,10 +14,10 @@ independently reserved tunnel names. Verified owners retain namespace protection
 when their DNS lease fails; routing still fails closed until proof is restored.
 Every local
 or remotely routed request rechecks the tunnel account against the domain owner.
-Wildcard app ingress requires a verified tunn account browser session. The
-namespace/app-name owner UUID is authorized after sign-in using a method
-offered by the relay. Other accounts require explicit live person
-sharing or the legacy email allow-list. Public mode and bearer grants do not
+Wildcard app ingress requires a verified personal tunn account browser session.
+The namespace/app-name owner UUID is authorized after personal sign-in using
+Google or an email link where offered by the relay. Other accounts require
+explicit live person sharing or the legacy email allow-list. Public mode and bearer grants do not
 bypass this boundary. See [the account design](../DESIGN.md).
 
 ## App-name capacity and migration
@@ -70,7 +70,7 @@ key), `TUNN_ACME_EMAIL`, and `TUNN_ACME_DIRECTORY` (staging before production).
 The default directory is `https://acme-v02.api.letsencrypt.org/directory`. Back up the encrypted
 database together with its encryption secret through existing operator tooling.
 
-Use the login authority's configured sign-in methods.
+Use the login authority's configured personal sign-in methods.
 Google OAuth is optional; no Google prompts, client secrets, callback setup or
 owner-primary-email change are required for wildcard access. Existing browser
 sessions lacking a signed account ID require one new sign-in after deployment.
@@ -80,8 +80,8 @@ point to `tunn.to`; TXT proof must remain available. Public TCP/80 on every edge
 must reach the HTTP-01 listener directly, and TCP/443 must reach tunn TLS.
 Existing node-secret/TLS RPC protection distributes challenges and certificates.
 
-REQUIRED-UNRUN: real production CA issuance/renewal after DNS changes, real configured-provider
-login as the owner and another account, and a browser SSO acceptance check across
+REQUIRED-UNRUN: real production CA issuance/renewal after DNS changes, real personal
+sign-in as the owner and another account, and a browser SSO acceptance check across
 apps/relay nodes. Local test CA success does not constitute production issuance.
 
 ## Certificate authority, storage, and renewal

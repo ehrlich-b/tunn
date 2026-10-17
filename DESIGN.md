@@ -32,9 +32,9 @@ the namespace, rather than through a separate per-app deletion API.
 
 A verified wildcard namespace and each app's namespace name belong to a durable
 tunn account UUID. Routing rechecks that the connected publisher has that UUID.
-The owner signs in using a method offered by the relay. Personal sign-in
-callbacks resolve the verified identity
-through the existing account authority before signing a session with account ID,
+The owner signs in to a personal account using Google or an email link where
+offered by the relay. These callbacks resolve the verified identity through
+the existing account authority before signing a session with account ID,
 verified email and provider. A provider is authentication metadata, not access
 policy. Google retains its existing authoritative-mailbox/subject safeguards.
 

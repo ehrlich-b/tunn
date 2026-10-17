@@ -16,8 +16,8 @@ ssh -T -p 443 -o ExitOnForwardFailure=yes -R0:localhost:8080 tunn.to -- \
 ```
 
 The session prints the HTTPS URL, allowed identities, actual expiry and live
-request/status lines. Visitors sign in using a method offered by the relay, such as Google, an email
-link or company sign-in where configured.
+request/status lines. Visitors sign in to a personal account with an allowed
+email, using Google or an email link where offered by the relay.
 Ctrl-C, an SSH signal, loss of the connection or expiry removes the tunnel.
 Use `-T` when piping output; an interactive terminal also works. Keep a session
 open when publishing; `-N` does not request a shell or command and therefore

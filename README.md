@@ -23,8 +23,8 @@ an operator. Existing subscriptions are not repriced by this change.
 Current prices and deployment caps appear on [pricing](https://tunn.to/pricing); use `tunn usage` for your account totals.
 
 Share a local app privately with `tunn 8080 --allow=alice@example.com`. Visitors
-sign in using the methods offered by the relay, such as Google, an email link,
-or company sign-in where configured. For webhook callbacks, keep the endpoint
+sign in to a personal account with the allowed email, using Google or an email
+link where offered by the relay. For webhook callbacks, keep the endpoint
 public and validate the sender's signatures in your application.
 The [SSH API](docs/ssh-api.md) also supports OpenSSH publication and forwarding.
 

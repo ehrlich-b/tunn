@@ -81,3 +81,48 @@ func TestGitHubSignInPromiseDetection(t *testing.T) {
 		}
 	}
 }
+
+// Email grants and wildcard app handoffs require personal identities, even
+// when the relay also offers company login. Scope this check to those flows;
+// company/group sharing has separate, valid instructions in README and org-sso.
+func TestPersonalAccessCopy(t *testing.T) {
+	personalIdentity := regexp.MustCompile(`(?i)\bpersonal(?: tunn)? account\b|\bpersonal sign-in\b`)
+	companyIdentity := regexp.MustCompile(`(?i)\b(?:company|corporate|org(?:anization)?)\b`)
+	for _, section := range []struct {
+		path, start, end string
+	}{
+		{"README.md", "Share a local app privately", "Relays can also offer"},
+		{"USER-JOURNEY.md", "7. ", "Next app:"},
+		{"DESIGN.md", "# Wildcard app authorization", "\nApp ingress"},
+		{"docs/APPS-DOMAINS.md", "Wildcard app ingress", "## App-name capacity"},
+		{"docs/APPS-DOMAINS.md", "Use the login authority", "Google OAuth"},
+		{"docs/guides/openclaw.md", "3. **Open the printed HTTPS URL", "\nTLS terminates"},
+		{"docs/guides/tunn-and-tailscale.md", "Replace the email", "## Share a home server"},
+		{"docs/ssh-api.md", "The session prints the HTTPS URL", "Ctrl-C"},
+		{"internal/host/templates/docs.html", "Send them the printed HTTPS URL", "</p>"},
+		{"internal/host/templates/homepage.html", "Alex signs in", "</p>"},
+		{"internal/host/templates/share-dev-server-oauth.html", "<h2>What happens", "<h2>Allow several"},
+	} {
+		t.Run(section.path+"/"+section.start, func(t *testing.T) {
+			content, err := os.ReadFile(section.path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, body, ok := strings.Cut(string(content), section.start)
+			if !ok {
+				t.Fatal("personal access instructions not found; update the copy guard's section boundary")
+			}
+			body, _, ok = strings.Cut(body, section.end)
+			if !ok {
+				t.Fatal("personal access instructions have no end; update the copy guard's section boundary")
+			}
+			copy := normalizedSignInCopy(body)
+			if !personalIdentity.MatchString(copy) {
+				t.Error("email-grant and wildcard-app instructions must specify a personal account or personal sign-in")
+			}
+			if companyIdentity.MatchString(copy) {
+				t.Error("keep company/group sign-in instructions in their corresponding access flow")
+			}
+		})
+	}
+}

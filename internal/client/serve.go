@@ -225,13 +225,16 @@ func (s *ServeClient) renewInterval() time.Duration {
 }
 
 // transientRegistration reports relay rejections that ask the publisher to
-// retry, such as an account or login service restarting with the relay.
+// retry, including outages of account, login and policy authorities.
 func transientRegistration(err *permanentTunnelError) bool {
 	if err.kind != FailureRegistration {
 		return false
 	}
 	message := err.Error()
-	for _, retry := range []string{"temporarily unavailable", "try again later", "retry renewal"} {
+	for _, retry := range []string{
+		"temporarily unavailable", "try again later", "retry renewal",
+		"Web permission authority unavailable.", "Endpoint policy authority unavailable.",
+	} {
 		if strings.Contains(message, retry) {
 			return true
 		}

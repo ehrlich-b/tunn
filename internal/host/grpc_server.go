@@ -496,7 +496,10 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		if err == nil && account == nil && configuredUser {
 			account, err = s.storage.FindOrCreateByEmails(stream.Context(), []string{creatorEmail}, "configured-user")
 		}
-		if err != nil || account == nil || account.ID == "" {
+		if err != nil {
+			return rejectTunnelRegistration(stream, "Account service temporarily unavailable.")
+		}
+		if account == nil || account.ID == "" {
 			return rejectTunnelRegistration(stream, "Account could not be verified. Run 'tunn login' again.")
 		}
 		plan = account.Plan

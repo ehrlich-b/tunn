@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ehrlich-b/tunn/internal/client"
+	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/ehrlich-b/tunn/internal/storage"
 	"github.com/ehrlich-b/tunn/internal/store"
 	internalpb "github.com/ehrlich-b/tunn/pkg/proto/internalv1"
@@ -76,15 +77,30 @@ func TestTunnelAlertsRealClientGracefulStop(t *testing.T) {
 			server := NewTunnelServer(securityConfig(), nil, nil, f.backend)
 			g := grpc.NewServer()
 			pb.RegisterTunnelServiceServer(g, server)
-			relay := httptest.NewUnstartedServer(g)
-			relay.EnableHTTP2 = true
-			relay.StartTLS()
-			defer relay.Close()
 			defer g.Stop()
+			cert := httptest.NewTLSServer(http.NotFoundHandler())
+			f.p.tlsConfig = cert.TLS.Clone()
+			cert.Close()
+			f.p.grpcServer = g
+			f.p.HTTP2Addr = opsFreeTCP(t)
+			relayCtx, relayCancel := context.WithCancel(context.Background())
+			relayDone := make(chan error, 1)
+			go func() { relayDone <- f.p.startHTTP2Server(relayCtx, http.NotFoundHandler()) }()
+			t.Cleanup(func() {
+				relayCancel()
+				select {
+				case err := <-relayDone:
+					if err != nil {
+						t.Error(err)
+					}
+				case <-time.After(5 * time.Second):
+					t.Error("production listener shutdown timed out")
+				}
+			})
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			ready := make(chan struct{})
-			c := &client.ServeClient{TunnelID: "real-client", TargetURL: "http://127.0.0.1:1", ServerAddr: strings.TrimPrefix(relay.URL, "https://"), RelayTLSConfig: relay.Client().Transport.(*http.Transport).TLSClientConfig, AuthToken: createTestJWT(f.owner.PrimaryEmail, server.cfg.JWTSecret), TunnelKey: server.cfg.WellKnownKey, Quiet: true, OnRegistered: func(string) { close(ready) }}
+			c := &client.ServeClient{TunnelID: "real-client", TargetURL: "http://127.0.0.1:1", ServerAddr: f.p.HTTP2Addr, Insecure: true, AuthToken: createTestJWT(f.owner.PrimaryEmail, server.cfg.JWTSecret), TunnelKey: server.cfg.WellKnownKey, Quiet: true, OnRegistered: func(string) { close(ready) }}
 			done := make(chan error, 1)
 			go func() { done <- c.Run(ctx) }()
 			select {
@@ -93,6 +109,10 @@ func TestTunnelAlertsRealClientGracefulStop(t *testing.T) {
 				t.Fatalf("publisher exited before ready: %v", err)
 			case <-time.After(5 * time.Second):
 				t.Fatal("publisher readiness timeout")
+			}
+			conn, ok := server.GetTunnel("real-client")
+			if !ok || !conn.Supports(common.CapabilityGracefulStopV1) {
+				t.Fatal("publisher did not negotiate graceful shutdown")
 			}
 			cancel()
 			select {
@@ -114,6 +134,9 @@ func TestTunnelAlertsRealClientGracefulStop(t *testing.T) {
 					t.Fatal("publisher cleanup timeout")
 				}
 				time.Sleep(time.Millisecond)
+			}
+			if ended := conn.stop.Load(); ended == nil || ended.reason != publisherClientStop {
+				t.Fatalf("owner stop=%+v", ended)
 			}
 			f.clock.Add(7200)
 			f.sweep(0)

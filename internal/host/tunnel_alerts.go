@@ -33,12 +33,14 @@ type publisherStop struct {
 }
 
 // Record the first terminal event, before teardown cancels any other work.
-// Client EOF, GracefulStop and client cancellation are clean stops. Only loss,
-// timeout or eviction without a preceding client stop is an outage.
+// Negotiated publishers are down unless GracefulStop was received. Legacy
+// publishers retain clean EOF/cancellation handling.
 func (conn *TunnelConnection) endRegistration(err error) {
 	ended := &publisherStop{reason: publisherTransportLoss, detail: "Publisher connection lost"}
+	legacyClean := !conn.Supports(common.CapabilityGracefulStopV1) &&
+		(err == nil || errors.Is(err, context.Canceled) || status.Code(err) == codes.Canceled)
 	switch {
-	case err == nil, errors.Is(err, context.Canceled), status.Code(err) == codes.Canceled:
+	case legacyClean:
 		ended.reason, ended.detail = publisherClientStop, ""
 	case errors.Is(err, context.DeadlineExceeded), status.Code(err) == codes.DeadlineExceeded:
 		ended.reason, ended.detail = publisherTimeout, "Publisher keepalive timed out"
@@ -52,6 +54,18 @@ func (conn *TunnelConnection) endRegistration(err error) {
 		}
 	}
 	if err != nil && conn.Stream != nil {
+		// A legacy RST_STREAM followed by socket closure is still a client
+		// stop. Use the request's terminal event rather than racing a later
+		// connection-wide failure against stream cleanup.
+		if legacyClean {
+			if body, ok := conn.Stream.Context().Value(publisherRequestKey{}).(*publisherRequestBody); ok {
+				if lost := body.legacyStop(); lost != nil {
+					ended = lost
+				}
+				conn.stop.CompareAndSwap(nil, ended)
+				return
+			}
+		}
 		if transport, ok := conn.Stream.Context().Value(publisherTransportKey{}).(*publisherTransportState); ok {
 			if lost := transport.stop.Load(); lost != nil {
 				ended = lost

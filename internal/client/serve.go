@@ -252,7 +252,8 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 		}
 		s.AuthToken = token
 	}
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancelCause := context.WithCancelCause(ctx)
+	cancel := func() { cancelCause(context.Canceled) }
 	var workers sync.WaitGroup
 	defer func() { cancel(); workers.Wait() }()
 	var connectTimer *time.Timer
@@ -372,6 +373,8 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 				TunnelKey:         s.TunnelKey,
 				AccessTokenSha256: accessTokenDigest,
 				Capabilities: []string{
+					common.CapabilityGracefulStopV1,
+					common.CapabilityFailureStopV1,
 					common.CapabilityHTTPStreamV1,
 					common.CapabilityRequestTimingV1,
 					common.CapabilityConnectionStreamV1,
@@ -437,17 +440,25 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 	// Wrap stream with mutex for thread-safe sends
 	sender := &streamSender{stream: stream}
 	messageLoopDone := make(chan struct{})
-	if containsString(regResp.Capabilities, "graceful-stop-v1") && stopEarlyCancel() {
+	if containsString(regResp.Capabilities, common.CapabilityGracefulStopV1) && stopEarlyCancel() {
 		workers.Add(1)
 		gracefulDone = make(chan struct{})
 		go func() {
 			defer workers.Done()
 			defer close(gracefulDone)
 			<-ctx.Done()
-			if ownerCtx.Err() != nil {
+			var stop *pb.TunnelMessage
+			if terminalCredentialError(context.Cause(ctx)) {
+				if containsString(regResp.Capabilities, common.CapabilityFailureStopV1) {
+					stop = &pb.TunnelMessage{Message: &pb.TunnelMessage_FailureStop{FailureStop: &pb.FailureStop{Reason: "Invalid or expired token. Run tunn login to refresh."}}}
+				}
+			} else if ownerCtx.Err() != nil {
+				stop = &pb.TunnelMessage{Message: &pb.TunnelMessage_GracefulStop{GracefulStop: &pb.GracefulStop{}}}
+			}
+			if stop != nil {
 				sent := make(chan struct{})
 				go func() {
-					_ = sender.Send(&pb.TunnelMessage{Message: &pb.TunnelMessage_GracefulStop{GracefulStop: &pb.GracefulStop{}}})
+					_ = sender.Send(stop)
 					close(sent)
 				}()
 				select {
@@ -461,6 +472,8 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 				stopStream()
 				<-sent
 			} else {
+				// Internal failures, including terminal credential renewal, must
+				// end without GracefulStop so the relay retains outage tracking.
 				stopStream()
 			}
 		}()
@@ -538,7 +551,7 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 			defer workers.Done()
 			if err := s.maintainDeviceLease(connCtx, sender, s.AuthToken, s.renewInterval()); err != nil {
 				renewalError <- err
-				cancel()
+				cancelCause(err)
 			}
 		}()
 	}

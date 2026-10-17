@@ -13,10 +13,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/ehrlich-b/tunn/internal/storage"
 	internalpb "github.com/ehrlich-b/tunn/pkg/proto/internalv1"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/net/http2"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -345,77 +347,102 @@ func TestTunnelAlertsTerminalFailuresAndRecovery(t *testing.T) {
 
 func TestTunnelAlertsHTTP2StopReasons(t *testing.T) {
 	for _, remote := range []bool{false, true} {
-		for _, kind := range []string{"cancel", "EOF", "transport loss"} {
-			t.Run(fmt.Sprintf("remote=%v/%s", remote, kind), func(t *testing.T) {
-				f := newTunnelAlertFixture(t, remote)
-				observed := observedTunnelAlertStorage{Storage: f.backend, up: make(chan struct{}, 8)}
-				server := NewTunnelServer(securityConfig(), nil, nil, observed)
-				g := grpc.NewServer()
-				pb.RegisterTunnelServiceServer(g, server)
-				relay := httptest.NewUnstartedServer(g)
-				relay.Listener = publisherListener{relay.Listener}
-				relay.Config.ConnContext = publisherConnContext
-				relay.EnableHTTP2 = true
-				relay.StartTLS()
-				defer relay.Close()
-				defer g.Stop()
-				raw := make(chan net.Conn, 8)
-				cc, err := grpc.NewClient("passthrough:///"+relay.Listener.Addr().String(), grpc.WithTransportCredentials(credentials.NewTLS(relay.Client().Transport.(*http.Transport).TLSClientConfig)), grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
-					c, err := (&net.Dialer{}).DialContext(ctx, "tcp", addr)
-					if err == nil {
-						raw <- c
-					}
-					return c, err
-				}))
-				if err != nil {
-					t.Fatal(err)
-				}
-				defer cc.Close()
-				ctx, cancel := context.WithCancel(context.Background())
-				defer cancel()
-				stream, err := pb.NewTunnelServiceClient(cc).EstablishTunnel(ctx)
-				if err != nil {
-					t.Fatal(err)
-				}
-				err = stream.Send(&pb.TunnelMessage{Message: &pb.TunnelMessage_RegisterClient{RegisterClient: &pb.RegisterClient{TunnelId: "http2-stop", AuthToken: createTestJWT(f.owner.PrimaryEmail, server.cfg.JWTSecret), TunnelKey: server.cfg.WellKnownKey}}})
-				if err != nil {
-					t.Fatal(err)
-				}
-				reply, err := stream.Recv()
-				if err != nil || !reply.GetRegisterResponse().GetSuccess() {
-					t.Fatal(reply, err)
-				}
-				awaitTunnelAlertUp(t, observed.up)
-				switch kind {
-				case "cancel":
-					cancel()
-				case "EOF":
-					if err := stream.CloseSend(); err != nil {
+		for _, modern := range []bool{false, true} {
+			for _, kind := range []string{"cancel", "cancel then close", "EOF", "graceful", "transport loss"} {
+				t.Run(fmt.Sprintf("remote=%v/modern=%v/%s", remote, modern, kind), func(t *testing.T) {
+					f := newTunnelAlertFixture(t, remote)
+					observed := observedTunnelAlertStorage{Storage: f.backend, up: make(chan struct{}, 8)}
+					server := NewTunnelServer(securityConfig(), nil, nil, observed)
+					g := grpc.NewServer()
+					pb.RegisterTunnelServiceServer(g, server)
+					relay := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { g.ServeHTTP(w, publisherRequest(r)) }))
+					relay.Listener = publisherListener{relay.Listener}
+					relay.Config.ConnContext = publisherConnContext
+					relay.EnableHTTP2 = true
+					if err := http2.ConfigureServer(relay.Config, &http2.Server{}); err != nil {
 						t.Fatal(err)
 					}
-				case "transport loss":
-					if err := (<-raw).Close(); err != nil {
+					relay.StartTLS()
+					defer relay.Close()
+					defer g.Stop()
+					raw := make(chan net.Conn, 8)
+					cc, err := grpc.NewClient("passthrough:///"+relay.Listener.Addr().String(), grpc.WithTransportCredentials(credentials.NewTLS(relay.Client().Transport.(*http.Transport).TLSClientConfig)), grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
+						c, err := (&net.Dialer{}).DialContext(ctx, "tcp", addr)
+						if err == nil {
+							raw <- c
+						}
+						return c, err
+					}))
+					if err != nil {
 						t.Fatal(err)
 					}
-				}
-				awaitTunnelAlertCleanup(t, f.local, f.owner.ID)
-				f.clock.Add(599)
-				f.sweep(0)
-				f.clock.Add(1)
-				if kind == "transport loss" {
-					f.sweep(1)
-					f.sweep(1)
-					f.register("http2-stop", "replacement")
-					f.clock.Add(3600)
-					f.report("http2-stop", "replacement", "heartbeat", "")
-					f.sweep(2)
-					f.sweep(2)
-				} else {
+					defer cc.Close()
+					ctx, cancel := context.WithCancel(context.Background())
+					defer cancel()
+					stream, err := pb.NewTunnelServiceClient(cc).EstablishTunnel(ctx)
+					if err != nil {
+						t.Fatal(err)
+					}
+					capabilities := []string(nil)
+					if modern {
+						capabilities = append(capabilities, common.CapabilityGracefulStopV1)
+					}
+					err = stream.Send(&pb.TunnelMessage{Message: &pb.TunnelMessage_RegisterClient{RegisterClient: &pb.RegisterClient{Capabilities: capabilities, TunnelId: "http2-stop", AuthToken: createTestJWT(f.owner.PrimaryEmail, server.cfg.JWTSecret), TunnelKey: server.cfg.WellKnownKey}}})
+					if err != nil {
+						t.Fatal(err)
+					}
+					reply, err := stream.Recv()
+					if err != nil || !reply.GetRegisterResponse().GetSuccess() {
+						t.Fatal(reply, err)
+					}
+					awaitTunnelAlertUp(t, observed.up)
+					switch kind {
+					case "cancel":
+						cancel()
+					case "cancel then close":
+						cancel()
+						if err := cc.Close(); err != nil {
+							t.Fatal(err)
+						}
+					case "graceful":
+						if err := stream.Send(&pb.TunnelMessage{Message: &pb.TunnelMessage_GracefulStop{GracefulStop: &pb.GracefulStop{}}}); err != nil {
+							t.Fatal(err)
+						}
+						if _, err := stream.Recv(); err != io.EOF {
+							t.Fatalf("graceful acknowledgement: %v", err)
+						}
+						cancel()
+						if err := cc.Close(); err != nil {
+							t.Fatal(err)
+						}
+					case "EOF":
+						if err := stream.CloseSend(); err != nil {
+							t.Fatal(err)
+						}
+					case "transport loss":
+						if err := (<-raw).Close(); err != nil {
+							t.Fatal(err)
+						}
+					}
+					awaitTunnelAlertCleanup(t, f.local, f.owner.ID)
+					f.clock.Add(599)
 					f.sweep(0)
-					f.clock.Add(7200)
-					f.sweep(0)
-				}
-			})
+					f.clock.Add(1)
+					if kind == "transport loss" || modern && kind != "graceful" {
+						f.sweep(1)
+						f.sweep(1)
+						f.register("http2-stop", "replacement")
+						f.clock.Add(3600)
+						f.report("http2-stop", "replacement", "heartbeat", "")
+						f.sweep(2)
+						f.sweep(2)
+					} else {
+						f.sweep(0)
+						f.clock.Add(7200)
+						f.sweep(0)
+					}
+				})
+			}
 		}
 	}
 }

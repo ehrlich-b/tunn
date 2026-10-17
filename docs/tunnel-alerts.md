@@ -8,15 +8,20 @@ connects again. Names that have never connected do not generate email.
 Open **Account → Tunnel email alerts** (`/account/tunnel-alerts`) to turn alerts
 off for your account, change the offline threshold (1 second to 7 days), or
 request alerts after clean shutdowns too. Clean shutdowns are suppressed by
-default. A tunnel is down only when the relay loses its publisher without a
-client stop: transport loss, keepalive timeout, or relay-side eviction. The relay
+default. When both publisher and relay advertise `graceful-stop-v1`, only an
+explicit `GracefulStop` message proves a clean shutdown. Every other registration
+end is an outage candidate, including cancellation, EOF without that message,
+terminal credential-refresh failure, transport loss and relay timeouts. The relay
 records the registration's stop reason before cleanup and uses that reason for
-the availability report.
+the availability report. An expired login still alerts if the publisher cannot
+authenticate again. Internal failures never send `GracefulStop`. When both sides
+also advertise `failure-stop-v1`, a terminal credential rejection sends a
+distinct failure message so the relay can include the diagnosis in the email.
 
-Graceful shutdown messages, client gRPC stream cancellation (`context.Canceled`)
-and client stream EOF are clean stops. SSH SIGINT, stdin Ctrl-C/Ctrl-D, session
-closure, cancel-forward, requested expiry and MCP stdio EOF are clean stops too,
-even without a shutdown message.
+Legacy publishers without `graceful-stop-v1` retain clean client cancellation and
+EOF handling. SSH SIGINT, stdin Ctrl-C/Ctrl-D, session closure, cancel-forward,
+requested expiry and MCP stdio EOF are clean stops too, even without a shutdown
+message.
 SSH stdin EOF alone keeps the existing `ssh -n` tunnel running; closing its
 session afterwards is a clean stop. These paths generate no default outage or
 recovery email. A dropped SSH or HTTP/2 socket still counts as transport loss.

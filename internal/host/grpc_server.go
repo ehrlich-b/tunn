@@ -813,7 +813,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 			RegisterResponse: &pb.RegisterResponse{
 				Success:      true,
 				PublicUrl:    publicURL,
-				Capabilities: []string{common.CapabilityHTTPStreamV1, common.CapabilityConnectionStreamV1, common.CapabilityWebSocketV1, common.CapabilityHTTPResponseTrailersV1, common.CapabilityHTTPRequestHeadersV1, deviceReauthCapability, "web-sharing-v1", webhook.Capability, "graceful-stop-v1"},
+				Capabilities: []string{common.CapabilityHTTPStreamV1, common.CapabilityConnectionStreamV1, common.CapabilityWebSocketV1, common.CapabilityHTTPResponseTrailersV1, common.CapabilityHTTPRequestHeadersV1, deviceReauthCapability, "web-sharing-v1", webhook.Capability, common.CapabilityGracefulStopV1, common.CapabilityFailureStopV1},
 			},
 		},
 	}
@@ -885,7 +885,16 @@ func (s *TunnelServer) processTunnelMessages(conn *TunnelConnection, stream pb.T
 		// Handle different message types
 		switch m := msg.Message.(type) {
 		case *pb.TunnelMessage_GracefulStop:
+			conn.stop.CompareAndSwap(nil, &publisherStop{reason: publisherClientStop})
 			return nil
+		case *pb.TunnelMessage_FailureStop:
+			// The reason is diagnostic text, never credentials or authority.
+			// Bound it before retaining it in availability history and email.
+			reason := m.FailureStop.GetReason()
+			if len(reason) > 1024 {
+				reason = reason[:1024]
+			}
+			return status.Error(codes.Unavailable, "Publisher stopped: "+reason)
 		case *pb.TunnelMessage_RegisterClient:
 			if lease == nil {
 				return status.Error(codes.Unauthenticated, "unexpected device renewal")

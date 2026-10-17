@@ -89,6 +89,8 @@ type TunnelConnection struct {
 	TargetURL          string
 	Stream             pb.TunnelService_EstablishTunnelServer
 	Connected          time.Time
+	ClientVersion      string
+	ClientHost         string
 	CreatorEmail       string
 	AccountID          string // Account ID for usage tracking (from storage)
 	anonymousSSH       bool
@@ -554,6 +556,8 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		TargetURL:          targetURL,
 		Stream:             stream,
 		Connected:          time.Now(),
+		ClientVersion:      boundedClientLabel(regClient.ClientVersion),
+		ClientHost:         boundedClientLabel(regClient.ClientHost),
 		CreatorEmail:       creatorEmail,
 		AccountID:          accountID,
 		accountQuotaExempt: !requiresAccount && hostID == "",

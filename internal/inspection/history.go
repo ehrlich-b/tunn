@@ -261,3 +261,16 @@ func (w *Response) Flush() {
 	}
 	_ = http.NewResponseController(w.ResponseWriter).Flush()
 }
+
+// LastRequestAt reads only the timestamp already retained by the inspector.
+func (h *History) LastRequestAt() time.Time {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	var latest time.Time
+	for _, event := range h.events {
+		if event.At.After(latest) {
+			latest = event.At
+		}
+	}
+	return latest
+}

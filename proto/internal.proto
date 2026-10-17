@@ -6,6 +6,7 @@ option go_package = "github.com/ehrlich-b/tunn/pkg/proto/internalv1";
 
 service InternalService {
   rpc CheckForwardedPermission(ForwardedPermissionRequest) returns (ForwardedPermissionResponse);
+  rpc ListAccountTunnels(ListAccountTunnelsRequest) returns (ListAccountTunnelsResponse);
   rpc FindTunnel(FindTunnelRequest) returns (FindTunnelResponse);
   rpc GetNodeInfo(NodeInfoRequest) returns (NodeInfoResponse);
 }
@@ -260,4 +261,17 @@ message MutateAccountEmailRequest {
   string action = 3; // link, primary
   string token_jti = 4;
   int64 token_expires_at = 5;
+}
+
+// Live connection metadata only; caller is authenticated by the node gate.
+message ListAccountTunnelsRequest { string account_id = 1; }
+message ListAccountTunnelsResponse { repeated AccountTunnel tunnels = 1; }
+message AccountTunnel {
+  string name = 1;
+  string kind = 2;
+  string public_url = 3;
+  int64 connected_since_unix = 4;
+  string client_version = 5;
+  string client_host = 6;
+  int64 last_request_unix = 7;
 }

@@ -73,6 +73,10 @@ message RegisterClient {
   string exposure_mode = 13; // "private" or "public"; legacy version 0 is unchanged.
   // Publisher-owned policy. Secret is retained only in active relay memory.
   WebhookPolicy webhook_policy = 14;
+  // Optional display metadata; never send a hostname or local address.
+  string client_version = 15;
+  string client_host = 16; // coarse OS/architecture label, e.g. linux/amd64
+
 }
 
 // RegisterResponse is sent by the server to acknowledge tunnel registration.

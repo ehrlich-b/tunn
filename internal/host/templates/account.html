@@ -7,6 +7,12 @@
 <title>Account - tunn</title>
 <link rel="stylesheet" href="/assets/system.css">
 <style>
+.live-tunnels{grid-column:1/-1;padding:20px;min-width:0}
+.live-tunnels h2{margin:0}.live-tunnels .fine{margin:8px 0 14px}
+.live-tunnel-list{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.live-tunnel{padding:16px;min-width:0}.live-tunnel h3{display:flex;align-items:center;gap:10px;margin:0 0 8px;font-size:16px;overflow-wrap:anywhere}
+.live-tunnel a{display:block;overflow-wrap:anywhere;font-size:14px}.live-tunnel dl{margin:12px 0 0;display:grid;grid-template-columns:auto minmax(0,1fr);gap:6px 12px;font-size:13px}.live-tunnel dt{color:var(--engrave)}.live-tunnel dd{margin:0;overflow-wrap:anywhere;color:var(--ink2)}
+@media(max-width:760px){.live-tunnel-list{grid-template-columns:1fr}.live-tunnels{padding:18px 14px}}
 .emails{grid-column:1;padding:20px;min-width:0}
 .email-row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:14px 0;border-bottom:1px solid var(--plate-lo)}
 .email-address{overflow-wrap:anywhere;min-width:0;font:400 14px/1.5 var(--sans);color:var(--ink)}
@@ -58,7 +64,7 @@
 .acct .card>a:not(.btn){font:500 14px/1.4 var(--sans);color:var(--sig-ink)}
 .upgrade-btn-white{display:inline-flex;margin:4px 10px 8px 0}
 .upgrade-card .fine{margin:6px 0 14px}
-.billing{grid-column:1;display:grid;gap:12px}.tools{grid-column:2;grid-row:1/span 2}
+.billing{grid-column:1;display:grid;gap:12px}.tools{grid-column:2;grid-row:2/span 2}
 @media(max-width:760px){.gauges{grid-template-columns:1fr}.gauge .read{font-size:26px}.by-tunnel .row{grid-template-columns:minmax(0,1fr) 72px 60px;padding:10px 14px}.by-tunnel .row .usage-bar,.by-tunnel .row.head .bar-h{display:none}.meters{padding:18px 14px}.acct .readings div{padding:0 10px}}
 @media(max-width:900px){.acct-grid{grid-template-columns:1fr}.tools,.billing{grid-column:1;grid-row:auto}.acct h1{font-size:24px}.who{width:100%}}
 </style>
@@ -69,6 +75,21 @@
   <div class="acct-top"><div><span class="lbl">Signed in</span><h1 style="margin-top:10px">Account</h1></div>
     <div class="panel who"><span class="led on"></span><span class="mail">{{.Email}}</span><span class="plan-badge {{if eq .Plan "pro"}}plan-pro{{else}}plan-free{{end}}">{{.Plan}}</span></div></div>
   <div class="acct-grid">
+  <section class="panel live-tunnels" aria-labelledby="live-tunnels-title">
+    <h2 class="card-title" id="live-tunnels-title">Active tunnels</h2>
+    <p class="fine" id="live-tunnels-status" role="status">{{if .LiveTunnelsComplete}}Currently connected. Updates every 5 seconds while this tab is visible.{{else}}Some relays are unavailable. This list may be incomplete; retrying automatically.{{end}}</p>
+    <ul class="live-tunnel-list" id="live-tunnel-list">
+    {{range .LiveTunnels}}<li class="glass live-tunnel"><h3><span class="led on" aria-hidden="true"></span><span>{{.Name}}</span><span class="plan-badge">{{.Kind}}</span></h3>
+      <a href="{{.PublicURL}}" target="_blank" rel="noopener noreferrer">{{.PublicURL}}</a>
+      <dl><dt>Connected since</dt><dd><time datetime="{{.ConnectedSince.Format "2006-01-02T15:04:05Z07:00"}}">{{.ConnectedSince.Format "Jan 2, 2006 15:04:05 UTC"}}</time></dd>
+      <dt>Client version</dt><dd>{{if .ClientVersion}}{{.ClientVersion}}{{else}}Not provided{{end}}</dd>
+      <dt>Client host</dt><dd>{{if .ClientHost}}{{.ClientHost}}{{else}}Not provided{{end}}</dd>
+      <dt>Last request</dt><dd>{{if .LastRequest}}<time datetime="{{.LastRequest.Format "2006-01-02T15:04:05Z07:00"}}">{{.LastRequest.Format "Jan 2, 2006 15:04:05 UTC"}}</time>{{else}}No recorded requests{{end}}</dd></dl>
+    </li>{{end}}
+    </ul>
+    <p class="empty" id="live-tunnels-empty"{{if or .LiveTunnels (not .LiveTunnelsComplete)}} hidden{{end}}>No tunnels connected. Start one with <code>tunn 3000</code> and keep the client running.</p>
+    <noscript><p class="fine">Enable JavaScript for live updates, or reload to refresh this list.</p></noscript>
+  </section>
   <section class="panel meters" aria-labelledby="usage-title"><i class="screw tl"></i><i class="screw tr"></i><i class="screw bl"></i><i class="screw br"></i>
     <div class="meters-top"><h2 class="card-title" id="usage-title">This month</h2><span class="lbl">Resets {{.ResetsOn}} · UTC</span></div>
     {{if and .UsageAvailable (not .Tunnels)}}
@@ -189,6 +210,7 @@
 </main>
 <footer class="site-footer"><div class="container"><a href="/docs">Docs</a><a href="/pricing">Pricing</a><a href="/status">Status</a><span class="spacer"></span><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="mailto:support@tunn.to">Support</a></div></footer>
 <script defer src="/assets/ui.js"></script>
+<script defer src="/assets/account-tunnels.js"></script>
 
 </body>
 </html>

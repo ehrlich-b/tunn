@@ -364,6 +364,7 @@ func runMCP(args []string) {
 	defer cleanupBridge()
 
 	serveClient := &client.ServeClient{
+		ClientVersion:     version,
 		TunnelID:          tunnelID,
 		TargetURL:         targetURL,
 		DisplayTarget:     displayTarget,
@@ -667,6 +668,7 @@ func runRawPublisher(opts *tcpCommandOptions, targetNetwork, endpointProtocol st
 		publicPath = ""
 	}
 	serveClient := &client.ServeClient{
+		ClientVersion:     version,
 		TunnelID:          tunnelID,
 		TargetURL:         targetURL,
 		DisplayTarget:     targetNetwork + "://" + opts.target,
@@ -1097,6 +1099,7 @@ func runServe(args []string) {
 	}
 
 	serveClient := &client.ServeClient{
+		ClientVersion:     version,
 		ValidatePublicURL: validateCLIURL,
 		TunnelID:          tunnelID,
 		TargetURL:         normalizedTarget,

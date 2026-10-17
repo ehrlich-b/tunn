@@ -744,3 +744,7 @@ test-deploy-guard:
 .PHONY: test-request-timing
 test-request-timing:
 	go test $(GO_TEST_FLAGS) -p 2 -count=1 -v -timeout=2m -run '^TestRequestTiming' ./internal/inspection ./internal/client ./internal/host ./internal/terminal
+
+.PHONY: test-account-tunnels-browser
+test-account-tunnels-browser:
+	go test $(GO_TEST_FLAGS) -p 2 -count=1 -timeout=120s -run '^TestAccountTunnelsBrowserJourney$$' ./internal/host

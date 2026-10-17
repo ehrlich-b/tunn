@@ -54,16 +54,16 @@ func (p *ProxyServer) checkOwnerIPPolicy(w http.ResponseWriter, r *http.Request,
 	if ippolicy.Allowed(peer, policy.AllowCidrs, policy.DenyCidrs) {
 		return true
 	}
-	writeIPPolicyDenied(w)
+	p.writeIPPolicyDenied(w)
 	return false
 }
 
-func writeIPPolicyDenied(w http.ResponseWriter) {
+func (p *ProxyServer) writeIPPolicyDenied(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Tunn-Limit-Reason", "ip_policy_denied")
 	w.WriteHeader(http.StatusForbidden)
-	_, _ = io.WriteString(w, `<!doctype html><html lang="en"><head>`+iconHead+`<meta name="viewport" content="width=device-width, initial-scale=1"><title>IP address blocked — tunn</title><style>body{font:16px system-ui;max-width:560px;margin:12vh auto;padding:24px;color:#242424}h1{font-size:28px}</style></head><body><p>403 · IP restriction</p><h1>Your IP address cannot access this endpoint</h1><p>The owner has restricted which networks can connect. Signing in or using a shared link does not bypass this policy.</p><p>Connect from an allowed network or ask the endpoint owner to update the IP restrictions.</p></body></html>`)
+	_, _ = io.WriteString(w, `<!doctype html><html lang="en"><head>`+platformIconHead(p.loginAuthority())+`<meta name="viewport" content="width=device-width, initial-scale=1"><title>IP address blocked — tunn</title><style>body{font:16px system-ui;max-width:560px;margin:12vh auto;padding:24px;color:#242424}h1{font-size:28px}</style></head><body><p>403 · IP restriction</p><h1>Your IP address cannot access this endpoint</h1><p>The owner has restricted which networks can connect. Signing in or using a shared link does not bypass this policy.</p><p>Connect from an allowed network or ask the endpoint owner to update the IP restrictions.</p></body></html>`)
 }
 
 func writeIPPolicyError(w http.ResponseWriter, err error) {

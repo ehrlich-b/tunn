@@ -3,6 +3,7 @@ package host
 import (
 	_ "embed"
 	"fmt"
+	"html"
 	"io"
 	"strings"
 )
@@ -38,6 +39,14 @@ const iconHead = `<link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48"
 <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg" sizes="any">
 <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png" sizes="180x180">
 <link rel="manifest" href="/assets/site.webmanifest">`
+
+// platformIconHead keeps platform assets reachable on publisher and customer hosts.
+func platformIconHead(authority string) string {
+	if authority == "" {
+		return iconHead
+	}
+	return strings.ReplaceAll(iconHead, `href="/`, `href="https://`+html.EscapeString(authority)+`/`)
+}
 
 func withPageHead(page string) string {
 	return strings.Replace(page, "</head>", iconHead+"</head>", 1)

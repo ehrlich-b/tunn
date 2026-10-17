@@ -515,7 +515,7 @@ func (p *ProxyServer) handleSSHKeyLink(w http.ResponseWriter, r *http.Request) {
 		http.SetCookie(w, &http.Cookie{Name: cookieName, Value: csrf, Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: 300})
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Content-Security-Policy", "default-src 'none'; img-src 'self'; manifest-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
-		_, _ = fmt.Fprintf(w, `<!doctype html><title>Confirm SSH key</title><h1>Link this SSH key?</h1><p>Account: %s</p><p>Fingerprint: <code>%s</code></p><p>Compare this fingerprint with your SSH login request. Only confirm a key you control.</p><form method="post" action="/auth/ssh-key?token=%s"><input type="hidden" name="csrf" value="%s"><button type="submit">Link SSH key</button></form>`, html.EscapeString(email), html.EscapeString(key.Fingerprint), html.EscapeString(token), csrf)
+		_, _ = fmt.Fprintf(w, `<!doctype html><html lang="en"><head><meta charset="utf-8">`+iconHead+`<title>Confirm SSH key</title></head><body><h1>Link this SSH key?</h1><p>Account: %s</p><p>Fingerprint: <code>%s</code></p><p>Compare this fingerprint with your SSH login request. Only confirm a key you control.</p><form method="post" action="/auth/ssh-key?token=%s"><input type="hidden" name="csrf" value="%s"><button type="submit">Link SSH key</button></form></body></html>`, html.EscapeString(email), html.EscapeString(key.Fingerprint), html.EscapeString(token), csrf)
 		return
 	}
 	cookie, err := r.Cookie(cookieName)

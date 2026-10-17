@@ -54,7 +54,15 @@ are needed: generated tunnel URLs do not include a custom listen port.
 `TUNN_HOST_MODE` requires an authenticated standalone login node. The topology
 guard is retained; do not remove it to enable cluster host mode.
 
-On SIGTERM, HTTP/3 sends GOAWAY, allows up to three seconds for draining,
+HTTP/3 is off by default in production and remains on by default in development.
+Set `TUNN_HTTP3=off` to disable the UDP listener and its `Alt-Svc` advertisement,
+or `TUNN_HTTP3=on` to enable both. Production uses HTTP/2 because reused browser
+HTTP/3 connections have stalled while reading response bodies. Enable HTTP/3
+again only after that body-stall cause is fixed and verified with browsers.
+Cached advertisements expire after one hour; clients can fall back to TCP.
+The startup log records the effective setting once.
+
+When enabled, on SIGTERM, HTTP/3 sends GOAWAY, allows up to three seconds for draining,
 then sends CONNECTION_CLOSE before releasing its UDP socket. Give the service
 manager enough termination time for that drain. Keep `TUNN_JWT_SECRET` stable
 across restarts: HTTP/3 derives its stateless-reset key from that secret so
@@ -63,7 +71,7 @@ a JWT secret use the loaded TLS private key instead. Rotating the source secret
 also changes reset tokens; connections established before this support was
 installed cannot benefit retroactively. HTTP/3 rejects 0-RTT early data; TLS
 session tickets retain automatic rotation and stale tickets use a full handshake.
-HTTP/2 and the HTTP/3 Alt-Svc advertisement retain their existing behavior.
+HTTP/2 is available with either setting.
 
 Owner-run checks and foreground operation, from the staged checkout:
 

@@ -611,13 +611,18 @@ func getPeerIP(ctx context.Context) string {
 	return host
 }
 
-// Run starts both HTTP/2 and HTTP/3 listeners
+// Run starts HTTP/2 and the configured optional HTTP/3 listener
 func (p *ProxyServer) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	var wg sync.WaitGroup
 	errChan := make(chan error, 6)
 	p.stopping.Store(false)
-	required := uint32(listenerHTTP2 | listenerHTTP3 | listenerInternal)
+	http3Enabled := p.config.HTTP3Enabled()
+	common.LogInfo("HTTP/3 configuration", "enabled", http3Enabled)
+	required := uint32(listenerHTTP2 | listenerInternal)
+	if http3Enabled {
+		required |= listenerHTTP3
+	}
 	if p.sshServer != nil && p.config.SSHAddr != "" {
 		required |= listenerSSH
 	}
@@ -688,14 +693,16 @@ func (p *ProxyServer) Run(ctx context.Context) error {
 		}
 	}()
 
-	// Start HTTP/3 (QUIC) server
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if err := p.startHTTP3Server(ctx, handler); err != nil {
-			errChan <- fmt.Errorf("HTTP/3 server error: %w", err)
-		}
-	}()
+	// Start HTTP/3 (QUIC) only when enabled.
+	if http3Enabled {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := p.startHTTP3Server(ctx, handler); err != nil {
+				errChan <- fmt.Errorf("HTTP/3 server error: %w", err)
+			}
+		}()
+	}
 
 	// Start internal gRPC server
 	wg.Add(1)
@@ -832,7 +839,7 @@ func (p *ProxyServer) createHTTP2Router(httpHandler http.Handler) http.Handler {
 // reach the service over HTTPS/TCP. The configured UDP port must also be
 // exposed by the deployment platform.
 func (p *ProxyServer) advertiseHTTP3(w http.ResponseWriter, r *http.Request) {
-	if r.TLS == nil || r.Method == http.MethodConnect {
+	if p.config != nil && !p.config.HTTP3Enabled() || r.TLS == nil || r.Method == http.MethodConnect {
 		return
 	}
 	_, portText, err := net.SplitHostPort(p.HTTP3Addr)

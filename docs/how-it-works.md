@@ -107,7 +107,9 @@ clients must fall back to the TCP HTTPS listener when QUIC is unavailable.
 **Browser traffic** can use either when UDP reaches the relay. QUIC can avoid
 transport-level head-of-line blocking between HTTP/3 streams.
 
-The TCP HTTPS listener advertises the UDP listener through `Alt-Svc`. The Fly
+When HTTP/3 is enabled, the TCP HTTPS listener advertises the UDP listener
+through `Alt-Svc`. Production defaults to HTTP/3 off; see
+[self-hosting.md](self-hosting.md) for `TUNN_HTTP3` and re-enablement criteria. The Fly
 deployment also needs its UDP 443 service and a dedicated IPv4 address;
 HTTP/3 reachability has not yet been checked against a live deployment.
 

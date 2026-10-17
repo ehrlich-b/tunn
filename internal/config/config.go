@@ -26,6 +26,7 @@ type Config struct {
 	KeyFile   string
 	HTTP2Addr string // HTTP/2 (TCP) listener address
 	HTTP3Addr string // HTTP/3 (QUIC) listener address
+	HTTP3     string // on/off; empty selects the environment default
 
 	// SSH front door (opt-in, login nodes own the key registry).
 	SSHHostKeyFile string
@@ -125,6 +126,10 @@ func LoadConfig() (*Config, error) {
 		cfg.loadProdConfig()
 	default:
 		return nil, fmt.Errorf("TUNN_ENV must be dev, development, prod, or production")
+	}
+	cfg.HTTP3 = os.Getenv("TUNN_HTTP3")
+	if cfg.HTTP3 != "" && cfg.HTTP3 != "on" && cfg.HTTP3 != "off" {
+		return nil, fmt.Errorf("TUNN_HTTP3 must be on or off")
 	}
 	for _, budget := range []struct {
 		name  string
@@ -351,4 +356,10 @@ func getEnvAllowEmpty(key, defaultValue string) string {
 		return value
 	}
 	return defaultValue
+}
+
+// HTTP3Enabled keeps development discovery enabled while production uses TCP
+// until incomplete HTTP/3 response bodies have been fixed.
+func (c *Config) HTTP3Enabled() bool {
+	return c.HTTP3 == "on" || c.HTTP3 == "" && !c.IsProd()
 }

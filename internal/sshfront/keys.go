@@ -27,6 +27,17 @@ type Key struct {
 // Ownership is a durable account UUID; mailboxes are only enrollment proof.
 type Registry struct{ db *sql.DB }
 
+// Resolve the caller once, then use the reverse merge index to find credentials
+// whose stored owner resolves to that UUID. Return the stored owner as before.
+const listKeysQuery = `WITH owner(id) AS (
+ SELECT COALESCE((SELECT account_id FROM account_merges WHERE old_id=?),?))
+ SELECT k.fingerprint,k.public_key,o.account_id FROM ssh_key_owners o
+ JOIN ssh_keys k ON k.fingerprint=o.fingerprint
+ WHERE o.account_id IN (
+ SELECT old_id FROM account_merges WHERE account_id=(SELECT id FROM owner)
+ UNION ALL SELECT id FROM owner WHERE NOT EXISTS (SELECT 1 FROM account_merges WHERE old_id=owner.id))
+ ORDER BY k.fingerprint`
+
 func NewRegistry(db *sql.DB) (*Registry, error) {
 	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS ssh_keys (
 	 fingerprint TEXT PRIMARY KEY, public_key TEXT NOT NULL, owner_email TEXT NOT NULL);
@@ -184,7 +195,7 @@ func (r *Registry) List(ctx context.Context, accountID string) ([]Key, error) {
 	}
 	accountID = id.String()
 	keys := []Key{}
-	rows, err := r.db.QueryContext(ctx, `SELECT fingerprint,public_key,(SELECT account_id FROM ssh_key_owners WHERE fingerprint=ssh_keys.fingerprint) FROM ssh_keys WHERE (SELECT COALESCE((SELECT account_id FROM account_merges WHERE old_id=o.account_id),o.account_id) FROM ssh_key_owners o WHERE o.fingerprint=ssh_keys.fingerprint)=COALESCE((SELECT account_id FROM account_merges WHERE old_id=?),?) ORDER BY fingerprint`, accountID, accountID)
+	rows, err := r.db.QueryContext(ctx, listKeysQuery, accountID, accountID)
 	if err != nil {
 		return nil, err
 	}

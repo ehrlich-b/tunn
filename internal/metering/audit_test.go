@@ -127,7 +127,7 @@ func TestAuditRetentionIndexedBoundedAndPersistent(t *testing.T) {
 	if err != nil || out.RetentionDays != 7 || len(out.Events) != 1 {
 		t.Fatal(out, err)
 	}
-	rows, err := db.Query(`EXPLAIN QUERY PLAN SELECT id FROM meter_events INDEXED BY meter_events_audit_retention WHERE owner=? AND finished=1 AND json_extract(CAST(data AS TEXT),'$.started_at')<? ORDER BY json_extract(CAST(data AS TEXT),'$.started_at') LIMIT 100`, "owner00", testNow.UnixMilli())
+	rows, err := db.Query(`EXPLAIN QUERY PLAN SELECT id FROM meter_events INDEXED BY meter_events_audit_retention WHERE owner=? AND finished=1 AND `+auditTimeExpression+`<? ORDER BY `+auditTimeExpression+` LIMIT 100`, "owner00", testNow.UnixMilli())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,5 +231,31 @@ func TestAuditRetentionJobStartsAndStops(t *testing.T) {
 	case <-done:
 	case <-time.After(time.Second):
 		t.Fatal("retention job did not stop")
+	}
+}
+
+func TestAuditMigrationToleratesMalformedLegacyMetadata(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err = db.Exec(`CREATE TABLE meter_events(id TEXT PRIMARY KEY,owner TEXT NOT NULL,endpoint TEXT NOT NULL,month TEXT NOT NULL,finished INTEGER NOT NULL,data BLOB NOT NULL); INSERT INTO meter_events VALUES('broken','owner','api','2026-10',1,'{')`); err != nil {
+		t.Fatal(err)
+	}
+	s, err := New(db)
+	if err != nil {
+		t.Fatal("additive migration rejected existing metadata", err)
+	}
+	if _, err = db.Exec(`INSERT INTO meter_events VALUES('another-broken','owner','api','2026-10',1,'{')`); err != nil {
+		t.Fatal("index changed legacy write behavior", err)
+	}
+	out, err := s.Audit(context.Background(), &pb.AuditRequest{Owner: "owner", Operation: "list", StatusClass: 2})
+	if err != nil || len(out.Events) != 0 {
+		t.Fatal(out, err)
+	}
+	var n int
+	if err = db.QueryRow(`SELECT count(*) FROM meter_events WHERE data='{'`).Scan(&n); err != nil || n != 2 {
+		t.Fatal("malformed rows changed", n, err)
 	}
 }

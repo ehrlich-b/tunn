@@ -17,12 +17,16 @@ type AuditBackend interface {
 	Audit(context.Context, *pb.AuditRequest) (*pb.AuditResponse, error)
 }
 
+// Invalid legacy metadata must not make additive index creation or later
+// writes fail. Such rows have no usable audit timestamp and remain untouched.
+const auditTimeExpression = `CASE WHEN json_valid(CAST(data AS TEXT)) THEN json_extract(CAST(data AS TEXT),'$.started_at') END`
+
 // All schema changes are additive; timestamp indexes read the existing JSON.
 func (s *Store) initAudit() error {
 	_, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS meter_audit_retention (
  owner TEXT PRIMARY KEY, days INTEGER NOT NULL CHECK(days IN (7,30,90)));
- CREATE INDEX IF NOT EXISTS meter_events_audit ON meter_events(owner,json_extract(CAST(data AS TEXT),'$.started_at') DESC,id DESC);
- CREATE INDEX IF NOT EXISTS meter_events_audit_retention ON meter_events(owner,finished,json_extract(CAST(data AS TEXT),'$.started_at'));`)
+ CREATE INDEX IF NOT EXISTS meter_events_audit ON meter_events(owner,` + auditTimeExpression + ` DESC,id DESC);
+ CREATE INDEX IF NOT EXISTS meter_events_audit_retention ON meter_events(owner,finished,` + auditTimeExpression + `);`)
 	return err
 }
 
@@ -63,10 +67,10 @@ func (s *Store) Audit(ctx context.Context, in *pb.AuditRequest) (*pb.AuditRespon
 		if out.RetentionDays > 0 {
 			since = max(since, s.now().Add(-time.Duration(out.RetentionDays)*24*time.Hour).UnixMilli())
 		}
-		query := `SELECT data FROM meter_events WHERE owner=? AND json_extract(CAST(data AS TEXT),'$.started_at')>=?`
+		query := `SELECT data FROM meter_events WHERE owner=? AND ` + auditTimeExpression + `>=?`
 		args := []any{owner, since}
 		if in.Until > 0 {
-			query += ` AND json_extract(CAST(data AS TEXT),'$.started_at')<?`
+			query += ` AND ` + auditTimeExpression + `<?`
 			args = append(args, in.Until)
 		}
 		if in.Endpoint != "" {
@@ -78,18 +82,18 @@ func (s *Store) Audit(ctx context.Context, in *pb.AuditRequest) (*pb.AuditRespon
 			args = append(args, in.RequestId)
 		}
 		if in.StatusClass > 0 {
-			query += ` AND json_extract(CAST(data AS TEXT),'$.status')>=? AND json_extract(CAST(data AS TEXT),'$.status')<?`
+			query += ` AND CASE WHEN json_valid(CAST(data AS TEXT)) THEN json_extract(CAST(data AS TEXT),'$.status') END>=? AND CASE WHEN json_valid(CAST(data AS TEXT)) THEN json_extract(CAST(data AS TEXT),'$.status') END<?`
 			args = append(args, in.StatusClass*100, (in.StatusClass+1)*100)
 		}
 		if in.BeforeStarted > 0 {
-			query += ` AND (json_extract(CAST(data AS TEXT),'$.started_at'),id)<(?,?)`
+			query += ` AND (` + auditTimeExpression + `,id)<(?,?)`
 			args = append(args, in.BeforeStarted, in.BeforeId)
 		}
 		limit := int(in.Limit)
 		if limit == 0 {
 			limit = 50
 		}
-		query += ` ORDER BY json_extract(CAST(data AS TEXT),'$.started_at') DESC,id DESC LIMIT ?`
+		query += ` ORDER BY ` + auditTimeExpression + ` DESC,id DESC LIMIT ?`
 		args = append(args, limit+1)
 		rows, err := tx.QueryContext(ctx, query, args...)
 		if err != nil {
@@ -163,9 +167,9 @@ func (s *Store) SweepAuditRetention(ctx context.Context, after string) (next str
 			// cannot delete records using an obsolete, shorter retention period.
 			result, e := tx.ExecContext(ctx, `DELETE FROM meter_events WHERE id IN (
  SELECT e.id FROM meter_events e INDEXED BY meter_events_audit_retention
- WHERE e.owner=? AND e.finished=1 AND json_extract(CAST(e.data AS TEXT),'$.started_at') <
+ WHERE e.owner=? AND e.finished=1 AND `+auditTimeExpression+` <
  (SELECT ?-days*86400000 FROM meter_audit_retention WHERE owner=?)
- ORDER BY json_extract(CAST(e.data AS TEXT),'$.started_at') LIMIT ?)`, v.owner, s.now().UnixMilli(), v.owner, auditRetentionBatch)
+ ORDER BY `+auditTimeExpression+` LIMIT ?)`, v.owner, s.now().UnixMilli(), v.owner, auditRetentionBatch)
 			if e != nil {
 				return e
 			}

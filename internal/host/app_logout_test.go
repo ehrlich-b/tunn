@@ -193,3 +193,112 @@ func TestAppLogoutAuthorityFailureDoesNotClaimSuccess(t *testing.T) {
 		t.Fatal("app admission did not fail closed", w.Code)
 	}
 }
+
+type appLogoutEmailRenewalStorage struct {
+	storage.Storage
+	storage.AccountEmailStorage
+	storage.BrowserSessionStorage
+	before, after func()
+}
+
+func (s *appLogoutEmailRenewalStorage) MutateAccountEmail(ctx context.Context, id, email, action string) (*storage.Account, error) {
+	if s.before != nil {
+		s.before()
+	}
+	account, err := s.AccountEmailStorage.MutateAccountEmail(ctx, id, email, action)
+	if s.after != nil {
+		s.after()
+	}
+	return account, err
+}
+
+func TestAppLogoutCannotBeUndoneByEmailSessionRenewal(t *testing.T) {
+	for _, remote := range []bool{false, true} {
+		name := "local"
+		if remote {
+			name = "remote"
+		}
+		for _, timing := range []string{"before-mutation", "after-mutation"} {
+			t.Run(name+"/"+timing, func(t *testing.T) {
+				p, _, _, _ := appProxyFixtureDB(t)
+				if remote {
+					p.storage = securityReplicaStorage(t, p.storage.(*storage.LocalStorage))
+				}
+				authority := &appLogoutEmailRenewalStorage{
+					Storage:               p.storage,
+					AccountEmailStorage:   p.storage.(storage.AccountEmailStorage),
+					BrowserSessionStorage: p.storage.(storage.BrowserSessionStorage),
+				}
+				p.storage = authority
+				handler := p.createHandler()
+				open := func(cookie *http.Cookie) int {
+					r := httptest.NewRequest("GET", "https://dashboard.apps.example.com/", nil)
+					r.AddCookie(cookie)
+					w := httptest.NewRecorder()
+					handler.ServeHTTP(w, r)
+					return w.Code
+				}
+				// Repeat after a new sign-in to cover both the initial and rotated epochs.
+				for cycle := 0; cycle < 2; cycle++ {
+					platform := appSessionCookie(t, p, appOwnerEmail, "github", true, "")
+					app := appSessionCookie(t, p, appOwnerEmail, "github", true, "dashboard.apps.example.com")
+					if code := open(app); code != 200 {
+						t.Fatalf("new sign-in: app status %d", code)
+					}
+					logout := func() {
+						if w := appLogoutPost(t, p, platform); w.Code != 302 {
+							t.Fatalf("interleaved logout: %d %s", w.Code, w.Body)
+						}
+						if code := open(app); code != 403 {
+							t.Fatalf("old app cookie after logout: %d", code)
+						}
+					}
+					if timing == "before-mutation" {
+						authority.before = logout
+					} else {
+						authority.after = logout
+					}
+					r := httptest.NewRequest("GET", "https://tunn.test/account", nil)
+					r.AddCookie(platform)
+					csrf, err := p.createCSRFToken(r, accountEmailsPath)
+					if err != nil {
+						t.Fatal(err)
+					}
+					form := url.Values{"action": {"primary"}, "email": {appOwnerEmail}, "csrf_token": {csrf}}
+					r = httptest.NewRequest("POST", "https://tunn.test/account/emails", strings.NewReader(form.Encode()))
+					r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+					r.Header.Set("Origin", "https://tunn.test")
+					r.AddCookie(platform)
+					w := httptest.NewRecorder()
+					handler.ServeHTTP(w, r)
+					authority.before, authority.after = nil, nil
+					if w.Code != 303 {
+						t.Fatalf("primary-email update: %d %s", w.Code, w.Body)
+					}
+					var renewed *http.Cookie
+					for _, cookie := range w.Result().Cookies() {
+						if cookie.Name == authCookieName {
+							renewed = cookie
+						}
+					}
+					if renewed == nil {
+						t.Fatal("email update did not return its renewed session")
+					}
+					// Try the actual app SSO route with the late response's cookie.
+					start := httptest.NewRecorder()
+					handler.ServeHTTP(start, httptest.NewRequest("GET", "https://dashboard.apps.example.com/report", nil))
+					if start.Code != 302 {
+						t.Fatalf("start SSO: %d", start.Code)
+					}
+					r = httptest.NewRequest("GET", start.Header().Get("Location"), nil)
+					r.AddCookie(renewed)
+					w = httptest.NewRecorder()
+					handler.ServeHTTP(w, r)
+					if w.Code != 403 {
+						t.Fatalf("email update restored app SSO after logout: %d %s", w.Code, w.Body)
+					}
+				}
+			})
+		}
+	}
+}

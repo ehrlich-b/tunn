@@ -32,12 +32,13 @@ type savedCredentials struct {
 // CredentialManager coordinates renewal across all processes sharing a config
 // directory. It never reads endpoint tokens or changes explicitly supplied secrets.
 type CredentialManager struct {
-	ServerAddr string
-	HTTPClient *http.Client
-	Now        func() time.Time // Optional clock for expiry decisions; nil uses time.Now
-	path       string
-	mu         sync.Mutex
-	last       string
+	ServerAddr  string
+	HTTPClient  *http.Client
+	Now         func() time.Time // Optional clock for expiry decisions; nil uses time.Now
+	path        string
+	persistence credentialPersistence
+	mu          sync.Mutex
+	last        string
 }
 
 // Renewal starts a minute before expiry, so one attempt and its retry fit
@@ -201,12 +202,16 @@ func (m *CredentialManager) currentTime() time.Time {
 func (m *CredentialManager) Token(ctx context.Context, force bool) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	unlock, err := lockCredentials(ctx, filepath.Dir(m.path))
+	persistence := m.persistence
+	if persistence == nil {
+		persistence = diskCredentialPersistence{}
+	}
+	unlock, err := persistence.lock(ctx, filepath.Dir(m.path))
 	if err != nil {
 		return "", err
 	}
 	defer unlock()
-	state, err := readCredentialState(m.path)
+	state, err := persistence.read(m.path)
 	if err != nil {
 		return "", err
 	}
@@ -228,7 +233,7 @@ func (m *CredentialManager) Token(ctx context.Context, force bool) (string, erro
 			return "", err
 		}
 		state.Pending = base64.RawURLEncoding.EncodeToString(random[:])
-		if err = saveCredentialState(m.path, state); err != nil {
+		if err = persistence.write(m.path, state); err != nil {
 			return "", fmt.Errorf("persist refresh request: %w", err)
 		}
 	}
@@ -268,11 +273,11 @@ func (m *CredentialManager) Token(ctx context.Context, force bool) (string, erro
 	state.Refresh = token.RefreshToken
 	state.Expires = started.Add(time.Duration(token.ExpiresIn) * time.Second)
 	state.Pending = ""
-	if err = saveCredentialState(m.path, state); err != nil {
+	if err = persistence.write(m.path, state); err != nil {
 		return "", fmt.Errorf("save refreshed credentials: %w", err)
 	}
 	// The JSON state is authoritative; failure of the legacy mirror is visible.
-	if _, err = writePrivateTokenFile(filepath.Dir(m.path), "token", state.Access); err != nil {
+	if err = persistence.mirror(filepath.Dir(m.path), state.Access); err != nil {
 		return "", fmt.Errorf("save refreshed token mirror: %w", err)
 	}
 	m.last = state.Access

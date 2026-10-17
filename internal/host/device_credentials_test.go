@@ -289,14 +289,14 @@ func (s *durableControlStream) Send(m *pb.TunnelMessage) error {
 	}
 }
 
-func TestDurablePublisherSurvives48Hours(t *testing.T) {
+func TestDurablePublisherSurvives48HoursWithoutIdentityProvider(t *testing.T) {
 	p := durableFixture(t)
 	var seconds atomic.Int64
 	seconds.Store(time.Now().Unix())
 	clock := func() time.Time { return time.Unix(seconds.Load(), 0) }
 	p.now = clock
 	p.tunnelServer.now = clock
-	token := durableLogin(t, p)
+	token := durableProviderLogin(t, p)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	stream := &durableControlStream{ctx: ctx, incoming: make(chan *pb.TunnelMessage, 2), outgoing: make(chan *pb.TunnelMessage, 4)}
@@ -321,7 +321,9 @@ func TestDurablePublisherSurvives48Hours(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for step := 0; step < 720; step++ {
+	const lifetime = 48 * time.Hour
+	const interval = 4 * time.Minute
+	for step := 0; step < int(lifetime/interval); step++ {
 		seconds.Add(240)
 		rec, next := durableRefresh(p, token.Refresh, fmt.Sprintf("%043d", step))
 		if rec.Code != 200 {
@@ -349,6 +351,7 @@ func TestDurablePublisherSurvives48Hours(t *testing.T) {
 		default:
 		}
 	}
+	t.Logf("renewed %d times over %s with the identity provider unavailable and the same live SSH stream", lifetime/interval, lifetime)
 	// Revoked publisher cannot mint another token and loses its live lease.
 	_, err = p.devices.db.Exec(`UPDATE durable_devices SET revoked=? WHERE id=?`, clock().Unix(), token.Device)
 	if err != nil {

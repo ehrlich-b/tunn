@@ -1072,14 +1072,11 @@ func (l *publisherDeviceLease) active(now time.Time) bool {
 	return now.Before(l.expiry)
 }
 
-// Only authority failures use retryable registration replies. Ledger validation
-// and admission errors carry gRPC codes for both local and remote backends.
+// Only explicit ledger decisions are terminal. Login-node authentication and
+// transport failures use the shared transient registration replies.
 func policyRegistrationFailure(err error, authority string) string {
-	switch status.Code(err) {
-	case codes.InvalidArgument, codes.FailedPrecondition, codes.PermissionDenied,
-		codes.Unauthenticated, codes.NotFound, codes.AlreadyExists, codes.ResourceExhausted:
+	if metering.IsPolicyDenial(err) {
 		return authority + " registration denied: " + status.Convert(err).Message()
-	default:
-		return authority + " authority unavailable."
 	}
+	return authority + " authority unavailable."
 }

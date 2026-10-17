@@ -17,7 +17,6 @@ import (
 	pb "github.com/ehrlich-b/tunn/pkg/proto/meteringv1"
 	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -113,7 +112,7 @@ func (s *Store) Sharing(ctx context.Context, in *pb.SharingRequest) (*pb.Sharing
 	in = proto.Clone(in).(*pb.SharingRequest)
 	out := &pb.SharingResponse{}
 	if in.Owner == "" || in.Operation != "list" && !resourceName.MatchString(in.Endpoint) {
-		return nil, status.Error(codes.InvalidArgument, "invalid resource owner or name")
+		return nil, policyError(codes.InvalidArgument, "invalid resource owner or name")
 	}
 	err := s.transaction(ctx, func(tx *sql.Tx) error {
 		var err error
@@ -153,7 +152,7 @@ func (s *Store) Sharing(ctx context.Context, in *pb.SharingRequest) (*pb.Sharing
 					return ErrCapacity
 				}
 				if in.Mode != "private" && in.Mode != "public" && in.Mode != "legacy-public" && in.Mode != "policy-only" {
-					return status.Error(codes.InvalidArgument, "invalid exposure")
+					return policyError(codes.InvalidArgument, "invalid exposure")
 				}
 				if err != nil && !errors.Is(err, sql.ErrNoRows) {
 					return err
@@ -171,7 +170,7 @@ func (s *Store) Sharing(ctx context.Context, in *pb.SharingRequest) (*pb.Sharing
 					r.Owner = in.Owner
 				}
 				if !fresh && in.Mode == "legacy-public" && r.Mode != "legacy-public" {
-					return status.Error(codes.FailedPrecondition, "legacy publisher cannot make a managed resource public; update tunn")
+					return policyError(codes.FailedPrecondition, "legacy publisher cannot make a managed resource public; update tunn")
 				}
 				if fresh {
 					var count int
@@ -309,7 +308,7 @@ func (s *Store) revokePerson(ctx context.Context, tx *sql.Tx, r *pb.WebResource,
 }
 func (s *Store) sharePerson(ctx context.Context, tx *sql.Tx, r *pb.WebResource, email string, expires int64, domain bool) error {
 	if !validSharingTarget(email, domain) || expires <= s.now().UnixMilli() {
-		return status.Error(codes.InvalidArgument, "verified email and future expiry required")
+		return policyError(codes.InvalidArgument, "verified email and future expiry required")
 	}
 	consumer := sharingConsumer(email)
 	var data []byte

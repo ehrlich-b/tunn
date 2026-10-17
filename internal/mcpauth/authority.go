@@ -80,14 +80,12 @@ func ReconcileAllowed(ctx context.Context, tx *sql.Tx, owner, endpoint string, a
 	return nil
 }
 
-// PruneFamilyAccess revokes the family's previous access grants and unlinks them.
-// Retain ledger rows so in-flight requests receive a normal revocation denial.
+// PruneFamilyAccess revokes the family's previous access grants. Retain their
+// consent mappings until PruneAccess reclaims the ledger rows so revoking any
+// retained grant also revokes its descendants and in-flight requests are denied.
 func PruneFamilyAccess(ctx context.Context, tx *sql.Tx, family int64) error {
-	if _, err := tx.ExecContext(ctx, `UPDATE meter_grants SET data=json_set(CAST(data AS TEXT),'$.revoked',json('true'))
- WHERE id IN (SELECT grant_id FROM mcp_oauth_access WHERE family=?)`, family); err != nil {
-		return err
-	}
-	_, err := tx.ExecContext(ctx, `DELETE FROM mcp_oauth_access WHERE family=?`, family)
+	_, err := tx.ExecContext(ctx, `UPDATE meter_grants SET data=json_set(CAST(data AS TEXT),'$.revoked',json('true'))
+ WHERE id IN (SELECT grant_id FROM mcp_oauth_access WHERE family=?)`, family)
 	return err
 }
 

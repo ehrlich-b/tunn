@@ -1,25 +1,44 @@
 package metering
 
 import (
+	"database/sql"
 	"testing"
+	"time"
 
 	"github.com/ehrlich-b/tunn/internal/mcpauth"
+	"github.com/ehrlich-b/tunn/internal/store"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/meteringv1"
 )
 
 func TestSupersededMCPAccessDeniesInflightCharge(t *testing.T) {
-	s, db := fixture(t)
+	db, err := store.InitForTest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	s, err := New(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.now = func() time.Time { return testNow }
 	g := newGrant(t, s, 0, 0, 0)
 	// A pre-existing request is already admitted when its family rotates.
 	e := event(g, 1)
-	// No authority binding is needed to exercise the ledger's grant lifecycle.
+	// Bind a valid consent so the retained mapping is checked after rotation.
 	if d := admit(t, s, e); !d.Allowed {
 		t.Fatal(d)
 	}
 	if d := charge(t, s, e.RequestId, 2, 3); !d.Allowed {
 		t.Fatal(d)
 	}
-	if _, err := db.Exec(`INSERT INTO mcp_oauth_access(grant_id,authorization,family) VALUES(?,'synthetic-consent',1)`, g.Id); err != nil {
+	if _, err := db.Exec(`
+ INSERT INTO accounts(id,primary_email,created_at) VALUES(:owner,:owner,0);
+ INSERT INTO account_emails(account_id,email,verified_via,added_at) VALUES(:owner,:owner,'synthetic',0);
+ INSERT INTO web_resources(endpoint,owner,id,mode) VALUES('api',:owner,'synthetic-generation','policy-only');
+ INSERT INTO mcp_oauth_authorizations(id,owner,person,email,endpoint,client,resource,generation,expires,approved)
+ VALUES('synthetic-consent',:owner,:owner,:owner,'api','synthetic-client','https://api.example/mcp','synthetic-generation',:expiry,1);
+ INSERT INTO mcp_oauth_access(grant_id,authorization,family) VALUES(:grant,'synthetic-consent',1)`,
+		sql.Named("owner", g.Owner), sql.Named("expiry", g.ExpiresAt/1000), sql.Named("grant", g.Id)); err != nil {
 		t.Fatal(err)
 	}
 	tx, err := db.BeginTx(t.Context(), nil)

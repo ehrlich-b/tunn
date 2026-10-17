@@ -483,6 +483,79 @@ func TestMCPExchangeProcessJourney(t *testing.T) {
 	t.Log("authorization-code-only client works; raw synthetic tokens absent from database and process logs")
 }
 
+func TestMCPExchangeGrantRevocationAcrossRefresh(t *testing.T) {
+	for _, scenario := range []struct {
+		name      string
+		rotations int
+		revoke    int
+	}{
+		{"original", 1, 0},
+		{"intermediate", 2, 1},
+		{"newest", 1, 1},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "oauth.db")
+			now := time.Now().Unix()
+			p := startExchangeProcess(t, path, now)
+			client := p.register("")
+			tokens := p.exchange(codeExchangeForm(client, p.code(client, p.cookie("owner@example.com"))), 200)
+			owner := relayJWT(t, securityProxy(nil), "owner@example.com")
+			list := func() []*mp.Grant {
+				t.Helper()
+				status, _, data := p.request("GET", "tunn.test", "/api/endpoints/tools/grants", "", owner, nil)
+				var grants mp.ListGrantsResponse
+				if status != 200 || json.Unmarshal(data, &grants) != nil {
+					t.Fatalf("grant list status %d", status)
+				}
+				return grants.Grants
+			}
+			var ids []string
+			for rotation := 0; rotation <= scenario.rotations; rotation++ {
+				if rotation > 0 {
+					tokens = p.exchange(refreshExchangeForm(client, tokens.Refresh), 200)
+				}
+				p.call(tokens.Access, 200)
+				var live []string
+				for _, g := range list() {
+					if !g.Revoked {
+						live = append(live, g.Id)
+					}
+				}
+				if len(live) != 1 {
+					t.Fatalf("live grants %d, want 1", len(live))
+				}
+				ids = append(ids, live[0])
+			}
+			// The owner may keep an ID obtained before rotation. Its consent
+			// lineage must survive restart for as long as the grant is retained.
+			secrets := p.secrets
+			p.stop()
+			p = startExchangeProcess(t, path, now)
+			p.secrets = append(p.secrets, secrets...)
+			id := ids[scenario.revoke]
+			found := false
+			for _, g := range list() {
+				if g.Id == id {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatal("selected grant missing from owner list")
+			}
+			p.call(tokens.Access, 200)
+			for attempt := 0; attempt < 2; attempt++ {
+				status, _, _ := p.request("DELETE", "tunn.test", "/api/endpoints/tools/grants/"+id, "", owner, nil)
+				if status != 204 {
+					t.Fatalf("grant revoke status %d", status)
+				}
+				p.call(tokens.Access, 401)
+				p.exchange(refreshExchangeForm(client, tokens.Refresh), 400)
+			}
+			t.Log("owner-visible grant survived restart; DELETE and repeated DELETE denied current stdio access and refresh without credentials")
+		})
+	}
+}
+
 func TestMCPExchangeDormantClientDisconnect(t *testing.T) {
 	for _, disconnect := range []string{"api", "browser"} {
 		t.Run(disconnect, func(t *testing.T) {

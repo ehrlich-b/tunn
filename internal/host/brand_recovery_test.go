@@ -122,6 +122,58 @@ func TestIPDeniedIconsUseReachablePlatformOrigin(t *testing.T) {
 	}
 }
 
+func TestAccessDeniedIconsUseReachablePlatformOriginWithoutExtraAccessRows(t *testing.T) {
+	p, _, ledger, _ := webSharingFixture(t)
+	p.config.PublicAddr = "tunn.test:8443"
+	handler := p.createHandler()
+	cookie := &http.Cookie{Name: authCookieName, Value: relayJWT(t, p, "stranger@example.com")}
+	request := func(target string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("GET", target, nil)
+		r.Header.Set("Accept", "text/html")
+		r.AddCookie(cookie)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		return w
+	}
+	pageURL, err := url.Parse("https://api.tunn.test/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := request(pageURL.String())
+	if page.Code != http.StatusForbidden || !strings.Contains(page.Body.String(), "Access denied") {
+		t.Fatalf("expected access denial: %d %s", page.Code, page.Body.String())
+	}
+	assertSingleDenial := func() {
+		t.Helper()
+		events := relayExport(t, ledger).Events
+		if len(events) != 1 || events[0].Allowed || events[0].Caller != "email:stranger@example.com" || events[0].Reason != "allowlist_denied" {
+			t.Fatalf("expected only the stranger's original denial: %v", events)
+		}
+	}
+	assertSingleDenial()
+	var links []string
+	for _, rel := range []string{"icon", "apple-touch-icon", "manifest"} {
+		links = append(links, recoveryLinks(t, page.Body.String(), rel)...)
+	}
+	if len(links) != 4 {
+		t.Fatalf("got %d icon links", len(links))
+	}
+	for _, target := range links {
+		u, err := url.Parse(target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if u.Scheme != "https" || u.Host != p.loginAuthority() {
+			t.Errorf("icon uses an untrusted origin: %s", target)
+		}
+		asset := request(pageURL.ResolveReference(u).String())
+		if asset.Code != http.StatusOK || asset.Body.Len() == 0 || strings.Contains(asset.Header().Get("Content-Type"), "text/html") {
+			t.Errorf("icon %s: %d %s", target, asset.Code, asset.Header().Get("Content-Type"))
+		}
+	}
+	assertSingleDenial()
+}
+
 func TestDeniedAppRecoveryReplacesGuestSessionAfterOwnerEmailLogin(t *testing.T) {
 	p, _, _ := appProxyFixture(t)
 	handler := p.createHandler()

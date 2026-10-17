@@ -488,7 +488,9 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 
 			w.Header().Set("Content-Type", "text/html")
 			w.WriteHeader(http.StatusForbidden)
-			writePageStart(w, "tunn - Access Denied")
+			var head strings.Builder
+			writePageStart(&head, "tunn - Access Denied")
+			_, _ = io.WriteString(w, strings.Replace(head.String(), iconHead, platformIconHead(p.loginAuthority()), 1))
 			_, _ = fmt.Fprintf(w, `<h1 class="error-title">Access denied</h1>
 <p>You (<code>%s</code>) are not authorized to access this tunnel.</p>
 <p>Contact the tunnel owner to request access.</p>

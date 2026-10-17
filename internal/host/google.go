@@ -69,7 +69,7 @@ func newOIDCPKCEVerifier() (string, error) {
 }
 func (p *ProxyServer) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 	if p.config.GoogleClientID == "" || p.config.GoogleClientSecret == "" {
-		p.writeAuthError(w, r, "Google login is not configured", 503, "Sign in again to start a new Google login.")
+		p.writeAuthError(w, r, "Google login is not configured", 503, "Sign in with an email link instead.")
 		return
 	}
 	state := r.URL.Query().Get("state")
@@ -165,7 +165,7 @@ func (p *ProxyServer) handleGoogleCallback(w http.ResponseWriter, r *http.Reques
 	}
 	identityStore, ok := p.storage.(storage.GoogleIdentityStorage)
 	if !ok {
-		p.writeAuthError(w, r, "Account identity authority unavailable", 503, "Sign in again to start a new Google login.")
+		p.writeAuthError(w, r, "Account identity authority unavailable", 503, "Sign in with an email link instead.")
 		return
 	}
 	account, err := identityStore.FindOrCreateGoogleIdentity(r.Context(), identity.Sub, email, identity.HostedDomain, identity.Verified)

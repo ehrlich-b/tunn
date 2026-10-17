@@ -15,6 +15,8 @@ import (
 
 const streamResponseHeaderTimeout = 30 * time.Second
 
+const streamUploadJoinTimeout = 100 * time.Millisecond
+
 type requestBodyResult struct {
 	err error
 }
@@ -97,23 +99,36 @@ func (p *ProxyServer) proxyStreamingHTTPOverGRPC(w http.ResponseWriter, r *http.
 	if s := meterForRequest(r); s != nil {
 		s.event.Forwarded = true
 	}
-	// The outer proxy cleanup and streamConnectionInput also close this body.
+	// The outer proxy cleanup also closes this body.
 	// Share ownership so none can drain unfinished HTTP/1 input synchronously.
 	body := &streamingHTTPRequestBody{ReadCloser: r.Body, controller: http.NewResponseController(w), interruptRead: r.ProtoMajor < 2}
 	r.Body = body
 	var requestBytes atomic.Int64
 	requestResult := make(chan requestBodyResult, 1)
 	requestDone := make(chan struct{})
+	uploadContext, cancelUpload := context.WithCancel(r.Context())
 	go func() {
 		defer close(requestDone)
-		_, err := streamConnectionInputContext(r.Context(), body, tunnel, connectionID, &requestBytes, MaxBodySize)
+		_, err := streamConnectionInputContext(uploadContext, body, tunnel, connectionID, &requestBytes, MaxBodySize)
 		requestResult <- requestBodyResult{err: err}
 	}()
 	defer func() {
+		cancelUpload()
 		_ = body.Close()
+		// Interrupting HTTP/1 input can cancel the request before Read exits.
+		// Join independently of that context so net/http can safely reclaim the
+		// body on handler return. Already-finished uploads need no timer; bound
+		// the wait for a custom body that fails to unblock Read after Close.
 		select {
 		case <-requestDone:
-		case <-r.Context().Done():
+			return
+		default:
+		}
+		timer := time.NewTimer(streamUploadJoinTimeout)
+		defer timer.Stop()
+		select {
+		case <-requestDone:
+		case <-timer.C:
 		}
 	}()
 

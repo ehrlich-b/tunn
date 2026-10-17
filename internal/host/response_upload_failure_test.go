@@ -66,7 +66,13 @@ func responseFailureMemoryClient(t *testing.T, h http.Handler) *http.Client {
 }
 func responseFailureMemoryResponse(t *testing.T, h http.Handler) (*http.Response, string, error) {
 	t.Helper()
-	res, e := responseFailureMemoryClient(t, h).Get("http://api.tunn.test/")
+	return responseFailureMemoryResponseWithTimeout(t, 2*time.Second, h)
+}
+func responseFailureMemoryResponseWithTimeout(t *testing.T, timeout time.Duration, h http.Handler) (*http.Response, string, error) {
+	t.Helper()
+	client := responseFailureMemoryClient(t, h)
+	client.Timeout = timeout
+	res, e := client.Get("http://api.tunn.test/")
 	if e != nil {
 		return nil, "", e
 	}

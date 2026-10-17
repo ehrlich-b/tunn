@@ -18,6 +18,10 @@ import (
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
 )
 
+// These fixtures stream 100 MiB through thousands of cancellable sends. Race
+// instrumentation and CPU contention can exceed the small-response deadline.
+const largeUploadTestTimeout = 10 * time.Second
+
 // Discard request chunks rather than retaining a 100 MiB upload in the mock.
 func uploadResponseProxy(t *testing.T, status int, prefix string) (*ProxyServer, *TunnelConnection, *atomic.Int32) {
 	t.Helper()
@@ -70,7 +74,7 @@ func TestHTTPFidelityUnknownUploadLimitBeforeEmptyResponse(t *testing.T) {
 			proxy, tunnel, closes := uploadResponseProxy(t, status, "")
 			upload := &uploadBody{remaining: MaxBodySize + 1}
 			returned := make(chan struct{})
-			response, body, err := responseFailureMemoryResponse(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			response, body, err := responseFailureMemoryResponseWithTimeout(t, largeUploadTestTimeout, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				defer close(returned)
 				r.Method, r.Body, r.ContentLength = http.MethodPost, upload, -1
 				proxy.handleWebProxy(w, r)
@@ -147,6 +151,7 @@ func TestHTTPFidelityUploadLimitAfterPrefixAbortsResponse(t *testing.T) {
 		r.Method, r.Body, r.ContentLength = http.MethodPost, upload, -1
 		proxy.handleWebProxy(w, r)
 	}))
+	client.Timeout = largeUploadTestTimeout
 	response, err := client.Get("http://api.tunn.test/")
 	if err != nil {
 		t.Fatal(err)

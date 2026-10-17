@@ -198,7 +198,7 @@ func TestWebInspectorOwnerIsolationAndRedaction(t *testing.T) {
 	_ = other
 	w := httptest.NewRecorder()
 	_ = f.p.signedSession(w, jwt.MapClaims{"account_id": f.tunnel.AccountID, "email": "stranger@example.com", "provider": "github", "email_verified": true}, authCookieName, "", time.Hour)
-	if denied := f.call("GET", "/api/inspector/api/requests", nil, w.Result().Cookies()[0], nil); denied.Code != 403 {
+	if denied := f.call("GET", "/api/inspector/api/requests", nil, w.Result().Cookies()[0], nil); denied.Code != 401 {
 		t.Fatal("UUID/email mismatch accepted")
 	}
 }

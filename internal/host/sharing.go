@@ -146,6 +146,10 @@ func (p *ProxyServer) sharingOwner(w http.ResponseWriter, r *http.Request, brows
 	} else {
 		a, err = p.bearerAccount(r, email, header)
 	}
+	if !browser && (err != nil || a == nil) {
+		http.Error(w, "Active owner account required", 403)
+		return nil
+	}
 	if err != nil {
 		http.Error(w, "Sharing authority unavailable", 503)
 		return nil

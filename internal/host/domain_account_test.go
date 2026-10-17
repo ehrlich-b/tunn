@@ -197,8 +197,8 @@ func TestDomainAccountSessionBindingAndRevocation(t *testing.T) {
 	if err := p.signedSession(w, claims, appCookie, "", time.Hour); err != nil {
 		t.Fatal(err)
 	}
-	if appOpenWithCookie(p, w.Result().Cookies()[0]).Code != 403 {
-		t.Fatal("cross-account email alias")
+	if appOpenWithCookie(p, w.Result().Cookies()[0]).Code != 302 {
+		t.Fatal("cross-account email alias did not require sign-in")
 	}
 	for _, kind := range []string{"legacy", "unknown-provider", "missing-expiry", "expired"} {
 		r := httptest.NewRequest("GET", "https://"+appHost+"/", nil)
@@ -362,7 +362,7 @@ func TestDomainAccountMailboxMovementCannotRebindSession(t *testing.T) {
 	if err != nil || current.ID != other.ID || current.ID == tunnel.AccountID {
 		t.Fatal("mailbox movement fixture")
 	}
-	if appOpenWithCookie(p, owner).Code != 403 {
+	if appOpenWithCookie(p, owner).Code != 302 {
 		t.Fatal("old signed account followed a moved mailbox")
 	}
 	// Fresh mailbox proof yields the new account, not the namespace owner.

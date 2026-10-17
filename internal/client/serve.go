@@ -10,6 +10,8 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"runtime"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -65,6 +67,7 @@ func (s *streamSender) Send(msg *pb.TunnelMessage) error {
 
 // ServeClient is the new gRPC-based tunnel client for "tunn serve"
 type ServeClient struct {
+	ClientVersion      string            // Release version, when supplied by the embedding application.
 	WebhookPolicy      *pb.WebhookPolicy // contains a key; never log this value
 	WebhookSecretPath  string            // reload the private file on every registration
 	Public             bool              // Explicit anonymous web exposure; false is private.
@@ -352,6 +355,8 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 		Message: &pb.TunnelMessage_RegisterClient{
 			RegisterClient: &pb.RegisterClient{
 				ExposureVersion:   exposureVersion,
+				ClientVersion:     s.registrationVersion(),
+				ClientHost:        runtime.GOOS + "/" + runtime.GOARCH,
 				WebhookPolicy:     webhookConfig,
 				ExposureMode:      exposureMode,
 				TunnelId:          s.TunnelID,
@@ -949,4 +954,19 @@ func (s *ServeClient) maintainDeviceLease(ctx context.Context, sender messageSen
 			current = token
 		}
 	}
+}
+
+func (s *ServeClient) registrationVersion() string {
+	if s.ClientVersion != "" {
+		return s.ClientVersion
+	}
+	if info, ok := debug.ReadBuildInfo(); ok {
+		modules := append([]*debug.Module{&info.Main}, info.Deps...)
+		for _, module := range modules {
+			if module.Path == "github.com/ehrlich-b/tunn" && module.Version != "" && module.Version != "(devel)" {
+				return module.Version
+			}
+		}
+	}
+	return "development"
 }

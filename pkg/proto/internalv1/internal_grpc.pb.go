@@ -20,6 +20,7 @@ const _ = grpc.SupportPackageIsVersion9
 
 const (
 	InternalService_CheckForwardedPermission_FullMethodName = "/internal.InternalService/CheckForwardedPermission"
+	InternalService_ListAccountTunnels_FullMethodName       = "/internal.InternalService/ListAccountTunnels"
 	InternalService_FindTunnel_FullMethodName               = "/internal.InternalService/FindTunnel"
 	InternalService_GetNodeInfo_FullMethodName              = "/internal.InternalService/GetNodeInfo"
 )
@@ -29,6 +30,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type InternalServiceClient interface {
 	CheckForwardedPermission(ctx context.Context, in *ForwardedPermissionRequest, opts ...grpc.CallOption) (*ForwardedPermissionResponse, error)
+	ListAccountTunnels(ctx context.Context, in *ListAccountTunnelsRequest, opts ...grpc.CallOption) (*ListAccountTunnelsResponse, error)
 	FindTunnel(ctx context.Context, in *FindTunnelRequest, opts ...grpc.CallOption) (*FindTunnelResponse, error)
 	GetNodeInfo(ctx context.Context, in *NodeInfoRequest, opts ...grpc.CallOption) (*NodeInfoResponse, error)
 }
@@ -45,6 +47,16 @@ func (c *internalServiceClient) CheckForwardedPermission(ctx context.Context, in
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ForwardedPermissionResponse)
 	err := c.cc.Invoke(ctx, InternalService_CheckForwardedPermission_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *internalServiceClient) ListAccountTunnels(ctx context.Context, in *ListAccountTunnelsRequest, opts ...grpc.CallOption) (*ListAccountTunnelsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListAccountTunnelsResponse)
+	err := c.cc.Invoke(ctx, InternalService_ListAccountTunnels_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -76,6 +88,7 @@ func (c *internalServiceClient) GetNodeInfo(ctx context.Context, in *NodeInfoReq
 // for forward compatibility.
 type InternalServiceServer interface {
 	CheckForwardedPermission(context.Context, *ForwardedPermissionRequest) (*ForwardedPermissionResponse, error)
+	ListAccountTunnels(context.Context, *ListAccountTunnelsRequest) (*ListAccountTunnelsResponse, error)
 	FindTunnel(context.Context, *FindTunnelRequest) (*FindTunnelResponse, error)
 	GetNodeInfo(context.Context, *NodeInfoRequest) (*NodeInfoResponse, error)
 	mustEmbedUnimplementedInternalServiceServer()
@@ -90,6 +103,9 @@ type UnimplementedInternalServiceServer struct{}
 
 func (UnimplementedInternalServiceServer) CheckForwardedPermission(context.Context, *ForwardedPermissionRequest) (*ForwardedPermissionResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CheckForwardedPermission not implemented")
+}
+func (UnimplementedInternalServiceServer) ListAccountTunnels(context.Context, *ListAccountTunnelsRequest) (*ListAccountTunnelsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListAccountTunnels not implemented")
 }
 func (UnimplementedInternalServiceServer) FindTunnel(context.Context, *FindTunnelRequest) (*FindTunnelResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method FindTunnel not implemented")
@@ -132,6 +148,24 @@ func _InternalService_CheckForwardedPermission_Handler(srv interface{}, ctx cont
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(InternalServiceServer).CheckForwardedPermission(ctx, req.(*ForwardedPermissionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _InternalService_ListAccountTunnels_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListAccountTunnelsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InternalServiceServer).ListAccountTunnels(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InternalService_ListAccountTunnels_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InternalServiceServer).ListAccountTunnels(ctx, req.(*ListAccountTunnelsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -182,6 +216,10 @@ var InternalService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CheckForwardedPermission",
 			Handler:    _InternalService_CheckForwardedPermission_Handler,
+		},
+		{
+			MethodName: "ListAccountTunnels",
+			Handler:    _InternalService_ListAccountTunnels_Handler,
 		},
 		{
 			MethodName: "FindTunnel",

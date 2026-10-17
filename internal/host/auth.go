@@ -971,9 +971,11 @@ func (p *ProxyServer) handleLogout(w http.ResponseWriter, r *http.Request) {
 
 // AccountPageData holds data for the account page template
 type AccountPageData struct {
-	Emails    []storage.AccountEmail
-	EmailCSRF string
-	EmailSent bool
+	LiveTunnels         []accountTunnel
+	LiveTunnelsComplete bool
+	Emails              []storage.AccountEmail
+	EmailCSRF           string
+	EmailSent           bool
 	revenuePageData
 	BillingNotice            string
 	BillingReturn            bool
@@ -1096,6 +1098,8 @@ func (p *ProxyServer) handleAccount(w http.ResponseWriter, r *http.Request) {
 			data.EmailSent = r.URL.Query().Get("email_sent") == "1"
 		}
 	}
+
+	data.LiveTunnels, data.LiveTunnelsComplete = p.accountTunnels(r.Context(), account.ID)
 
 	// Render template
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

@@ -2646,6 +2646,187 @@ func (x *MutateAccountEmailRequest) GetTokenExpiresAt() int64 {
 	return 0
 }
 
+// Live connection metadata only; caller is authenticated by the node gate.
+type ListAccountTunnelsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	AccountId     string                 `protobuf:"bytes,1,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListAccountTunnelsRequest) Reset() {
+	*x = ListAccountTunnelsRequest{}
+	mi := &file_proto_internal_proto_msgTypes[47]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListAccountTunnelsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListAccountTunnelsRequest) ProtoMessage() {}
+
+func (x *ListAccountTunnelsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[47]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListAccountTunnelsRequest.ProtoReflect.Descriptor instead.
+func (*ListAccountTunnelsRequest) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{47}
+}
+
+func (x *ListAccountTunnelsRequest) GetAccountId() string {
+	if x != nil {
+		return x.AccountId
+	}
+	return ""
+}
+
+type ListAccountTunnelsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Tunnels       []*AccountTunnel       `protobuf:"bytes,1,rep,name=tunnels,proto3" json:"tunnels,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListAccountTunnelsResponse) Reset() {
+	*x = ListAccountTunnelsResponse{}
+	mi := &file_proto_internal_proto_msgTypes[48]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListAccountTunnelsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListAccountTunnelsResponse) ProtoMessage() {}
+
+func (x *ListAccountTunnelsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[48]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListAccountTunnelsResponse.ProtoReflect.Descriptor instead.
+func (*ListAccountTunnelsResponse) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{48}
+}
+
+func (x *ListAccountTunnelsResponse) GetTunnels() []*AccountTunnel {
+	if x != nil {
+		return x.Tunnels
+	}
+	return nil
+}
+
+type AccountTunnel struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	Name               string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Kind               string                 `protobuf:"bytes,2,opt,name=kind,proto3" json:"kind,omitempty"`
+	PublicUrl          string                 `protobuf:"bytes,3,opt,name=public_url,json=publicUrl,proto3" json:"public_url,omitempty"`
+	ConnectedSinceUnix int64                  `protobuf:"varint,4,opt,name=connected_since_unix,json=connectedSinceUnix,proto3" json:"connected_since_unix,omitempty"`
+	ClientVersion      string                 `protobuf:"bytes,5,opt,name=client_version,json=clientVersion,proto3" json:"client_version,omitempty"`
+	ClientHost         string                 `protobuf:"bytes,6,opt,name=client_host,json=clientHost,proto3" json:"client_host,omitempty"`
+	LastRequestUnix    int64                  `protobuf:"varint,7,opt,name=last_request_unix,json=lastRequestUnix,proto3" json:"last_request_unix,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *AccountTunnel) Reset() {
+	*x = AccountTunnel{}
+	mi := &file_proto_internal_proto_msgTypes[49]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AccountTunnel) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AccountTunnel) ProtoMessage() {}
+
+func (x *AccountTunnel) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_internal_proto_msgTypes[49]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AccountTunnel.ProtoReflect.Descriptor instead.
+func (*AccountTunnel) Descriptor() ([]byte, []int) {
+	return file_proto_internal_proto_rawDescGZIP(), []int{49}
+}
+
+func (x *AccountTunnel) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *AccountTunnel) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *AccountTunnel) GetPublicUrl() string {
+	if x != nil {
+		return x.PublicUrl
+	}
+	return ""
+}
+
+func (x *AccountTunnel) GetConnectedSinceUnix() int64 {
+	if x != nil {
+		return x.ConnectedSinceUnix
+	}
+	return 0
+}
+
+func (x *AccountTunnel) GetClientVersion() string {
+	if x != nil {
+		return x.ClientVersion
+	}
+	return ""
+}
+
+func (x *AccountTunnel) GetClientHost() string {
+	if x != nil {
+		return x.ClientHost
+	}
+	return ""
+}
+
+func (x *AccountTunnel) GetLastRequestUnix() int64 {
+	if x != nil {
+		return x.LastRequestUnix
+	}
+	return 0
+}
+
 var File_proto_internal_proto protoreflect.FileDescriptor
 
 const file_proto_internal_proto_rawDesc = "" +
@@ -2846,9 +3027,25 @@ const file_proto_internal_proto_rawDesc = "" +
 	"\x05email\x18\x02 \x01(\tR\x05email\x12\x16\n" +
 	"\x06action\x18\x03 \x01(\tR\x06action\x12\x1b\n" +
 	"\ttoken_jti\x18\x04 \x01(\tR\btokenJti\x12(\n" +
-	"\x10token_expires_at\x18\x05 \x01(\x03R\x0etokenExpiresAt2\x89\x02\n" +
+	"\x10token_expires_at\x18\x05 \x01(\x03R\x0etokenExpiresAt\":\n" +
+	"\x19ListAccountTunnelsRequest\x12\x1d\n" +
+	"\n" +
+	"account_id\x18\x01 \x01(\tR\taccountId\"O\n" +
+	"\x1aListAccountTunnelsResponse\x121\n" +
+	"\atunnels\x18\x01 \x03(\v2\x17.internal.AccountTunnelR\atunnels\"\xfc\x01\n" +
+	"\rAccountTunnel\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
+	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x1d\n" +
+	"\n" +
+	"public_url\x18\x03 \x01(\tR\tpublicUrl\x120\n" +
+	"\x14connected_since_unix\x18\x04 \x01(\x03R\x12connectedSinceUnix\x12%\n" +
+	"\x0eclient_version\x18\x05 \x01(\tR\rclientVersion\x12\x1f\n" +
+	"\vclient_host\x18\x06 \x01(\tR\n" +
+	"clientHost\x12*\n" +
+	"\x11last_request_unix\x18\a \x01(\x03R\x0flastRequestUnix2\xea\x02\n" +
 	"\x0fInternalService\x12g\n" +
-	"\x18CheckForwardedPermission\x12$.internal.ForwardedPermissionRequest\x1a%.internal.ForwardedPermissionResponse\x12G\n" +
+	"\x18CheckForwardedPermission\x12$.internal.ForwardedPermissionRequest\x1a%.internal.ForwardedPermissionResponse\x12_\n" +
+	"\x12ListAccountTunnels\x12#.internal.ListAccountTunnelsRequest\x1a$.internal.ListAccountTunnelsResponse\x12G\n" +
 	"\n" +
 	"FindTunnel\x12\x1b.internal.FindTunnelRequest\x1a\x1c.internal.FindTunnelResponse\x12D\n" +
 	"\vGetNodeInfo\x12\x19.internal.NodeInfoRequest\x1a\x1a.internal.NodeInfoResponse2\xba\x0f\n" +
@@ -2890,7 +3087,7 @@ func file_proto_internal_proto_rawDescGZIP() []byte {
 	return file_proto_internal_proto_rawDescData
 }
 
-var file_proto_internal_proto_msgTypes = make([]protoimpl.MessageInfo, 48)
+var file_proto_internal_proto_msgTypes = make([]protoimpl.MessageInfo, 51)
 var file_proto_internal_proto_goTypes = []any{
 	(*NodeInfoRequest)(nil),                 // 0: internal.NodeInfoRequest
 	(*NodeInfoResponse)(nil),                // 1: internal.NodeInfoResponse
@@ -2939,66 +3136,72 @@ var file_proto_internal_proto_goTypes = []any{
 	(*ForwardedPermissionRequest)(nil),      // 44: internal.ForwardedPermissionRequest
 	(*ForwardedPermissionResponse)(nil),     // 45: internal.ForwardedPermissionResponse
 	(*MutateAccountEmailRequest)(nil),       // 46: internal.MutateAccountEmailRequest
-	nil,                                     // 47: internal.ForwardedPermissionRequest.HeadersEntry
+	(*ListAccountTunnelsRequest)(nil),       // 47: internal.ListAccountTunnelsRequest
+	(*ListAccountTunnelsResponse)(nil),      // 48: internal.ListAccountTunnelsResponse
+	(*AccountTunnel)(nil),                   // 49: internal.AccountTunnel
+	nil,                                     // 50: internal.ForwardedPermissionRequest.HeadersEntry
 }
 var file_proto_internal_proto_depIdxs = []int32{
 	18, // 0: internal.AccountResponse.emails:type_name -> internal.AccountEmail
-	47, // 1: internal.ForwardedPermissionRequest.headers:type_name -> internal.ForwardedPermissionRequest.HeadersEntry
-	44, // 2: internal.InternalService.CheckForwardedPermission:input_type -> internal.ForwardedPermissionRequest
-	2,  // 3: internal.InternalService.FindTunnel:input_type -> internal.FindTunnelRequest
-	0,  // 4: internal.InternalService.GetNodeInfo:input_type -> internal.NodeInfoRequest
-	6,  // 5: internal.LoginNodeDB.RecordUsage:input_type -> internal.RecordUsageRequest
-	8,  // 6: internal.LoginNodeDB.GetMonthlyUsage:input_type -> internal.GetMonthlyUsageRequest
-	11, // 7: internal.LoginNodeDB.CheckManagementDevice:input_type -> internal.CheckManagementDeviceRequest
-	10, // 8: internal.LoginNodeDB.CreateDeviceCode:input_type -> internal.CreateDeviceCodeRequest
-	14, // 9: internal.LoginNodeDB.GetDeviceCode:input_type -> internal.GetDeviceCodeRequest
-	15, // 10: internal.LoginNodeDB.AuthorizeDeviceCode:input_type -> internal.AuthorizeDeviceCodeRequest
-	21, // 11: internal.LoginNodeDB.GetAccount:input_type -> internal.GetAccountRequest
-	19, // 12: internal.LoginNodeDB.RevokeBrowserSessions:input_type -> internal.RevokeBrowserSessionsRequest
-	22, // 13: internal.LoginNodeDB.GetAccountByEmail:input_type -> internal.GetAccountByEmailRequest
-	23, // 14: internal.LoginNodeDB.FindOrCreateByEmails:input_type -> internal.FindOrCreateByEmailsRequest
-	46, // 15: internal.LoginNodeDB.MutateAccountEmail:input_type -> internal.MutateAccountEmailRequest
-	24, // 16: internal.LoginNodeDB.GetEmailBucket:input_type -> internal.GetEmailBucketRequest
-	26, // 17: internal.LoginNodeDB.UpdatePlan:input_type -> internal.UpdatePlanRequest
-	28, // 18: internal.LoginNodeDB.RegisterTunnel:input_type -> internal.RegisterTunnelRequest
-	30, // 19: internal.LoginNodeDB.UnregisterTunnel:input_type -> internal.UnregisterTunnelRequest
-	32, // 20: internal.LoginNodeDB.GetTunnelCount:input_type -> internal.GetTunnelCountRequest
-	34, // 21: internal.LoginNodeDB.MarkMagicTokenUsed:input_type -> internal.MarkMagicTokenUsedRequest
-	36, // 22: internal.LoginNodeDB.CheckMagicLinkRateLimit:input_type -> internal.CheckMagicLinkRateLimitRequest
-	38, // 23: internal.LoginNodeDB.ProcessBillingEvent:input_type -> internal.ProcessBillingEventRequest
-	40, // 24: internal.LoginNodeDB.IntakeReport:input_type -> internal.IntakeReportRequest
-	42, // 25: internal.LoginNodeDB.BeginBillingCheckout:input_type -> internal.BeginBillingCheckoutRequest
-	4,  // 26: internal.LoginNodeDB.AppDeviceCheck:input_type -> internal.AppDeviceCheckRequest
-	45, // 27: internal.InternalService.CheckForwardedPermission:output_type -> internal.ForwardedPermissionResponse
-	3,  // 28: internal.InternalService.FindTunnel:output_type -> internal.FindTunnelResponse
-	1,  // 29: internal.InternalService.GetNodeInfo:output_type -> internal.NodeInfoResponse
-	7,  // 30: internal.LoginNodeDB.RecordUsage:output_type -> internal.RecordUsageResponse
-	9,  // 31: internal.LoginNodeDB.GetMonthlyUsage:output_type -> internal.GetMonthlyUsageResponse
-	12, // 32: internal.LoginNodeDB.CheckManagementDevice:output_type -> internal.CheckManagementDeviceResponse
-	13, // 33: internal.LoginNodeDB.CreateDeviceCode:output_type -> internal.DeviceCodeResponse
-	13, // 34: internal.LoginNodeDB.GetDeviceCode:output_type -> internal.DeviceCodeResponse
-	16, // 35: internal.LoginNodeDB.AuthorizeDeviceCode:output_type -> internal.AuthorizeDeviceCodeResponse
-	17, // 36: internal.LoginNodeDB.GetAccount:output_type -> internal.AccountResponse
-	20, // 37: internal.LoginNodeDB.RevokeBrowserSessions:output_type -> internal.RevokeBrowserSessionsResponse
-	17, // 38: internal.LoginNodeDB.GetAccountByEmail:output_type -> internal.AccountResponse
-	17, // 39: internal.LoginNodeDB.FindOrCreateByEmails:output_type -> internal.AccountResponse
-	17, // 40: internal.LoginNodeDB.MutateAccountEmail:output_type -> internal.AccountResponse
-	25, // 41: internal.LoginNodeDB.GetEmailBucket:output_type -> internal.GetEmailBucketResponse
-	27, // 42: internal.LoginNodeDB.UpdatePlan:output_type -> internal.UpdatePlanResponse
-	29, // 43: internal.LoginNodeDB.RegisterTunnel:output_type -> internal.RegisterTunnelResponse
-	31, // 44: internal.LoginNodeDB.UnregisterTunnel:output_type -> internal.UnregisterTunnelResponse
-	33, // 45: internal.LoginNodeDB.GetTunnelCount:output_type -> internal.GetTunnelCountResponse
-	35, // 46: internal.LoginNodeDB.MarkMagicTokenUsed:output_type -> internal.MarkMagicTokenUsedResponse
-	37, // 47: internal.LoginNodeDB.CheckMagicLinkRateLimit:output_type -> internal.CheckMagicLinkRateLimitResponse
-	39, // 48: internal.LoginNodeDB.ProcessBillingEvent:output_type -> internal.ProcessBillingEventResponse
-	41, // 49: internal.LoginNodeDB.IntakeReport:output_type -> internal.IntakeReportResponse
-	43, // 50: internal.LoginNodeDB.BeginBillingCheckout:output_type -> internal.BeginBillingCheckoutResponse
-	5,  // 51: internal.LoginNodeDB.AppDeviceCheck:output_type -> internal.AppDeviceCheckResponse
-	27, // [27:52] is the sub-list for method output_type
-	2,  // [2:27] is the sub-list for method input_type
-	2,  // [2:2] is the sub-list for extension type_name
-	2,  // [2:2] is the sub-list for extension extendee
-	0,  // [0:2] is the sub-list for field type_name
+	50, // 1: internal.ForwardedPermissionRequest.headers:type_name -> internal.ForwardedPermissionRequest.HeadersEntry
+	49, // 2: internal.ListAccountTunnelsResponse.tunnels:type_name -> internal.AccountTunnel
+	44, // 3: internal.InternalService.CheckForwardedPermission:input_type -> internal.ForwardedPermissionRequest
+	47, // 4: internal.InternalService.ListAccountTunnels:input_type -> internal.ListAccountTunnelsRequest
+	2,  // 5: internal.InternalService.FindTunnel:input_type -> internal.FindTunnelRequest
+	0,  // 6: internal.InternalService.GetNodeInfo:input_type -> internal.NodeInfoRequest
+	6,  // 7: internal.LoginNodeDB.RecordUsage:input_type -> internal.RecordUsageRequest
+	8,  // 8: internal.LoginNodeDB.GetMonthlyUsage:input_type -> internal.GetMonthlyUsageRequest
+	11, // 9: internal.LoginNodeDB.CheckManagementDevice:input_type -> internal.CheckManagementDeviceRequest
+	10, // 10: internal.LoginNodeDB.CreateDeviceCode:input_type -> internal.CreateDeviceCodeRequest
+	14, // 11: internal.LoginNodeDB.GetDeviceCode:input_type -> internal.GetDeviceCodeRequest
+	15, // 12: internal.LoginNodeDB.AuthorizeDeviceCode:input_type -> internal.AuthorizeDeviceCodeRequest
+	21, // 13: internal.LoginNodeDB.GetAccount:input_type -> internal.GetAccountRequest
+	19, // 14: internal.LoginNodeDB.RevokeBrowserSessions:input_type -> internal.RevokeBrowserSessionsRequest
+	22, // 15: internal.LoginNodeDB.GetAccountByEmail:input_type -> internal.GetAccountByEmailRequest
+	23, // 16: internal.LoginNodeDB.FindOrCreateByEmails:input_type -> internal.FindOrCreateByEmailsRequest
+	46, // 17: internal.LoginNodeDB.MutateAccountEmail:input_type -> internal.MutateAccountEmailRequest
+	24, // 18: internal.LoginNodeDB.GetEmailBucket:input_type -> internal.GetEmailBucketRequest
+	26, // 19: internal.LoginNodeDB.UpdatePlan:input_type -> internal.UpdatePlanRequest
+	28, // 20: internal.LoginNodeDB.RegisterTunnel:input_type -> internal.RegisterTunnelRequest
+	30, // 21: internal.LoginNodeDB.UnregisterTunnel:input_type -> internal.UnregisterTunnelRequest
+	32, // 22: internal.LoginNodeDB.GetTunnelCount:input_type -> internal.GetTunnelCountRequest
+	34, // 23: internal.LoginNodeDB.MarkMagicTokenUsed:input_type -> internal.MarkMagicTokenUsedRequest
+	36, // 24: internal.LoginNodeDB.CheckMagicLinkRateLimit:input_type -> internal.CheckMagicLinkRateLimitRequest
+	38, // 25: internal.LoginNodeDB.ProcessBillingEvent:input_type -> internal.ProcessBillingEventRequest
+	40, // 26: internal.LoginNodeDB.IntakeReport:input_type -> internal.IntakeReportRequest
+	42, // 27: internal.LoginNodeDB.BeginBillingCheckout:input_type -> internal.BeginBillingCheckoutRequest
+	4,  // 28: internal.LoginNodeDB.AppDeviceCheck:input_type -> internal.AppDeviceCheckRequest
+	45, // 29: internal.InternalService.CheckForwardedPermission:output_type -> internal.ForwardedPermissionResponse
+	48, // 30: internal.InternalService.ListAccountTunnels:output_type -> internal.ListAccountTunnelsResponse
+	3,  // 31: internal.InternalService.FindTunnel:output_type -> internal.FindTunnelResponse
+	1,  // 32: internal.InternalService.GetNodeInfo:output_type -> internal.NodeInfoResponse
+	7,  // 33: internal.LoginNodeDB.RecordUsage:output_type -> internal.RecordUsageResponse
+	9,  // 34: internal.LoginNodeDB.GetMonthlyUsage:output_type -> internal.GetMonthlyUsageResponse
+	12, // 35: internal.LoginNodeDB.CheckManagementDevice:output_type -> internal.CheckManagementDeviceResponse
+	13, // 36: internal.LoginNodeDB.CreateDeviceCode:output_type -> internal.DeviceCodeResponse
+	13, // 37: internal.LoginNodeDB.GetDeviceCode:output_type -> internal.DeviceCodeResponse
+	16, // 38: internal.LoginNodeDB.AuthorizeDeviceCode:output_type -> internal.AuthorizeDeviceCodeResponse
+	17, // 39: internal.LoginNodeDB.GetAccount:output_type -> internal.AccountResponse
+	20, // 40: internal.LoginNodeDB.RevokeBrowserSessions:output_type -> internal.RevokeBrowserSessionsResponse
+	17, // 41: internal.LoginNodeDB.GetAccountByEmail:output_type -> internal.AccountResponse
+	17, // 42: internal.LoginNodeDB.FindOrCreateByEmails:output_type -> internal.AccountResponse
+	17, // 43: internal.LoginNodeDB.MutateAccountEmail:output_type -> internal.AccountResponse
+	25, // 44: internal.LoginNodeDB.GetEmailBucket:output_type -> internal.GetEmailBucketResponse
+	27, // 45: internal.LoginNodeDB.UpdatePlan:output_type -> internal.UpdatePlanResponse
+	29, // 46: internal.LoginNodeDB.RegisterTunnel:output_type -> internal.RegisterTunnelResponse
+	31, // 47: internal.LoginNodeDB.UnregisterTunnel:output_type -> internal.UnregisterTunnelResponse
+	33, // 48: internal.LoginNodeDB.GetTunnelCount:output_type -> internal.GetTunnelCountResponse
+	35, // 49: internal.LoginNodeDB.MarkMagicTokenUsed:output_type -> internal.MarkMagicTokenUsedResponse
+	37, // 50: internal.LoginNodeDB.CheckMagicLinkRateLimit:output_type -> internal.CheckMagicLinkRateLimitResponse
+	39, // 51: internal.LoginNodeDB.ProcessBillingEvent:output_type -> internal.ProcessBillingEventResponse
+	41, // 52: internal.LoginNodeDB.IntakeReport:output_type -> internal.IntakeReportResponse
+	43, // 53: internal.LoginNodeDB.BeginBillingCheckout:output_type -> internal.BeginBillingCheckoutResponse
+	5,  // 54: internal.LoginNodeDB.AppDeviceCheck:output_type -> internal.AppDeviceCheckResponse
+	29, // [29:55] is the sub-list for method output_type
+	3,  // [3:29] is the sub-list for method input_type
+	3,  // [3:3] is the sub-list for extension type_name
+	3,  // [3:3] is the sub-list for extension extendee
+	0,  // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_proto_internal_proto_init() }
@@ -3012,7 +3215,7 @@ func file_proto_internal_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_internal_proto_rawDesc), len(file_proto_internal_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   48,
+			NumMessages:   51,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

@@ -26,6 +26,8 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/time/rate"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const AnonymousExpiry = 30 * time.Minute
@@ -207,14 +209,17 @@ func (s *Server) ServeConn(parent context.Context, raw net.Conn) {
 	}}
 	config.AddHostKey(s.cfg.HostKey)
 	_ = raw.SetDeadline(time.Now().Add(10 * time.Second))
-	conn, channels, requests, err := ssh.NewServerConn(raw, config)
+	ctx, stop := context.WithCancelCause(parent)
+	cancel := func() { stop(status.Error(codes.Unavailable, "SSH transport closed")) }
+	defer cancel()
+	// Record transport failure before SSH closes its channel/request queues.
+	// Otherwise channel EOF from a broken socket looks like an owner stop.
+	conn, channels, requests, err := ssh.NewServerConn(&transportConn{Conn: raw, lost: cancel}, config)
 	if err != nil {
 		return
 	}
 	_ = raw.SetDeadline(time.Time{})
 	defer func() { _ = conn.Close() }()
-	ctx, cancel := context.WithCancel(parent)
-	defer cancel()
 	id := Identity{Fingerprint: conn.Permissions.Extensions["fingerprint"], PublicKey: conn.Permissions.Extensions["public"], IP: ip}
 	resolveCtx, stopResolve := context.WithTimeout(ctx, 10*time.Second)
 	id.Email, err = s.cfg.Resolve(resolveCtx, id.Fingerprint)
@@ -243,7 +248,7 @@ func (s *Server) ServeConn(parent context.Context, raw net.Conn) {
 		return
 	}
 	defer releaseTransport()
-	state := &connection{server: s, ssh: conn, ctx: ctx, id: id, forwards: map[forwardSpec]*forward{}, cancel: cancel, directSlots: make(chan struct{}, 32), sessionDone: make(chan struct{})}
+	state := &connection{server: s, ssh: conn, ctx: ctx, id: id, forwards: map[forwardSpec]*forward{}, cancel: cancel, stopClient: func() { stop(status.Error(codes.Canceled, "SSH client stopped session")) }, directSlots: make(chan struct{}, 32), sessionDone: make(chan struct{})}
 	startupTimeout := s.cfg.StartupTimeout
 	if startupTimeout <= 0 {
 		startupTimeout = 15 * time.Second
@@ -307,19 +312,41 @@ func (s *Server) ServeConn(parent context.Context, raw net.Conn) {
 	}
 }
 
+type transportConn struct {
+	net.Conn
+	lost func()
+}
+
+func (c *transportConn) Read(p []byte) (int, error) {
+	n, err := c.Conn.Read(p)
+	if err != nil {
+		c.lost()
+	}
+	return n, err
+}
+
+func (c *transportConn) Write(p []byte) (int, error) {
+	n, err := c.Conn.Write(p)
+	if err != nil {
+		c.lost()
+	}
+	return n, err
+}
+
 type forwardSpec struct {
 	Address string
 	Port    uint32
 }
 type forward struct {
-	spec      forwardSpec
-	cancel    context.CancelFunc
-	done      chan struct{}
-	name      string
-	adapter   *client.ServeClient
-	inspector *client.Inspector
-	digest    []byte
-	token     string
+	spec       forwardSpec
+	cancel     context.CancelFunc
+	stopClient context.CancelFunc
+	done       chan struct{}
+	name       string
+	adapter    *client.ServeClient
+	inspector  *client.Inspector
+	digest     []byte
+	token      string
 }
 type connection struct {
 	sessionDone    chan struct{}
@@ -328,6 +355,7 @@ type connection struct {
 	ssh            *ssh.ServerConn
 	ctx            context.Context
 	cancel         context.CancelFunc
+	stopClient     context.CancelFunc
 	id             Identity
 	mu             sync.Mutex
 	forwards       map[forwardSpec]*forward
@@ -377,8 +405,8 @@ func (c *connection) requests(requests <-chan *ssh.Request) {
 			f := c.forwards[spec]
 			if f != nil {
 				delete(c.forwards, spec)
-				if f.cancel != nil {
-					f.cancel()
+				if f.stopClient != nil {
+					f.stopClient()
 				}
 			}
 			c.mu.Unlock()
@@ -443,6 +471,7 @@ func (c *connection) session(ch ssh.Channel, requests <-chan *ssh.Request) {
 			}
 			_ = req.Reply(true, nil)
 		case "signal":
+			c.stopClient()
 			_ = req.Reply(true, nil)
 			return
 		case "shell", "exec":
@@ -470,13 +499,13 @@ func (c *connection) session(ch ssh.Channel, requests <-chan *ssh.Request) {
 				defer close(controlsDone)
 				for control := range requests {
 					if control.Type == "signal" {
+						c.stopClient()
 						_ = control.Reply(true, nil)
-						c.cancel()
 						return
 					}
 					_ = control.Reply(control.Type == "window-change", nil)
 				}
-				c.cancel()
+				c.stopClient()
 			}()
 			err := c.run(args, ch)
 			code := uint32(0)
@@ -662,6 +691,7 @@ func (c *connection) run(args []string, in ssh.Channel) error {
 		select {
 		case <-c.ctx.Done():
 		case <-c.bridge.Done():
+			c.stopClient()
 		}
 		return nil
 	}
@@ -673,7 +703,7 @@ func (c *connection) run(args []string, in ssh.Channel) error {
 			n, e := in.Read(buf)
 			for _, b := range buf[:n] {
 				if b == 3 || b == 4 {
-					c.cancel()
+					c.stopClient()
 					return
 				}
 			}
@@ -704,10 +734,12 @@ func (c *connection) start(f *forward) error {
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithCancel(c.ctx)
+	ctx, stop := context.WithCancelCause(c.ctx)
+	cancel := func() { stop(status.Error(codes.Aborted, "SSH publisher evicted")) }
+	f.stopClient = func() { stop(status.Error(codes.Canceled, "SSH client canceled forward")) }
 	if o.Expire > 0 {
 		var stop context.CancelFunc
-		ctx, stop = context.WithTimeout(ctx, o.Expire)
+		ctx, stop = context.WithTimeoutCause(ctx, o.Expire, status.Error(codes.Canceled, "SSH publisher reached client-requested expiry"))
 		old := cancel
 		cancel = func() { stop(); old() }
 	}

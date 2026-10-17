@@ -738,9 +738,10 @@ func (p *ProxyServer) startHTTP2Server(ctx context.Context, handler http.Handler
 	tlsConfig := p.tlsConfig.Clone()
 
 	srv := &http.Server{
-		Addr:      p.HTTP2Addr,
-		Handler:   router,
-		TLSConfig: tlsConfig,
+		Addr:        p.HTTP2Addr,
+		Handler:     router,
+		TLSConfig:   tlsConfig,
+		ConnContext: publisherConnContext,
 		// Timeouts - ReadTimeout/WriteTimeout disabled for gRPC streaming support
 		// gRPC streams are long-lived and use application-level health checks
 		ReadHeaderTimeout: 10 * time.Second,  // Max time to read headers specifically
@@ -762,7 +763,7 @@ func (p *ProxyServer) startHTTP2Server(ctx context.Context, handler http.Handler
 	if p.sshServer != nil {
 		ln = sshfront.Share(ctx, ln, p.sshServer.ServeConn)
 	}
-	tlsLn := tls.NewListener(ln, tlsConfig)
+	tlsLn := tls.NewListener(publisherListener{ln}, tlsConfig)
 	p.listenerStarted(listenerHTTP2)
 	defer p.listenerState.And(^uint32(listenerHTTP2))
 

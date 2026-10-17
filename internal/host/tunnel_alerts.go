@@ -2,6 +2,7 @@ package host
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"html"
 	"html/template"
@@ -13,7 +14,52 @@ import (
 	"github.com/ehrlich-b/tunn/internal/storage"
 	internalpb "github.com/ehrlich-b/tunn/pkg/proto/internalv1"
 	"github.com/golang-jwt/jwt/v4"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
+
+type publisherStopReason string
+
+const (
+	publisherClientStop    publisherStopReason = "client stop"
+	publisherTransportLoss publisherStopReason = "transport loss"
+	publisherTimeout       publisherStopReason = "keepalive timeout"
+	publisherEviction      publisherStopReason = "relay eviction"
+)
+
+type publisherStop struct {
+	reason publisherStopReason
+	detail string
+}
+
+// Record the first terminal event, before teardown cancels any other work.
+// Client EOF, GracefulStop and client cancellation are clean stops. Only loss,
+// timeout or eviction without a preceding client stop is an outage.
+func (conn *TunnelConnection) endRegistration(err error) {
+	ended := &publisherStop{reason: publisherTransportLoss, detail: "Publisher connection lost"}
+	switch {
+	case err == nil, errors.Is(err, context.Canceled), status.Code(err) == codes.Canceled:
+		ended.reason, ended.detail = publisherClientStop, ""
+	case errors.Is(err, context.DeadlineExceeded), status.Code(err) == codes.DeadlineExceeded:
+		ended.reason, ended.detail = publisherTimeout, "Publisher keepalive timed out"
+	case status.Code(err) == codes.Unauthenticated:
+		ended.reason, ended.detail = publisherEviction, "Invalid or expired token. Run tunn login to refresh."
+	case status.Code(err) == codes.Aborted, status.Code(err) == codes.PermissionDenied, status.Code(err) == codes.InvalidArgument:
+		ended.reason, ended.detail = publisherEviction, err.Error()
+	default:
+		if err != nil {
+			ended.detail = err.Error()
+		}
+	}
+	if err != nil && conn.Stream != nil {
+		if transport, ok := conn.Stream.Context().Value(publisherTransportKey{}).(*publisherTransportState); ok {
+			if lost := transport.stop.Load(); lost != nil {
+				ended = lost
+			}
+		}
+	}
+	conn.stop.CompareAndSwap(nil, ended)
+}
 
 func (s *TunnelServer) reportAvailability(conn *TunnelConnection, operation, lastError string) error {
 	backend, ok := s.storage.(storage.TunnelAlerts)

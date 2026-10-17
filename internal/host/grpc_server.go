@@ -84,7 +84,7 @@ type TunnelServer struct {
 // TunnelConnection represents an active tunnel connection
 type TunnelConnection struct {
 	alertSession       string
-	gracefulStop       atomic.Bool
+	stop               atomic.Pointer[publisherStop]
 	PolicyResourceID   string // MCP policy generation; separate from browser sharing
 	ResourceID         string
 	ExposureMode       string
@@ -261,7 +261,7 @@ func NewTunnelServer(cfg *config.Config, userTokens map[string]string, accounts 
 func (s *TunnelServer) SetSharingBackend(backend metering.SharingBackend) { s.sharing = backend }
 
 // EstablishTunnel implements the bidirectional streaming RPC for tunnel control
-func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelServer) (resultErr error) {
+func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelServer) error {
 	common.LogInfo("new tunnel stream established")
 
 	// Wait for the initial RegisterClient message
@@ -786,11 +786,10 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		if registeredWithStorage && s.storage != nil && s.storage.Available() {
 			unregister := true
 			if alertCancel != nil {
-				operation, lastError := "down", "Publisher connection lost"
-				if conn.gracefulStop.Load() {
+				ended := conn.stop.Load()
+				operation, lastError := "down", ended.detail
+				if ended.reason == publisherClientStop {
 					operation, lastError = "graceful", ""
-				} else if status.Code(resultErr) == codes.Unauthenticated {
-					lastError = "Invalid or expired token. Run tunn login to refresh."
 				}
 				// A login node may have been rolled back during this session.
 				unregister = status.Code(s.reportAvailability(conn, operation, lastError)) == codes.Unimplemented
@@ -804,7 +803,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 			}
 		}
 
-		common.LogInfo("tunnel disconnected", "tunnel_id", tunnelID)
+		common.LogInfo("tunnel disconnected", "tunnel_id", tunnelID, "stop_reason", conn.stop.Load().reason)
 	}()
 
 	// Send success response
@@ -822,6 +821,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 	err = stream.Send(respMsg)
 	conn.unlockStreamSend()
 	if err != nil {
+		conn.endRegistration(err)
 		return fmt.Errorf("failed to send registration response: %w", err)
 	}
 
@@ -852,10 +852,13 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 			case err := <-finished:
 				return err
 			case <-stream.Context().Done():
+				conn.endRegistration(stream.Context().Err())
 				return stream.Context().Err()
 			case <-ticker.C:
 				if !lease.active(s.currentTime()) {
-					return status.Error(codes.Unauthenticated, "device publisher lease expired; renew with tunn login")
+					err := status.Error(codes.Unauthenticated, "device publisher lease expired; renew with tunn login")
+					conn.endRegistration(err)
+					return err
 				}
 			}
 		}
@@ -863,7 +866,8 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 	return s.processTunnelMessages(conn, stream, nil)
 }
 
-func (s *TunnelServer) processTunnelMessages(conn *TunnelConnection, stream pb.TunnelService_EstablishTunnelServer, lease *publisherDeviceLease) error {
+func (s *TunnelServer) processTunnelMessages(conn *TunnelConnection, stream pb.TunnelService_EstablishTunnelServer, lease *publisherDeviceLease) (resultErr error) {
+	defer func() { conn.endRegistration(resultErr) }()
 	tunnelID := conn.TunnelID
 	for {
 		msg, err := stream.Recv()
@@ -881,7 +885,6 @@ func (s *TunnelServer) processTunnelMessages(conn *TunnelConnection, stream pb.T
 		// Handle different message types
 		switch m := msg.Message.(type) {
 		case *pb.TunnelMessage_GracefulStop:
-			conn.gracefulStop.Store(true)
 			return nil
 		case *pb.TunnelMessage_RegisterClient:
 			if lease == nil {

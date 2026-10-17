@@ -768,13 +768,17 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 	defer func() {
 		if alertCancel != nil {
 			alertCancel()
-			<-alertDone
 		}
 		s.hostSeen(conn)
 		conn.closePendingConnections()
 		s.mu.Lock()
 		delete(s.tunnels, tunnelID)
 		s.mu.Unlock()
+		// Local teardown must not wait for a heartbeat RPC to a hung login
+		// node. Join it before the final report so it cannot revive this session.
+		if alertCancel != nil {
+			<-alertDone
+		}
 
 		// Unregister from login node if we registered
 		if registeredWithStorage && s.storage != nil && s.storage.Available() {

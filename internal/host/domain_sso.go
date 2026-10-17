@@ -330,7 +330,11 @@ func (p *ProxyServer) appAccountAccess(r *http.Request, session jwt.MapClaims, o
 		return nil, http.StatusServiceUnavailable
 	}
 	if account == nil {
-		return nil, http.StatusUnauthorized
+		if session["type"] == "session" {
+			return nil, http.StatusUnauthorized
+		}
+		// Device principals retain their independent permission-denial semantics.
+		return nil, http.StatusForbidden
 	}
 	if owner == nil || account.OperationalState != "active" || owner.OperationalState != "active" {
 		return nil, http.StatusForbidden

@@ -19,6 +19,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/test/bufconn"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestAuditOwnerPageExportsAndDirectIDs(t *testing.T) {
@@ -194,5 +195,65 @@ func TestAuditRetentionFollowsVerifiedAccountMerge(t *testing.T) {
 	var n int
 	if err = f.db.QueryRow(`SELECT count(*) FROM meter_audit_retention`).Scan(&n); err != nil || n != 1 {
 		t.Fatal(n, err)
+	}
+}
+
+// A full retained ledger can exceed gRPC's default response envelope even
+// though the public export omits caller and grant metadata.
+type auditLargeResponseServer struct {
+	pb.UnimplementedMeteringServer
+	response *pb.AuditResponse
+}
+
+func (s *auditLargeResponseServer) Audit(context.Context, *pb.AuditRequest) (*pb.AuditResponse, error) {
+	return s.response, nil
+}
+
+func TestAuditRemoteExportBeyondDefaultGRPCEnvelope(t *testing.T) {
+	f := newWebInspectorFixture(t, 0, 0)
+	owner, err := f.local.GetAccountByEmail(context.Background(), "owner@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := &pb.AuditResponse{}
+	privateCaller := "PRIVATE_CALLER_" + strings.Repeat("c", 240)
+	for i := 0; i < metering.MaxEvents; i++ {
+		out.Events = append(out.Events, &pb.Event{RequestId: fmt.Sprintf("%032x", i), Owner: owner.ID, Endpoint: strings.Repeat("a", 63), Caller: privateCaller, AuthMethod: strings.Repeat("m", 32), Reason: strings.Repeat("r", 64), GrantId: strings.Repeat("g", 36), Month: time.Now().UTC().Format("2006-01"), StartedAt: time.Now().UnixMilli(), Finished: true, Status: 200})
+	}
+	if size := proto.Size(out); size <= 4<<20 {
+		t.Fatalf("fixture must exceed default receive envelope: %d", size)
+	}
+	l := bufconn.Listen(1 << 20)
+	defer l.Close()
+	server := grpc.NewServer(grpc.UnaryInterceptor(nodeSecretInterceptor("large-audit-test")))
+	pb.RegisterMeteringServer(server, &auditLargeResponseServer{response: out})
+	go func() { _ = server.Serve(l) }()
+	defer server.Stop()
+	conn, err := grpc.NewClient("passthrough:///large-audit-test", grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return l.Dial() }), grpc.WithUnaryInterceptor(func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoke grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+		return invoke(metadata.AppendToOutgoingContext(ctx, "x-node-secret", "large-audit-test"), method, req, reply, cc, opts...)
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	remote := &metering.Remote{Connection: func() *grpc.ClientConn { return conn }}
+	got, err := remote.Audit(context.Background(), &pb.AuditRequest{Owner: owner.ID, Operation: "list", Limit: metering.MaxEvents})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Events) != metering.MaxEvents {
+		t.Fatal("truncated internal export", len(got.Events))
+	}
+	f.p.meter = remote
+	w := f.call("GET", "/account/audit.json", nil, f.cookie, nil)
+	if w.Code != 200 {
+		t.Fatal(w.Code, w.Body)
+	}
+	var exported struct{ Requests []auditRow }
+	if err = json.Unmarshal(w.Body.Bytes(), &exported); err != nil || len(exported.Requests) != metering.MaxEvents {
+		t.Fatal("truncated public export", len(exported.Requests), err)
+	}
+	if strings.Contains(w.Body.String(), privateCaller) {
+		t.Fatal("private metadata leaked")
 	}
 }

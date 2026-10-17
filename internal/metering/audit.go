@@ -9,6 +9,7 @@ import (
 
 	"github.com/ehrlich-b/tunn/internal/common"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/meteringv1"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -127,7 +128,8 @@ func (r *Remote) Audit(ctx context.Context, in *pb.AuditRequest) (*pb.AuditRespo
 	}
 	ctx, cancel := rpcContext(ctx)
 	defer cancel()
-	return c.Audit(ctx, in)
+	// Match the existing bounded usage-export envelope for a full retained ledger.
+	return c.Audit(ctx, in, grpc.MaxCallRecvMsgSize(128<<20))
 }
 
 const auditRetentionOwners = 32

@@ -85,7 +85,7 @@ func TestMCPConsentPolicyAndOrigin(t *testing.T) {
 		}
 	}
 	// A malformed redirect cannot introduce another CSP directive.
-	c.query.Set("redirect_uri", "https://connector.example/cb;evil?x=;script-src%20*")
+	c.query.Set("redirect_uri", "https://connector.example/cb;evil,other?x=;script-src%20*")
 	registered, err := f.p.mcpOAuth.client(t.Context(), c.clientID)
 	if err != nil {
 		t.Fatal(err)
@@ -97,7 +97,7 @@ func TestMCPConsentPolicyAndOrigin(t *testing.T) {
 	}
 	c.query.Set("client_id", registered.ID)
 	page = f.request("GET", c.authorize+"?"+c.query.Encode(), "", "", "", c.cookie)
-	if page.Code != 200 || strings.Contains(page.Header().Get("Content-Security-Policy"), "/cb;evil") || strings.Contains(page.Header().Get("Content-Security-Policy"), "script-src") {
+	if page.Code != 200 || strings.Contains(page.Header().Get("Content-Security-Policy"), "/cb;evil") || strings.Contains(page.Header().Get("Content-Security-Policy"), ",") || strings.Contains(page.Header().Get("Content-Security-Policy"), "script-src") {
 		t.Fatal("callback escaped CSP source")
 	}
 }

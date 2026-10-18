@@ -38,7 +38,7 @@ func TestMCPOAuthBrowserConsent(t *testing.T) {
 				cloudCallbacks := make(chan string, 1)
 				routes := f.p.createHandler()
 				server := appDeviceTLSServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					if r.Host == strings.TrimPrefix(strings.Replace(apex, "tunn.test", "client.tunn.test", 1), "https://") && r.URL.Path == "/callback" {
+					if r.Host == strings.TrimPrefix(strings.Replace(apex, "tunn.test", "client.tunn.test", 1), "https://") && r.URL.Path == "/callback,cloud;client" {
 						cloudCallbacks <- "https://" + r.Host + r.URL.RequestURI()
 						fmt.Fprintln(w, "Return to the connector.")
 						return
@@ -97,7 +97,7 @@ func TestMCPOAuthBrowserConsent(t *testing.T) {
 						t.Fatal(err)
 					}
 					client.ID += "_cloud"
-					client.RedirectURIs = []string{strings.Replace(apex, "tunn.test", "client.tunn.test", 1) + "/callback"}
+					client.RedirectURIs = []string{strings.Replace(apex, "tunn.test", "client.tunn.test", 1) + "/callback,cloud;client?client=fixture"}
 					if err := f.p.mcpOAuth.register(ctx, client); err != nil {
 						t.Fatal(err)
 					}

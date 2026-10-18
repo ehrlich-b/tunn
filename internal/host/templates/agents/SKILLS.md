@@ -52,7 +52,7 @@ tunn mcp --name work-tools --allow=alex@example.com http://127.0.0.1:3000/mcp
 Or download and publish the stdio example:
 
 ```sh
-curl -fsSL https://tunn.to/examples/mcp/echo.py -o echo.py
+curl -fsSL https://tunn.to/dl/examples/mcp/echo.py -o echo.py
 tunn mcp --name work-tools --allow=alex@example.com -- python3 echo.py
 ```
 

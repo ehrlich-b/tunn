@@ -270,7 +270,7 @@ func TestPersonalAccessCopy(t *testing.T) {
 		{"docs/guides/tunn-and-tailscale.md", "Replace the email", "## Share a home server"},
 		{"docs/ssh-api.md", "The session prints the HTTPS URL", "Ctrl-C"},
 		{"internal/host/templates/docs.html", "Send them the printed HTTPS URL", "</p>"},
-		{"internal/host/templates/homepage.html", "Alex signs in", "</p>"},
+		{"internal/host/templates/homepage.html", "Alex and Sam sign in", "</p>"},
 		{"internal/host/templates/share-dev-server-oauth.html", "<h2>What happens", "<h2>Allow several"},
 	} {
 		t.Run(section.path+"/"+section.start, func(t *testing.T) {

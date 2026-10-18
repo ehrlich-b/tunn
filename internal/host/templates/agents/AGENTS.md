@@ -63,7 +63,7 @@ Example output; the assigned hostname varies:
 
 ```text
 url      https://k7m2.tunn.to
-to       http://localhost:3000
+to       localhost:3000
 allowed  only you
 others   403 at the edge
 ```
@@ -101,7 +101,7 @@ tunn mcp --name work-tools --allow=alex@example.com http://127.0.0.1:3000/mcp
 For the bundled stdio example, download it and publish it instead:
 
 ```sh
-curl -fsSL https://tunn.to/examples/mcp/echo.py -o echo.py
+curl -fsSL https://tunn.to/dl/examples/mcp/echo.py -o echo.py
 tunn mcp --name work-tools --allow=alex@example.com -- python3 echo.py
 ```
 

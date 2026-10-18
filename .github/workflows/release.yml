@@ -1,9 +1,8 @@
 name: Release
 
+# Legacy manual workflow; stable tag preparation runs in .gitlab-ci.yml.
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_dispatch:
 
 permissions:
   contents: write

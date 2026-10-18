@@ -1,6 +1,10 @@
 package common
 
 const (
+	// CapabilityGracefulStopV1 requires an explicit owner shutdown message.
+	CapabilityGracefulStopV1 = "graceful-stop-v1"
+	CapabilityFailureStopV1  = "failure-stop-v1"
+
 	// CapabilityHTTPStreamV1 enables the connection-oriented HTTP data path.
 	// Clients that omit it remain compatible with relays using buffered
 	// HttpRequest and HttpResponse messages.

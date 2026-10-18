@@ -27,12 +27,16 @@ func TestTunnelTeardownWithHungLoginNode(t *testing.T) {
 			p.now, p.tunnelServer.now = clock, clock
 			token := durableLogin(t, p)
 
-			// Serve all registration RPCs normally, but stall unregister until
-			// its context ends, as a login node stuck on storage would do.
+			// Serve registration and heartbeats normally, but stall either legacy
+			// unregister or generation-aware availability cleanup until its context
+			// ends, as a login node stuck on storage would do. Both paths must
+			// release local resources first and finish within the same bound.
 			entered := make(chan context.Context, 1)
 			canceled := make(chan error, 1)
 			login := grpc.NewServer(grpc.UnaryInterceptor(func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-				if info.FullMethod == internalpb.LoginNodeDB_UnregisterTunnel_FullMethodName {
+				alert, _ := req.(*internalpb.TunnelAlertRequest)
+				availabilityCleanup := info.FullMethod == internalpb.LoginNodeDB_TunnelAlert_FullMethodName && alert != nil && (alert.Operation == "down" || alert.Operation == "graceful")
+				if info.FullMethod == internalpb.LoginNodeDB_UnregisterTunnel_FullMethodName || availabilityCleanup {
 					entered <- ctx
 					<-ctx.Done()
 					canceled <- ctx.Err()

@@ -2,10 +2,11 @@ package sshfront
 
 import (
 	"context"
-	"io"
 
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -31,7 +32,13 @@ func send(ctx context.Context, ch chan<- *pb.TunnelMessage, m *pb.TunnelMessage)
 func recv(ctx context.Context, ch <-chan *pb.TunnelMessage) (*pb.TunnelMessage, error) {
 	select {
 	case <-ctx.Done():
-		return nil, io.EOF
+		// Preserve the cause before transport teardown wakes the host. A local
+		// context cancellation alone does not imply that the SSH owner stopped.
+		cause := context.Cause(ctx)
+		if cause == context.Canceled {
+			cause = status.Error(codes.Aborted, "SSH relay session ended")
+		}
+		return nil, cause
 	case m := <-ch:
 		return m, nil
 	}

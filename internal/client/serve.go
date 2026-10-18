@@ -247,6 +247,7 @@ func transientRegistration(err *permanentTunnelError) bool {
 
 // runOnce establishes a single gRPC tunnel connection and handles messages until disconnection
 func (s *ServeClient) runOnce(ctx context.Context) error {
+	ownerCtx := ctx
 	if s.Credentials != nil {
 		token, err := s.Credentials.Token(ctx, false)
 		if err != nil {
@@ -257,7 +258,8 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 		}
 		s.AuthToken = token
 	}
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancelCause := context.WithCancelCause(ctx)
+	cancel := func() { cancelCause(context.Canceled) }
 	var workers sync.WaitGroup
 	defer func() { cancel(); workers.Wait() }()
 	var connectTimer *time.Timer
@@ -305,7 +307,19 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 	if s.HostID != "" {
 		ctx = metadata.AppendToOutgoingContext(ctx, "tunn-host-id", s.HostID)
 	}
-	stream, err := client.EstablishTunnel(ctx)
+	// Keep the transport alive briefly on an intentional owner shutdown so
+	// the relay receives a clean-stop message before gRPC cancellation.
+	streamCtx, stopStream := context.WithCancel(context.WithoutCancel(ctx))
+	var gracefulDone chan struct{}
+	defer func() {
+		if gracefulDone != nil && ownerCtx.Err() != nil {
+			<-gracefulDone
+		}
+		stopStream()
+	}()
+	stopEarlyCancel := context.AfterFunc(ctx, stopStream)
+	defer stopEarlyCancel()
+	stream, err := client.EstablishTunnel(streamCtx)
 	if err != nil {
 		return fmt.Errorf("failed to establish tunnel: %w", err)
 	}
@@ -367,6 +381,8 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 				TunnelKey:         s.TunnelKey,
 				AccessTokenSha256: accessTokenDigest,
 				Capabilities: []string{
+					common.CapabilityGracefulStopV1,
+					common.CapabilityFailureStopV1,
 					common.CapabilityHTTPStreamV1,
 					common.CapabilityRequestTimingV1,
 					common.CapabilityConnectionStreamV1,
@@ -429,6 +445,48 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 	if s.Credentials != nil && !containsString(regResp.Capabilities, deviceReauthCapability) {
 		return &permanentTunnelError{err: fmt.Errorf("relay lacks durable publisher renewal; update the relay")}
 	}
+	// Wrap stream with mutex for thread-safe sends
+	sender := &streamSender{stream: stream}
+	messageLoopDone := make(chan struct{})
+	if containsString(regResp.Capabilities, common.CapabilityGracefulStopV1) && stopEarlyCancel() {
+		workers.Add(1)
+		gracefulDone = make(chan struct{})
+		go func() {
+			defer workers.Done()
+			defer close(gracefulDone)
+			<-ctx.Done()
+			var stop *pb.TunnelMessage
+			if terminalCredentialError(context.Cause(ctx)) {
+				if containsString(regResp.Capabilities, common.CapabilityFailureStopV1) {
+					stop = &pb.TunnelMessage{Message: &pb.TunnelMessage_FailureStop{FailureStop: &pb.FailureStop{Reason: "Invalid or expired token. Run tunn login to refresh."}}}
+				}
+			} else if ownerCtx.Err() != nil {
+				stop = &pb.TunnelMessage{Message: &pb.TunnelMessage_GracefulStop{GracefulStop: &pb.GracefulStop{}}}
+			}
+			if stop != nil {
+				sent := make(chan struct{})
+				go func() {
+					_ = sender.Send(stop)
+					close(sent)
+				}()
+				select {
+				case <-sent:
+				case <-time.After(time.Second):
+				}
+				select {
+				case <-messageLoopDone:
+				case <-time.After(time.Second):
+				}
+				stopStream()
+				<-sent
+			} else {
+				// Internal failures, including terminal credential renewal, must
+				// end without GracefulStop so the relay retains outage tracking.
+				stopStream()
+			}
+		}()
+	}
+
 	if s.OnRegistered != nil {
 		s.OnRegistered(regResp.PublicUrl)
 	}
@@ -482,9 +540,6 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 
 	}
 
-	// Wrap stream with mutex for thread-safe sends
-	sender := &streamSender{stream: stream}
-
 	// Create a derived context that we cancel when this connection ends
 	connCtx, connCancel := context.WithCancel(ctx)
 	defer connCancel() // Cancel health check goroutine when connection ends
@@ -504,12 +559,13 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 			defer workers.Done()
 			if err := s.maintainDeviceLease(connCtx, sender, s.AuthToken, s.renewInterval()); err != nil {
 				renewalError <- err
-				cancel()
+				cancelCause(err)
 			}
 		}()
 	}
 	// Enter message processing loop
-	err = s.processMessagesOwned(ctx, stream, sender, cancel)
+	err = s.processMessagesOwned(streamCtx, stream, sender, cancel)
+	close(messageLoopDone)
 	select {
 	case refreshErr := <-renewalError:
 		return &permanentTunnelError{err: refreshErr}

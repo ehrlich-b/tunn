@@ -22,6 +22,10 @@ type LoginNodeDBServer struct {
 	appDevices *appDeviceStore
 }
 
+func (s *LoginNodeDBServer) TunnelAlert(ctx context.Context, r *internalv1.TunnelAlertRequest) (*internalv1.TunnelAlertResponse, error) {
+	return s.storage.TunnelAlert(ctx, r)
+}
+
 func (s *LoginNodeDBServer) ProcessBillingEvent(ctx context.Context, r *internalv1.ProcessBillingEventRequest) (*internalv1.ProcessBillingEventResponse, error) {
 	if len(r.EventJson) > 4096 {
 		return nil, status.Error(codes.InvalidArgument, "billing metadata too large")

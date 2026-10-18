@@ -273,6 +273,9 @@ func (s *AccountStore) mergeAccounts(tx *sql.Tx, accounts []*Account) (*Account,
 		if _, err := tx.Exec("UPDATE reserved_subdomains SET account_id = ? WHERE account_id = ?", primary.ID, acc.ID); err != nil {
 			return nil, err
 		}
+		if err := mergeTunnelAlerts(tx, acc.ID, primary.ID); err != nil {
+			return nil, err
+		}
 		if hostTables != 0 {
 			if _, err := tx.Exec(`INSERT INTO host_machines(account_id, machine, last_seen)
 SELECT ?, machine, last_seen FROM host_machines WHERE account_id=?

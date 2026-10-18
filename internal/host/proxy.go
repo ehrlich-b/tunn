@@ -721,6 +721,10 @@ func (p *ProxyServer) Run(ctx context.Context) error {
 	}
 
 	// Wait for either an error or context cancellation
+	if p.isLoginNode {
+		wg.Add(1)
+		go func() { defer wg.Done(); p.tunnelAlertLoop(ctx) }()
+	}
 	select {
 	case err := <-errChan:
 		return err
@@ -740,9 +744,10 @@ func (p *ProxyServer) startHTTP2Server(ctx context.Context, handler http.Handler
 	tlsConfig := p.tlsConfig.Clone()
 
 	srv := &http.Server{
-		Addr:      p.HTTP2Addr,
-		Handler:   router,
-		TLSConfig: tlsConfig,
+		Addr:        p.HTTP2Addr,
+		Handler:     router,
+		TLSConfig:   tlsConfig,
+		ConnContext: publisherConnContext,
 		// Timeouts - ReadTimeout/WriteTimeout disabled for gRPC streaming support
 		// gRPC streams are long-lived and use application-level health checks
 		ReadHeaderTimeout: 10 * time.Second,  // Max time to read headers specifically
@@ -764,7 +769,7 @@ func (p *ProxyServer) startHTTP2Server(ctx context.Context, handler http.Handler
 	if p.sshServer != nil {
 		ln = sshfront.Share(ctx, ln, p.sshServer.ServeConn)
 	}
-	tlsLn := tls.NewListener(ln, tlsConfig)
+	tlsLn := tls.NewListener(publisherListener{ln}, tlsConfig)
 	p.listenerStarted(listenerHTTP2)
 	defer p.listenerState.And(^uint32(listenerHTTP2))
 
@@ -825,7 +830,7 @@ func (p *ProxyServer) createHTTP2Router(httpHandler http.Handler) http.Handler {
 		if strings.HasPrefix(contentType, "application/grpc") && platformRPC {
 			// Route to gRPC server
 			common.LogDebug("routing to gRPC", "path", r.URL.Path, "content-type", contentType)
-			p.grpcServer.ServeHTTP(w, r)
+			p.grpcServer.ServeHTTP(w, publisherRequest(r))
 			return
 		}
 
@@ -887,6 +892,7 @@ func (p *ProxyServer) createHandler() http.Handler {
 	mux.HandleFunc("/account", p.handleAccount)
 	mux.HandleFunc("/api/account/tunnels", p.handleAccountTunnels)
 	mux.HandleFunc("/account/emails", p.handleAccountEmails)
+	mux.HandleFunc("/account/tunnel-alerts", p.handleTunnelAlertSettings)
 	mux.HandleFunc("/account/inspect", p.handleInspectorPage)
 	mux.HandleFunc("/api/inspector/", p.handleInspectorAPI)
 	mux.HandleFunc("/pricing", p.handlePricing)

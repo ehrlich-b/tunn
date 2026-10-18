@@ -10,6 +10,7 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ehrlich-b/tunn/internal/common"
@@ -22,6 +23,7 @@ import (
 	meterpb "github.com/ehrlich-b/tunn/pkg/proto/meteringv1"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
 	"github.com/golang-jwt/jwt/v4"
+	"github.com/google/uuid"
 	"golang.org/x/time/rate"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -81,6 +83,8 @@ type TunnelServer struct {
 
 // TunnelConnection represents an active tunnel connection
 type TunnelConnection struct {
+	alertSession       string
+	stop               atomic.Pointer[publisherStop]
 	PolicyResourceID   string // MCP policy generation; separate from browser sharing
 	ResourceID         string
 	ExposureMode       string
@@ -446,6 +450,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 			if errors.Is(err, storage.ErrNotAvailable) {
 				return rejectTunnelRegistration(stream, "Account service temporarily unavailable.")
 			}
+			s.reportExpiredPublisher(stream.Context(), tunnelID, regClient.AuthToken)
 			respMsg := &pb.TunnelMessage{
 				Message: &pb.TunnelMessage_RegisterResponse{
 					RegisterResponse: &pb.RegisterResponse{
@@ -556,6 +561,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		bandwidthPlan = "ssh-anonymous"
 	}
 	conn := &TunnelConnection{
+		alertSession:       uuid.NewString(),
 		anonymousSSH:       viaSSH && sshIdentity.anonymous,
 		HostID:             hostID,
 		TunnelID:           tunnelID,
@@ -769,23 +775,45 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 	s.hostSeen(conn)
 
 	// Cleanup on disconnect
+	var alertCancel context.CancelFunc
+	var alertDone chan struct{}
 	defer func() {
+		if alertCancel != nil {
+			alertCancel()
+		}
 		s.hostSeen(conn)
 		conn.closePendingConnections()
 		s.mu.Lock()
 		delete(s.tunnels, tunnelID)
 		s.mu.Unlock()
+		// Local teardown must not wait for a heartbeat RPC to a hung login
+		// node. Join it before the final report so it cannot revive this session.
+		if alertCancel != nil {
+			<-alertDone
+		}
 
 		// Unregister from login node if we registered
 		if registeredWithStorage && s.storage != nil && s.storage.Available() {
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			if err := s.storage.UnregisterTunnel(ctx, tunnelID); err != nil {
-				common.LogError("failed to unregister tunnel from login node", "tunnel_id", tunnelID, "error", err)
+			unregister := true
+			if alertCancel != nil {
+				ended := conn.stop.Load()
+				operation, lastError := "down", ended.detail
+				if ended.reason == publisherClientStop {
+					operation, lastError = "graceful", ""
+				}
+				// A login node may have been rolled back during this session.
+				unregister = status.Code(s.reportAvailability(conn, operation, lastError)) == codes.Unimplemented
+			}
+			if unregister {
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				if err := s.storage.UnregisterTunnel(ctx, tunnelID); err != nil {
+					common.LogError("failed to unregister tunnel from login node", "tunnel_id", tunnelID, "error", err)
+				}
 			}
 		}
 
-		common.LogInfo("tunnel disconnected", "tunnel_id", tunnelID)
+		common.LogInfo("tunnel disconnected", "tunnel_id", tunnelID, "stop_reason", conn.stop.Load().reason)
 	}()
 
 	// Send success response
@@ -795,7 +823,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 			RegisterResponse: &pb.RegisterResponse{
 				Success:      true,
 				PublicUrl:    publicURL,
-				Capabilities: []string{common.CapabilityHTTPStreamV1, common.CapabilityConnectionStreamV1, common.CapabilityWebSocketV1, common.CapabilityHTTPResponseTrailersV1, common.CapabilityHTTPRequestHeadersV1, deviceReauthCapability, "web-sharing-v1", webhook.Capability},
+				Capabilities: []string{common.CapabilityHTTPStreamV1, common.CapabilityConnectionStreamV1, common.CapabilityWebSocketV1, common.CapabilityHTTPResponseTrailersV1, common.CapabilityHTTPRequestHeadersV1, deviceReauthCapability, "web-sharing-v1", webhook.Capability, common.CapabilityGracefulStopV1, common.CapabilityFailureStopV1},
 			},
 		},
 	}
@@ -803,10 +831,24 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 	err = stream.Send(respMsg)
 	conn.unlockStreamSend()
 	if err != nil {
+		conn.endRegistration(err)
 		return fmt.Errorf("failed to send registration response: %w", err)
 	}
 
 	common.LogInfo("tunnel registered", "tunnel_id", tunnelID, "url", publicURL)
+	if _, ok := s.storage.(storage.TunnelAlerts); registeredWithStorage && ok {
+		// Report before reading further messages so a fast disconnect cannot
+		// overtake the first availability record.
+		// The interface alone does not imply remote RPC support. Preserve
+		// legacy admission cleanup when talking to an older login node.
+		err := s.reportAvailability(conn, "up", "")
+		if status.Code(err) != codes.Unimplemented {
+			alertCtx, cancel := context.WithCancel(stream.Context())
+			alertCancel = cancel
+			alertDone = make(chan struct{})
+			go func() { defer close(alertDone); s.availabilityHeartbeats(alertCtx, conn, err == nil) }()
+		}
+	}
 
 	// Run device message processing separately so lease expiry can return the
 	// RPC even when a peer stops reading or a data-plane delivery is blocked.
@@ -820,10 +862,13 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 			case err := <-finished:
 				return err
 			case <-stream.Context().Done():
+				conn.endRegistration(stream.Context().Err())
 				return stream.Context().Err()
 			case <-ticker.C:
 				if !lease.active(s.currentTime()) {
-					return status.Error(codes.Unauthenticated, "device publisher lease expired; renew with tunn login")
+					err := status.Error(codes.Unauthenticated, "device publisher lease expired; renew with tunn login")
+					conn.endRegistration(err)
+					return err
 				}
 			}
 		}
@@ -831,7 +876,8 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 	return s.processTunnelMessages(conn, stream, nil)
 }
 
-func (s *TunnelServer) processTunnelMessages(conn *TunnelConnection, stream pb.TunnelService_EstablishTunnelServer, lease *publisherDeviceLease) error {
+func (s *TunnelServer) processTunnelMessages(conn *TunnelConnection, stream pb.TunnelService_EstablishTunnelServer, lease *publisherDeviceLease) (resultErr error) {
+	defer func() { conn.endRegistration(resultErr) }()
 	tunnelID := conn.TunnelID
 	for {
 		msg, err := stream.Recv()
@@ -848,6 +894,17 @@ func (s *TunnelServer) processTunnelMessages(conn *TunnelConnection, stream pb.T
 		}
 		// Handle different message types
 		switch m := msg.Message.(type) {
+		case *pb.TunnelMessage_GracefulStop:
+			conn.stop.CompareAndSwap(nil, &publisherStop{reason: publisherClientStop})
+			return nil
+		case *pb.TunnelMessage_FailureStop:
+			// The reason is diagnostic text, never credentials or authority.
+			// Bound it before retaining it in availability history and email.
+			reason := m.FailureStop.GetReason()
+			if len(reason) > 1024 {
+				reason = reason[:1024]
+			}
+			return status.Error(codes.Unavailable, "Publisher stopped: "+reason)
 		case *pb.TunnelMessage_RegisterClient:
 			if lease == nil {
 				return status.Error(codes.Unauthenticated, "unexpected device renewal")

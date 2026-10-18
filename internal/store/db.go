@@ -216,6 +216,9 @@ func initSchema(db *sql.DB) error {
 	if err := MigrateBrowserSessions(db); err != nil {
 		return err
 	}
+	if err := MigrateTunnelAlerts(db); err != nil {
+		return err
+	}
 	return MigrateOperations(db)
 }
 

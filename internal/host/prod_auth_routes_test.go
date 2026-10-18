@@ -41,6 +41,8 @@ type prodAuthRoute struct {
 // below means account credentials do not substitute for that missing proof.
 var prodAuthRoutes = []prodAuthRoute{
 	{"GET", "/api/account/tunnels", "/api/account/tunnels", "", [11]int{302, 302, 302, 302, 200, 200, 302, 302, 302, 302, 302}},
+	{"GET", "/account/tunnel-alerts", "/account/tunnel-alerts", "", [11]int{302, 302, 302, 302, 200, 302, 302, 302, 302, 302, 302}},
+	{"POST", "/account/tunnel-alerts", "/account/tunnel-alerts", "", [11]int{302, 302, 302, 302, 403, 302, 302, 302, 302, 302, 302}},
 	{"GET", "/account/emails", "/account/emails", "", [11]int{302, 302, 302, 302, 303, 302, 302, 302, 302, 302, 302}},
 	{"POST", "/account/emails", "/account/emails", "", [11]int{302, 302, 302, 302, 403, 302, 302, 302, 302, 302, 302}},
 	{"GET", "/api/ip-policy", "/api/ip-policy", "", [11]int{401, 200, 200, 200, 401, 401, 401, 401, 401, 401, 401}},

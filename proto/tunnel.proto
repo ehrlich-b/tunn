@@ -33,7 +33,18 @@ message TunnelMessage {
     ConnectionHalfClose connection_half_close = 13;
     ConnectionClose connection_close = 14;
     UpdateAccessToken update_access_token = 15;
+    GracefulStop graceful_stop = 16;
+    FailureStop failure_stop = 17;
   }
+}
+
+// Explicit publisher shutdown; transport failure is never a graceful stop.
+message GracefulStop {}
+
+// A terminal publisher failure, sent only after failure-stop-v1 negotiation.
+// Unlike GracefulStop this leaves outage notifications active.
+message FailureStop {
+  string reason = 1;
 }
 
 // RegisterClient is sent by the client (tunn serve) when it first connects

@@ -44,13 +44,17 @@ func sshSigner(t *testing.T) ssh.Signer {
 	return signer
 }
 func sshRelay(t *testing.T, known bool) (*ProxyServer, *ssh.Client, func() *ssh.Client) {
+	return sshRelayWithClock(t, known, time.Now)
+}
+
+func sshRelayWithClock(t *testing.T, known bool, now func() time.Time) (*ProxyServer, *ssh.Client, func() *ssh.Client) {
 	t.Helper()
 	db, err := store.InitForTest()
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	st := storage.NewLocalStorage(db)
+	st := storage.NewLocalStorageWithClock(db, now)
 	cfg := &config.Config{Domain: "tunn.test", PublicAddr: "tunn.test", LoginNode: true, JWTSecret: "ssh-test-secret", WellKnownKey: "creation"}
 	account, err := st.FindOrCreateByEmails(context.Background(), []string{"owner@example.com"}, "test")
 	if err != nil {

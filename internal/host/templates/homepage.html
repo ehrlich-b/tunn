@@ -3,78 +3,65 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>tunn · Share localhost. Pick who gets in.</title>
-<meta name="description" content="One command gives port 3000 an HTTPS URL. Only the emails you list can open it. See each request as it arrives.">
+<title>tunn · Share anything securely.</title>
+<meta name="description" content="Give your local app an HTTPS link. Private by default. Share access by email, from an agent UI to an MCP server.">
 <link rel="canonical" href="https://tunn.to/">
-<meta property="og:title" content="Share localhost. Pick who gets in.">
-<meta property="og:description" content="One command gives port 3000 an HTTPS URL. Only the emails you list can open it.">
+<meta property="og:title" content="Share anything securely.">
+<meta property="og:description" content="Give your local app an HTTPS link. Private by default. Share access by email.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://tunn.to/">
 <meta property="og:site_name" content="tunn">
 <meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)"><meta name="theme-color" content="#0F1115" media="(prefers-color-scheme: dark)">
 <link rel="stylesheet" href="/assets/system.css">
+<link rel="stylesheet" href="/assets/home.css">
 <script defer src="/assets/ui.js"></script>
 </head>
 <body>
 <!--site-header:home-->
-<main id="main">
+<main id="main" class="home">
 <div class="wrap">
-<section class="hero">
- <div>
-  <span class="lbl">HTTPS tunnel · localhost</span>
-  <h1>Share localhost.<br>Pick who <span class="sig-t">gets&nbsp;in.</span></h1>
-  <p class="sub">Give your local app an HTTPS URL. You and the people you allow sign in in a browser; visitors install nothing.</p>
-  <div class="glass cmd"><code class="kbd" tabindex="0"><span class="p" aria-hidden="true">$ </span>tunn 3000 <span class="f">--allow=alex@example.com</span></code><button class="btn sm copy" data-copy="tunn 3000 --allow=alex@example.com" aria-describedby="hero-copy">Copy</button></div>
-  <div class="copy-status" id="hero-copy" role="status"></div>
-  <div class="ctas"><a class="btn sig" href="#install">Install tunn</a><span class="lbl">curl -fsSL tunn.to/install.sh | sh</span></div>
- </div>
- <figure class="panel unit" aria-label="Example: requests to k7m2.tunn.to reaching localhost:3000, shared with alex@example.com">
-
-  <div class="unit-top"><span class="lbl">Example tunnel</span><span class="lbl"><i class="led on"></i>&nbsp; Connected</span></div>
-  <div class="glass readout"><span class="led on"></span><span class="url">k7m2.tunn.to</span><span class="arr" aria-hidden="true">→</span><span class="lh">localhost:3000</span></div>
-  <div class="recipient-outcomes">
-   <div class="verdict"><span class="tag sig">Allowed</span><span>Alex opens the link → signs in → your app loads.</span></div>
-   <div class="verdict"><span class="tag">Denied</span><span>Someone outside the allowlist: access denied.</span></div>
-  </div>
-  <p class="fine"><a href="/share-dev-server-oauth">Private-sharing walkthrough</a></p>
- </figure>
-</section>
-
-<section class="section" aria-labelledby="name-title">
- <div class="section-head"><span class="lbl" id="name-title">--name · keep the URL</span><span class="lbl">Example</span></div>
- <p class="bigurl">fix-login-redirect<span class="dim-t">.tunn.to</span></p>
- <div class="glass cmd" style="margin-top:22px;max-width:620px"><code class="kbd" tabindex="0"><span class="p" aria-hidden="true">$ </span>tunn 3000 <span class="f">--name=fix-login-redirect</span></code></div>
- <p class="fine" style="margin-top:12px">Free keeps {{.FreeReservations}} name reserved. Pro keeps {{.Reservations}}.</p>
-</section>
-
-<section class="section" aria-labelledby="ladder-title" style="padding-top:0">
- <div class="section-head"><h2 id="ladder-title">Pick who gets in.</h2><span class="lbl">Choose one command</span></div>
- <div class="panel ladder">
-  <div class="rung"><span class="who"><span class="lbl sig">Only you</span><span class="tag">Default</span></span><code class="glass">tunn 3000</code><p>The default. You sign in once to open it.</p></div>
-  <div class="rung"><span class="who"><span class="lbl sig">One person</span></span><code class="glass">tunn 3000 <span class="f">--allow=alex@example.com</span></code><p>Alex signs in to a personal account with the allowed email, using Google or an email link where offered by the relay.</p></div>
-  <div class="rung"><span class="who"><span class="lbl sig">A whole domain</span></span><code class="glass">tunn 3000 <span class="f">--allow=@example.com</span></code><p>Anyone with an example.com address.</p></div>
-  <div class="rung"><span class="who"><span class="lbl sig">Anyone</span></span><code class="glass">tunn 3000 <span class="f">--public</span></code><p>No sign-in. For webhooks and demos.</p></div>
- </div>
-</section>
-
-<section class="section" id="install" aria-labelledby="install-title" style="padding-top:0">
- <div class="section-head"><h2 id="install-title">Install tunn</h2><span class="lbl">macOS · Linux</span></div>
- <ol class="install-sequence">
-  <li><h3>Install</h3>
-   <div class="glass cmd"><code class="kbd" tabindex="0">curl -fsSL https://tunn.to/install.sh | sh</code><button class="btn sm copy" data-copy="curl -fsSL https://tunn.to/install.sh | sh" aria-describedby="install-copy">Copy</button></div>
-   <div class="copy-status" id="install-copy" role="status"></div>
-  </li>
-  <li><h3>Sign in</h3>
-   <div class="glass cmd"><code class="kbd" tabindex="0">tunn login</code><button class="btn sm copy" data-copy="tunn login" aria-describedby="install-login-copy">Copy</button></div>
-   <div class="copy-status" id="install-login-copy" role="status"></div>
-  </li>
-  <li><h3>Share port 3000</h3>
-   <p>Have your local app running on port 3000. Replace the email below with the person you want to invite.</p>
-   <div class="glass cmd"><code class="kbd" tabindex="0">tunn 3000 <span class="f">--allow=alex@example.com</span></code><button class="btn sm copy" data-copy="tunn 3000 --allow=alex@example.com" aria-describedby="install-share-copy">Copy</button></div>
-   <div class="copy-status" id="install-share-copy" role="status"></div>
-   <p>Send the printed HTTPS URL to your invited person. Keep your app and tunn running.</p>
-  </li>
+<header class="home-lead">
+ <p class="lbl">From localhost to an HTTPS link</p>
+ <h1>Share anything<br>securely.</h1>
+ <p class="sub">Your app stays on your machine. tunn gives it a link.<br class="desktop-break"> Private by default. Share access by email.</p>
+</header>
+<div class="home-start">
+<section aria-labelledby="uses-title">
+ <h2 id="uses-title" class="lbl">Share from your machine</h2>
+ <ol class="home-uses">
+  <li><span>Your agent’s UI on your phone</span><p>OpenClaw, Claude Code or a local agent dashboard.</p></li>
+  <li><span>A client preview</span><p>Your local website, ready for Alex to review.</p></li>
+  <li><span>Webhooks to localhost</span><p>A payment event sent to your app on port 3000.</p></li>
+  <li><span>An internal tool</span><p>A dashboard for two colleagues, Alex and Sam.</p></li>
+  <li><span>An MCP server</span><p>Your local tools, connected to your AI client.</p></li>
  </ol>
+</section>
+<section class="home-install panel" id="install" aria-labelledby="install-title">
+ <h2 id="install-title">Start with one port.</h2>
+ <p class="fine">macOS · Linux</p>
+ <label class="lbl" id="install-label">1. Install</label>
+ <div class="glass cmd"><code class="kbd" tabindex="0" aria-labelledby="install-label">curl -fsSL https://tunn.to/install.sh | sh</code><button class="btn sm copy" data-copy="curl -fsSL https://tunn.to/install.sh | sh" aria-describedby="install-copy">Copy</button></div>
+ <div class="copy-status" id="install-copy" role="status"></div>
+ <label class="lbl" id="share-label">2. Share your app on port 3000</label>
+ <div class="glass cmd"><code class="kbd" tabindex="0" aria-labelledby="share-label">tunn 3000</code><button class="btn sm copy" data-copy="tunn 3000" aria-describedby="share-copy">Copy</button></div>
+ <div class="copy-status" id="share-copy" role="status"></div>
+ <p>Sign in when prompted. Open the printed HTTPS link on your phone and sign in with the same email.</p>
+ <p class="fine">Keep your app and tunn running. Visitors install nothing.</p>
+ <a class="home-agent" href="/agents">Are you an agent?</a>
+</section>
+</div>
+<section class="section home-access" aria-labelledby="access-title">
+ <div><h2 id="access-title">Choose who can open it.</h2><p>Only you can open a new tunnel. Add someone’s email to share it.</p></div>
+ <div><div class="glass cmd"><code class="kbd" tabindex="0">tunn 3000 --allow=alex@example.com,sam@example.com</code><button class="btn sm copy" data-copy="tunn 3000 --allow=alex@example.com,sam@example.com" aria-describedby="allow-copy">Copy</button></div><div class="copy-status" id="allow-copy" role="status"></div>
+ <p class="fine">Alex and Sam sign in with the listed emails using Google or an email link where offered. To change the list, stop the tunnel and restart it with the new emails.</p></div>
+</section>
+<section class="home-details" aria-label="Before you share">
+ <p><strong>Webhooks need a separate choice.</strong> Tunnels start private; a webhook sender cannot use browser sign-in. Use <code>tunn 3000 --public</code> for callbacks and verify the provider’s signature in your app. Anyone with that URL can reach it.</p>
+ <p><strong>Keep your app’s own security.</strong> For OpenClaw, configure the allowed origin, token and pairing. Test live updates on your phone before relying on it away from home. WebSockets are supported; mobile and OpenClaw compatibility still need manual checks.</p>
+ <p><strong>Know the trust boundary.</strong> TLS terminates at the tunn relay. The relay can read traffic. <a href="/agents">Authentication and access details</a>.</p>
+</section>
+<section class="section home-more" aria-label="Plans and guides">
+ <p class="fine">Free keeps {{.FreeReservations}} name reserved. Pro keeps {{.Reservations}}.</p>
  <p class="fine"><a href="https://gitlab.com/ehrlich-b/tunn/-/releases">GitLab releases</a> · Free: {{.FreeTunnels}} tunnels, {{.FreeRequestsShort}} requests and {{.FreeBytesShort}} a month. Pro is ${{.MonthlyUSD}} a month. At a limit, tunn stops. <a href="/pricing">Pricing</a> · <a href="/docs">Quickstart</a> · <a href="/ngrok-alternative">tunn vs ngrok</a> · <a href="/mcp-to-claude">Local MCP</a> · <a href="/share-dev-server-oauth">OAuth sharing</a></p>
 </section>
 </div>

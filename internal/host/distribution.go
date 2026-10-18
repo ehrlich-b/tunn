@@ -35,6 +35,12 @@ func handleMCPEchoExample(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+//go:embed templates/agents/AGENTS.md
+var agentsMarkdown string
+
+//go:embed templates/agents/SKILLS.md
+var agentsSkillsMarkdown string
+
 //go:embed templates/guides.css
 var guidesCSS string
 
@@ -46,6 +52,10 @@ func (p *ProxyServer) serveDistributionPage(w http.ResponseWriter, r *http.Reque
 	contentType := "text/html; charset=utf-8"
 	var body string
 	switch r.URL.Path {
+	case "/agents":
+		contentType, body = "text/markdown; charset=utf-8", agentsMarkdown
+	case "/agents/SKILLS.md":
+		contentType, body = "text/markdown; charset=utf-8", agentsSkillsMarkdown
 	case "/ngrok-alternative":
 		body = ngrokAlternativeHTML
 	case "/mcp-to-claude":

@@ -22,6 +22,14 @@ import (
 const deviceAccessLifetime = 5 * time.Minute
 const deviceReauthCapability = "device-reauth-v1"
 
+// Invert the one-hop merge lookup so only this account's credentials are read.
+// A directly owned credential matches only if its UUID has not been merged away.
+const deviceListingQuery = `SELECT id,email,name,created,last_used,revoked,account_id FROM durable_devices
+ WHERE account_id IN (
+ SELECT old_id FROM account_merges WHERE account_id=?
+ UNION ALL SELECT ? WHERE NOT EXISTS (SELECT 1 FROM account_merges WHERE old_id=?))
+ ORDER BY created DESC`
+
 var errDeviceCredential = errors.New("device credential revoked, reused or invalid")
 
 type deviceCredentialStore struct{ db *sql.DB }
@@ -362,9 +370,7 @@ func (p *ProxyServer) handleDevices(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/account/devices", 303)
 		return
 	}
-	rows, err := p.devices.db.QueryContext(r.Context(), `SELECT id,email,name,created,last_used,revoked,account_id FROM durable_devices
- WHERE COALESCE((SELECT account_id FROM account_merges WHERE old_id=durable_devices.account_id),account_id)=?
- ORDER BY created DESC`, account.ID)
+	rows, err := p.devices.db.QueryContext(r.Context(), deviceListingQuery, account.ID, account.ID, account.ID)
 	if err != nil {
 		http.Error(w, "Device service unavailable", 503)
 		return

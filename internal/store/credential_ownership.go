@@ -42,6 +42,11 @@ func bindCredentialOwners(ctx context.Context, tx *sql.Tx) error {
 				return err
 			}
 		}
+		if credential.table == "durable_devices" {
+			if _, err := tx.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS durable_devices_account ON durable_devices(account_id)`); err != nil {
+				return err
+			}
+		}
 		rows, err := tx.QueryContext(ctx, "SELECT DISTINCT "+credential.email+" FROM "+credential.table+" WHERE account_id='' AND "+credential.email+" IS NOT NULL AND "+credential.email+"<>''")
 		if err != nil {
 			return err
@@ -84,7 +89,8 @@ func bindSSHKeyOwners(ctx context.Context, tx *sql.Tx) error {
 	if exists == 0 {
 		return nil
 	}
-	if _, err := tx.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS ssh_key_owners(fingerprint TEXT PRIMARY KEY, account_id TEXT NOT NULL)`); err != nil {
+	if _, err := tx.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS ssh_key_owners(fingerprint TEXT PRIMARY KEY, account_id TEXT NOT NULL);
+ CREATE INDEX IF NOT EXISTS ssh_key_owners_account ON ssh_key_owners(account_id,fingerprint);`); err != nil {
 		return err
 	}
 	if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM pragma_table_info('ssh_keys') WHERE name='account_id'").Scan(&oldColumn); err != nil {

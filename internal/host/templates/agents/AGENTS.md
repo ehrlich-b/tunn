@@ -68,8 +68,7 @@ allowed  only you
 others   403 at the edge
 ```
 
-Open the printed URL in a browser and sign in as the owner. To admit Alex and
-Sam, stop that publisher and run:
+Open the printed URL in a browser and sign in as the owner. To start a new tunnel that also admits Alex and Sam, run:
 
 ```sh
 tunn 3000 --allow=alex@example.com,sam@example.com
@@ -77,6 +76,21 @@ tunn 3000 --allow=alex@example.com,sam@example.com
 
 The `allowed` line becomes `alex@example.com, sam@example.com and you`. Send the
 printed URL and the exact allowed email to each person. They install nothing.
+For an existing web tunnel, use its hostname without `.tunn.to` as the resource
+name. With the example `k7m2.tunn.to` above:
+
+```sh
+tunn access k7m2
+tunn share k7m2 alex@example.com
+tunn unshare k7m2 alex@example.com
+```
+
+These commands return JSON describing the resource and its people. `unshare`
+revokes that person’s web access; their next request is denied. Web invitations
+persist across reconnects, so restarting the same named tunnel with a shorter
+`--allow` list does not remove old grants. Manage them with `unshare` or
+[Share access](https://tunn.to/account/sharing).
+
 For machine-readable route events, run `tunn 3000 --json`; read the `url` field
 from the event whose `type` is `route`. Do not assume a hostname before it prints.
 
@@ -131,8 +145,9 @@ real tool name. The check verifies the protocol, not every AI client’s behavio
 1. Open the URL signed out. It must require sign-in, not show the private app.
 2. Sign in as the owner or an explicitly allowed email. The app must load.
 3. In a separate browser session, sign in with an unlisted account. Expect 403.
-4. Stop the publisher. The URL must stop serving the app. Restart with the new
-   allowlist to remove an email. Use the newly printed URL.
+4. Revoke a web invitation with `unshare`; confirm that account now receives 403.
+   Stop the publisher and confirm the URL stops serving the app. For MCP, remove
+   an email from `--allow` and restart; disconnect OAuth clients at `/account/mcp`.
 5. For MCP, run the connector check above; confirm only intended tools appear.
    For a phone UI, test reloads and live updates over mobile data. OpenClaw still
    needs its own origin allowlist, token and pairing. Mobile/OpenClaw acceptance
@@ -148,7 +163,7 @@ service. Here is what tunn already handles, and what you would need to maintain.
 | Login | Google login, email links where configured, and device login for CLIs. | Validate OAuth state, nonce and PKCE; deliver single-use expiring email links; implement device codes, polling and durable credential renewal. |
 | Authentication at the edge | Checks browser sessions or scoped credentials before forwarding private requests. | Validate issuer, audience and expiry; strip platform credentials before upstream forwarding; enforce the same rules on HTTP and WebSocket upgrades. |
 | Per-tunnel authorization | Owner-only defaults and allowed account emails. | Bind each tunnel to an owner; normalize emails; check every request; prevent one publisher from claiming another publisher’s route. |
-| Revocation | Stop a tunnel to end its access; restart with a new allowlist. Revoke device credentials from the account. | Close active streams, invalidate credentials and prevent reconnects from silently restoring access. CLI allowlist changes require a restart; there is no live email-removal command. |
+| Revocation | Revoke web invitations with unshare; disconnect MCP clients and revoke device credentials from the account. Stop a publisher to end its tunnel. | Close active streams, invalidate credentials and prevent reconnects from silently restoring access. Web grants persist across reconnects. MCP publisher allowlist changes require a restart. |
 | Sign-out everywhere | Account sign-out invalidates browser app sessions across devices. | Track session epochs across origins and reject stale cookies. This does not revoke separate CLI device credentials or endpoint bearer tokens. |
 | Audit logs | Records account security events and access decisions for supported account flows. | Define events, remove secrets, store and authorize history, and maintain retention. This is not a claim of a compliance archive or full request-body logging. |
 | TLS | HTTPS endpoints and certificate handling at the relay. | Automate issuance, renewal, hostname routing and key storage. TLS ends at the relay; this is not end-to-end encryption. |

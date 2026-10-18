@@ -53,7 +53,7 @@
 <section class="section home-access" aria-labelledby="access-title">
  <div><h2 id="access-title">Choose who can open it.</h2><p>Only you can open a new tunnel. Add someone’s email to share it.</p></div>
  <div><div class="glass cmd"><code class="kbd" tabindex="0">tunn 3000 --allow=alex@example.com,sam@example.com</code><button class="btn sm copy" data-copy="tunn 3000 --allow=alex@example.com,sam@example.com" aria-describedby="allow-copy">Copy</button></div><div class="copy-status" id="allow-copy" role="status"></div>
- <p class="fine">Alex and Sam sign in to personal accounts with the listed emails using Google or an email link where offered. To change the list, stop the tunnel and restart it with the new emails.</p></div>
+ <p class="fine">Alex and Sam sign in to personal accounts with the listed emails using Google or an email link where offered. Manage people or revoke access in <a href="/account/sharing">Share access</a>.</p></div>
 </section>
 <section class="home-details" aria-label="Before you share">
  <p><strong>Webhooks need a separate choice.</strong> Tunnels start private; a webhook sender cannot use browser sign-in. Use <code>tunn 3000 --public</code> for callbacks and verify the provider’s signature in your app. Anyone with that URL can reach it.</p>

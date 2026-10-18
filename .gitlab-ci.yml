@@ -1,0 +1,21 @@
+# Preparation only: artifacts expire; durable publication is an owner action.
+stages: [prepare]
+prepare-release:
+  stage: prepare
+  image: golang:1.27.2-bookworm
+  variables:
+    GIT_DEPTH: "0"
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+$/'
+  before_script:
+    - apt-get update && apt-get install -y --no-install-recommends python3
+  script:
+    - nice -n 10 python3 scripts/stage-release.py --tag "$CI_COMMIT_TAG" --source "$CI_COMMIT_SHA" --output release-stage
+  artifacts:
+    paths:
+      - release-stage/downloads/
+      - release-stage/manifest.json
+      - release-stage/gitlab-release.json
+      - release-stage/tunn.rb
+      - release-stage/*.build.txt
+    expire_in: 7 days

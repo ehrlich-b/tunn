@@ -30,17 +30,9 @@ tunn 3000 --allow=alex@example.com,sam@example.com
 These are alternatives. Default access is owner-only. The second also allows
 Alex and Sam after browser sign-in with those exact emails. Send the printed
 HTTPS URL. `tunn 3000 --json` emits a `route` event with the actual `url`.
-For an existing web tunnel, use its printed hostname without `.tunn.to`.
-For the example `k7m2.tunn.to`:
-
-```sh
-tunn access k7m2
-tunn share k7m2 alex@example.com
-tunn unshare k7m2 alex@example.com
-```
-
-These return resource JSON. `unshare` removes the person’s web access. Web grants
-persist across reconnects; a shorter startup allowlist does not revoke them.
+Manage web invitations at https://tunn.to/account/sharing. Select the tunnel and
+remove the person to revoke access. Web grants persist across reconnects; a
+shorter startup allowlist does not revoke them.
 
 Only for a callback that cannot authenticate, with provider signature checks:
 
@@ -82,7 +74,7 @@ OAuth needs browser approval. Do not claim every AI client is verified.
 
 - Signed-out browser requires sign-in; an allowed email loads the app.
 - An unlisted signed-in account receives 403.
-- After `unshare`, that web recipient receives 403. Stopping the publisher stops
+- After removing a web invitation, that recipient receives 403. Stopping the publisher stops
   app access. For MCP, remove the email from `--allow` and restart; disconnect
   OAuth clients at `/account/mcp`.
 - Check phone reloads and live updates over mobile data. Preserve app-level

@@ -63,7 +63,7 @@ Private MCP supports OAuth for allowed accounts and an endpoint bearer token.
 Do not expose that token. Check the example, replacing the URL if different:
 
 ```sh
-tunn connector-check --oauth --expect-tools echo --call-tool echo https://work-tools.tunn.to/mcp
+tunn connector-check --oauth --expect-tools echo --call-tool echo --arguments '{"message":"hello"}' https://work-tools.tunn.to/mcp
 ```
 
 Expect exit 0, `PASS: OAuth consent, initialize and tools/list ["echo"]`,

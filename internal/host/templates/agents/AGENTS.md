@@ -120,7 +120,7 @@ For a client that supports remote MCP OAuth, select tunn and sign in with an
 allowed account. Check the printed URL locally before configuring the client:
 
 ```sh
-tunn connector-check --oauth --expect-tools echo --call-tool echo https://work-tools.tunn.to/mcp
+tunn connector-check --oauth --expect-tools echo --call-tool echo --arguments '{"message":"hello"}' https://work-tools.tunn.to/mcp
 ```
 
 This opens a browser authorization flow. A successful check exits 0 and reports

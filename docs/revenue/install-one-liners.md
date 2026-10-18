@@ -20,7 +20,7 @@ cp packaging/homebrew/tunn.rb "$(brew --repository tunn/revenue-local)/Formula/t
 brew install --build-from-source tunn/revenue-local/tunn
 ```
 
-The draft formula pins GitLab tag `v0.1.4` and its exact reviewed source revision
+The draft formula pins GitLab tag `v0.1.4` and its exact selected source revision
 `b2d0525df62c517ce7005977505c7af05d4033d3`. Install only after that tag and
 revision are public on GitLab and distribution is approved. The release staging
 script generates a matching formula for any subsequently selected tag. See

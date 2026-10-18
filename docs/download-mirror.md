@@ -41,7 +41,7 @@ clean checkout. It never uploads, creates a remote tag, or contacts GitHub.
 Populate the Go module cache first; use `GOPROXY=off GOSUMDB=off` to build offline.
 The draft Homebrew source is `v0.1.4` at
 `b2d0525df62c517ce7005977505c7af05d4033d3`; this is a prepared candidate,
-not a claim that the tag exists remotely. Choose and review the tag before
+not a claim that the tag exists remotely. Choose and approve the tag before
 publication. For that candidate, create the tag locally and prepare a new directory:
 
 ```sh
@@ -67,7 +67,7 @@ tags. Its temporary job artifacts are a handoff, never installer URLs.
 
 Publication remains a separate owner action. Supply approved distribution rights
 and full license text first; the manifest's file-presence flag alone is not legal
-approval. Review the exact source/tag, native platform results and staged hashes.
+approval. Confirm the exact source/tag, native platform results and staged hashes.
 Disable duplicate generic package uploads, protect release tags, and keep
 versioned packages out of cleanup policies. With owner credentials, upload the
 six files under `downloads/<tag>/` to the durable versioned package URLs in

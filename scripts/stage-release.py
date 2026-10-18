@@ -48,9 +48,9 @@ def stage(tag, source, output):
     if not re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", tag):
         raise ValueError("only stable vMAJOR.MINOR.PATCH tags may produce latest.json")
     if not re.fullmatch(r"[0-9a-f]{40}", source):
-        raise ValueError("source must be the full reviewed commit SHA")
+        raise ValueError("source must be the full selected commit SHA")
     if run("git", "rev-parse", "--verify", f"refs/tags/{tag}^{{commit}}") != source:
-        raise ValueError("tag does not resolve to the reviewed source")
+        raise ValueError("tag does not resolve to the selected source")
     output = output.absolute()
     # A fresh destination makes versioned assets immutable; never overwrite a release.
     output.mkdir(parents=True, exist_ok=False)
@@ -82,7 +82,7 @@ def stage(tag, source, output):
                 "builder_commit": run("git", "rev-parse", "HEAD"),
                 "license_file_present": license_ready,
                 "publication_requires": ["maintainer-approved distribution rights and full license text",
-                                         "reviewed protected tag reachable on GitLab",
+                                         "approved protected tag reachable on GitLab",
                                          "owner credentials and immutable package settings",
                                          "logged-out downloads and native OS qualification"],
                 "assets": records}

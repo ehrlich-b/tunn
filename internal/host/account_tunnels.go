@@ -3,6 +3,7 @@ package host
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"sort"
 	"strings"
@@ -34,6 +35,41 @@ type accountTunnel struct {
 	ClientVersion  string     `json:"client_version"`
 	ClientHost     string     `json:"client_host"`
 	LastRequest    *time.Time `json:"last_request,omitempty"`
+}
+
+func relativeTunnelTime(at time.Time, ago bool) string {
+	d := max(time.Duration(0), time.Since(at))
+	var label string
+	switch {
+	case d < time.Minute:
+		label = "now"
+	case d < time.Hour:
+		label = fmt.Sprintf("%dm", int(d.Minutes()))
+	case d < 24*time.Hour:
+		label = fmt.Sprintf("%dh", int(d.Hours()))
+	default:
+		label = fmt.Sprintf("%dd", int(d.Hours()/24))
+	}
+	if ago && label != "now" {
+		label += " ago"
+	}
+	return label
+}
+
+func (t accountTunnel) Duration() string { return relativeTunnelTime(t.ConnectedSince, false) }
+func (t accountTunnel) LastRequestRelative() string {
+	if t.LastRequest == nil {
+		return ""
+	}
+	return relativeTunnelTime(*t.LastRequest, true)
+}
+func (t accountTunnel) URLStart() string {
+	r := []rune(t.PublicURL)
+	return string(r[:max(0, len(r)-20)])
+}
+func (t accountTunnel) URLEnd() string {
+	r := []rune(t.PublicURL)
+	return string(r[max(0, len(r)-20):])
 }
 
 // The node-secret interceptor protects this RPC. Ownership is resolved from
@@ -167,6 +203,16 @@ func (p *ProxyServer) accountTunnels(ctx context.Context, owner string) ([]accou
 		}
 	}
 	sort.Slice(rows, func(i, j int) bool {
+		a, b := rows[i].LastRequest, rows[j].LastRequest
+		if a != nil && b == nil {
+			return true
+		}
+		if a == nil && b != nil {
+			return false
+		}
+		if a != nil && b != nil && !a.Equal(*b) {
+			return a.After(*b)
+		}
 		if rows[i].Name == rows[j].Name {
 			return rows[i].PublicURL < rows[j].PublicURL
 		}

@@ -7,12 +7,23 @@
 <title>Account - tunn</title>
 <link rel="stylesheet" href="/assets/system.css">
 <style>
-.live-tunnels{grid-column:1/-1;padding:20px;min-width:0}
-.live-tunnels h2{margin:0}.live-tunnels .fine{margin:8px 0 14px}
-.live-tunnel-list{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
-.live-tunnel{padding:16px;min-width:0}.live-tunnel h3{display:flex;align-items:center;gap:10px;margin:0 0 8px;font-size:16px;overflow-wrap:anywhere}
-.live-tunnel a{display:block;overflow-wrap:anywhere;font-size:14px}.live-tunnel dl{margin:12px 0 0;display:grid;grid-template-columns:auto minmax(0,1fr);gap:6px 12px;font-size:13px}.live-tunnel dt{color:var(--engrave)}.live-tunnel dd{margin:0;overflow-wrap:anywhere;color:var(--ink2)}
-@media(max-width:760px){.live-tunnel-list{grid-template-columns:1fr}.live-tunnels{padding:18px 14px}}
+.live-tunnels{grid-column:1/-1;padding:12px 16px;min-width:0}
+.live-tunnels-header{display:flex;align-items:center;gap:16px;min-height:20px;margin-bottom:6px;flex-wrap:wrap}
+.live-tunnels h2{margin:0}.live-tunnels-summary{display:inline-flex;align-items:center;gap:7px;font:400 13px/20px var(--sans);color:var(--ink2)}
+.live-tunnels-stale{font:400 12px/20px var(--sans);color:var(--engrave)}
+.live-tunnel-list{list-style:none;margin:0;padding:0}
+.live-tunnel+.live-tunnel{border-top:1px solid var(--plate-lo)}
+.live-tunnel summary{display:grid;grid-template-columns:8px minmax(100px,180px) minmax(0,1fr) 48px 36px;gap:12px;align-items:center;min-height:20px;cursor:pointer;list-style:none;font:400 13px/18px var(--sans);color:var(--ink2)}
+.live-tunnel summary::-webkit-details-marker{display:none}.live-tunnel summary:focus-visible{outline:2px solid var(--sig-ink);outline-offset:2px}
+.live-tunnel .led,.live-tunnels-summary .led{width:6px;height:6px;margin:0}
+.live-tunnel-name{font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.live-tunnel-url{display:flex;min-width:0;white-space:nowrap;font-size:13px}.live-tunnel-url span:first-child{overflow:hidden;text-overflow:ellipsis}.live-tunnel-url span:last-child{flex-shrink:0}
+.live-tunnel .plan-badge{justify-self:start;padding:1px 5px;font-size:11px;line-height:14px}.live-tunnel-duration{text-align:right;color:var(--engrave)}
+.live-tunnel-details{margin:0 0 4px 20px;font:400 12px/16px var(--sans);color:var(--engrave);overflow-wrap:anywhere}
+.live-tunnels-more{display:block;border:0;background:none;padding:0 0 0 20px;color:var(--sig-ink);font:500 12px/18px var(--sans);cursor:pointer}
+.live-tunnels .empty{padding:0;margin:0;font:400 13px/20px var(--sans)}
+.live-tunnels [hidden]{display:none}
+@media(max-width:760px){.live-tunnels{padding:14px}.live-tunnels-header{gap:8px 12px}.live-tunnel summary{grid-template-columns:6px minmax(0,1fr) auto 30px;gap:2px 8px;padding:7px 0;min-height:0}.live-tunnel-url{grid-column:2/-1;grid-row:2}.live-tunnel-details{margin-left:14px}.live-tunnels-more{padding-left:14px}}
 .emails{grid-column:1;padding:20px;min-width:0}
 .email-row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:14px 0;border-bottom:1px solid var(--plate-lo)}
 .email-address{overflow-wrap:anywhere;min-width:0;font:400 14px/1.5 var(--sans);color:var(--ink)}
@@ -77,19 +88,19 @@
   <p><a href="/account/tunnel-alerts">Tunnel email alerts</a></p>
   <div class="acct-grid">
   <section class="panel live-tunnels" aria-labelledby="live-tunnels-title">
-    <h2 class="card-title" id="live-tunnels-title">Active tunnels</h2>
-    <p class="fine" id="live-tunnels-status" role="status">{{if .LiveTunnelsComplete}}Currently connected. Updates every 5 seconds while this tab is visible.{{else}}Some relays are unavailable. This list may be incomplete; retrying automatically.{{end}}</p>
+    <div class="live-tunnels-header"><h2 class="card-title" id="live-tunnels-title">Tunnels</h2>
+      <span class="live-tunnels-summary" id="live-tunnels-summary" role="status">{{if .LiveTunnels}}<span class="led on" aria-hidden="true"></span>{{len .LiveTunnels}} online{{else}}None online{{end}}</span>
+      <span class="live-tunnels-stale" id="live-tunnels-stale" hidden></span>
+    </div>
     <ul class="live-tunnel-list" id="live-tunnel-list">
-    {{range .LiveTunnels}}<li class="glass live-tunnel"><h3><span class="led on" aria-hidden="true"></span><span>{{.Name}}</span><span class="plan-badge">{{.Kind}}</span></h3>
-      <a href="{{.PublicURL}}" target="_blank" rel="noopener noreferrer">{{.PublicURL}}</a>
-      <dl><dt>Connected since</dt><dd><time datetime="{{.ConnectedSince.Format "2006-01-02T15:04:05Z07:00"}}">{{.ConnectedSince.Format "Jan 2, 2006 15:04:05 UTC"}}</time></dd>
-      <dt>Client version</dt><dd>{{if .ClientVersion}}{{.ClientVersion}}{{else}}Not provided{{end}}</dd>
-      <dt>Client host</dt><dd>{{if .ClientHost}}{{.ClientHost}}{{else}}Not provided{{end}}</dd>
-      <dt>Last request</dt><dd>{{if .LastRequest}}<time datetime="{{.LastRequest.Format "2006-01-02T15:04:05Z07:00"}}">{{.LastRequest.Format "Jan 2, 2006 15:04:05 UTC"}}</time>{{else}}No recorded requests{{end}}</dd></dl>
-    </li>{{end}}
+    {{range $i, $tunnel := .LiveTunnels}}<li class="live-tunnel" data-key="{{.PublicURL}}"{{if ge $i 5}} hidden{{end}}><details><summary>
+      <span class="led on" aria-hidden="true"></span><span class="live-tunnel-name">{{.Name}}</span>
+      <a class="live-tunnel-url" href="{{.PublicURL}}" title="{{.PublicURL}}" target="_blank" rel="noopener noreferrer"><span>{{.URLStart}}</span><span>{{.URLEnd}}</span></a>
+      <span class="plan-badge">{{.Kind}}</span><time class="live-tunnel-duration" datetime="{{.ConnectedSince.Format "2006-01-02T15:04:05Z07:00"}}" title="Connected {{.ConnectedSince.Format "Jan 2, 2006 15:04:05 UTC"}}">{{.Duration}}</time>
+    </summary><p class="live-tunnel-details">Client {{if .ClientVersion}}{{.ClientVersion}}{{else}}unknown{{end}} · {{if .ClientHost}}{{.ClientHost}}{{else}}Host unknown{{end}} · {{if .LastRequest}}Last request {{.LastRequestRelative}}{{else}}No recorded requests{{end}}</p></details></li>{{end}}
     </ul>
-    <p class="empty" id="live-tunnels-empty"{{if or .LiveTunnels (not .LiveTunnelsComplete)}} hidden{{end}}>No tunnels connected. Start one with <code>tunn 3000</code> and keep the client running.</p>
-    <noscript><p class="fine">Enable JavaScript for live updates, or reload to refresh this list.</p></noscript>
+    <button class="live-tunnels-more" id="live-tunnels-more" type="button" aria-expanded="false" aria-controls="live-tunnel-list"{{if le (len .LiveTunnels) 5}} hidden{{end}}>{{if gt (len .LiveTunnels) 5}}+{{len (slice .LiveTunnels 5)}} more{{end}}</button>
+    <p class="empty" id="live-tunnels-empty"{{if .LiveTunnels}} hidden{{end}}>Start one with <code>tunn 3000</code> and keep the client running.</p>
   </section>
   <section class="panel meters" aria-labelledby="usage-title"><i class="screw tl"></i><i class="screw tr"></i><i class="screw bl"></i><i class="screw br"></i>
     <div class="meters-top"><h2 class="card-title" id="usage-title">This month</h2><span class="lbl">Resets {{.ResetsOn}} · UTC</span></div>
@@ -212,7 +223,7 @@
 </main>
 <footer class="site-footer"><div class="container"><a href="/docs">Docs</a><a href="/pricing">Pricing</a><a href="/status">Status</a><span class="spacer"></span><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="mailto:support@tunn.to">Support</a></div></footer>
 <script defer src="/assets/ui.js"></script>
-<script defer src="/assets/account-tunnels.js"></script>
+<script defer src="{{assetURL "account-tunnels.js"}}"></script>
 
 </body>
 </html>

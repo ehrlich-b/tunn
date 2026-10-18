@@ -1,7 +1,9 @@
 package host
 
 import (
+	"crypto/sha256"
 	"embed"
+	"fmt"
 	"io/fs"
 	"mime"
 	"net/http"
@@ -11,6 +13,16 @@ import (
 
 //go:embed templates/assets/*
 var webAssets embed.FS
+
+// webAssetURL changes whenever the embedded bytes change, keeping cached scripts
+// paired with their page across upgrades and rollbacks.
+func webAssetURL(name string) (string, error) {
+	body, err := webAssets.ReadFile("templates/assets/" + name)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("/assets/%s?v=%x", name, sha256.Sum256(body)), nil
+}
 
 func serveWebAsset(w http.ResponseWriter, r *http.Request) bool {
 	if r.URL.Path != "/favicon.ico" && !strings.HasPrefix(r.URL.Path, "/assets/") {

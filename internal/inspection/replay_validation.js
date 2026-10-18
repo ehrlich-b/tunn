@@ -45,7 +45,8 @@ function replayFields(event, fields) {
     for (let i = 0; i < bytes.length; i++) {
       const ch = String.fromCharCode(bytes[i]);
       if (ch === '%') { escapedPath += String.fromCharCode(...bytes.slice(i, i + 3)); i += 2; }
-      else escapedPath += /[A-Za-z0-9\-_.~$&+,/:;=@]/.test(ch) ? ch : '%' + bytes[i].toString(16).toUpperCase().padStart(2, '0');
+      // net/url.EscapedPath preserves these sub-delimiters and brackets in RawPath.
+      else escapedPath += /[A-Za-z0-9\-_.~!$&'()*+,/:;=@\[\]]/.test(ch) ? ch : '%' + bytes[i].toString(16).toUpperCase().padStart(2, '0');
     }
     if (escapedPath !== event.path.slice(0, oldIndex) || credential(unquery(rawPath))) fail('Keep the original path.');
     const restored = query(path.slice(index + 1));

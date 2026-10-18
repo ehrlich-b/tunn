@@ -56,5 +56,15 @@ for (const [body,bodyFormat,bytes] of [['é\r\n','text',4],['AAH+\r\n/w==','base
 const specialPath = fields.path.replace('/hook?',()=>'/hook/$&?');
 const special = replayFields({...event,path:event.path.replace('/hook?',()=>'/hook/$&?')},{...fields,path:specialPath});
 assert.deepEqual(special.errors,[]);assert.equal(special.input.path,specialPath);count++;
+for (const rawPath of ['/items/(1)', '/Products(1)', '/a!b', "/a'b*c", '/list[0]', '/a%2Fb', '/a%2fb']) {
+  const capture = {...event,path:rawPath+'?x=%5Bredacted%5D'};
+  const restoredPath = rawPath+'?x=one+two%2f%ff';
+  const checked = replayFields(capture,{...fields,path:restoredPath});
+  assert.deepEqual(checked.errors,[],rawPath);
+  assert.equal(checked.input.path,restoredPath); count++;
+  invalid('path',{path:rawPath+'/changed?x=value'},'Path and query: Keep the original path.',capture);
+}
+// Equivalent decoded paths still must keep the captured escaping, as Reconstruct requires.
+invalid('path',{path:'/a%21b?x=value'},'Path and query: Keep the original path.',{...event,path:'/a!b?x=%5Bredacted%5D'});
 assert.deepEqual(replayFields({path:'/empty',headers:{},request_bytes:0},{}),{input:{},errors:[]}); count++;
 console.log(JSON.stringify({result:'PASS',cases:count,checks:'exact errors, missing fields, markers, malformed JSON/Base64/URI, byte limits, binary and UTF-8 preservation'}));

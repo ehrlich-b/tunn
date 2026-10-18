@@ -15,6 +15,8 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+const accountTunnelPreviewLimit = 4
+
 // Publisher-supplied display text is bounded and never interpreted as markup.
 func boundedClientLabel(value string) string {
 	runes := []rune(value)

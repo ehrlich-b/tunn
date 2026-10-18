@@ -2,6 +2,7 @@ package host
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -13,6 +14,25 @@ import (
 type onboardingMeter struct {
 	metering.Backend
 	usage *meterpb.ExportResponse
+}
+
+func TestAccountTunnelPreview(t *testing.T) {
+	f := newWebInspectorFixture(t, 0, 0)
+	for i := 1; i < 8; i++ {
+		name := fmt.Sprintf("customer-billing-webhook-staging-service-%d", i)
+		f.p.tunnelServer.tunnels[name] = &TunnelConnection{TunnelID: name, TargetURL: "http", AccountID: f.tunnel.AccountID}
+	}
+	page := f.call("GET", "/account", nil, f.cookie, nil)
+	body := page.Body.String()
+	if page.Code != 200 || strings.Contains(body, "Start a private tunnel") {
+		t.Fatalf("active account: %d", page.Code)
+	}
+	if got := strings.Count(body, `<li class="glass live-tunnel" hidden>`); got != 4 {
+		t.Fatalf("hidden preview rows = %d, want 4", got)
+	}
+	if !strings.Contains(body, `>+4 more</button>`) || !strings.Contains(body, `aria-controls="live-tunnel-list"`) {
+		t.Fatal("missing inline expansion control")
+	}
 }
 
 func (m onboardingMeter) Export(context.Context, *meterpb.ExportRequest) (*meterpb.ExportResponse, error) {

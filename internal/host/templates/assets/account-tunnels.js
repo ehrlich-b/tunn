@@ -2,8 +2,22 @@
   const list = document.getElementById('live-tunnel-list');
   const message = document.getElementById('live-tunnels-status');
   const empty = document.getElementById('live-tunnels-empty');
+  const more = document.getElementById('live-tunnels-more');
+  const previewLimit = Number(list?.dataset.previewLimit) || 4;
   if (!list || !message || !empty) return;
   let timer, controller, previous, stopped = false;
+  let expanded = false;
+  function updatePreview() {
+    const items = [...list.children];
+    for (const [index, item] of items.entries()) item.hidden = !expanded && index >= previewLimit;
+    if (more) {
+      const remaining = Math.max(0, items.length - previewLimit);
+      more.hidden = remaining === 0;
+      more.textContent = expanded ? 'Show fewer' : `+${remaining} more`;
+      more.setAttribute('aria-expanded', String(expanded));
+    }
+  }
+  more?.addEventListener('click', () => { expanded = !expanded; updatePreview(); });
   function element(tag, text, className) {
     const node = document.createElement(tag);
     if (text !== undefined) node.textContent = text;
@@ -43,10 +57,11 @@
       item.append(heading, link, details); fragment.append(item);
     }
     list.replaceChildren(fragment);
+    updatePreview();
     empty.hidden = data.tunnels.length > 0 || !data.complete;
     message.textContent = data.complete
-      ? 'Currently connected. Updates every 5 seconds while this tab is visible.'
-      : 'Some relays are unavailable. This list may be incomplete; retrying automatically.';
+      ? 'Connected now.'
+      : 'Some relays are unavailable. Showing known connections.';
   }
   async function refresh() {
     if (stopped || document.hidden || controller) return;
@@ -60,7 +75,8 @@
     } catch (_) {
       if (!document.hidden && !stopped) {
         previous = undefined; list.replaceChildren(); empty.hidden = true;
-        message.textContent = "Can't refresh active tunnels. Retrying automatically; sign in again if this continues.";
+        updatePreview();
+        message.textContent = "Can't load active tunnels. Try again shortly.";
       }
     } finally {
       clearTimeout(timeout); controller = undefined;

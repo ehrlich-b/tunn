@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -38,6 +39,9 @@ func TestWebInspectorBrowserJourney(t *testing.T) {
 	p.config.GitHubClientID = ""
 	p.googleHTTPClient = googleFixtureTransport(t, p, true)
 	var received, redirectVisits, redirected atomic.Int64
+	var captureMu sync.Mutex
+	var originalHook string
+	var hookDeliveries int
 	alternate := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { redirected.Add(1); w.WriteHeader(200) }))
 	defer alternate.Close()
 	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -47,6 +51,17 @@ func TestWebInspectorBrowserJourney(t *testing.T) {
 		}
 		if strings.Contains(r.Header.Get("Cookie"), authCookieName) || r.Header.Get("Tunn-Authorization") != "" {
 			t.Error("platform credential reached real origin")
+		}
+		if strings.HasPrefix(r.RequestURI, "/hooks?") {
+			snapshot, _ := json.Marshal([]string{r.Method, r.RequestURI, r.Header.Get("Content-Type"), r.Header.Get("Content-Length"), r.Header.Get("Accept"), r.Header.Get("X-Signature"), r.Header.Get("User-Agent"), string(data)})
+			captureMu.Lock()
+			if hookDeliveries == 0 {
+				originalHook = string(snapshot)
+			} else if originalHook != string(snapshot) {
+				t.Error("replay changed original method, request URI, representation headers, restored headers or body bytes")
+			}
+			hookDeliveries++
+			captureMu.Unlock()
 		}
 		received.Add(1)
 		if r.URL.Path == "/redirect-on-replay" && redirectVisits.Add(1) > 1 {
@@ -138,5 +153,11 @@ func TestWebInspectorBrowserJourney(t *testing.T) {
 	if redirected.Load() != 0 {
 		t.Fatalf("replay followed origin redirect %d times", redirected.Load())
 	}
+	captureMu.Lock()
+	defer captureMu.Unlock()
+	if hookDeliveries != 3 {
+		t.Fatalf("expected two original hooks and one byte-preserving replay, received %d", hookDeliveries)
+	}
+	t.Log("PASS: original and replay method, raw URI, headers and body bytes match")
 	t.Log(fmt.Sprintf("real origin received %d deliveries", received.Load()))
 }

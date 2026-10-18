@@ -25,7 +25,9 @@ import (
 )
 
 //go:embed templates/inspector.html
-var webInspectorHTML string
+var webInspectorTemplate string
+
+var webInspectorHTML = strings.Replace(webInspectorTemplate, "// REPLAY_VALIDATION", inspection.ReplayValidationJS, 1)
 
 const inspectorCSRFAction = "inspector-replay"
 

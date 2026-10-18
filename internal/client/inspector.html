@@ -2,24 +2,27 @@
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>tunn inspector</title>
 <style>
-body{font:14px system-ui,sans-serif;max-width:1100px;margin:32px auto;padding:0 20px;color:#17202a}h1{font-size:24px}p{color:#566}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:9px;border-bottom:1px solid #ddd}tr[data-id]{cursor:pointer}tr[data-id]:hover{background:#f1f5f9}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f5f7fa;padding:14px;border-radius:6px}button{padding:8px 12px;cursor:pointer}small{color:#667}#detail{margin-top:24px}textarea,input{box-sizing:border-box;width:100%;font:13px monospace;padding:8px;margin:8px 0}textarea{min-height:80px}#result{white-space:pre-wrap}label{display:block;margin-top:12px}
+body{font:14px system-ui,sans-serif;max-width:1100px;margin:32px auto;overflow-wrap:anywhere;padding:0 20px;color:#17202a}h1{font-size:24px}p{color:#566}.event-list{overflow-x:auto}table{width:100%;min-width:760px;overflow-wrap:normal;border-collapse:collapse}th,td{text-align:left;padding:9px;border-bottom:1px solid #ddd}tr[data-id]{cursor:pointer}tr[data-id]:hover{background:#f1f5f9}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f5f7fa;padding:14px;border-radius:6px}button{padding:8px 12px;cursor:pointer}small{color:#667}#detail{margin-top:24px}textarea,input{box-sizing:border-box;width:100%;font:13px monospace;padding:8px;margin:8px 0}textarea{min-height:80px}#result{white-space:pre-wrap}label{display:block;margin-top:12px}
 </style></head>
 <body>
 <h1>tunn inspector</h1>
 <p>Last 50 completed deliveries. Credentials, cookies, custom header values and all query values are redacted. Body capture is off by default; explicit local capture keeps at most 64 KiB. Application paths, standard headers and captured payloads can still contain sensitive data. Stopping tunn clears history.</p>
 <p>Replay sends one new request to the original configured target and can repeat side effects. Reconstruct every unavailable field explicitly. WebSocket, SSE and CONNECT traffic show metadata only and cannot be replayed.</p>
 <p id="metrics"></p><p id="result" role="status" aria-live="polite"></p>
-<table><thead><tr><th>Time</th><th>Protocol / method</th><th>Path</th><th>Status / reason</th><th>Duration</th><th>Bytes in / out</th></tr></thead><tbody id="events"></tbody></table>
+<div class="event-list"><table><thead><tr><th>Time</th><th>Protocol / method</th><th>Path</th><th>Status / reason</th><th>Duration</th><th>Bytes in / out</th></tr></thead><tbody id="events"></tbody></table></div>
+<button id="more-requests" type="button" hidden></button>
 <section id="detail"></section>
 <script nonce="inspector">
 'use strict';
+// REPLAY_VALIDATION
 const token=location.hash?decodeURIComponent(location.hash.slice(1)):sessionStorage.getItem('tunnInspectorToken');
 if(location.hash){sessionStorage.setItem('tunnInspectorToken',token);history.replaceState(null,'',location.pathname)}
+let expandedRequests=false;
 let selected=null,replaying=false,refreshing=false,replayController=null;
 const result=document.querySelector('#result');
 async function api(path,options={}){
  const response=await fetch(path,{...options,headers:{'X-Tunn-Inspector-Token':token,'Content-Type':'application/json',...(options.headers||{})}});
- if(!response.ok)throw new Error(await response.text());
+ if(!response.ok){const error=new Error(await response.text());error.notSent=[400,401,403,404,409].includes(response.status);throw error;}
  return response.json();
 }
 function timingText(e){
@@ -32,13 +35,14 @@ async function refresh(){
  try{
   const [events,metrics]=await Promise.all([api('/api/events'),api('/api/metrics')]);
   const body=document.querySelector('#events');body.replaceChildren();
-  for(const e of events.slice().reverse()){
+  for(const e of events.slice().reverse().slice(0,expandedRequests?50:8)){
    const row=document.createElement('tr');row.dataset.id=e.id;row.tabIndex=0;
    for(const value of [new Date(e.at).toLocaleTimeString(),e.protocol+' / '+e.method,e.path,(e.status||'')+' '+e.terminal_reason,e.duration_ms+' ms · '+timingText(e),e.request_bytes+' / '+e.response_bytes]){
     const cell=document.createElement('td');cell.textContent=value;row.append(cell);
    }
    row.onclick=()=>show(e);row.onkeydown=event=>{if(event.key==='Enter')show(e)};body.append(row);
   }
+  document.querySelector('#more-requests').hidden=events.length<=8;document.querySelector('#more-requests').textContent=expandedRequests?'Show fewer':'+'+(events.length-8)+' more';
   document.querySelector('#metrics').textContent='Active streams: '+metrics.active_streams+' · Denied publisher admissions: '+metrics.denied_admissions+' · Reconnects: '+metrics.reconnects+' · Export drops: '+metrics.export_drops+' · History evictions: '+metrics.history_evictions;
   // Preserve explicit reconstruction while polling. Only rebuild after selection.
   if(selected&&!events.some(e=>e.id===selected)){selected=null;document.querySelector('#detail').textContent='Selected delivery was evicted from history.'}
@@ -46,7 +50,7 @@ async function refresh(){
 }
 function field(box,label,value,multiline=false){
  const wrapper=document.createElement('label');wrapper.textContent=label;
- const input=document.createElement(multiline?'textarea':'input');input.value=value;wrapper.append(input);box.append(wrapper);return input;
+ const input=document.createElement(multiline?'textarea':'input');input.value=value;input.autocomplete='off';input.spellcheck=false;wrapper.append(input);box.append(wrapper);return input;
 }
 function show(e){
  selected=e.id;const box=document.querySelector('#detail');box.replaceChildren();
@@ -63,25 +67,34 @@ function show(e){
   if(e.redacted_headers&&e.redacted_headers.length)headerInput=field(box,'Reconstruct every redacted header (full JSON object)',JSON.stringify(e.headers,null,2),true);
   if(!e.body_captured&&e.request_bytes>0)bodyInput=field(box,'Reconstruct complete body as base64 (up to 64 KiB)','',true);
  }
- const button=document.createElement('button');button.id='replay';button.dataset.reconstructable=String(e.reconstructable);button.textContent='Replay once to configured target';button.disabled=!e.reconstructable||replaying;
+ const errors=document.createElement('p');errors.id='replay-errors';errors.setAttribute('role','alert');box.append(errors);
+ const button=document.createElement('button');button.id='replay';button.dataset.reconstructable=String(e.reconstructable);button.textContent='Replay once to configured target';
+ function updateReplay(){
+  const checked=replayFields(e,{path:pathInput?.value,headers:headerInput?.value,body:bodyInput?.value,bodyFormat:'base64'});
+  errors.textContent=checked.errors.map(error=>error.message.replace(' Request not sent.','')).join(' ')+(checked.errors.length?' Request not sent.':'');
+  for(const [name,field] of [['path',pathInput],['headers',headerInput],['body',bodyInput]])if(field){field.setAttribute('aria-invalid',String(checked.errors.some(error=>error.field===name)));field.setAttribute('aria-describedby','replay-errors')}
+  button.disabled=!e.reconstructable||replaying||checked.errors.length>0;return checked;
+ }
+ for(const field of [pathInput,headerInput,bodyInput])if(field)field.addEventListener('input',updateReplay);
+ updateReplay();
  button.onclick=async()=>{
-  if(replaying)return;
+  if(replaying||!e.reconstructable)return;
+  const checked=updateReplay();if(checked.errors.length)return;
+  const input=checked.input;
   replaying=true;button.disabled=true;replayController=new AbortController();cancelButton.disabled=false;result.textContent='Replaying delivery #'+e.id+'…';
   try{
-   const input={};
-   if(pathInput)input.path=pathInput.value;
-   if(headerInput)input.headers=JSON.parse(headerInput.value);
-   if(bodyInput){if(!bodyInput.value)throw new Error('Supply the unavailable body explicitly');atob(bodyInput.value);input.body=bodyInput.value}
    const prepared=await api('/api/events/'+e.id+'/prepare',{method:'POST',signal:replayController.signal});input.action=prepared.action;
+   if(new TextEncoder().encode(JSON.stringify(input)).length>128*1024){const error=new Error('Replay fields exceed 128 KiB.');error.notSent=true;throw error;}
    const replay=await api('/api/events/'+e.id+'/replay',{method:'POST',body:JSON.stringify(input),signal:replayController.signal});
    result.textContent='Replay #'+replay.id+' of #'+e.id+': '+(replay.status?'HTTP '+replay.status+' · ':'')+replay.terminal_reason+' · '+replay.response_bytes+' response bytes';
    show(replay);
-  }catch(error){result.textContent=error.name==='AbortError'?'Replay canceled. A dispatched handler may already have run.':'Replay error: '+error.message}
-  finally{replaying=false;replayController=null;const currentCancel=document.querySelector('#cancel-replay');if(currentCancel)currentCancel.disabled=true;const current=document.querySelector('#replay');if(current)current.disabled=current.dataset.reconstructable!=='true';await refresh()}
+  }catch(error){result.textContent=error.name==='AbortError'?'Replay canceled. A dispatched handler may already have run.':'Replay error: '+error.message+(error.notSent?' Request not sent.':' A dispatched handler may already have run.')}
+  finally{replaying=false;replayController=null;const currentCancel=document.querySelector('#cancel-replay');if(currentCancel)currentCancel.disabled=true;const current=document.querySelector('#replay');if(current===button)updateReplay();else if(current)current.disabled=current.dataset.reconstructable!=='true';await refresh()}
  };
  const cancelButton=document.createElement('button');cancelButton.id='cancel-replay';cancelButton.textContent='Cancel replay';cancelButton.disabled=!replaying;cancelButton.onclick=()=>{if(replayController)replayController.abort()};
  box.append(button,cancelButton);
 }
+document.querySelector('#more-requests').onclick=()=>{expandedRequests=!expandedRequests;refresh()};
 refresh();setInterval(refresh,2000);
 </script>
 </body></html>

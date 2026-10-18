@@ -76,6 +76,7 @@ function show(e){
   button.disabled=!e.reconstructable||replaying||checked.errors.length>0;return checked;
  }
  for(const field of [pathInput,headerInput,bodyInput])if(field)field.addEventListener('input',updateReplay);
+ button.addEventListener('replay-state',updateReplay);
  updateReplay();
  button.onclick=async()=>{
   if(replaying||!e.reconstructable)return;
@@ -89,7 +90,7 @@ function show(e){
    result.textContent='Replay #'+replay.id+' of #'+e.id+': '+(replay.status?'HTTP '+replay.status+' · ':'')+replay.terminal_reason+' · '+replay.response_bytes+' response bytes';
    show(replay);
   }catch(error){result.textContent=error.name==='AbortError'?'Replay canceled. A dispatched handler may already have run.':'Replay error: '+error.message+(error.notSent?' Request not sent.':' A dispatched handler may already have run.')}
-  finally{replaying=false;replayController=null;const currentCancel=document.querySelector('#cancel-replay');if(currentCancel)currentCancel.disabled=true;const current=document.querySelector('#replay');if(current===button)updateReplay();else if(current)current.disabled=current.dataset.reconstructable!=='true';await refresh()}
+  finally{replaying=false;replayController=null;const currentCancel=document.querySelector('#cancel-replay');if(currentCancel)currentCancel.disabled=true;const current=document.querySelector('#replay');if(current)current.dispatchEvent(new Event('replay-state'));await refresh()}
  };
  const cancelButton=document.createElement('button');cancelButton.id='cancel-replay';cancelButton.textContent='Cancel replay';cancelButton.disabled=!replaying;cancelButton.onclick=()=>{if(replayController)replayController.abort()};
  box.append(button,cancelButton);

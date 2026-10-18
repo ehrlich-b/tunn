@@ -99,6 +99,7 @@ const body = 'AAH+\n/w==';
       await page.locator(result).getByText(kind==='hosted'?/Replay completed/:/Replay #100/).waitFor();
       assert.equal(posts.length,1);assert.equal(posts[0].path,restoredPath);assert.deepEqual(posts[0].headers,restoredHeaders);assert.equal(posts[0].body,body);
       assert.ok((await page.locator('#detail').innerText()).includes(kind==='hosted'?'replay of 1':'Replay of #1'));
+      if(kind==='local')assert.equal(await page.locator('#replay').isDisabled(),true,'new replay result has unrestored fields');
       for (const mode of ['reject','uncertain']) {
         outcome=mode;await load(1);await open();await restore();await page.locator(button).click();
         await page.waitForFunction(({result,mode}) => document.querySelector(result).textContent.includes(mode==='reject'?'Request not sent.':(result==='#notice'?'may already have it':'may already have run')),{result,mode});

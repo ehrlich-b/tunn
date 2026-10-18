@@ -352,6 +352,9 @@ func (p *ProxyServer) handleMCPAuthorize(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	// Chromium sends Origin: null for form posts under no-referrer. Keep
+	// cross-origin referrers suppressed while preserving same-origin consent.
+	w.Header().Set("Referrer-Policy", "same-origin")
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; img-src 'self'; manifest-src 'self'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'")
 	writePageStart(w, "tunn - Connect MCP tools")
 	_, _ = fmt.Fprintf(w, `<h1>Allow %s to use %s tools?</h1><p>Signed in as %s. This allows access to the MCP capabilities exposed by this tunnel with one-hour access tokens and rotating refresh for up to 30 days. The owner can revoke access at any time.</p><p>Client redirect: <code>%s</code></p><form method="post" action="/oauth/authorize"><input type="hidden" name="authorization" value="%s"><input type="hidden" name="csrf_token" value="%s"><button name="decision" value="allow">Allow</button><button name="decision" value="deny">Deny</button></form>`, html.EscapeString(client.Name), html.EscapeString(auth.Endpoint), html.EscapeString(email), html.EscapeString(auth.RedirectURI), html.EscapeString(signed), html.EscapeString(csrf))

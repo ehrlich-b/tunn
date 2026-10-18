@@ -526,6 +526,31 @@ func TestMCPOAuthConsentSecurity(t *testing.T) {
 	}
 }
 
+func TestMCPOAuthConsentReferrerPolicyAndOrigin(t *testing.T) {
+	f := newMCPOAuthFixture(t)
+	c := discoverMCPClient(t, f)
+	form := c.consentForm(t)
+	page := f.request("GET", c.authorize+"?"+c.query.Encode(), "", "", "", c.cookie)
+	if page.Header().Get("Referrer-Policy") != "same-origin" {
+		t.Fatal("consent must permit same-origin form posts while suppressing cross-origin referrers")
+	}
+	for _, origin := range []string{"null", "https://attacker.example", "https://tools.tunn.test"} {
+		req := httptest.NewRequest(http.MethodPost, c.authorize, strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("Origin", origin)
+		req.AddCookie(c.cookie)
+		w := httptest.NewRecorder()
+		f.p.createHandler().ServeHTTP(w, req)
+		if w.Code != http.StatusForbidden {
+			t.Fatalf("origin %q: %d", origin, w.Code)
+		}
+	}
+	approved := f.request("POST", c.authorize, form.Encode(), "application/x-www-form-urlencoded", "", c.cookie)
+	if approved.Code != http.StatusFound {
+		t.Fatalf("same-origin consent: %d %s", approved.Code, approved.Body)
+	}
+}
+
 func TestMCPOAuthRegistrationAndMetadataSecurity(t *testing.T) {
 	f := newMCPOAuthFixture(t)
 	for _, uri := range []string{"http://connector.example/cb", "https://user:pass@connector.example/cb", "https://connector.example/cb#fragment", "javascript:alert(1)"} {

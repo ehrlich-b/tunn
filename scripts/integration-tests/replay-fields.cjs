@@ -29,6 +29,7 @@ invalid('headers',{headers:'{"Accept":"text/plain","X-Signature":"ok"}'},'Header
 invalid('headers',{headers:JSON.stringify({...event.headers,'X-Signature':'x'.repeat(1025)})},'Headers: X-Signature exceeds 1024 bytes.');
 invalid('headers',{headers:JSON.stringify({...event.headers,'X-Signature':'é'.repeat(513)})},'Headers: X-Signature exceeds 1024 bytes.');
 invalid('headers',{headers:JSON.stringify({...event.headers,'X-Signature':'ok\r\nInjected: yes'})},'Headers: X-Signature cannot contain line breaks or NUL.');
+invalid('headers',{headers:JSON.stringify({...event.headers,'X-Signature':'bad\x01value'})},'Headers: X-Signature cannot contain control characters.');
 invalid('headers',{headers:JSON.stringify({...event.headers,'X-Signature':'tunn_app_example'})},'Headers: Restore X-Signature without platform credentials.');
 invalid('headers',{headers:JSON.stringify({...event.headers,'Extra':'ok','X-Signature':'ok'})},'Headers: Keep only the original header names.');
 invalid('path',{path:''},'Path and query: Restore the original path and query.');

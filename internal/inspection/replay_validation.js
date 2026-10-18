@@ -68,6 +68,7 @@ function replayFields(event, fields) {
       if (typeof value !== 'string') fail(name + ' must be text.');
       if (value.includes('[redacted]')) fail('Restore ' + name + '.');
       if (/[\r\n\x00]/.test(value)) fail(name + ' cannot contain line breaks or NUL.');
+      if (/[\x01-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(value)) fail(name + ' cannot contain control characters.');
       if (credential(value)) fail('Restore ' + name + ' without platform credentials.');
       if (size(value) > 1024) fail(name + ' exceeds 1024 bytes.');
       if (['Accept','Accept-Encoding','Content-Type','Content-Length','Host'].includes(name) && value !== event.headers[name]) fail('Keep the captured ' + name + ' value.');

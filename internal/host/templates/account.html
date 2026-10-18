@@ -92,8 +92,8 @@
   </section>
   <section class="panel meters" aria-labelledby="usage-title"><i class="screw tl"></i><i class="screw tr"></i><i class="screw bl"></i><i class="screw br"></i>
     <div class="meters-top"><h2 class="card-title" id="usage-title">This month</h2><span class="lbl">Resets {{.ResetsOn}} · UTC</span></div>
-    {{if and .UsageAvailable (not .Tunnels)}}
-    <div class="empty start-tunnel">
+    {{if and .UsageAvailable .LiveTunnelsComplete (not .LiveTunnels) (not .Tunnels) (eq .UsageBytes 0) (eq .RequestsUsed 0)}}
+    <div class="empty start-tunnel" id="start-tunnel">
       <b>No traffic yet this month.</b>
       <h3>Start a private tunnel</h3>
       <p style="margin:0 0 10px">Have your local app running on port 3000. Only you can access this tunnel by default.</p>

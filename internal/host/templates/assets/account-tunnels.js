@@ -19,6 +19,7 @@
     const signature = JSON.stringify(data);
     if (signature === previous) return;
     previous = signature;
+    if (data.tunnels.length > 0) document.getElementById('start-tunnel')?.remove();
     const fragment = document.createDocumentFragment();
     for (const tunnel of data.tunnels) {
       const item = element('li', undefined, 'glass live-tunnel');

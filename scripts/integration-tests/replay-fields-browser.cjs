@@ -9,8 +9,9 @@ const evidence = path.resolve(process.argv[2]);
 const root = path.resolve(__dirname,'../..');
 const shared = fs.readFileSync(path.join(root,'internal/inspection/replay_validation.js'),'utf8');
 const template = fs.readFileSync(path.join(evidence,'inspector-live/rendered-inspector.html'),'utf8');
-const local = fs.readFileSync(path.join(root,'internal/client/inspector.html'),'utf8').replace('// REPLAY_VALIDATION',shared);
-const base = {id:1,at:'2026-10-18T10:00:00Z',method:'GET',protocol:'http',path:'/hooks/customer-order-notifications-for-the-international-storefront?token=%5Bredacted%5D',
+const local = fs.readFileSync(path.join(root,'internal/client/inspector.html'),'utf8').replace('// REPLAY_VALIDATION',()=>shared);
+assert.ok(local.includes(shared),'local fixture must preserve the embedded validator literally');
+const base = {id:1,at:'2026-10-18T10:00:00Z',method:'GET',protocol:'http',path:'/hooks/customer-order-notifications-for-the-international-storefront/$&?token=%5Bredacted%5D',
   headers:{Host:'app.test',Accept:'application/json','X-Signature':'[redacted]'},redacted_headers:['X-Signature'],query_redacted:true,
   request_bytes:4,response_bytes:2,status:202,duration_ms:12,terminal_reason:'complete',body_captured:false,body_complete:true,reconstructable:true};
 const restoredPath = base.path.replace('%5Bredacted%5D','one+two%2f%ff');

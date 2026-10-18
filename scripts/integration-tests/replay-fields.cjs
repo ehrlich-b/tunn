@@ -53,5 +53,8 @@ for (const [body,bodyFormat,bytes] of [['é\r\n','text',4],['AAH+\r\n/w==','base
   assert.deepEqual(checked.errors,[]);
   assert.equal(checked.input.body,bodyFormat==='text'?Buffer.from(body).toString('base64'):body); count++;
 }
+const specialPath = fields.path.replace('/hook?',()=>'/hook/$&?');
+const special = replayFields({...event,path:event.path.replace('/hook?',()=>'/hook/$&?')},{...fields,path:specialPath});
+assert.deepEqual(special.errors,[]);assert.equal(special.input.path,specialPath);count++;
 assert.deepEqual(replayFields({path:'/empty',headers:{},request_bytes:0},{}),{input:{},errors:[]}); count++;
 console.log(JSON.stringify({result:'PASS',cases:count,checks:'exact errors, missing fields, markers, malformed JSON/Base64/URI, byte limits, binary and UTF-8 preservation'}));

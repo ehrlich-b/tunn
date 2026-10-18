@@ -1446,6 +1446,191 @@ func (x *EndpointPolicyResponse) GetDecision() *Decision {
 	return nil
 }
 
+// Reads only existing ingress metadata. Zero retention preserves capacity-based retention.
+type AuditRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Owner         string                 `protobuf:"bytes,1,opt,name=owner,proto3" json:"owner,omitempty"`
+	Operation     string                 `protobuf:"bytes,2,opt,name=operation,proto3" json:"operation,omitempty"` // list or retention
+	Endpoint      string                 `protobuf:"bytes,3,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
+	RequestId     string                 `protobuf:"bytes,4,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	StatusClass   int32                  `protobuf:"varint,5,opt,name=status_class,json=statusClass,proto3" json:"status_class,omitempty"`
+	Since         int64                  `protobuf:"varint,6,opt,name=since,proto3" json:"since,omitempty"`
+	Until         int64                  `protobuf:"varint,7,opt,name=until,proto3" json:"until,omitempty"`
+	BeforeStarted int64                  `protobuf:"varint,8,opt,name=before_started,json=beforeStarted,proto3" json:"before_started,omitempty"`
+	BeforeId      string                 `protobuf:"bytes,9,opt,name=before_id,json=beforeId,proto3" json:"before_id,omitempty"`
+	Limit         int32                  `protobuf:"varint,10,opt,name=limit,proto3" json:"limit,omitempty"`
+	RetentionDays int32                  `protobuf:"varint,11,opt,name=retention_days,json=retentionDays,proto3" json:"retention_days,omitempty"` // 0 (existing policy), 7, 30, or 90
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AuditRequest) Reset() {
+	*x = AuditRequest{}
+	mi := &file_proto_metering_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AuditRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AuditRequest) ProtoMessage() {}
+
+func (x *AuditRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_metering_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AuditRequest.ProtoReflect.Descriptor instead.
+func (*AuditRequest) Descriptor() ([]byte, []int) {
+	return file_proto_metering_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *AuditRequest) GetOwner() string {
+	if x != nil {
+		return x.Owner
+	}
+	return ""
+}
+
+func (x *AuditRequest) GetOperation() string {
+	if x != nil {
+		return x.Operation
+	}
+	return ""
+}
+
+func (x *AuditRequest) GetEndpoint() string {
+	if x != nil {
+		return x.Endpoint
+	}
+	return ""
+}
+
+func (x *AuditRequest) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *AuditRequest) GetStatusClass() int32 {
+	if x != nil {
+		return x.StatusClass
+	}
+	return 0
+}
+
+func (x *AuditRequest) GetSince() int64 {
+	if x != nil {
+		return x.Since
+	}
+	return 0
+}
+
+func (x *AuditRequest) GetUntil() int64 {
+	if x != nil {
+		return x.Until
+	}
+	return 0
+}
+
+func (x *AuditRequest) GetBeforeStarted() int64 {
+	if x != nil {
+		return x.BeforeStarted
+	}
+	return 0
+}
+
+func (x *AuditRequest) GetBeforeId() string {
+	if x != nil {
+		return x.BeforeId
+	}
+	return ""
+}
+
+func (x *AuditRequest) GetLimit() int32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+func (x *AuditRequest) GetRetentionDays() int32 {
+	if x != nil {
+		return x.RetentionDays
+	}
+	return 0
+}
+
+type AuditResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Events        []*Event               `protobuf:"bytes,1,rep,name=events,proto3" json:"events,omitempty"`
+	HasMore       bool                   `protobuf:"varint,2,opt,name=has_more,json=hasMore,proto3" json:"has_more,omitempty"`
+	RetentionDays int32                  `protobuf:"varint,3,opt,name=retention_days,json=retentionDays,proto3" json:"retention_days,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AuditResponse) Reset() {
+	*x = AuditResponse{}
+	mi := &file_proto_metering_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AuditResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AuditResponse) ProtoMessage() {}
+
+func (x *AuditResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_metering_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AuditResponse.ProtoReflect.Descriptor instead.
+func (*AuditResponse) Descriptor() ([]byte, []int) {
+	return file_proto_metering_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *AuditResponse) GetEvents() []*Event {
+	if x != nil {
+		return x.Events
+	}
+	return nil
+}
+
+func (x *AuditResponse) GetHasMore() bool {
+	if x != nil {
+		return x.HasMore
+	}
+	return false
+}
+
+func (x *AuditResponse) GetRetentionDays() int32 {
+	if x != nil {
+		return x.RetentionDays
+	}
+	return 0
+}
+
 var File_proto_metering_proto protoreflect.FileDescriptor
 
 const file_proto_metering_proto_rawDesc = "" +
@@ -1590,8 +1775,27 @@ const file_proto_metering_proto_rawDesc = "" +
 	"\x16EndpointPolicyResponse\x12\x1f\n" +
 	"\vpolicy_json\x18\x01 \x01(\fR\n" +
 	"policyJson\x12.\n" +
-	"\bdecision\x18\x02 \x01(\v2\x12.metering.DecisionR\bdecision2\x97\x05\n" +
-	"\bMetering\x129\n" +
+	"\bdecision\x18\x02 \x01(\v2\x12.metering.DecisionR\bdecision\"\xcd\x02\n" +
+	"\fAuditRequest\x12\x14\n" +
+	"\x05owner\x18\x01 \x01(\tR\x05owner\x12\x1c\n" +
+	"\toperation\x18\x02 \x01(\tR\toperation\x12\x1a\n" +
+	"\bendpoint\x18\x03 \x01(\tR\bendpoint\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x04 \x01(\tR\trequestId\x12!\n" +
+	"\fstatus_class\x18\x05 \x01(\x05R\vstatusClass\x12\x14\n" +
+	"\x05since\x18\x06 \x01(\x03R\x05since\x12\x14\n" +
+	"\x05until\x18\a \x01(\x03R\x05until\x12%\n" +
+	"\x0ebefore_started\x18\b \x01(\x03R\rbeforeStarted\x12\x1b\n" +
+	"\tbefore_id\x18\t \x01(\tR\bbeforeId\x12\x14\n" +
+	"\x05limit\x18\n" +
+	" \x01(\x05R\x05limit\x12%\n" +
+	"\x0eretention_days\x18\v \x01(\x05R\rretentionDays\"z\n" +
+	"\rAuditResponse\x12'\n" +
+	"\x06events\x18\x01 \x03(\v2\x0f.metering.EventR\x06events\x12\x19\n" +
+	"\bhas_more\x18\x02 \x01(\bR\ahasMore\x12%\n" +
+	"\x0eretention_days\x18\x03 \x01(\x05R\rretentionDays2\xd1\x05\n" +
+	"\bMetering\x128\n" +
+	"\x05Audit\x12\x16.metering.AuditRequest\x1a\x17.metering.AuditResponse\x129\n" +
 	"\bIPPolicy\x12\x19.metering.IPPolicyRequest\x1a\x12.metering.IPPolicy\x12S\n" +
 	"\x0eEndpointPolicy\x12\x1f.metering.EndpointPolicyRequest\x1a .metering.EndpointPolicyResponse\x12>\n" +
 	"\aSharing\x12\x18.metering.SharingRequest\x1a\x19.metering.SharingResponse\x124\n" +
@@ -1617,7 +1821,7 @@ func file_proto_metering_proto_rawDescGZIP() []byte {
 	return file_proto_metering_proto_rawDescData
 }
 
-var file_proto_metering_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
+var file_proto_metering_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
 var file_proto_metering_proto_goTypes = []any{
 	(*Grant)(nil),                  // 0: metering.Grant
 	(*ResolveRequest)(nil),         // 1: metering.ResolveRequest
@@ -1636,7 +1840,9 @@ var file_proto_metering_proto_goTypes = []any{
 	(*IPPolicy)(nil),               // 14: metering.IPPolicy
 	(*EndpointPolicyRequest)(nil),  // 15: metering.EndpointPolicyRequest
 	(*EndpointPolicyResponse)(nil), // 16: metering.EndpointPolicyResponse
-	(*emptypb.Empty)(nil),          // 17: google.protobuf.Empty
+	(*AuditRequest)(nil),           // 17: metering.AuditRequest
+	(*AuditResponse)(nil),          // 18: metering.AuditResponse
+	(*emptypb.Empty)(nil),          // 19: google.protobuf.Empty
 }
 var file_proto_metering_proto_depIdxs = []int32{
 	0,  // 0: metering.ListGrantsResponse.grants:type_name -> metering.Grant
@@ -1647,33 +1853,36 @@ var file_proto_metering_proto_depIdxs = []int32{
 	0,  // 5: metering.WebResource.people:type_name -> metering.Grant
 	10, // 6: metering.SharingResponse.resources:type_name -> metering.WebResource
 	5,  // 7: metering.EndpointPolicyResponse.decision:type_name -> metering.Decision
-	13, // 8: metering.Metering.IPPolicy:input_type -> metering.IPPolicyRequest
-	15, // 9: metering.Metering.EndpointPolicy:input_type -> metering.EndpointPolicyRequest
-	11, // 10: metering.Metering.Sharing:input_type -> metering.SharingRequest
-	1,  // 11: metering.Metering.Resolve:input_type -> metering.ResolveRequest
-	0,  // 12: metering.Metering.CreateGrant:input_type -> metering.Grant
-	2,  // 13: metering.Metering.ListGrants:input_type -> metering.ListGrantsRequest
-	0,  // 14: metering.Metering.RevokeGrant:input_type -> metering.Grant
-	4,  // 15: metering.Metering.Admit:input_type -> metering.Event
-	6,  // 16: metering.Metering.Charge:input_type -> metering.ChargeRequest
-	4,  // 17: metering.Metering.Finish:input_type -> metering.Event
-	8,  // 18: metering.Metering.Export:input_type -> metering.ExportRequest
-	14, // 19: metering.Metering.IPPolicy:output_type -> metering.IPPolicy
-	16, // 20: metering.Metering.EndpointPolicy:output_type -> metering.EndpointPolicyResponse
-	12, // 21: metering.Metering.Sharing:output_type -> metering.SharingResponse
-	0,  // 22: metering.Metering.Resolve:output_type -> metering.Grant
-	0,  // 23: metering.Metering.CreateGrant:output_type -> metering.Grant
-	3,  // 24: metering.Metering.ListGrants:output_type -> metering.ListGrantsResponse
-	17, // 25: metering.Metering.RevokeGrant:output_type -> google.protobuf.Empty
-	5,  // 26: metering.Metering.Admit:output_type -> metering.Decision
-	5,  // 27: metering.Metering.Charge:output_type -> metering.Decision
-	17, // 28: metering.Metering.Finish:output_type -> google.protobuf.Empty
-	9,  // 29: metering.Metering.Export:output_type -> metering.ExportResponse
-	19, // [19:30] is the sub-list for method output_type
-	8,  // [8:19] is the sub-list for method input_type
-	8,  // [8:8] is the sub-list for extension type_name
-	8,  // [8:8] is the sub-list for extension extendee
-	0,  // [0:8] is the sub-list for field type_name
+	4,  // 8: metering.AuditResponse.events:type_name -> metering.Event
+	17, // 9: metering.Metering.Audit:input_type -> metering.AuditRequest
+	13, // 10: metering.Metering.IPPolicy:input_type -> metering.IPPolicyRequest
+	15, // 11: metering.Metering.EndpointPolicy:input_type -> metering.EndpointPolicyRequest
+	11, // 12: metering.Metering.Sharing:input_type -> metering.SharingRequest
+	1,  // 13: metering.Metering.Resolve:input_type -> metering.ResolveRequest
+	0,  // 14: metering.Metering.CreateGrant:input_type -> metering.Grant
+	2,  // 15: metering.Metering.ListGrants:input_type -> metering.ListGrantsRequest
+	0,  // 16: metering.Metering.RevokeGrant:input_type -> metering.Grant
+	4,  // 17: metering.Metering.Admit:input_type -> metering.Event
+	6,  // 18: metering.Metering.Charge:input_type -> metering.ChargeRequest
+	4,  // 19: metering.Metering.Finish:input_type -> metering.Event
+	8,  // 20: metering.Metering.Export:input_type -> metering.ExportRequest
+	18, // 21: metering.Metering.Audit:output_type -> metering.AuditResponse
+	14, // 22: metering.Metering.IPPolicy:output_type -> metering.IPPolicy
+	16, // 23: metering.Metering.EndpointPolicy:output_type -> metering.EndpointPolicyResponse
+	12, // 24: metering.Metering.Sharing:output_type -> metering.SharingResponse
+	0,  // 25: metering.Metering.Resolve:output_type -> metering.Grant
+	0,  // 26: metering.Metering.CreateGrant:output_type -> metering.Grant
+	3,  // 27: metering.Metering.ListGrants:output_type -> metering.ListGrantsResponse
+	19, // 28: metering.Metering.RevokeGrant:output_type -> google.protobuf.Empty
+	5,  // 29: metering.Metering.Admit:output_type -> metering.Decision
+	5,  // 30: metering.Metering.Charge:output_type -> metering.Decision
+	19, // 31: metering.Metering.Finish:output_type -> google.protobuf.Empty
+	9,  // 32: metering.Metering.Export:output_type -> metering.ExportResponse
+	21, // [21:33] is the sub-list for method output_type
+	9,  // [9:21] is the sub-list for method input_type
+	9,  // [9:9] is the sub-list for extension type_name
+	9,  // [9:9] is the sub-list for extension extendee
+	0,  // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_proto_metering_proto_init() }
@@ -1687,7 +1896,7 @@ func file_proto_metering_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_metering_proto_rawDesc), len(file_proto_metering_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   17,
+			NumMessages:   19,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

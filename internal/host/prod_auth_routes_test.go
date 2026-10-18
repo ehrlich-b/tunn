@@ -40,6 +40,11 @@ type prodAuthRoute struct {
 // their own proof (OAuth code, email link, webhook signature, or CSRF); a 400
 // below means account credentials do not substitute for that missing proof.
 var prodAuthRoutes = []prodAuthRoute{
+	{"GET", "/account/audit", "/account/audit", "", [11]int{302, 302, 302, 302, 200, 200, 302, 302, 302, 302, 302}},
+	{"POST", "/account/audit", "/account/audit", "", [11]int{302, 302, 302, 302, 403, 403, 302, 302, 302, 302, 302}},
+	{"GET", "/account/audit.csv", "/account/audit.csv", "", [11]int{302, 302, 302, 302, 200, 200, 302, 302, 302, 302, 302}},
+	{"GET", "/account/audit.json", "/account/audit.json", "", [11]int{302, 302, 302, 302, 200, 200, 302, 302, 302, 302, 302}},
+	{"GET", "/api/account/audit/00000000000000000000000000000000", "/api/account/audit/", "", [11]int{302, 302, 302, 302, 404, 404, 302, 302, 302, 302, 302}},
 	{"GET", "/api/account/tunnels", "/api/account/tunnels", "", [11]int{302, 302, 302, 302, 200, 200, 302, 302, 302, 302, 302}},
 	{"GET", "/account/tunnel-alerts", "/account/tunnel-alerts", "", [11]int{302, 302, 302, 302, 200, 302, 302, 302, 302, 302, 302}},
 	{"POST", "/account/tunnel-alerts", "/account/tunnel-alerts", "", [11]int{302, 302, 302, 302, 403, 302, 302, 302, 302, 302, 302}},

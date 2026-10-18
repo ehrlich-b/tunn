@@ -221,9 +221,13 @@ func (p *ProxyServer) handleTunnelAlertSettings(w http.ResponseWriter, r *http.R
 		http.Redirect(w, r, "/auth/login?return_to=/account/tunnel-alerts", 302)
 		return
 	}
-	a, err := p.sessionAccount(r, claims)
-	if err != nil || a == nil {
+	a, err := p.browserSessionAccount(w, r, claims)
+	if err != nil {
 		http.Error(w, "Account unavailable", 503)
+		return
+	}
+	if a == nil {
+		http.Redirect(w, r, "/auth/login?return_to=/account/tunnel-alerts", 302)
 		return
 	}
 	if a.OperationalState != "active" {
@@ -272,4 +276,16 @@ func (p *ProxyServer) handleTunnelAlertSettings(w http.ResponseWriter, r *http.R
 	}{settings, csrf})
 }
 
-var tunnelAlertSettingsTemplate = template.Must(template.New("tunnel-alerts").Parse(`<!doctype html><html lang="en"><meta charset="utf-8"><title>Tunnel alerts</title><h1>Tunnel alerts</h1><p>Email me when a previously connected reserved tunnel stays offline, and when it recovers. At most one email per tunnel per hour; recovery can wait for that window. Relay failures are detected after 90 seconds without a heartbeat, followed by your threshold. Checks run every 30 seconds.</p><form method="post"><input type="hidden" name="csrf_token" value="{{.CSRF}}"><p><label><input type="checkbox" name="enabled" {{if .Settings.Enabled}}checked{{end}}> Email alerts for my account</label></p><p><label>Offline threshold (seconds) <input type="number" name="threshold_seconds" min="1" max="604800" value="{{.Settings.ThresholdSeconds}}" required></label></p><p><label><input type="checkbox" name="on_graceful_stop" {{if .Settings.OnGracefulStop}}checked{{end}}> Also alert after a clean publisher shutdown</label></p><button>Save</button></form><p><a href="/account">Account</a></p></html>`))
+var tunnelAlertSettingsTemplate = template.Must(template.New("tunnel-alerts").Parse(`<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tunnel alerts - tunn</title><link rel="stylesheet" href="/assets/system.css">
+<style>.alert-settings{max-width:640px;margin:48px auto;padding:24px;overflow-wrap:anywhere}.alert-settings h1{margin:16px 0}.alert-settings p{margin:16px 0}.alert-settings label{display:block}.alert-settings input[type=number]{display:block;width:100%;max-width:240px;margin-top:8px}.alert-settings .fine{color:var(--engrave)}@media(max-width:700px){.alert-settings{margin:20px 16px;padding:20px}}</style></head>
+<body><main class="panel alert-settings"><a href="/account">← Account</a><h1>Tunnel email alerts</h1>
+<p>Get an email when a reserved tunnel goes offline, and when it recovers.</p>
+<form method="post"><input type="hidden" name="csrf_token" value="{{.CSRF}}">
+<p><label><input type="checkbox" name="enabled" {{if .Settings.Enabled}}checked{{end}}> Email alerts for my account</label></p>
+<p><label>Offline threshold (seconds) <input type="number" name="threshold_seconds" min="1" max="604800" value="{{.Settings.ThresholdSeconds}}" required></label></p>
+<p><label><input type="checkbox" name="on_graceful_stop" {{if .Settings.OnGracefulStop}}checked{{end}}> Also alert when I stop a tunnel</label></p>
+<button class="btn" type="submit">Save alerts</button></form>
+<p class="fine">Only previously connected tunnels. At most one email per tunnel per hour; recovery may wait. Relay outages add up to 90 seconds before your threshold, plus up to 30 seconds for delivery.</p>
+</main></body></html>`))

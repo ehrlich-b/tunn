@@ -256,7 +256,7 @@ func TestGitHubCopyExceptions(t *testing.T) {
 // when the relay also offers company login. Scope this check to those flows;
 // company/group sharing has separate, valid instructions in README and org-sso.
 func TestPersonalAccessCopy(t *testing.T) {
-	personalIdentity := regexp.MustCompile(`(?i)\bpersonal(?: tunn)? account\b|\bpersonal sign-in\b`)
+	personalIdentity := regexp.MustCompile(`(?i)\bpersonal(?: tunn)? accounts?\b|\bpersonal sign-in\b`)
 	companyIdentity := regexp.MustCompile(`(?i)\b(?:company|corporate|org(?:anization)?)\b`)
 	for _, section := range []struct {
 		path, start, end string

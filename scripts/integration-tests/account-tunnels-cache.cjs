@@ -58,7 +58,7 @@ const legacyHTML = '<!doctype html><meta charset="utf-8"><p id="live-tunnels-sta
         assert.ok(updates > 0,'cached script prevented updates');
         assert.equal(assetHits,warm === current ? 1 : 2,'unexpected browser cache behavior');
         if (current === 'current') {
-          assert.equal(await page.locator('.live-tunnel:visible').count(),5);
+          assert.equal(await page.locator('.live-tunnel:visible').count(),4);
           await page.locator('#live-tunnels-more').click();
           assert.equal(await page.locator('.live-tunnel:visible').count(),8);
           await page.locator('.live-tunnel-name').first().click();

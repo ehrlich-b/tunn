@@ -40,7 +40,7 @@ const apex = `https://tunn.test:${port}`, resource = `https://webhooks.tunn.test
     await page.getByRole('heading',{name:'Request inspector',exact:true}).waitFor();
     await page.waitForFunction(() => document.querySelector('#endpoint').value === 'webhooks');
     await page.locator('#requests').getByText('No requests yet',{exact:true}).waitFor();
-    const body = '{"event":"delivery","body_secret":"BODY_PAYLOAD_SENTINEL"}';
+    const body = '{"event":"delivery","body_secret":"BODY_PAYLOAD_SENTINEL","unicode":"é"}\r\n';
     const sent = {headers:{'Content-Type':'application/json','User-Agent':'inspector-fixture','X-Signature':'HEADER_SENTINEL','Accept':'<img src=x onerror="window.inspectorXss=1">'},data:body};
     for (const target of ['/health','/missing','/failing','/hooks?token=QUERY_SENTINEL','/hooks?token=QUERY_SENTINEL']) {
       const headers = {...sent.headers,Accept:target === '/health' ? sent.headers.Accept : 'application/json'};
@@ -70,6 +70,15 @@ const apex = `https://tunn.test:${port}`, resource = `https://webhooks.tunn.test
     await page.getByRole('button',{name:'Prepare replay',exact:true}).click();
     await page.locator('#replay-dialog').waitFor({state:'visible'});
     assert.equal(await page.getByRole('button',{name:'Replay once',exact:true}).isDisabled(),true,'confirmation not required');
+    fs.writeFileSync(path.join(evidence,'rendered-inspector.html'),await page.content());
+    let rejectedPosts = 0;
+    page.on('request', request => {if (request.method() === 'POST' && request.url().endsWith('/replay')) rejectedPosts++;});
+    await page.locator('#confirm-replay').check();
+    assert.equal(await page.locator('#send-replay').isDisabled(),true,'hidden values enabled replay');
+    assert.match(await page.locator('#replay-error').innerText(),/Path and query: Restore every hidden value/);
+    assert.match(await page.locator('#replay-error').innerText(),/Headers: Restore /);
+    assert.match(await page.locator('#replay-error').innerText(),/Body: Restore the original body/);
+    assert.equal(rejectedPosts,0);
     const headers = {...original.headers};
     for (const key of Object.keys(headers)) if (headers[key] === '[redacted]') {
       if (key === 'X-Signature') headers[key] = 'HEADER_SENTINEL';
@@ -80,6 +89,30 @@ const apex = `https://tunn.test:${port}`, resource = `https://webhooks.tunn.test
     await page.locator('#replay-path').fill('/hooks?token=QUERY_SENTINEL');
     await page.locator('#replay-headers').fill(JSON.stringify(headers,null,2));
     await page.locator('#replay-body').fill(body);
+    const validFields = {path:'/hooks?token=QUERY_SENTINEL',headers:JSON.stringify(headers,null,2),body};
+    for (const [field,value,error] of [
+      ['headers','{','Headers: Enter a JSON object'],
+      ['headers','null','Headers: Enter a JSON object'],
+      ['headers','{}','Headers: Restore'],
+      ['headers',JSON.stringify({...headers,'X-Signature':'x'.repeat(1025)}),'Headers: X-Signature exceeds 1024 bytes.'],
+      ['path','/hooks?other=value','Path and query: Keep every original query field.'],
+      ['path','/hooks?token='+ 'é'.repeat(1100),'Path and query: Use at most 2048 bytes.'],
+      ['body','x'.repeat(65537),'Body: Use at most 64 KiB.'],
+      ['body','x','Body: Restore exactly']
+    ]) {
+      await page.locator('#replay-'+field).fill(value);
+      assert.equal(await page.locator('#send-replay').isDisabled(),true,error);
+      assert.ok((await page.locator('#replay-error').innerText()).includes(error));
+      await page.locator('#send-replay').evaluate(button => button.click());
+      assert.equal(rejectedPosts,0,'invalid fields made a replay POST');
+      await page.locator('#replay-'+field).fill(validFields[field]);
+    }
+    await page.locator('#body-format').selectOption('base64');
+    await page.locator('#replay-body').fill('@@@');
+    assert.match(await page.locator('#replay-error').innerText(),/Body: Enter valid Base64/);
+    assert.equal(await page.locator('#send-replay').isDisabled(),true);
+    await page.locator('#replay-body').fill(Buffer.from(body).toString('base64'));
+    assert.equal(await page.locator('#send-replay').isEnabled(),true);
     await page.locator('#confirm-replay').check();
     let replayPosts = 0;
     page.on('request',request => {if (request.method() === 'POST' && request.url().endsWith('/replay')) replayPosts++;});
@@ -87,6 +120,7 @@ const apex = `https://tunn.test:${port}`, resource = `https://webhooks.tunn.test
     await page.locator('#send-replay').evaluate(button => {button.click();button.click();});
     await page.locator('#notice').getByText(/Replay completed: HTTP 202/).waitFor();
     assert.equal(replayPosts,1,'double click replayed twice');
+    assert.equal(rejectedPosts,1,'validation attempts sent a replay');
     const after = await (await fixtureRequest(context,apex+'/api/inspector/webhooks/requests')).json();
     assert.equal(after.events.length,6); assert.equal(after.events.at(-1).replay_of,original.id); assert.equal(after.events.at(-1).status,202);
     assert.equal(await page.locator('#replay-body').inputValue(),'','reconstruction retained after closing');
@@ -130,7 +164,7 @@ const apex = `https://tunn.test:${port}`, resource = `https://webhooks.tunn.test
     await page.getByRole('button',{name:'Refresh',exact:true}).click();
     await page.waitForFunction(() => document.querySelectorAll('.request-row').length === 8);
     assert.deepEqual(browserErrors,[]);
-    const receipt = {result:'PASS',entry:'verified fixture Google login → Account → inspector',transport:'real TLS relay + gRPC publisher + HTTP origin',provider:'Google consent/token service fixture',original_requests:6,confirmed_replays:2,double_click_posts:1,replay_requests:replayPosts,origin_redirect_status:307,anonymous:401,wrong_owner:403,foreign_origin:403,duplicate_action:409,mobile_overflow:false,payloads_retained:false,screenshots:['inspector-1440x900.png','inspector-390x844.png','inspector-detail-390x844.png','inspector-confirm-1440x900.png']};
+    const receipt = {result:'PASS',entry:'verified fixture Google login → Account → inspector',transport:'real TLS relay + gRPC publisher + HTTP origin',provider:'Google consent/token service fixture',original_requests:6,confirmed_replays:2,double_click_posts:1,replay_requests:replayPosts,origin_redirect_status:307,anonymous:401,wrong_owner:403,foreign_origin:403,duplicate_action:409,mobile_overflow:false,payloads_retained:false,invalid_field_posts:0,field_validation:'markers, malformed/missing/oversized fields, binary Base64; explicit one-use replay',screenshots:['inspector-1440x900.png','inspector-390x844.png','inspector-detail-390x844.png','inspector-confirm-1440x900.png']};
     fs.writeFileSync(path.join(evidence,'browser-checks.json'),JSON.stringify(receipt,null,2)+'\n');
     console.log(JSON.stringify(receipt));
   } finally {await browser.close();}

@@ -567,7 +567,9 @@ func (i *Inspector) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 //go:embed inspector.html
-var inspectorHTML string
+var inspectorTemplate string
+
+var inspectorHTML = strings.Replace(inspectorTemplate, "// REPLAY_VALIDATION", inspection.ReplayValidationJS, 1)
 
 // Events returns sanitized snapshots for authenticated embedded owner interfaces.
 func (i *Inspector) Events() []InspectionEvent { return i.list() }

@@ -33,6 +33,17 @@ const apex = `https://tunn.test:${port}`;
     const errors = []; page.on('pageerror',error => errors.push(error.message));
     await page.locator('#live-tunnels-empty').waitFor({state:'visible'});
     await page.locator('#start-tunnel').waitFor({state:'visible'});
+    // A known online connection suppresses onboarding even when a peer is down.
+    // Keep the last complete inventory until all peers are available again.
+    await page.route('**/api/account/tunnels',route=>route.fulfill({json:{complete:false,tunnels:[{
+      name:'known-online',public_url:'https://known-online.example.test',kind:'HTTP',connected_since:new Date().toISOString()
+    }]}}));
+    const partial=page.waitForResponse(r=>r.url().endsWith('/api/account/tunnels'));
+    await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));await partial;
+    await page.locator('#start-tunnel').waitFor({state:'detached'});
+    assert.equal(await page.locator('.live-tunnel').count(),0,'partial inventory replaced the last complete view');
+    await page.unroute('**/api/account/tunnels');
+
     await page.screenshot({path:path.join(evidence,'account-empty-1440.png'),fullPage:true});
     await page.evaluate(() => { window.accountPageIdentity = 'preserved'; });
     assert.equal((await request(context,apex+'/_fixture/connect',{method:'POST'})).status(),204);

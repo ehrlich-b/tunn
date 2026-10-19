@@ -32,14 +32,15 @@
   }
   more.addEventListener('click', () => { expanded = !expanded; limit(); });
   function render(data) {
-    if (!data.complete || !Array.isArray(data.tunnels)) return;
-    if (data.tunnels.length > 0) document.getElementById('start-tunnel')?.remove();
+    if (!Array.isArray(data.tunnels)) return;
     // Validate the entire response before changing the last good view.
     const tunnels = data.tunnels.map(tunnel => {
       const url = new URL(tunnel.public_url);
       if (url.protocol !== 'https:') throw new Error('Invalid public URL');
       return tunnel;
     }).sort((a, b) => (Date.parse(b.last_request) || 0) - (Date.parse(a.last_request) || 0) || a.name.localeCompare(b.name) || a.public_url.localeCompare(b.public_url));
+    if (tunnels.length > 0) document.getElementById('start-tunnel')?.remove();
+    if (!data.complete) return;
     const existing = new Map(Array.from(list.children, node => [node.dataset.key, node]));
     tunnels.forEach((tunnel, i) => {
       let item = existing.get(tunnel.public_url);

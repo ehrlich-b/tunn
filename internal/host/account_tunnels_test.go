@@ -263,7 +263,7 @@ func TestAccountTunnelsCompactInitialViewAndOrder(t *testing.T) {
 	}
 	page := f.call("GET", "/account", nil, f.cookie, nil)
 	body := page.Body.String()
-	if page.Code != 200 || !strings.Contains(body, "8 online") || !strings.Contains(body, "+3 more") || strings.Count(body, ` hidden><details>`) != 3 {
+	if page.Code != 200 || !strings.Contains(body, "8 online") || !strings.Contains(body, "+4 more") || strings.Count(body, ` hidden><details>`) != 4 {
 		t.Fatalf("compact initial view: %d %s", page.Code, body)
 	}
 	if strings.Contains(body, "Updates every") || strings.Contains(body, "Currently connected") || strings.Contains(body, "Connected since") {

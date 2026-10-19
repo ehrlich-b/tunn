@@ -4,6 +4,7 @@
   const stale = document.getElementById('live-tunnels-stale');
   const empty = document.getElementById('live-tunnels-empty');
   const more = document.getElementById('live-tunnels-more');
+  const previewLimit = Number(list?.dataset.previewLimit) || 4;
   if (!list || !summary || !stale || !empty || !more) return;
   let timer, controller, stopped = false, expanded = false, updated = Date.now();
   function element(tag, text, className) {
@@ -24,14 +25,15 @@
     for (const node of list.querySelectorAll('.live-tunnel-duration')) node.textContent = relative(node.dateTime);
   }
   function limit() {
-    Array.from(list.children).forEach((row, i) => { row.hidden = !expanded && i >= 5; });
-    more.hidden = list.children.length <= 5;
-    more.textContent = expanded ? 'Show fewer' : `+${list.children.length - 5} more`;
+    Array.from(list.children).forEach((row, i) => { row.hidden = !expanded && i >= previewLimit; });
+    more.hidden = list.children.length <= previewLimit;
+    more.textContent = expanded ? 'Show fewer' : `+${list.children.length - previewLimit} more`;
     more.setAttribute('aria-expanded', String(expanded));
   }
   more.addEventListener('click', () => { expanded = !expanded; limit(); });
   function render(data) {
     if (!data.complete || !Array.isArray(data.tunnels)) return;
+    if (data.tunnels.length > 0) document.getElementById('start-tunnel')?.remove();
     // Validate the entire response before changing the last good view.
     const tunnels = data.tunnels.map(tunnel => {
       const url = new URL(tunnel.public_url);

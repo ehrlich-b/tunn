@@ -92,20 +92,21 @@
       <span class="live-tunnels-summary" id="live-tunnels-summary" role="status">{{if .LiveTunnels}}<span class="led on" aria-hidden="true"></span>{{len .LiveTunnels}} online{{else}}None online{{end}}</span>
       <span class="live-tunnels-stale" id="live-tunnels-stale" hidden></span>
     </div>
-    <ul class="live-tunnel-list" id="live-tunnel-list">
-    {{range $i, $tunnel := .LiveTunnels}}<li class="live-tunnel" data-key="{{.PublicURL}}"{{if ge $i 5}} hidden{{end}}><details><summary>
+    <ul class="live-tunnel-list" id="live-tunnel-list" data-preview-limit="{{.LiveTunnelsPreviewLimit}}">
+    {{range $i, $tunnel := .LiveTunnels}}<li class="live-tunnel" data-key="{{.PublicURL}}"{{if ge $i $.LiveTunnelsPreviewLimit}} hidden{{end}}><details><summary>
       <span class="led on" aria-hidden="true"></span><span class="live-tunnel-name">{{.Name}}</span>
       <a class="live-tunnel-url" href="{{.PublicURL}}" title="{{.PublicURL}}" target="_blank" rel="noopener noreferrer"><span>{{.URLStart}}</span><span>{{.URLEnd}}</span></a>
       <span class="plan-badge">{{.Kind}}</span><time class="live-tunnel-duration" datetime="{{.ConnectedSince.Format "2006-01-02T15:04:05Z07:00"}}" title="Connected {{.ConnectedSince.Format "Jan 2, 2006 15:04:05 UTC"}}">{{.Duration}}</time>
     </summary><p class="live-tunnel-details">Client {{if .ClientVersion}}{{.ClientVersion}}{{else}}unknown{{end}} · {{if .ClientHost}}{{.ClientHost}}{{else}}Host unknown{{end}} · {{if .LastRequest}}Last request {{.LastRequestRelative}}{{else}}No recorded requests{{end}}</p></details></li>{{end}}
     </ul>
-    <button class="live-tunnels-more" id="live-tunnels-more" type="button" aria-expanded="false" aria-controls="live-tunnel-list"{{if le (len .LiveTunnels) 5}} hidden{{end}}>{{if gt (len .LiveTunnels) 5}}+{{len (slice .LiveTunnels 5)}} more{{end}}</button>
-    <p class="empty" id="live-tunnels-empty"{{if .LiveTunnels}} hidden{{end}}>Start one with <code>tunn 3000</code> and keep the client running.</p>
+    <button class="live-tunnels-more" id="live-tunnels-more" type="button" aria-expanded="false" aria-controls="live-tunnel-list"{{if not .LiveTunnelsMore}} hidden{{end}}>+{{.LiveTunnelsMore}} more</button>
+    <p class="empty" id="live-tunnels-empty"{{if or .LiveTunnels (not .LiveTunnelsComplete)}} hidden{{end}}>Start one with <code>tunn 3000</code> and keep the client running.</p>
+    <noscript><style>.live-tunnel[hidden]{display:block!important}#live-tunnels-more{display:none!important}</style><p class="fine">Reload to refresh connections.</p></noscript>
   </section>
   <section class="panel meters" aria-labelledby="usage-title"><i class="screw tl"></i><i class="screw tr"></i><i class="screw bl"></i><i class="screw br"></i>
     <div class="meters-top"><h2 class="card-title" id="usage-title">This month</h2><span class="lbl">Resets {{.ResetsOn}} · UTC</span></div>
-    {{if and .UsageAvailable (not .Tunnels)}}
-    <div class="empty start-tunnel">
+    {{if and .UsageAvailable .LiveTunnelsComplete (not .LiveTunnels) (not .Tunnels) (eq .UsageBytes 0) (eq .RequestsUsed 0)}}
+    <div class="empty start-tunnel" id="start-tunnel">
       <b>No traffic yet this month.</b>
       <h3>Start a private tunnel</h3>
       <p style="margin:0 0 10px">Have your local app running on port 3000. Only you can access this tunnel by default.</p>

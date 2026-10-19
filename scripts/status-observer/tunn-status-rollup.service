@@ -1,0 +1,11 @@
+[Unit]
+Description=Summarize closed UTC observation days
+
+[Service]
+Type=oneshot
+EnvironmentFile=%h/.config/tunn-status/environment
+ExecStart=/usr/bin/python3 %h/.local/lib/tunn-status/observer.py rollup --data-dir ${STATUS_DATA_DIR}
+TimeoutStartSec=120
+UMask=0077
+Nice=10
+NoNewPrivileges=true

@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import shutil
 import subprocess
 import tempfile
 
@@ -27,20 +28,28 @@ def run(args, env, cwd, expected=0):
     return result
 
 
-def smoke(root):
+def smoke(root, release_tree=None, tag=TAG):
+    global TAG
+    TAG = tag
     system = platform.system().lower()
     arch = {"x86_64": "amd64", "aarch64": "arm64", "arm64": "arm64"}[platform.machine()]
     assert system in ("linux", "darwin"), "installer supports Linux and Darwin"
     asset = f"tunn-{system}-{arch}"
     release = root / "dl" / TAG
-    release.mkdir(parents=True)
+    if release_tree:
+        shutil.copytree(release_tree, root / "dl")
+    else:
+        release.mkdir(parents=True)
     binary = release / asset
     env = dict(os.environ, GOPROXY="off", GOSUMDB="off", GOTOOLCHAIN="local")
-    run(["nice", "-n", "10", "go", "build", "-p", "2", "-ldflags", f"-X main.version={TAG}", "-o", str(binary), "."], env, REPO)
+    if not release_tree:
+        run(["nice", "-n", "10", "go", "build", "-p", "2", "-ldflags", f"-X main.version={TAG}", "-o", str(binary), "."], env, REPO)
     digest = hashlib.sha256(binary.read_bytes()).hexdigest()
     sums = release / "SHA256SUMS"
-    sums.write_text(f"{digest}  {asset}\n")
-    (root / "dl" / "latest.json").write_text(json.dumps({"tag_name": TAG, "draft": False, "prerelease": False}) + "\n")
+    original_sums = sums.read_text() if release_tree else f"{digest}  {asset}\n"
+    if not release_tree:
+        sums.write_text(original_sums)
+        (root / "dl" / "latest.json").write_text(json.dumps({"tag_name": TAG, "draft": False, "prerelease": False}) + "\n")
 
     # This is a transport substitute, not an HTTP server: no DNS, TLS, or socket
     # can escape the fixture, and the production HTTPS restrictions stay intact.
@@ -102,19 +111,28 @@ shutil.copyfile(pathlib.Path(os.environ['OFFLINE_DL']) / path, args[args.index('
     receipts = [json.loads(line) for line in calls.read_text().splitlines()]
     expected_urls = [BASE + "/latest.json", BASE + f"/{TAG}/{asset}", BASE + f"/{TAG}/SHA256SUMS"]
     assert [r["url"] for r in receipts] == expected_urls * 3, receipts
-    # Leave the retained fixture valid for independent checksum verification.
-    sums.write_text(f"{digest}  {asset}\n")
-    print("PASS: offline release installation, both version commands, unknown flags, service login exit, checksum refusal and atomicity", flush=True)
+    # Missing artifacts also preserve the installed binary. Build an incomplete
+    # fixture by omission, leaving the complete release in place for inspection.
+    incomplete = root / "missing-asset"
+    shutil.copytree(root / "dl", incomplete, ignore=shutil.ignore_patterns(asset))
+    env.update(TUNN_INSTALL_DIR=str(install), OFFLINE_DL=str(incomplete))
+    run(["sh", str(REPO / "install.sh")], env, sandbox, expected=1)
+    assert hashlib.sha256(installed.read_bytes()).hexdigest() == digest
+    # Leave the retained complete fixture valid for independent verification.
+    sums.write_text(original_sums)
+    print("PASS: offline release installation, both version commands, unknown flags, service login exit, checksum/missing-asset refusal and atomicity", flush=True)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--release-tree", type=Path, help="consume an existing complete staged downloads tree")
+    parser.add_argument("--tag", default=TAG)
     args = parser.parse_args()
     if args.output:
         root = args.output.resolve()
         root.mkdir(parents=True, exist_ok=False)
-        smoke(root)
+        smoke(root, args.release_tree, args.tag)
     else:
         with tempfile.TemporaryDirectory(prefix="tunn-installer-offline-") as temp:
-            smoke(Path(temp))
+            smoke(Path(temp), args.release_tree, args.tag)

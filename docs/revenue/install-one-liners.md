@@ -8,8 +8,7 @@ curl -fsSL https://tunn.to/install.sh | sh
 ```
 
 Then `tunn login`. If needed: `export PATH="$HOME/.local/bin:$PATH"`.
-The existing downloader does not verify checksums or atomically replace an
-installed binary. Use the [install/recovery path](../install-recovery.md) when
+The downloader verifies SHA256SUMS and atomically replaces an installed binary. Use the [install/recovery path](../install-recovery.md) when
 checked artifacts and rollback matter. A website deploy alone does not publish
 a CLI release. Do not market the new `http` alias through an old binary.
 
@@ -21,8 +20,11 @@ cp packaging/homebrew/tunn.rb "$(brew --repository tunn/revenue-local)/Formula/t
 brew install --build-from-source tunn/revenue-local/tunn
 ```
 
-The formula pins the product-change commit and fetches Git source. It can be
-installed only after that exact commit is reachable in the public repository.
+The draft formula pins GitLab tag `v0.1.4` and its exact selected source revision
+`b2d0525df62c517ce7005977505c7af05d4033d3`. Install only after that tag and
+revision are public on GitLab and distribution is approved. The release staging
+script generates a matching formula for any subsequently selected tag. See
+[release preparation](../download-mirror.md).
 This creates a local tap, without publishing a repository or creating an
 account. Current Homebrew requires a formula to live in a tap; a bare .rb path
 is not a reliable install command. It does not claim an existing public tap or

@@ -369,7 +369,7 @@ func (p *ProxyServer) handleSharingPage(w http.ResponseWriter, r *http.Request) 
 			http.Error(w, "Grant authority unavailable", 503)
 			return
 		}
-		data.URL = "https://" + endpoint + "." + p.config.Domain
+		data.URL = relayPublicURL(p.config.Domain, p.config.PublicAddr, endpoint)
 		data.CSRF, err = p.createCSRFToken(r, "sharing:"+endpoint)
 		if err != nil {
 			http.Error(w, "Session unavailable", 500)

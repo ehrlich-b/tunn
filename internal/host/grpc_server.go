@@ -817,7 +817,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 	}()
 
 	// Send success response
-	publicURL := fmt.Sprintf("https://%s.%s", tunnelID, s.cfg.Domain)
+	publicURL := relayPublicURL(s.cfg.Domain, s.cfg.PublicAddr, tunnelID)
 	respMsg := &pb.TunnelMessage{
 		Message: &pb.TunnelMessage_RegisterResponse{
 			RegisterResponse: &pb.RegisterResponse{

@@ -32,41 +32,7 @@ func TestConnectorJourneyOAuthToolsAndRevocation(t *testing.T) {
 	}
 	f := newMCPOAuthFixtureWithDB(t, db)
 	prepareMCPAuthorityFixture(t, f)
-	t.Setenv("TUNN_MCP_OAUTH_HELPER", "1")
-	bridge, err := mcpbridge.StartStdioHandler(context.Background(), []string{os.Args[0], "-test.run=^TestMCPOAuthStdioHelper$"}, io.Discard, mcpbridge.Options{AllowedTools: []string{"echo"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		defer cancel()
-		if err := bridge.Close(ctx); err != nil {
-			t.Error(err)
-		}
-	})
-	f.tunnel.Stream.(*meteringFixtureStream).hook = func(message *pb.TunnelMessage) error {
-		if request := message.GetHttpRequest(); request != nil {
-			f.forwarded++
-			local := httptest.NewRequest(request.Method, request.Path, bytes.NewReader(request.Body))
-			for k, v := range request.Headers {
-				local.Header.Set(k, v)
-			}
-			if local.Header.Get("Authorization") != "" || local.Header.Get("Cookie") != "" {
-				t.Error("credentials reached child")
-			}
-			w := httptest.NewRecorder()
-			bridge.ServeHTTP(w, local)
-			headers := map[string]string{}
-			for k := range w.Header() {
-				headers[k] = w.Header().Get(k)
-			}
-			f.tunnel.pendingMu.RLock()
-			ch := f.tunnel.pendingRequests[request.ConnectionId]
-			f.tunnel.pendingMu.RUnlock()
-			ch <- &pb.HttpResponse{ConnectionId: request.ConnectionId, StatusCode: int32(w.Code), Headers: headers, Body: w.Body.Bytes()}
-		}
-		return nil
-	}
+	attachConnectorEcho(t, f)
 	// Real TLS requests to disposable loopback; certificate verification stays on.
 	server := httptest.NewTLSServer(f.p.createHandler())
 	t.Cleanup(func() { server.Close() })
@@ -195,4 +161,43 @@ func TestConnectorJourneyOAuthToolsAndRevocation(t *testing.T) {
 		t.Fatalf("revoked token accepted after store reopening: %v", err)
 	}
 	t.Log("PASS durable revocation still rejects token after close/reopen")
+}
+
+func attachConnectorEcho(t *testing.T, f *mcpOAuthFixture) {
+	t.Helper()
+	t.Setenv("TUNN_MCP_OAUTH_HELPER", "1")
+	bridge, err := mcpbridge.StartStdioHandler(context.Background(), []string{os.Args[0], "-test.run=^TestMCPOAuthStdioHelper$"}, io.Discard, mcpbridge.Options{AllowedTools: []string{"echo"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		if err := bridge.Close(ctx); err != nil {
+			t.Error(err)
+		}
+	})
+	f.tunnel.Stream.(*meteringFixtureStream).hook = func(message *pb.TunnelMessage) error {
+		if request := message.GetHttpRequest(); request != nil {
+			f.forwarded++
+			local := httptest.NewRequest(request.Method, request.Path, bytes.NewReader(request.Body))
+			for k, v := range request.Headers {
+				local.Header.Set(k, v)
+			}
+			if local.Header.Get("Authorization") != "" || local.Header.Get("Cookie") != "" {
+				t.Error("credentials reached child")
+			}
+			w := httptest.NewRecorder()
+			bridge.ServeHTTP(w, local)
+			headers := map[string]string{}
+			for k := range w.Header() {
+				headers[k] = w.Header().Get(k)
+			}
+			f.tunnel.pendingMu.RLock()
+			ch := f.tunnel.pendingRequests[request.ConnectionId]
+			f.tunnel.pendingMu.RUnlock()
+			ch <- &pb.HttpResponse{ConnectionId: request.ConnectionId, StatusCode: int32(w.Code), Headers: headers, Body: w.Body.Bytes()}
+		}
+		return nil
+	}
 }

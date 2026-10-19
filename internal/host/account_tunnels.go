@@ -117,7 +117,7 @@ func (s *InternalServer) ListAccountTunnels(ctx context.Context, req *internalpb
 		} else if tunnel.TargetURL == "mcp" {
 			kind = "MCP"
 		}
-		row := &internalpb.AccountTunnel{Name: tunnel.TunnelID, Kind: kind, PublicUrl: "https://" + tunnel.TunnelID + "." + server.cfg.Domain, ConnectedSinceUnix: tunnel.Connected.Unix(), ClientVersion: tunnel.ClientVersion, ClientHost: tunnel.ClientHost}
+		row := &internalpb.AccountTunnel{Name: tunnel.TunnelID, Kind: kind, PublicUrl: relayPublicURL(server.cfg.Domain, server.cfg.PublicAddr, tunnel.TunnelID), ConnectedSinceUnix: tunnel.Connected.Unix(), ClientVersion: tunnel.ClientVersion, ClientHost: tunnel.ClientHost}
 		if kind == "MCP" {
 			row.PublicUrl += "/mcp"
 		}

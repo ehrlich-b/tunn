@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily tunn observation summaries
+
+[Timer]
+OnCalendar=*-*-* 00:05:00 UTC
+AccuracySec=1s
+Persistent=true
+Unit=tunn-status-rollup.service
+
+[Install]
+WantedBy=timers.target

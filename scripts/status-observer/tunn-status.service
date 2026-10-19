@@ -1,0 +1,12 @@
+[Unit]
+Description=Observe tunn public HTTP endpoints
+
+[Service]
+Type=oneshot
+EnvironmentFile=%h/.config/tunn-status/environment
+ExecStart=/usr/bin/python3 %h/.local/lib/tunn-status/observer.py probe --data-dir ${STATUS_DATA_DIR}
+TimeoutStartSec=50
+UMask=0077
+Nice=10
+NoNewPrivileges=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6

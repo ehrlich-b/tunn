@@ -245,9 +245,13 @@ class LifespanTests(unittest.IsolatedAsyncioTestCase):
                     lifetime_timeout=.3 if mode == 'deadline' else None))
                 try:
                     async with asyncio.timeout(2):
-                        while not pid_file.exists():
-                            await asyncio.sleep(.005)
-                    pid = int(pid_file.read_text())
+                        # The helper creates the file before writing its PID.
+                        while True:
+                            try:
+                                pid = int(pid_file.read_text())
+                                break
+                            except (FileNotFoundError, ValueError):
+                                await asyncio.sleep(.005)
                     if mode == 'task':
                         startup.cancel()
                     if mode == 'event':

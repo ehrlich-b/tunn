@@ -74,6 +74,7 @@ func TestTunnelAlertsRealClientGracefulStop(t *testing.T) {
 	for _, remote := range []bool{false, true} {
 		t.Run(fmt.Sprintf("remote=%v", remote), func(t *testing.T) {
 			f := newTunnelAlertFixture(t, remote)
+			f.settings(true, false, 600)
 			server := NewTunnelServer(securityConfig(), nil, nil, f.backend)
 			g := grpc.NewServer()
 			pb.RegisterTunnelServiceServer(g, server)
@@ -224,6 +225,7 @@ func TestTunnelAlertsLifecycle(t *testing.T) {
 	for _, remote := range []bool{false, true} {
 		t.Run(fmt.Sprintf("remote=%v", remote), func(t *testing.T) {
 			f := newTunnelAlertFixture(t, remote)
+			f.settings(true, false, 600)
 			ctx := context.Background()
 			if err := f.local.AccountStore().ReserveSubdomain(f.owner.ID, "never-up"); err != nil {
 				t.Fatal(err)
@@ -297,6 +299,7 @@ func TestTunnelAlertsRelayCrashAndMailerRetry(t *testing.T) {
 	for _, remote := range []bool{false, true} {
 		t.Run(fmt.Sprintf("remote=%v", remote), func(t *testing.T) {
 			f := newTunnelAlertFixture(t, remote)
+			f.settings(true, false, 600)
 			f.register("crash-demo", "crashed-node")
 			f.clock.Add(90 + 599)
 			f.sweep(0)
@@ -337,6 +340,7 @@ func TestTunnelAlertsRegistrationAndStop(t *testing.T) {
 		for _, graceful := range []bool{false, true} {
 			t.Run(fmt.Sprintf("remote=%v/graceful=%v", remote, graceful), func(t *testing.T) {
 				f := newTunnelAlertFixture(t, remote)
+				f.settings(true, false, 600)
 				server := NewTunnelServer(securityConfig(), nil, nil, f.backend)
 				stream := &tunnelAlertStream{recv: make(chan tunnelAlertRecv, 2), sent: make(chan *pb.TunnelMessage, 4)}
 				token := createTestJWT(f.owner.PrimaryEmail, server.cfg.JWTSecret)
@@ -380,6 +384,7 @@ func TestTunnelAlertsRejectedReconnectDiagnosis(t *testing.T) {
 		for _, kind := range []string{"expired-owner", "expired-foreign", "forged", "wrong-purpose"} {
 			t.Run(fmt.Sprintf("remote=%v/%s", remote, kind), func(t *testing.T) {
 				f := newTunnelAlertFixture(t, remote)
+				f.settings(true, false, 600)
 				f.register("diagnosis-demo", "owner")
 				f.report("diagnosis-demo", "owner", "down", "Publisher connection lost")
 				server := NewTunnelServer(securityConfig(), nil, nil, f.backend)
@@ -425,7 +430,7 @@ func TestTunnelAlertsSettingsAccountSessionAndCSRF(t *testing.T) {
 			}
 			cookie := emailSession(t, p, "owner@example.com")
 			get := f.request("GET", "https://tunn.test/account/tunnel-alerts", "", "", "", cookie)
-			if get.Code != 200 || !strings.Contains(get.Body.String(), `value="600"`) {
+			if get.Code != 200 || !strings.Contains(get.Body.String(), `value="600"`) || strings.Contains(get.Body.String(), `name="enabled" checked`) {
 				t.Fatal(get.Code, get.Body.String())
 			}
 			r := httptest.NewRequest("GET", "https://tunn.test/account/tunnel-alerts", nil)
@@ -443,6 +448,15 @@ func TestTunnelAlertsSettingsAccountSessionAndCSRF(t *testing.T) {
 			if !strings.Contains(get.Body.String(), `value="120"`) || strings.Contains(get.Body.String(), `name="enabled" checked`) {
 				t.Fatal(get.Body.String())
 			}
+			values.Set("enabled", "on")
+			w = f.request("POST", "https://tunn.test/account/tunnel-alerts", values.Encode(), "application/x-www-form-urlencoded", "", cookie)
+			if w.Code != 303 {
+				t.Fatal(w.Code, w.Body.String())
+			}
+			get = f.request("GET", "https://tunn.test/account/tunnel-alerts", "", "", "", cookie)
+			if !strings.Contains(get.Body.String(), `name="enabled" checked`) {
+				t.Fatal("explicit enable was not saved", get.Body.String())
+			}
 			values.Del("csrf_token")
 			w = f.request("POST", "https://tunn.test/account/tunnel-alerts", values.Encode(), "application/x-www-form-urlencoded", "", cookie)
 			if w.Code != 403 {
@@ -452,6 +466,71 @@ func TestTunnelAlertsSettingsAccountSessionAndCSRF(t *testing.T) {
 			if w.Code != 302 {
 				t.Fatal("anonymous settings accepted", w.Code)
 			}
+		})
+	}
+}
+
+func TestTunnelAlertsOptIn(t *testing.T) {
+	for _, remote := range []bool{false, true} {
+		t.Run(fmt.Sprintf("remote=%v", remote), func(t *testing.T) {
+			f := newTunnelAlertFixture(t, remote)
+			page := securityProxy(f.backend)
+			cookie := emailSession(t, page, f.owner.PrimaryEmail)
+			save := func(enabled bool) {
+				t.Helper()
+				r := httptest.NewRequest("GET", "https://tunn.test/account/tunnel-alerts", nil)
+				r.AddCookie(cookie)
+				csrf, err := page.createCSRFToken(r, tunnelAlertSettingsPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				values := url.Values{"threshold_seconds": {"600"}, "csrf_token": {csrf}}
+				if enabled {
+					values.Set("enabled", "on")
+				}
+				r = httptest.NewRequest("POST", "https://tunn.test/account/tunnel-alerts", strings.NewReader(values.Encode()))
+				r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+				r.Header.Set("Origin", "https://tunn.test")
+				r.AddCookie(cookie)
+				w := httptest.NewRecorder()
+				page.handleTunnelAlertSettings(w, r)
+				if w.Code != http.StatusSeeOther {
+					t.Fatal("save alerts", w.Code, w.Body.String())
+				}
+			}
+			settings, err := f.backend.(storage.TunnelAlerts).TunnelAlert(context.Background(), &internalpb.TunnelAlertRequest{Operation: "settings", AccountId: f.owner.ID})
+			if err != nil || settings.Enabled || settings.ThresholdSeconds != 600 {
+				t.Fatal("new account must default off", settings, err)
+			}
+			f.register("opt-in-demo", "first")
+			f.report("opt-in-demo", "first", "down", "transport lost")
+			f.clock.Add(7200)
+			f.sweep(0)
+			f.register("opt-in-demo", "second")
+			f.sweep(0)
+			f.report("opt-in-demo", "second", "down", "transport lost")
+			save(true)
+			f.clock.Add(600)
+			f.sweep(1)
+			f.register("opt-in-demo", "third")
+			f.clock.Add(3600)
+			f.report("opt-in-demo", "third", "heartbeat", "")
+			f.sweep(2)
+			if !strings.Contains(f.mailer.messages[1].subject, "recovered") {
+				t.Fatal("explicit enable lost recovery", f.mailer.messages)
+			}
+			f.report("opt-in-demo", "third", "down", "transport lost")
+			f.clock.Add(3600)
+			f.sweep(3)
+			// Opting out also suppresses a recovery already owed for a sent outage.
+			save(false)
+			f.register("opt-in-demo", "fourth")
+			f.clock.Add(3600)
+			f.report("opt-in-demo", "fourth", "heartbeat", "")
+			f.sweep(3)
+			f.report("opt-in-demo", "fourth", "down", "transport lost")
+			f.clock.Add(7200)
+			f.sweep(3)
 		})
 	}
 }

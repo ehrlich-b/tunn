@@ -63,6 +63,7 @@ func TestTunnelAlertsCredentialFailure(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			f.settings(true, false, 600)
 			f.p = securityProxy(f.local)
 			f.p.emailSender = f.mailer
 			f.p.devices, err = newDeviceCredentialStore(db)

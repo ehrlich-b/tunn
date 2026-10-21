@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -31,7 +32,7 @@ func MigrateTunnelAlerts(db *sql.DB) error {
 	_, err := db.Exec(`
 CREATE TABLE IF NOT EXISTS tunnel_alert_settings (
  account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
- enabled INTEGER NOT NULL DEFAULT 1,
+ enabled INTEGER NOT NULL DEFAULT 0,
  threshold_seconds INTEGER NOT NULL DEFAULT 600 CHECK(threshold_seconds BETWEEN 1 AND 604800),
  on_graceful_stop INTEGER NOT NULL DEFAULT 0
 );
@@ -47,7 +48,52 @@ CREATE TABLE IF NOT EXISTS tunnel_availability (
  down_sent INTEGER NOT NULL DEFAULT 0,
  last_email INTEGER NOT NULL DEFAULT 0
 );`)
-	return err
+	if err != nil {
+		return err
+	}
+	return migrateTunnelAlertDefault(db)
+}
+
+// SQLite's default-only schema migration leaves every saved preference and
+// table row intact. Bump the schema version so other connections reparse it.
+func migrateTunnelAlertDefault(db *sql.DB) error {
+	ctx := context.Background()
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	defer conn.ExecContext(ctx, "PRAGMA writable_schema=OFF")
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var schema string
+	if err = tx.QueryRow(`SELECT sql FROM sqlite_schema WHERE type='table' AND name='tunnel_alert_settings'`).Scan(&schema); err != nil {
+		return err
+	}
+	const oldDefault = "enabled INTEGER NOT NULL DEFAULT 1"
+	if !strings.Contains(schema, oldDefault) {
+		return nil
+	}
+	var version int
+	if err = tx.QueryRow("PRAGMA schema_version").Scan(&version); err != nil {
+		return err
+	}
+	if _, err = tx.Exec("PRAGMA writable_schema=ON"); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`UPDATE sqlite_schema SET sql=? WHERE type='table' AND name='tunnel_alert_settings'`, strings.Replace(schema, oldDefault, "enabled INTEGER NOT NULL DEFAULT 0", 1)); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(fmt.Sprintf("PRAGMA schema_version=%d", version+1)); err != nil {
+		return err
+	}
+	if _, err = tx.Exec("PRAGMA writable_schema=OFF"); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // mergeTunnelAlerts keeps outage generations, delivery state and hourly budgets
@@ -86,7 +132,7 @@ func (s *TunnelAlertStore) Settings(ctx context.Context, owner string, update *T
 			return TunnelAlertSettings{}, err
 		}
 	}
-	out := TunnelAlertSettings{Enabled: true, ThresholdSeconds: 600}
+	out := TunnelAlertSettings{ThresholdSeconds: 600}
 	err = s.db.QueryRowContext(ctx, `SELECT enabled,threshold_seconds,on_graceful_stop FROM tunnel_alert_settings WHERE account_id=?`, a.ID).Scan(&out.Enabled, &out.ThresholdSeconds, &out.OnGracefulStop)
 	if errors.Is(err, sql.ErrNoRows) {
 		err = nil
@@ -152,7 +198,7 @@ func (s *TunnelAlertStore) Claim(ctx context.Context, now time.Time) ([]TunnelAl
 	rows, err := tx.QueryContext(ctx, `SELECT v.tunnel,v.owner,a.primary_email,v.last_error,v.offline_since,v.online
  FROM tunnel_availability v JOIN reserved_subdomains r ON r.subdomain=v.tunnel AND r.account_id=v.owner
  JOIN accounts a ON a.id=v.owner LEFT JOIN tunnel_alert_settings p ON p.account_id=v.owner
- WHERE coalesce(p.enabled,1)=1 AND (v.last_email=0 OR v.last_email+3600<=?)
+ WHERE coalesce(p.enabled,0)=1 AND (v.last_email=0 OR v.last_email+3600<=?)
  AND ((v.online=0 AND v.down_sent=0 AND v.offline_since+coalesce(p.threshold_seconds,600)<=? AND (v.graceful=0 OR coalesce(p.on_graceful_stop,0)=1)) OR (v.online=1 AND v.down_sent=1))`, t, t)
 	if err != nil {
 		return nil, err

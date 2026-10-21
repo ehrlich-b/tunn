@@ -241,6 +241,7 @@ func TestTunnelAlertsGRPCClientStops(t *testing.T) {
 		for _, kind := range []string{"cancel", "EOF"} {
 			t.Run(fmt.Sprintf("remote=%v/%s", remote, kind), func(t *testing.T) {
 				f := newTunnelAlertFixture(t, remote)
+				f.settings(true, false, 600)
 				observed := observedTunnelAlertStorage{Storage: f.backend, up: make(chan struct{}, 8)}
 				server := NewTunnelServer(securityConfig(), nil, nil, observed)
 				g := grpc.NewServer()
@@ -295,6 +296,7 @@ func TestTunnelAlertsTerminalFailuresAndRecovery(t *testing.T) {
 		} {
 			t.Run(fmt.Sprintf("remote=%v/%s", remote, failure.name), func(t *testing.T) {
 				f := newTunnelAlertFixture(t, remote)
+				f.settings(true, false, 600)
 				server := NewTunnelServer(securityConfig(), nil, nil, f.backend)
 				stream := &tunnelAlertStream{recv: make(chan tunnelAlertRecv, 2), sent: make(chan *pb.TunnelMessage, 4)}
 				stream.recv <- tunnelAlertRecv{message: &pb.TunnelMessage{Message: &pb.TunnelMessage_RegisterClient{RegisterClient: &pb.RegisterClient{TunnelId: "failed-stop", AuthToken: createTestJWT(f.owner.PrimaryEmail, server.cfg.JWTSecret), TunnelKey: server.cfg.WellKnownKey}}}}
@@ -351,6 +353,7 @@ func TestTunnelAlertsHTTP2StopReasons(t *testing.T) {
 			for _, kind := range []string{"cancel", "cancel then close", "EOF", "graceful", "transport loss"} {
 				t.Run(fmt.Sprintf("remote=%v/modern=%v/%s", remote, modern, kind), func(t *testing.T) {
 					f := newTunnelAlertFixture(t, remote)
+					f.settings(true, false, 600)
 					observed := observedTunnelAlertStorage{Storage: f.backend, up: make(chan struct{}, 8)}
 					server := NewTunnelServer(securityConfig(), nil, nil, observed)
 					g := grpc.NewServer()

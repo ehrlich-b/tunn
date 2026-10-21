@@ -97,6 +97,7 @@ func TestTunnelAlertsSSHTransportLoss(t *testing.T) {
 	for _, remote := range []bool{false, true} {
 		t.Run(fmt.Sprint(remote), func(t *testing.T) {
 			f := newTunnelAlertFixture(t, remote)
+			f.settings(true, false, 600)
 			server := NewTunnelServer(securityConfig(), nil, nil, f.backend)
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
@@ -131,6 +132,7 @@ func TestTunnelAlertsMergedPublisher(t *testing.T) {
 	for _, remote := range []bool{false, true} {
 		t.Run(fmt.Sprint(remote), func(t *testing.T) {
 			f := newTunnelAlertFixture(t, remote)
+			f.settings(true, false, 600)
 			ctx := context.Background()
 			other, err := f.local.FindOrCreateByEmails(ctx, []string{"other@example.invalid"}, "test")
 			if err != nil {

@@ -1,12 +1,14 @@
 # Tunnel email alerts
 
-When a reserved tunnel has connected successfully and then stays offline for
-10 minutes, tunn emails the account's primary email address through the relay's
+Alerts are off by default. After you enable them, when a reserved tunnel has
+connected successfully and then stays offline for 10 minutes, tunn emails the
+account's primary email address through the relay's
 existing SMTP configuration. A recovery email follows when the publisher
 connects again. Names that have never connected do not generate email.
 
-Open **Account → Tunnel email alerts** (`/account/tunnel-alerts`) to turn alerts
-off for your account, change the offline threshold (1 second to 7 days), or
+Open **Account → Tunnel email alerts** (`/account/tunnel-alerts`) to enable
+**Email alerts for my account**, disable alerts, change the offline threshold
+(1 second to 7 days), or
 request alerts after clean shutdowns too. Clean shutdowns are suppressed by
 default. When both publisher and relay advertise `graceful-stop-v1`, only an
 explicit `GracefulStop` message proves a clean shutdown. Every other registration

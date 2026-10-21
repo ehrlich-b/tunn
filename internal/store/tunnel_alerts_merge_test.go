@@ -39,6 +39,9 @@ func TestTunnelAlertsAccountMerge(t *testing.T) {
 					t.Fatal(err)
 				}
 				owners[i] = a.ID
+				if _, err := alerts.Settings(ctx, a.ID, &TunnelAlertSettings{Enabled: true, ThresholdSeconds: 600}); err != nil {
+					t.Fatal(err)
+				}
 				if err := accounts.ReserveSubdomain(a.ID, names[i]); err != nil {
 					t.Fatal(err)
 				}

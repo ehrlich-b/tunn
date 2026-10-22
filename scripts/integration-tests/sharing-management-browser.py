@@ -62,4 +62,4 @@ with sync_playwright() as pw:
                 context.close()
     browser.close()
 (evidence / "layout.json").write_text(json.dumps({"before": before, "checks": metrics}, indent=2)+"\n")
-print(json.dumps({"result": "PASS", "before": before, "views": len(metrics), "screenshots": len(metrics)*2}))
+print(json.dumps({"result": "PASS", "before": before, "views": len(metrics), "required_screenshots": len(metrics)*2}))

@@ -6,12 +6,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
+	"syscall"
 	"time"
 
 	"github.com/ehrlich-b/tunn/internal/common"
@@ -53,11 +56,19 @@ type TokenResponse struct {
 
 // Run executes the device flow login process
 func (l *LoginClient) Run(ctx context.Context) error {
-	common.LogInfo("starting device flow login", "server", l.ServerAddr)
+	common.LogInfo("starting device flow login")
+	origin, err := canonicalCredentialServer(l.ServerAddr)
+	if err != nil {
+		return err
+	}
+	if _, err := configDirectory(); err != nil {
+		return err
+	}
 
 	// Reuse one transport across polls and replacement codes.
 	copyClient := *l
 	l = &copyClient
+	l.ServerAddr = strings.TrimPrefix(origin, "https://")
 	if l.HTTPClient == nil {
 		transport := relaytransport.Transport(l.Insecure)
 		defer transport.CloseIdleConnections()
@@ -139,11 +150,10 @@ func (l *LoginClient) Run(ctx context.Context) error {
 // DeviceCodeHTTPError retains the HTTP status for login failure guidance.
 type DeviceCodeHTTPError struct {
 	StatusCode int
-	body       string
 }
 
 func (e *DeviceCodeHTTPError) Error() string {
-	return fmt.Sprintf("request returned status %d: %s", e.StatusCode, e.body)
+	return fmt.Sprintf("request returned status %d", e.StatusCode)
 }
 
 // requestDeviceCode requests a device code from the server
@@ -157,26 +167,28 @@ func (l *LoginClient) requestDeviceCode(ctx context.Context) (*DeviceCodeRespons
 	client := l.httpClient()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, deviceURL, nil)
 	if err != nil {
-		return nil, err
+		return nil, errors.New("invalid sign-in server configuration")
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, &loginConnectionError{cause: err, message: "could not reach sign-in server"}
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, &DeviceCodeHTTPError{StatusCode: resp.StatusCode, body: string(body)}
+		return nil, &DeviceCodeHTTPError{StatusCode: resp.StatusCode}
 	}
 
 	var deviceResp DeviceCodeResponse
-	if err := json.NewDecoder(resp.Body).Decode(&deviceResp); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
+	if err := decodeLoginResponse(resp.Body, &deviceResp); err != nil {
+		return nil, errors.New("invalid device code response")
 	}
 
-	if deviceResp.DeviceCode == "" || deviceResp.UserCode == "" || deviceResp.ExpiresIn <= 0 || deviceResp.Interval < 0 {
+	if deviceResp.DeviceCode == "" || deviceResp.UserCode == "" || deviceResp.ExpiresIn <= 0 || deviceResp.Interval < 0 || int64(deviceResp.Interval) > maxLoginSeconds || int64(deviceResp.ExpiresIn) > maxLoginSeconds {
 		return nil, fmt.Errorf("invalid device code response")
 	}
 	deviceResp.expiresAt = time.Now().Add(time.Duration(deviceResp.ExpiresIn) * time.Second)
@@ -188,92 +200,177 @@ func (l *LoginClient) requestDeviceCode(ctx context.Context) (*DeviceCodeRespons
 
 var errDeviceCodeExpired = errors.New("device code expired or used")
 
-// pollForToken polls the token endpoint until the user completes authentication
+// Retry delays double up to 30 seconds, but never undercut the server interval.
+const maxLoginBackoff = 30 * time.Second
+const maxLoginSeconds = int64((1<<63 - 1) / time.Second)
+
+type loginConnectionError struct {
+	cause   error
+	message string
+}
+
+func (e *loginConnectionError) Error() string { return e.message }
+func (e *loginConnectionError) Unwrap() error { return e.cause }
+
+type loginRetryError struct{ after time.Duration }
+
+func (*loginRetryError) Error() string { return "sign-in server temporarily unavailable" }
+
+func transientLoginTransport(err error) bool {
+	var network net.Error
+	return (errors.As(err, &network) && (network.Timeout() || network.Temporary())) ||
+		errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) ||
+		errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.ECONNREFUSED) ||
+		errors.Is(err, syscall.EPIPE) || errors.Is(err, syscall.ENETUNREACH) || errors.Is(err, syscall.EHOSTUNREACH)
+}
+
+func decodeLoginResponse(body io.Reader, dest any) error {
+	data, err := io.ReadAll(io.LimitReader(body, (1<<20)+1))
+	if err != nil {
+		return err
+	}
+	if len(data) > 1<<20 {
+		return errors.New("sign-in response too large")
+	}
+	return json.Unmarshal(data, dest)
+}
+
+// pollForToken keeps one code and its original deadline through relay outages.
 func (l *LoginClient) pollForToken(ctx context.Context, deviceResp *DeviceCodeResponse) (*TokenResponse, error) {
+	if deviceResp.Interval < 0 || int64(deviceResp.Interval) > maxLoginSeconds {
+		return nil, errors.New("invalid sign-in interval")
+	}
 	interval := time.Duration(deviceResp.Interval) * time.Second
 	if interval == 0 {
 		interval = 3 * time.Second
 	}
-
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
+	delay, backoff := interval, interval
 	expiresAt := deviceResp.expiresAt
 	if expiresAt.IsZero() {
 		expiresAt = time.Now().Add(time.Duration(deviceResp.ExpiresIn) * time.Second)
 	}
 	pollCtx, cancel := context.WithDeadline(ctx, expiresAt)
 	defer cancel()
-
+	warned := false
 	for {
+		timer := time.NewTimer(delay)
 		select {
 		case <-pollCtx.Done():
+			timer.Stop()
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
 			}
 			return nil, errDeviceCodeExpired
-		case <-ticker.C:
-			token, err := l.checkToken(pollCtx, deviceResp.DeviceCode)
-			if err != nil {
-				if ctx.Err() != nil {
-					return nil, ctx.Err()
-				}
-				if pollCtx.Err() != nil {
-					return nil, errDeviceCodeExpired
-				}
+		case <-timer.C:
+		}
+		// A deadline and timer can become ready together; never exchange an expired code.
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		if !time.Now().Before(expiresAt) {
+			return nil, errDeviceCodeExpired
+		}
+		token, err := l.checkToken(pollCtx, deviceResp.DeviceCode)
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		if pollCtx.Err() != nil || !time.Now().Before(expiresAt) {
+			return nil, errDeviceCodeExpired
+		}
+		if err != nil {
+			var retry *loginRetryError
+			if !errors.As(err, &retry) {
 				return nil, err
 			}
-
-			// Check if still pending authorization
-			if token.Error == "authorization_pending" {
-				continue
+			if !warned {
+				output := l.Output
+				if output == nil {
+					output = os.Stdout
+				}
+				_, _ = fmt.Fprintln(output, "Sign-in temporarily unavailable. Retrying until this code expires; Ctrl+C to cancel.")
+				warned = true
 			}
-
-			// Got a valid token
-			return token, nil
+			ceiling := max(maxLoginBackoff, interval)
+			if backoff >= ceiling/2 {
+				backoff = ceiling
+			} else {
+				backoff *= 2
+			}
+			delay = max(backoff, retry.after)
+			continue
 		}
+		if token.Error == "slow_down" {
+			if interval > time.Duration(1<<63-1)-5*time.Second {
+				return nil, errors.New("invalid sign-in interval")
+			}
+			interval += 5 * time.Second
+		}
+		if token.Error == "authorization_pending" || token.Error == "slow_down" {
+			delay, backoff = interval, interval
+			continue
+		}
+		return token, nil
 	}
 }
 
-// checkToken attempts to exchange the device code for a token
+// checkToken returns only fixed diagnostics; responses and request URLs contain secrets.
 func (l *LoginClient) checkToken(ctx context.Context, deviceCode string) (*TokenResponse, error) {
 	tokenURL := fmt.Sprintf("https://%s/api/device/token?code=%s", l.ServerAddr, url.QueryEscape(deviceCode))
 	if !l.PolicyOwner {
 		name, _ := os.Hostname()
 		tokenURL += "&durable=1&name=" + url.QueryEscape(name)
 	}
-
-	client := l.httpClient()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, tokenURL, nil)
 	if err != nil {
-		return nil, err
+		return nil, errors.New("invalid sign-in server configuration")
 	}
-	resp, err := client.Do(req)
+	resp, err := l.httpClient().Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("token request failed: %w", err)
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		if transientLoginTransport(err) {
+			return nil, &loginRetryError{}
+		}
+		return nil, &loginConnectionError{cause: err, message: "sign-in connection failed; check server and TLS configuration"}
 	}
 	defer func() { _ = resp.Body.Close() }()
-
+	if resp.StatusCode == http.StatusRequestTimeout || resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 && resp.StatusCode <= 599 {
+		var after time.Duration
+		if seconds, err := time.ParseDuration(resp.Header.Get("Retry-After") + "s"); err == nil && seconds > 0 {
+			after = seconds
+		} else if date, err := http.ParseTime(resp.Header.Get("Retry-After")); err == nil {
+			after = max(0, time.Until(date))
+		}
+		return nil, &loginRetryError{after: after}
+	}
 	var tokenResp TokenResponse
-	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
-		return nil, fmt.Errorf("failed to decode token response: %w", err)
+	if err := decodeLoginResponse(resp.Body, &tokenResp); err != nil {
+		return nil, errors.New("invalid sign-in token response")
 	}
-
-	// Check for errors in response
 	if tokenResp.Error != "" {
-		if tokenResp.Error == "authorization_pending" {
-			return &tokenResp, nil
-		}
-		if tokenResp.Error == "expired_token" {
+		switch tokenResp.Error {
+		case "authorization_pending", "slow_down":
+			if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusBadRequest {
+				return &tokenResp, nil
+			}
+		case "expired_token":
 			return nil, errDeviceCodeExpired
+		case "invalid_grant":
+			return nil, errors.New("sign-in rejected: invalid grant")
+		case "access_denied", "authorization_declined":
+			return nil, errors.New("sign-in denied")
+		case "invalid_client", "unauthorized_client", "invalid_request", "unsupported_grant_type":
+			return nil, errors.New("sign-in rejected: check client and server configuration")
 		}
-		return nil, fmt.Errorf("token error: %s", tokenResp.Error)
+		return nil, errors.New("sign-in rejected by server")
 	}
-
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("sign-in request returned status %d", resp.StatusCode)
+	}
 	if tokenResp.AccessToken == "" {
-		return nil, fmt.Errorf("no access token in response")
+		return nil, errors.New("no access token in response")
 	}
-
 	return &tokenResp, nil
 }
 

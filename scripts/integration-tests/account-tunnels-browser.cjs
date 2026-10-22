@@ -34,15 +34,21 @@ const apex = `https://tunn.test:${port}`;
     await page.locator('#live-tunnels-empty').waitFor({state:'visible'});
     await page.locator('#start-tunnel').waitFor({state:'visible'});
     // A known online connection suppresses onboarding even when a peer is down.
-    // Keep the last complete inventory until all peers are available again.
+    // Show proven partial rows and identify uncertainty until all peers recover.
     await page.route('**/api/account/tunnels',route=>route.fulfill({json:{complete:false,tunnels:[{
       name:'known-online',public_url:'https://known-online.example.test',kind:'HTTP',connected_since:new Date().toISOString()
     }]}}));
     const partial=page.waitForResponse(r=>r.url().endsWith('/api/account/tunnels'));
     await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));await partial;
     await page.locator('#start-tunnel').waitFor({state:'detached'});
-    assert.equal(await page.locator('.live-tunnel').count(),0,'partial inventory replaced the last complete view');
+    assert.equal(await page.locator('.live-tunnel').count(),1,'proven partial row missing');
+    assert.match(await page.locator('.live-tunnel-name').innerText(),/known-online/);
+    assert.match(await page.locator('#live-tunnels-summary').innerText(),/Partial list/);
     await page.unroute('**/api/account/tunnels');
+    const recovered = page.waitForResponse(r=>r.url().endsWith('/api/account/tunnels'));
+    await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange'))); await recovered;
+    await page.waitForFunction(()=>document.querySelectorAll('.live-tunnel').length===0);
+    assert.equal(await page.locator('#live-tunnels-summary').innerText(),'None online');
 
     await page.screenshot({path:path.join(evidence,'account-empty-1440.png'),fullPage:true});
     await page.evaluate(() => { window.accountPageIdentity = 'preserved'; });

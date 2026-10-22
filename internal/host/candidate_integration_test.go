@@ -131,6 +131,7 @@ func newCandidateStack(t *testing.T, release <-chan struct{}) *candidateStack {
 	endpoint.TargetURL = "mcp"
 	server.mu.Unlock()
 	f.tunnel = endpoint
+	prepareMCPAuthorityFixture(t, f)
 	if endpoint.AccountID == "" || endpoint.CreatorEmail != "owner@example.com" || !endpoint.Supports(common.CapabilityHTTPResponseTrailersV1) {
 		t.Fatalf("registration contract: %+v", endpoint)
 	}

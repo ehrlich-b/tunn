@@ -28,7 +28,25 @@ import (
 func appDeviceForwardFixture(t *testing.T, f *appDeviceFixture) (*ProxyServer, *httptest.Server) {
 	t.Helper()
 	f.p.config.NodeSecret = "fixture-forward-node"
-	backend := appDeviceTLSServer(t, f.p.createHandler())
+	var handlers sync.WaitGroup
+	handler := f.p.createHandler()
+	backend := appDeviceTLSServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handlers.Add(1)
+		defer handlers.Done()
+		handler.ServeHTTP(w, r)
+	}))
+	t.Cleanup(func() {
+		// httptest stops tracking hijacked WebSocket connections. Join their
+		// handlers before fixture storage closes and removes its directory.
+		backend.Close()
+		finished := make(chan struct{})
+		go func() { handlers.Wait(); close(finished) }()
+		select {
+		case <-finished:
+		case <-time.After(5 * time.Second):
+			t.Error("forwarded handlers did not finish before storage teardown")
+		}
+	})
 	ca := filepath.Join(t.TempDir(), "node-ca.pem")
 	if err := os.WriteFile(ca, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: backend.Certificate().Raw}), 0600); err != nil {
 		t.Fatal(err)

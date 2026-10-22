@@ -291,8 +291,18 @@ func TestReviewJWKSRemovedKeyStillCached(t *testing.T) {
 	if _, err := verify.Verify(context.Background(), replacementRaw); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := verify.Verify(context.Background(), oldRaw); err == nil {
-		t.Fatal("removed key accepted after cache was replaced")
+	// The remote key set releases verification waiters before publishing its
+	// refreshed cache. Require removal within a bound, after that publication,
+	// rather than assuming the refresh goroutine has already acquired its lock.
+	deadline := time.Now().Add(time.Second)
+	for {
+		if _, err := verify.Verify(context.Background(), oldRaw); err != nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("removed key accepted after cache refresh publication")
+		}
+		time.Sleep(time.Millisecond)
 	}
 	t.Log("cache has no periodic removal check: deleted signing key is accepted until a cache miss refreshes keys or relay restarts")
 }

@@ -358,7 +358,12 @@ func TestTunnelAlertsHTTP2StopReasons(t *testing.T) {
 					server := NewTunnelServer(securityConfig(), nil, nil, observed)
 					g := grpc.NewServer()
 					pb.RegisterTunnelServiceServer(g, server)
-					relay := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { g.ServeHTTP(w, publisherRequest(r)) }))
+					bodies := make(chan *publisherRequestBody, 1)
+					relay := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						r = publisherRequest(r)
+						bodies <- r.Body.(*publisherRequestBody)
+						g.ServeHTTP(w, r)
+					}))
 					relay.Listener = publisherListener{relay.Listener}
 					relay.Config.ConnContext = publisherConnContext
 					relay.EnableHTTP2 = true
@@ -399,11 +404,20 @@ func TestTunnelAlertsHTTP2StopReasons(t *testing.T) {
 						t.Fatal(reply, err)
 					}
 					awaitTunnelAlertUp(t, observed.up)
+					body := <-bodies
 					switch kind {
 					case "cancel":
 						cancel()
 					case "cancel then close":
 						cancel()
+						// Cancel queues RST_STREAM asynchronously. Confirm the relay
+						// received it before closing TCP; otherwise Close may discard
+						// the queued reset and correctly look like transport loss.
+						select {
+						case <-body.done:
+						case <-time.After(5 * time.Second):
+							t.Fatal("relay did not observe stream cancellation before socket close")
+						}
 						if err := cc.Close(); err != nil {
 							t.Fatal(err)
 						}
@@ -446,6 +460,40 @@ func TestTunnelAlertsHTTP2StopReasons(t *testing.T) {
 					}
 				})
 			}
+		}
+	}
+}
+
+func TestTunnelAlertsLegacyResetPrecedesGRPCConnectionFailure(t *testing.T) {
+	for _, modern := range []bool{false, true} {
+		for _, tc := range []struct {
+			code codes.Code
+			want publisherStopReason
+		}{
+			{codes.Canceled, publisherClientStop},
+			{codes.Unavailable, publisherClientStop},
+			{codes.Unknown, publisherClientStop},
+			{codes.Internal, publisherClientStop},
+			{codes.Unauthenticated, publisherEviction},
+			{codes.PermissionDenied, publisherEviction},
+			{codes.DeadlineExceeded, publisherTimeout},
+		} {
+			t.Run(fmt.Sprintf("modern=%v/%s", modern, tc.code), func(t *testing.T) {
+				ctx, cancel := context.WithCancel(context.Background())
+				cancel()
+				body := &publisherRequestBody{ctx: ctx, done: make(chan struct{}), err: http2.StreamError{StreamID: 1, Code: http2.ErrCodeCancel}}
+				close(body.done)
+				ctx = context.WithValue(ctx, publisherRequestKey{}, body)
+				conn := &TunnelConnection{Stream: &durableControlStream{ctx: ctx}, Capabilities: map[string]bool{common.CapabilityGracefulStopV1: modern}}
+				conn.endRegistration(status.Error(tc.code, "terminal result"))
+				want := tc.want
+				if modern && want == publisherClientStop {
+					want = publisherTransportLoss
+				}
+				if got := conn.stop.Load(); got == nil || got.reason != want {
+					t.Fatalf("stop=%+v want=%s", got, want)
+				}
+			})
 		}
 	}
 }

@@ -57,10 +57,17 @@ func (conn *TunnelConnection) endRegistration(err error) {
 		// A legacy RST_STREAM followed by socket closure is still a client
 		// stop. Use the request's terminal event rather than racing a later
 		// connection-wide failure against stream cleanup.
-		if legacyClean {
-			if body, ok := conn.Stream.Context().Value(publisherRequestKey{}).(*publisherRequestBody); ok {
+		if body, ok := conn.Stream.Context().Value(publisherRequestKey{}).(*publisherRequestBody); ok {
+			code := status.Code(err)
+			transportError := code == codes.Unavailable || code == codes.Unknown || code == codes.Internal
+			// gRPC may report a connection error after HTTP/2 has already
+			// received RST_STREAM. Use that earlier stream event for legacy
+			// publishers, while retaining explicit lease and policy failures.
+			if legacyClean || !conn.Supports(common.CapabilityGracefulStopV1) && transportError && body.ctx.Err() != nil {
 				if lost := body.legacyStop(); lost != nil {
 					ended = lost
+				} else {
+					ended = &publisherStop{reason: publisherClientStop}
 				}
 				conn.stop.CompareAndSwap(nil, ended)
 				return

@@ -410,14 +410,13 @@ func TestTunnelAlertsHTTP2StopReasons(t *testing.T) {
 						cancel()
 					case "cancel then close":
 						cancel()
-						// Cancel queues RST_STREAM asynchronously. Confirm the relay
-						// received it before closing TCP; otherwise Close may discard
-						// the queued reset and correctly look like transport loss.
+						// Wait until the relay has observed cancellation and cleaned up.
 						select {
 						case <-body.done:
 						case <-time.After(5 * time.Second):
 							t.Fatal("relay did not observe stream cancellation before socket close")
 						}
+						awaitTunnelAlertCleanup(t, f.local, f.owner.ID)
 						if err := cc.Close(); err != nil {
 							t.Fatal(err)
 						}

@@ -291,7 +291,11 @@ message MutateAccountEmailRequest {
 
 // Live connection metadata only; caller is authenticated by the node gate.
 message ListAccountTunnelsRequest { string account_id = 1; }
-message ListAccountTunnelsResponse { repeated AccountTunnel tunnels = 1; }
+message ListAccountTunnelsResponse {
+  repeated AccountTunnel tunnels = 1;
+  // Some owner lookups failed; all returned rows still have proven ownership.
+  bool partial = 2;
+}
 message AccountTunnel {
   string name = 1;
   string kind = 2;

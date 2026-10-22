@@ -91,21 +91,30 @@ func (s *InternalServer) ListAccountTunnels(ctx context.Context, req *internalpb
 		connections = append(connections, tunnel)
 	}
 	server.mu.RUnlock()
-	owners := map[string]string{}
+	if server.storage == nil || !server.storage.Available() {
+		return nil, status.Error(codes.Unavailable, "Account authority unavailable")
+	}
+	requested, err := server.storage.GetAccount(ctx, req.AccountId)
+	if err != nil || requested == nil || requested.ID != req.AccountId {
+		return nil, status.Error(codes.Unavailable, "Account authority unavailable")
+	}
+	owners := map[string]string{req.AccountId: requested.ID}
 	for _, tunnel := range connections {
 		if tunnel.AccountID == "" {
 			continue
 		}
 		owner, ok := owners[tunnel.AccountID]
 		if !ok {
-			if server.storage == nil || !server.storage.Available() {
-				return nil, status.Error(codes.Unavailable, "Account authority unavailable")
-			}
 			account, err := server.storage.GetAccount(ctx, tunnel.AccountID)
-			if err != nil || account == nil {
-				return nil, status.Error(codes.Unavailable, "Account authority unavailable")
+			if err != nil {
+				// Uncertainty about another owner cannot authorize this row.
+				// Keep proven rows, but do not claim a complete inventory.
+				out.Partial = true
+			} else if account != nil {
+				owner = account.ID
 			}
-			owner = account.ID
+			// A missing account is a known deletion, not an authority outage.
+			// Cache failures too, so multiple rows never repeat a failed lookup.
 			owners[tunnel.AccountID] = owner
 		}
 		if owner != req.AccountId {
@@ -140,50 +149,109 @@ func (p *ProxyServer) accountTunnels(ctx context.Context, owner string) ([]accou
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	type result struct {
-		rows []*internalpb.AccountTunnel
-		err  error
+		rows    []*internalpb.AccountTunnel
+		partial bool
+		err     error
 	}
 	results := make(chan result, len(p.nodeClients)+1)
 	request := &internalpb.ListAccountTunnelsRequest{AccountId: owner}
 	go func() {
 		out, err := NewInternalServer(p.tunnelServer, "", false).ListAccountTunnels(ctx, request)
-		results <- result{out.GetTunnels(), err}
+		results <- result{out.GetTunnels(), out.GetPartial(), err}
 	}()
 	for _, peer := range p.nodeClients {
-		go func() { out, err := peer.ListAccountTunnels(ctx, request); results <- result{out.GetTunnels(), err} }()
+		go func() {
+			out, err := peer.ListAccountTunnels(ctx, request)
+			results <- result{out.GetTunnels(), out.GetPartial(), err}
+		}()
 	}
-	rows := make([]accountTunnel, 0)
-	seen := map[string]bool{}
+	// Start optional enrichment alongside relay queries; a slow peer must not
+	// consume the time needed to resolve already-known app inventory.
+	type domainResult struct {
+		domains *domainpb.DomainList
+		err     error
+	}
+	domainResults := make(chan domainResult, 1)
+	if p.domains != nil {
+		go func() {
+			domains, err := p.domains.List(ctx, &domainpb.Owner{Owner: owner})
+			domainResults <- domainResult{domains, err}
+		}()
+	}
 	complete := true
-	for range len(p.nodeClients) + 1 {
-		select {
-		case res := <-results:
-			if res.err != nil {
-				complete = false
-				continue
-			}
-			for _, tunnel := range res.rows {
-				if tunnel == nil || seen[tunnel.Name] {
-					continue
-				}
-				seen[tunnel.Name] = true
-				row := accountTunnel{Name: tunnel.Name, Kind: tunnel.Kind, PublicURL: tunnel.PublicUrl, ConnectedSince: time.Unix(tunnel.ConnectedSinceUnix, 0).UTC(), ClientVersion: tunnel.ClientVersion, ClientHost: tunnel.ClientHost}
-				if tunnel.LastRequestUnix > 0 {
-					at := time.Unix(tunnel.LastRequestUnix, 0).UTC()
-					row.LastRequest = &at
-				}
-				rows = append(rows, row)
-			}
-		case <-ctx.Done():
+	candidates := make([]*internalpb.AccountTunnel, 0)
+	consume := func(res result) {
+		if res.err != nil || res.partial {
 			complete = false
 		}
+		if res.err == nil {
+			candidates = append(candidates, res.rows...)
+		}
 	}
-	// Resolve customer app names through the existing owner-scoped domain API.
+	remaining := len(p.nodeClients) + 1
+collect:
+	for remaining > 0 {
+		select {
+		case res := <-results:
+			consume(res)
+			remaining--
+		case <-ctx.Done():
+			complete = false
+			// Prefer every result already delivered before the deadline, even
+			// when cancellation and a buffered healthy response are both ready.
+			for remaining > 0 {
+				select {
+				case res := <-results:
+					consume(res)
+					remaining--
+				default:
+					break collect
+				}
+			}
+		}
+	}
+	// During reconnects two relays can briefly report the same name. Choose
+	// the newest connection deterministically before applying app display names.
+	sort.Slice(candidates, func(i, j int) bool {
+		a, b := candidates[i], candidates[j]
+		if a.GetName() != b.GetName() {
+			return a.GetName() < b.GetName()
+		}
+		if a.GetConnectedSinceUnix() != b.GetConnectedSinceUnix() {
+			return a.GetConnectedSinceUnix() > b.GetConnectedSinceUnix()
+		}
+		return a.GetPublicUrl() < b.GetPublicUrl()
+	})
+	rows := make([]accountTunnel, 0, len(candidates))
+	seen := map[string]bool{}
+	for _, tunnel := range candidates {
+		if tunnel == nil || seen[tunnel.Name] {
+			continue
+		}
+		seen[tunnel.Name] = true
+		row := accountTunnel{Name: tunnel.Name, Kind: tunnel.Kind, PublicURL: tunnel.PublicUrl, ConnectedSince: time.Unix(tunnel.ConnectedSinceUnix, 0).UTC(), ClientVersion: tunnel.ClientVersion, ClientHost: tunnel.ClientHost}
+		if tunnel.LastRequestUnix > 0 {
+			at := time.Unix(tunnel.LastRequestUnix, 0).UTC()
+			row.LastRequest = &at
+		}
+		rows = append(rows, row)
+	}
+	// Enrichment failure retains relay URLs and proven-owned inventory.
 	if p.domains != nil && len(rows) > 0 {
-		domains, err := p.domains.List(ctx, &domainpb.Owner{Owner: owner})
-		if err != nil {
+		var enrichment domainResult
+		select {
+		case enrichment = <-domainResults:
+		default:
+			select {
+			case enrichment = <-domainResults:
+			case <-ctx.Done():
+				enrichment.err = ctx.Err()
+			}
+		}
+		if enrichment.err != nil {
 			complete = false
 		} else {
+			domains := enrichment.domains
 			for i := range rows {
 				tunnelID := rows[i].Name
 				for _, domain := range domains.GetDomains() {

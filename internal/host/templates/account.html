@@ -89,7 +89,7 @@
   <div class="acct-grid">
   <section class="panel live-tunnels" aria-labelledby="live-tunnels-title">
     <div class="live-tunnels-header"><h2 class="card-title" id="live-tunnels-title">Tunnels</h2>
-      <span class="live-tunnels-summary" id="live-tunnels-summary" role="status">{{if .LiveTunnels}}<span class="led on" aria-hidden="true"></span>{{len .LiveTunnels}} online{{else}}None online{{end}}</span>
+      <span class="live-tunnels-summary" id="live-tunnels-summary" role="status">{{if .LiveTunnels}}<span class="led on" aria-hidden="true"></span>{{len .LiveTunnels}} online{{if not .LiveTunnelsComplete}} · Partial list{{end}}{{else}}{{if .LiveTunnelsComplete}}None online{{else}}Partial list{{end}}{{end}}</span>
       <span class="live-tunnels-stale" id="live-tunnels-stale" hidden></span>
     </div>
     <ul class="live-tunnel-list" id="live-tunnel-list" data-preview-limit="{{.LiveTunnelsPreviewLimit}}">

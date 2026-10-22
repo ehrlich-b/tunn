@@ -2852,8 +2852,10 @@ func (x *ListAccountTunnelsRequest) GetAccountId() string {
 }
 
 type ListAccountTunnelsResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Tunnels       []*AccountTunnel       `protobuf:"bytes,1,rep,name=tunnels,proto3" json:"tunnels,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Tunnels []*AccountTunnel       `protobuf:"bytes,1,rep,name=tunnels,proto3" json:"tunnels,omitempty"`
+	// Some owner lookups failed; all returned rows still have proven ownership.
+	Partial       bool `protobuf:"varint,2,opt,name=partial,proto3" json:"partial,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2893,6 +2895,13 @@ func (x *ListAccountTunnelsResponse) GetTunnels() []*AccountTunnel {
 		return x.Tunnels
 	}
 	return nil
+}
+
+func (x *ListAccountTunnelsResponse) GetPartial() bool {
+	if x != nil {
+		return x.Partial
+	}
+	return false
 }
 
 type AccountTunnel struct {
@@ -3205,9 +3214,10 @@ const file_proto_internal_proto_rawDesc = "" +
 	"\x10token_expires_at\x18\x05 \x01(\x03R\x0etokenExpiresAt\":\n" +
 	"\x19ListAccountTunnelsRequest\x12\x1d\n" +
 	"\n" +
-	"account_id\x18\x01 \x01(\tR\taccountId\"O\n" +
+	"account_id\x18\x01 \x01(\tR\taccountId\"i\n" +
 	"\x1aListAccountTunnelsResponse\x121\n" +
-	"\atunnels\x18\x01 \x03(\v2\x17.internal.AccountTunnelR\atunnels\"\xfc\x01\n" +
+	"\atunnels\x18\x01 \x03(\v2\x17.internal.AccountTunnelR\atunnels\x12\x18\n" +
+	"\apartial\x18\x02 \x01(\bR\apartial\"\xfc\x01\n" +
 	"\rAccountTunnel\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x1d\n" +

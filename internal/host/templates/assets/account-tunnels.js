@@ -39,8 +39,7 @@
       if (url.protocol !== 'https:') throw new Error('Invalid public URL');
       return tunnel;
     }).sort((a, b) => (Date.parse(b.last_request) || 0) - (Date.parse(a.last_request) || 0) || a.name.localeCompare(b.name) || a.public_url.localeCompare(b.public_url));
-    if (tunnels.length > 0) document.getElementById('start-tunnel')?.remove();
-    if (!data.complete) return;
+    if (tunnels.length > 0 || !data.complete) document.getElementById('start-tunnel')?.remove();
     const existing = new Map(Array.from(list.children, node => [node.dataset.key, node]));
     tunnels.forEach((tunnel, i) => {
       let item = existing.get(tunnel.public_url);
@@ -66,16 +65,17 @@
       item.querySelector('.live-tunnel-details').textContent = `Client ${tunnel.client_version || 'unknown'} · ${tunnel.client_host || 'Host unknown'} · ${tunnel.last_request ? 'Last request ' + relative(tunnel.last_request, true) : 'No recorded requests'}`;
       if (list.children[i] !== item) list.insertBefore(item, list.children[i] || null);
     });
-    for (const item of existing.values()) item.remove();
-    const label = tunnels.length ? `${tunnels.length} online` : 'None online';
+    if (data.complete) for (const item of existing.values()) item.remove();
+    const count = list.children.length;
+    const label = count ? `${count} online${data.complete ? '' : ' · Partial list'}` : data.complete ? 'None online' : 'Partial list';
     if (summary.textContent !== label) {
       summary.replaceChildren();
-      if (tunnels.length) {
+      if (count) {
         const led = element('span', undefined, 'led on'); led.setAttribute('aria-hidden', 'true');
         summary.append(led, document.createTextNode(label));
       } else summary.textContent = label;
     }
-    empty.hidden = tunnels.length > 0;
+    empty.hidden = count > 0 || !data.complete;
     updated = Date.now(); limit(); age();
   }
   async function refresh() {

@@ -12,7 +12,7 @@ import (
 //go:embed templates/port-down.html
 var portDownHTML string
 
-var portDownTemplate = template.Must(template.New("port-down").Parse(strings.Replace(portDownHTML, "</head>", "{{.Icons}}</head>", 1)))
+var portDownTemplate = template.Must(template.New("port-down").Parse(portDownHTML))
 
 // localTargetRejectedError reports that the publisher could not open its local target.
 type localTargetRejectedError struct{ message string }
@@ -34,18 +34,13 @@ func acceptsHTML(r *http.Request) bool {
 // writeLocalAppDown renders the 502 a browser sees when the local app is not running.
 // It is served on the tunnel's own host, so assets are loaded from the platform origin.
 func (p *ProxyServer) writeLocalAppDown(w http.ResponseWriter, r *http.Request) {
-	css := baseCSS
-	if p.Domain != "" {
-		css = strings.ReplaceAll(css, "url(/assets/", "url(https://"+p.Domain+"/assets/")
-	}
-	icons := platformIconHead(p.Domain)
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.WriteHeader(http.StatusBadGateway)
-	_ = portDownTemplate.Execute(w, struct {
+	var body strings.Builder
+	_ = portDownTemplate.Execute(&body, struct {
 		Host, Path, Time string
-		CSS              template.CSS
-		Icons            template.HTML
-	}{requestHostname(r.Host), r.URL.Path, time.Now().UTC().Format("15:04:05"), template.CSS(css), template.HTML(icons)})
+	}{requestHostname(r.Host), r.URL.Path, time.Now().UTC().Format("15:04:05")})
+	writeBrowserError(w, http.StatusBadGateway, browserErrorPage{
+		Label: "App unavailable", Title: "Local app not answering",
+		Detail: "The tunnel is reachable, but its local app is not responding.",
+		Body:   template.HTML(body.String()), Action: "Reload", Href: "",
+	}, p.Domain)
 }

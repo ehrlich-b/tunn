@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"html"
 	"io"
 	"net"
 	"net/http"
@@ -500,16 +499,11 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 				return nil
 			}
 
-			w.Header().Set("Content-Type", "text/html")
-			w.WriteHeader(http.StatusForbidden)
-			var head strings.Builder
-			writePageStart(&head, "tunn - Access Denied")
-			_, _ = io.WriteString(w, strings.Replace(head.String(), iconHead, platformIconHead(p.loginAuthority()), 1))
-			_, _ = fmt.Fprintf(w, `<h1 class="error-title">Access denied</h1>
-<p>You (<code>%s</code>) are not authorized to access this tunnel.</p>
-<p>Contact the tunnel owner to request access.</p>
-`, html.EscapeString(userEmail))
-			writePageEnd(w)
+			writeBrowserError(w, http.StatusForbidden, browserErrorPage{
+				Label: "Access denied", Title: "Access denied",
+				Detail: fmt.Sprintf("You (%s) are not authorized to access this tunnel. Contact the tunnel owner to request access.", userEmail),
+				Action: "Sign out to switch accounts", Href: "/auth/logout",
+			}, p.loginAuthority())
 			return nil
 		}
 
@@ -1189,7 +1183,7 @@ func (p *ProxyServer) handleApexDomain(w http.ResponseWriter, r *http.Request) {
 		}
 		p.renderRevenuePage(w, homepageHTML)
 	default:
-		http.NotFound(w, r)
+		p.writeNotFound(w, r)
 	}
 }
 

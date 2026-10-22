@@ -339,14 +339,11 @@ func (p *ProxyServer) handleDeviceAuthorize(w http.ResponseWriter, r *http.Reque
 }
 
 func writeDeviceCodeRecoveryPage(w http.ResponseWriter) {
-	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(http.StatusBadRequest)
-	writePageStart(w, "tunn - Login Code Unavailable")
-	_, _ = fmt.Fprint(w, `<h1 class="page-title">Login code expired or already used</h1>
-<p>Return to your terminal. If tunn login is still waiting, it will automatically request a new code when this one expires. Open the newest link printed there.</p>
-<p>If login has stopped, run <code>tunn login</code> again to get a new code. If you already authorized this device, check your terminal for a successful login.</p>`)
-	writePageEnd(w)
+	writeBrowserError(w, http.StatusBadRequest, browserErrorPage{
+		Label: "Sign-in link unavailable", Title: "Login code expired or already used",
+		Detail:  "Return to your terminal and open its newest sign-in link. If login has stopped, run tunn login again.",
+		Command: "tunn login", Action: "Copy command",
+	}, "")
 }
 
 // generateJWT creates a signed JWT for the user

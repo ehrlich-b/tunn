@@ -76,7 +76,7 @@ func TestBrowserAuthRecovery(t *testing.T) {
 	if w.Code != 400 {
 		t.Fatalf("callback status = %d", w.Code)
 	}
-	for _, want := range []string{"Invalid Google login state", `class="site-header"`, `class="site-footer"`, `href="/auth/login"`, `href="/favicon.ico"`} {
+	for _, want := range []string{"Sign-in expired or interrupted", `class="site-header"`, `class="site-footer"`, `href="/auth/login"`, `href="/favicon.ico"`} {
 		if !strings.Contains(w.Body.String(), want) {
 			t.Errorf("missing %s", want)
 		}

@@ -51,7 +51,7 @@ func TestDogfoodDeviceCodeExpiryAndRecovery(t *testing.T) {
 
 func assertDeviceRecovery(t *testing.T, w *httptest.ResponseRecorder) {
 	t.Helper()
-	if w.Code != 400 || w.Header().Get("Cache-Control") != "no-store" || !strings.Contains(w.Body.String(), "expired or already used") || !strings.Contains(w.Body.String(), "tunn login</code> again") || !strings.Contains(w.Body.String(), "automatically request a new code") {
+	if w.Code != 400 || w.Header().Get("Cache-Control") != "no-store" || !strings.Contains(w.Body.String(), "expired or already used") || !strings.Contains(w.Body.String(), "If login has stopped, run tunn login again.") || !strings.Contains(w.Body.String(), "open its newest sign-in link") {
 		t.Fatalf("recovery page = %d %s", w.Code, w.Body)
 	}
 }

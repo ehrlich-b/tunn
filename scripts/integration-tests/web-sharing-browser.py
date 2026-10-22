@@ -40,6 +40,10 @@ with sync_playwright() as pw:
     owner.goto(apex + "/account/sharing?tunnel=api")
     login(owner)
     owner.get_by_role("heading", name="Share access", exact=True).wait_for()
+    owner.evaluate("navigator.clipboard.writeText = async text => { window.copiedSharingLink = text; }")
+    owner.get_by_role("button", name="Copy link", exact=True).click()
+    assert owner.locator("#sharing-copy").inner_text() == "Link copied"
+    assert owner.evaluate("window.copiedSharingLink") == resource.rstrip("/")
     # Resource stayed private before sharing and anonymous visitors see sign-in.
     alice_context, alice = person("alice@example.com")
     alice.goto(resource)
@@ -67,7 +71,8 @@ with sync_playwright() as pw:
     assert share_ms < 30_000
     assert revoke_ms < 5_000
     owner.goto(apex + "/account/sharing?tunnel=api")
-    assert "email:alice@example.com" in owner.locator("body").inner_text()
+    owner.locator(".sharing-recent summary").click()
+    assert "alice@example.com" in owner.locator("body").inner_text()
     print(json.dumps({"clean_browser": "PASS", "share_to_recipient_in_ms": round(share_ms, 2),
                       "revoke_to_next_request_denied_ms": round(revoke_ms, 2),
                       "second_session": "PASS", "wrong_person": "DENIED",

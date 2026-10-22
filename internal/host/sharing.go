@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -261,22 +262,96 @@ var sharingPage = template.Must(template.New("sharing").Funcs(template.FuncMap{
 	"email": func(g *pb.Grant) string { return strings.TrimPrefix(g.Consumer, "person:") },
 	"expires": func(g *pb.Grant) string {
 		if g.ExpiresAt > time.Now().AddDate(50, 0, 0).UnixMilli() {
-			return "No scheduled expiry"
+			return ""
 		}
-		return time.UnixMilli(g.ExpiresAt).UTC().Format(time.RFC3339)
+		return time.UnixMilli(g.ExpiresAt).UTC().Format("Jan 2, 2006 · 15:04 UTC")
 	},
-	"active": func(g *pb.Grant) bool { return !g.Revoked && g.ExpiresAt > time.Now().UnixMilli() },
-}).Parse(withSiteChrome(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Share access — tunn</title><style>` + baseCSS + `</style><script defer src="/assets/ui.js"></script></head><body><!--site-header:none--><main id="main" class="page-container management">
+	"active":     func(g *pb.Grant) bool { return !g.Revoked && g.ExpiresAt > time.Now().UnixMilli() },
+	"personName": sharingPersonName,
+	"moreCount":  func(n int) int { return n - 4 },
+}).Parse(withSiteChrome(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Share access — tunn</title><style>` + baseCSS + sharingCSS + `</style><script defer src="/assets/ui.js"></script></head><body><!--site-header:none--><main id="main" class="page-container management sharing">
 <a href="/account">Account</a><h1>Share access</h1>
-{{if .Resource}}<h2>{{.Resource.Endpoint}}</h2><p>Access: {{.Resource.Mode}}</p><p>Owner: {{.Owner}}</p>
-<div class="link-tools"><input id="link" type="text" aria-label="Shared link" readonly value="{{.URL}}"><button class="btn" type="button" onclick="navigator.clipboard.writeText(document.getElementById('link').value)">Copy link</button></div>
-<h3>People and groups who can open this resource</h3><p>The owner always has access. Removing access stops browser requests and open streams within five seconds. Company groups require company sign-in. Group membership is refreshed at sign-in, at least every 15 minutes.</p>
-{{range .Resource.People}}{{if active .}}<form method="post"><input type="hidden" name="csrf_token" value="{{$.CSRF}}"><input type="hidden" name="email" value="{{email .}}"><p>{{email .}} · {{expires .}} <button class="btn" name="action" value="unshare">Remove access</button></p></form>{{end}}{{end}}
-{{if eq .Resource.Mode "private"}}<form class="share-form" method="post"><input type="hidden" name="csrf_token" value="{{.CSRF}}"><label>Email <input required type="email" name="email"></label><label>Expires at (UTC, optional) <input type="datetime-local" name="expires"></label><button class="btn sig" name="action" value="share">Share</button></form>{{else}}<p>Publish again with the current CLI without --public to make this resource private.</p>{{end}}
-{{if and (eq .Resource.Mode "private") .Groups}}<form class="share-form" method="post"><input type="hidden" name="csrf_token" value="{{.CSRF}}"><label>Company group <select required name="group">{{range .Groups}}<option value="{{.Subject}}">{{.Name}}</option>{{end}}</select></label><label>Expires at (UTC, optional) <input type="datetime-local" name="expires"></label><button class="btn sig" name="action" value="share">Share</button></form>{{end}}
-{{if .MachineGrants}}<h3>Machine access</h3><p>These credentials are managed separately with tunn grant revoke.</p>{{range .MachineGrants}}{{if active .}}<p>{{.Consumer}} · {{.Id}} · {{expires .}}</p>{{end}}{{end}}{{end}}
-<h3>Recent access</h3><table><tr><th>Time (UTC)</th><th>Person / credential</th><th>Result</th></tr>{{range .Events}}<tr><td>{{.Time}}</td><td>{{.Caller}}</td><td>{{.Result}}</td></tr>{{end}}</table>
-{{else}}<p>Select a web resource.</p>{{range .Resources}}<p><a href="?tunnel={{.Endpoint}}">{{.Endpoint}}</a> · {{.Mode}}</p>{{end}}{{end}}</main><!--site-footer--></body></html>`)))
+{{if .Resource}}
+<div class="sharing-selection"><form method="get"><label for="tunnel">Tunnel</label><div class="sharing-picker"><select id="tunnel" name="tunnel">{{range .Resources}}<option value="{{.Endpoint}}" {{if eq .Endpoint $.Resource.Endpoint}}selected{{end}}>{{.Endpoint}}</option>{{end}}</select><button class="btn">Choose</button></div></form><span class="tag">{{if eq .Resource.Mode "private"}}Private{{else}}Public{{end}}</span></div>
+{{if eq .Resource.Mode "private"}}<form class="sharing-add" method="post" action="?tunnel={{.Resource.Endpoint}}"><input type="hidden" name="csrf_token" value="{{.CSRF}}"><label for="person-email">Email</label><div class="sharing-add-controls"><input id="person-email" required type="email" name="email" autocomplete="email" placeholder="person@example.com"><button class="btn sig" name="action" value="share">Share</button></div><details class="sharing-expiry"><summary>Set expiry</summary><label>Expires at (UTC) <input type="datetime-local" name="expires"></label><p class="fine">Leave blank for ongoing access.</p></details></form>{{else}}<p>To make this tunnel private, publish again without <code>--public</code>.</p>{{end}}
+<div class="sharing-link"><p>{{if eq .Resource.Mode "private"}}Only you and people with access can open this link.{{else}}Anyone with this link can open it.{{end}}</p><div class="link-tools"><input id="link" type="text" aria-label="Shared link" readonly value="{{.URL}}"><button class="btn" type="button" data-copy="{{.URL}}" data-copy-kind="link" aria-describedby="sharing-copy">Copy link</button></div><div id="sharing-copy" class="copy-status" role="status"></div></div>
+<h2>People with access</h2><p class="fine">You ({{.Owner}}) always have access.</p>
+<div class="sharing-people">{{range $i, $person := .People}}{{if eq $i 4}}<details class="sharing-more"><summary>+{{moreCount (len $.People)}} more</summary>{{end}}<form class="sharing-person" method="post" action="?tunnel={{$.Resource.Endpoint}}"><input type="hidden" name="csrf_token" value="{{$.CSRF}}"><input type="hidden" name="email" value="{{email .}}"><div><span class="sharing-name">{{personName .Consumer $.Groups}}</span>{{with expires .}}<span class="sharing-until">Expires {{.}}</span>{{end}}</div><button class="btn" name="action" value="unshare" aria-label="Remove access for {{personName .Consumer $.Groups}}">Remove access</button></form>{{end}}{{if gt (len .People) 4}}</details>{{end}}</div>
+<p class="fine">Removing access blocks requests and closes open connections within five seconds.</p>
+{{if and (eq .Resource.Mode "private") .Groups}}<details class="sharing-groups"><summary>Add a company group</summary><p>Company groups require company sign-in.</p><form class="sharing-add" method="post" action="?tunnel={{.Resource.Endpoint}}"><input type="hidden" name="csrf_token" value="{{.CSRF}}"><label>Company group <select required name="group">{{range .Groups}}<option value="{{.Subject}}">{{.Name}}</option>{{end}}</select></label><details class="sharing-expiry"><summary>Set expiry</summary><label>Expires at (UTC) <input type="datetime-local" name="expires"></label></details><button class="btn sig" name="action" value="share">Share</button></form></details>{{end}}
+{{if .MachineGrants}}<details><summary>Machine access</summary><p>Manage access keys with <code>tunn grant revoke</code>.</p>{{range .MachineGrants}}{{if active .}}<p>Access key <code>{{.Id}}</code>{{with expires .}} · Expires {{.}}{{end}}</p>{{end}}{{end}}</details>{{end}}
+<details class="sharing-recent"><summary>Recent access</summary>{{if .Events}}<table><thead><tr><th>Time (UTC)</th><th>Visitor</th><th>Outcome</th></tr></thead><tbody>{{range .Events}}<tr><td>{{.Time}}</td><td>{{.Caller}}</td><td>{{.Result}}</td></tr>{{end}}</tbody></table>{{else}}<p>No recent visits.</p>{{end}}</details>
+{{else}}<h2>No tunnels to share yet</h2><p>Start a private tunnel, then add people here.</p><p><a class="btn sig" href="/docs#s1">Start a tunnel</a></p>{{end}}</main><!--site-footer--></body></html>`)))
+
+const sharingCSS = `
+.sharing .sharing-selection{display:flex;align-items:center;gap:12px;margin:16px 0}
+.sharing .sharing-selection form{flex:1;min-width:0;margin:0}
+.sharing .sharing-selection label{margin:0}
+.sharing .sharing-picker{display:flex;align-items:center;gap:8px}
+.sharing .sharing-picker select{flex:1;width:100%;margin:0}
+.sharing .sharing-selection .tag{align-self:flex-end;margin-bottom:8px}
+.sharing .sharing-add{margin:20px 0}
+.sharing .sharing-add>label{margin:0 0 4px}
+.sharing .sharing-add-controls{display:flex;gap:8px;align-items:center}
+.sharing .sharing-add-controls input{flex:1;width:100%;margin:0}
+.sharing .sharing-expiry{margin:8px 0;color:var(--engrave);font-size:13px}
+.sharing summary{cursor:pointer;padding:6px 0}
+.sharing .sharing-link p{font-size:13px;margin:0 0 8px}
+.sharing .sharing-link .link-tools{flex-wrap:nowrap;gap:8px}
+.sharing .sharing-link input{width:100%;flex-basis:0;font-size:13px}
+.sharing .sharing-person{display:flex;align-items:center;gap:12px;justify-content:space-between;margin:0;padding:12px 0;border-bottom:1px solid var(--plate-lo)}
+.sharing .sharing-person>div{min-width:0}
+.sharing .sharing-name{display:block;overflow-wrap:anywhere}
+.sharing .sharing-until{display:block;color:var(--engrave);font-size:12px}
+.sharing .sharing-person .btn{flex:none;font-size:13px;padding:8px;min-height:44px}
+.sharing .sharing-recent,.sharing .sharing-groups{margin-top:20px;border-top:1px solid var(--plate-lo);padding-top:8px}
+@media(max-width:760px){.sharing .sharing-selection{align-items:flex-start}.sharing .sharing-selection .tag{margin-bottom:6px}.sharing .sharing-person{gap:8px}.sharing .sharing-person .btn{max-width:88px}.sharing h1{margin-top:8px}}
+`
+
+func sharingPersonName(subject string, groups []struct{ Subject, Name string }) string {
+	for _, group := range groups {
+		if subject == group.Subject {
+			return group.Name
+		}
+	}
+	if strings.HasPrefix(subject, "person:") {
+		return strings.TrimPrefix(subject, "person:")
+	}
+	if strings.HasPrefix(subject, "email:") {
+		return strings.TrimPrefix(subject, "email:")
+	}
+	if strings.HasPrefix(subject, "group:") {
+		return "Company group"
+	}
+	if subject == "anonymous" || subject == "" {
+		return "Signed-out visitor"
+	}
+	return "Access key"
+}
+
+func sharingOutcome(e *pb.Event) string {
+	if e.Allowed {
+		return "Access allowed"
+	}
+	switch e.Reason {
+	case "authentication_required":
+		return "Sign-in required"
+	case "allowlist_denied", "ip_policy_denied":
+		return "Access denied"
+	case "grant_expired":
+		return "Access expired"
+	case "grant_revoked", "permission_revoked_or_expired":
+		return "Access removed or expired"
+	case "account_quota", "owner_byte_budget", "owner_request_budget", "bandwidth_rate":
+		return "Usage limit reached"
+	case "endpoint_offline":
+		return "Tunnel offline"
+	case "permission_authority_unavailable", "ip_policy_authority_unavailable", "meter_unavailable", "account_unavailable":
+		return "Temporarily unavailable"
+	default:
+		return "Access denied"
+	}
+}
 
 func (p *ProxyServer) handleSharingPage(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
@@ -336,6 +411,20 @@ func (p *ProxyServer) handleSharingPage(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "Use GET or POST", 405)
 		return
 	}
+	var resources []*pb.WebResource
+	if r.Method == "GET" {
+		listed, err := p.sharingBackend().Sharing(r.Context(), &pb.SharingRequest{Owner: a.ID, Operation: "list"})
+		if err != nil {
+			writeSharingFailure(w, err)
+			return
+		}
+		resources = listed.Resources
+		if endpoint == "" && len(resources) > 0 {
+			endpoint = resources[0].Endpoint
+			in.Endpoint = endpoint
+			in.Operation = "get"
+		}
+	}
 	out, err := p.sharingBackend().Sharing(r.Context(), in)
 	if err != nil {
 		writeSharingFailure(w, err)
@@ -347,12 +436,13 @@ func (p *ProxyServer) handleSharingPage(w http.ResponseWriter, r *http.Request) 
 	}
 	data := struct {
 		Resource         *pb.WebResource
+		People           []*pb.Grant
 		Resources        []*pb.WebResource
 		MachineGrants    []*pb.Grant
 		Owner, URL, CSRF string
 		Events           []struct{ Time, Caller, Result string }
 		Groups           []struct{ Subject, Name string }
-	}{Resources: out.Resources, Owner: a.PrimaryEmail}
+	}{Resources: resources, Owner: a.PrimaryEmail}
 	if org, ok := p.getOrgSession(r); ok {
 		data.Owner = org.Email
 	}
@@ -363,6 +453,22 @@ func (p *ProxyServer) handleSharingPage(w http.ResponseWriter, r *http.Request) 
 	}
 	if endpoint != "" && len(out.Resources) == 1 {
 		data.Resource = out.Resources[0]
+		for _, person := range data.Resource.People {
+			if !person.Revoked && person.ExpiresAt > time.Now().UnixMilli() {
+				data.People = append(data.People, person)
+			}
+		}
+		ongoing := time.Now().AddDate(50, 0, 0).UnixMilli()
+		sort.SliceStable(data.People, func(i, j int) bool {
+			a, b := data.People[i], data.People[j]
+			if (a.ExpiresAt > ongoing) != (b.ExpiresAt > ongoing) {
+				return a.ExpiresAt < b.ExpiresAt
+			}
+			if a.ExpiresAt <= ongoing && a.ExpiresAt != b.ExpiresAt {
+				return a.ExpiresAt < b.ExpiresAt
+			}
+			return sharingPersonName(a.Consumer, data.Groups) < sharingPersonName(b.Consumer, data.Groups)
+		})
 		if grants, err := p.meter.ListGrants(r.Context(), &pb.ListGrantsRequest{Owner: a.ID, Endpoint: endpoint}); err == nil {
 			data.MachineGrants = grants.Grants
 		} else {
@@ -378,11 +484,7 @@ func (p *ProxyServer) handleSharingPage(w http.ResponseWriter, r *http.Request) 
 		if events, err := p.meter.Export(r.Context(), &pb.ExportRequest{Owner: a.ID, Endpoint: endpoint, Month: time.Now().UTC().Format("2006-01")}); err == nil {
 			for i := len(events.Events) - 1; i >= 0 && len(data.Events) < 20; i-- {
 				e := events.Events[i]
-				result := "denied: " + e.Reason
-				if e.Allowed {
-					result = "allowed"
-				}
-				data.Events = append(data.Events, struct{ Time, Caller, Result string }{time.UnixMilli(e.StartedAt).UTC().Format(time.RFC3339), e.Caller, result})
+				data.Events = append(data.Events, struct{ Time, Caller, Result string }{time.UnixMilli(e.StartedAt).UTC().Format("Jan 2, 15:04"), sharingPersonName(e.Caller, data.Groups), sharingOutcome(e)})
 			}
 		}
 	}

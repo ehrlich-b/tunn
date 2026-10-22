@@ -152,7 +152,7 @@ func TestWebSharingCookieDashboardCSRFAndPeople(t *testing.T) {
 	get.AddCookie(&http.Cookie{Name: authCookieName, Value: relayJWT(t, p, "owner@example.com")})
 	w := httptest.NewRecorder()
 	p.createHandler().ServeHTTP(w, get)
-	if w.Code != 200 || !strings.Contains(w.Body.String(), "Copy link") || !strings.Contains(w.Body.String(), "People and groups who can open") {
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "Copy link") || !strings.Contains(w.Body.String(), "People with access") {
 		t.Fatal(w)
 	}
 	if !strings.Contains(w.Body.String(), machineGrant.Id) || !strings.Contains(w.Body.String(), "Machine access") {

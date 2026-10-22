@@ -7,10 +7,11 @@ if (menu) {
 }
 document.querySelectorAll('[data-copy]').forEach(button => {
   const label = button.textContent;
+  const item = button.dataset.copyKind === 'link' ? 'Link' : 'Command';
   button.addEventListener('click', async () => {
     let message;
-    try { await navigator.clipboard.writeText(button.dataset.copy); button.textContent = 'Copied'; message = 'Command copied'; }
-    catch (_) { button.textContent = 'Copy failed'; message = 'Copy failed. Select the command and copy it.'; }
+    try { await navigator.clipboard.writeText(button.dataset.copy); button.textContent = 'Copied'; message = item + ' copied'; }
+    catch (_) { button.textContent = 'Copy failed'; message = 'Copy failed. Select the ' + item.toLowerCase() + ' and copy it.'; }
     const status = document.getElementById(button.getAttribute('aria-describedby') || '');
     if (status) status.textContent = message;
     setTimeout(() => { button.textContent = label; }, 2500);

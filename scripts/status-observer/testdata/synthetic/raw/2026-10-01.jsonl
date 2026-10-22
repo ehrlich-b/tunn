@@ -1,0 +1,8 @@
+{"error": null, "latency_ms": 12.5, "method": "GET", "ok": true, "origin": "https://tunn.to", "path": "/healthz", "status": 200, "timestamp": "2026-10-01T12:00:05.123456Z", "version": 1}
+{"error": null, "latency_ms": 12.5, "method": "GET", "ok": true, "origin": "https://tunn.to", "path": "/readyz", "status": 200, "timestamp": "2026-10-01T12:00:05.123456Z", "version": 1}
+{"error": "http_error", "latency_ms": 12.5, "method": "GET", "ok": false, "origin": "https://tunn.to", "path": "/", "status": 503, "timestamp": "2026-10-01T12:00:05.123456Z", "version": 1}
+{"error": "http_error", "latency_ms": 12.5, "method": "GET", "ok": false, "origin": "https://tunn.to", "path": "/dl/latest.json", "status": 503, "timestamp": "2026-10-01T12:00:05.123456Z", "version": 1}
+{"error": null, "latency_ms": 12.5, "method": "GET", "ok": true, "origin": "https://tunn.to", "path": "/healthz", "status": 200, "timestamp": "2026-10-01T12:02:05.123456Z", "version": 1}
+{"error": null, "latency_ms": 12.5, "method": "GET", "ok": true, "origin": "https://tunn.to", "path": "/readyz", "status": 200, "timestamp": "2026-10-01T12:02:05.123456Z", "version": 1}
+{"error": "http_error", "latency_ms": 12.5, "method": "GET", "ok": false, "origin": "https://tunn.to", "path": "/", "status": 503, "timestamp": "2026-10-01T12:02:05.123456Z", "version": 1}
+{"error": "http_error", "latency_ms": 12.5, "method": "GET", "ok": false, "origin": "https://tunn.to", "path": "/dl/latest.json", "status": 503, "timestamp": "2026-10-01T12:02:05.123456Z", "version": 1}

@@ -41,6 +41,7 @@ func executeStatus(ctx context.Context, args []string, out, errOut io.Writer) er
 	case "serve":
 		listen := fs.String("listen", "127.0.0.1:8091", "HTTP listen address; put behind a TLS reverse proxy")
 		rawOrigin := fs.String("probe", "https://tunn.to", "relay HTTPS origin (TLS verified, no redirects)")
+		offline := fs.Bool("offline", false, "serve existing imported history without sending probes (loopback only)")
 		allowHTTPLoopback := fs.Bool("allow-http-loopback", false, "allow HTTP to literal loopback IPs for local fixtures only")
 		if err := fs.Parse(args[1:]); err != nil {
 			return err
@@ -52,13 +53,29 @@ func executeStatus(ctx context.Context, args []string, out, errOut io.Writer) er
 		if err != nil {
 			return err
 		}
-		s, err := statuspage.Open(*dbPath)
+		if *offline {
+			host, _, err := net.SplitHostPort(*listen)
+			if err != nil || net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback() {
+				return errors.New("offline history requires a literal loopback listen address")
+			}
+			if info, err := os.Stat(*dbPath); err != nil || !info.Mode().IsRegular() {
+				return errors.New("offline history requires an existing status database")
+			}
+		}
+		var s *statuspage.Store
+		if *offline {
+			s, err = statuspage.OpenOffline(*dbPath, origin.String())
+		} else {
+			s, err = statuspage.Open(*dbPath)
+		}
 		if err != nil {
 			return err
 		}
 		defer s.Close()
-		if err := s.BindOrigin(ctx, origin.String()); err != nil {
-			return err
+		if !*offline {
+			if err := s.BindOrigin(ctx, origin.String()); err != nil {
+				return err
+			}
 		}
 		listener, err := net.Listen("tcp", *listen)
 		if err != nil {
@@ -69,7 +86,11 @@ func executeStatus(ctx context.Context, args []string, out, errOut io.Writer) er
 		defer cancel()
 		collector := statuspage.Collector{Store: s, Origin: origin, Client: statuspage.ProbeClient(5 * time.Second)}
 		done := make(chan struct{})
-		go func() { defer close(done); collector.Run(child) }()
+		if *offline {
+			close(done)
+		} else {
+			go func() { defer close(done); collector.Run(child) }()
+		}
 		server := &http.Server{Handler: statuspage.Handler(s), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16 << 10}
 		stop := context.AfterFunc(child, func() { _ = server.Close() })
 		defer stop()

@@ -71,3 +71,6 @@ Run tests with `python3 -m unittest discover -s scripts/status-observer -v` from
 the repository root. Tests use an HTTP loopback fake server and temporary data.
 `--base-url http://127.0.0.1:PORT` is for isolated tests only: keep test observations
 in a separate directory. The production units always use the fixed public origin.
+
+To view already recorded evidence through the public status contract without
+probing or changing the observation clock, see the [offline import procedure](../../docs/status.md#import-existing-observer-evidence-offline).

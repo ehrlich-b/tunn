@@ -85,3 +85,70 @@ check healthy → readiness failure → liveness failure → recovery, collector
 → stale/unknown, restart with retained history and incident resolution. Use a
 separate database for fixtures. Actual deployment, external reachability, outage
 acceptance and 90 elapsed days of observations must be checked by an operator.
+
+## Import existing observer evidence offline
+
+The existing `scripts/status-observer/observer.py` owner can bridge its recorded
+JSONL without probing, installing units or changing the observation start date.
+Use Python 3.9+ and a newly built `tunn`. Choose a **new disposable** database
+outside the observer directory; an existing destination is always refused:
+
+```sh
+python3 scripts/status-observer/import_status.py \
+  --data-dir "$STATUS_DATA_DIR" --db "$STATUS_IMPORT_DB" \
+  > "$STATUS_IMPORT_REPORT"
+./bin/tunn status serve --offline --listen 127.0.0.1:8091 \
+  --db "$STATUS_IMPORT_DB" --probe https://tunn.to
+```
+
+All three environment variables above must name operator-selected local paths.
+The importer reads `raw/*.jsonl` under the observer's existing advisory lock,
+without creating a lock or writing to originals. If there is no lock, use a
+quiescent copy of the raw directory. Each source hash, row's exact bytes,
+subsecond timestamp, origin and endpoint are archived in `observer_sources` and
+`observer_records` in the disposable database. The existing status contract uses
+whole-second checked times and UTC minute buckets. Every duplicate failure wins;
+a minute with an incomplete health/readiness collection stays unknown. Invalid
+records, mixed origins, future dates and unterminated tails reject the entire
+import before creating a database. An empty input stays unknown.
+
+Only `/healthz` and `/readyz` feed public status. Home `/` and download
+`/dl/latest.json` records retain their separate paths in the archive and report;
+their failures cannot imply failed relay health, nor their successes good
+readiness. No missing minute is filled. Samples outside 90-day retention are
+archived but omitted from status. Stale current state becomes unknown after
+150 seconds. The importer does not update observer raw files, reports, rollups,
+timers or the elapsed 30-day observation clock. Serve uses the real current time,
+opens the existing database read-only and accepts literal loopback listeners only.
+To refresh, import into another new disposable database and restart that local
+foreground server; never run a collector against the imported database.
+
+For an isolated synthetic demonstration (the historical fixture will be stale):
+
+```sh
+python3 scripts/status-observer/import_status.py \
+  --data-dir scripts/status-observer/testdata/synthetic \
+  --db "$STATUS_IMPORT_DB" --synthetic --now 2026-10-01T12:02:10Z
+```
+
+`--now` requires `--synthetic`. Synthetic reports say `"synthetic": true` and the
+page carries a “Synthetic fixture” incident. Never use fixture output as real
+availability evidence. Unknown days remain unknown; two fixture minutes do not
+constitute a 30-day history.
+
+The exact proposed operator environment diff for the existing relay status
+owner, assuming its current unset status origin and a co-located foreground
+server above, is:
+
+```diff
+-TUNN_STATUS_URL=
++TUNN_STATUS_URL=http://127.0.0.1:8091
+```
+
+This is a proposal only. If the owner is remote, its loopback is a different
+machine: leave its configuration unchanged until a separately approved transport
+is available. No unit installation, relay restart or production configuration
+change is part of this offline command. Existing observer service/timer files
+need no edits. Inspect locally with `curl http://127.0.0.1:8091/status.json` and
+`curl http://127.0.0.1:8091/status`; an old import should read unknown, while its
+observed history remains present within retention.

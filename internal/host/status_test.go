@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -152,5 +153,64 @@ func TestStatusUnknownSharedIcons(t *testing.T) {
 	w := statusRequest(p, "GET", "/status")
 	if w.Code != 503 || !strings.Contains(w.Body.String(), iconHead) {
 		t.Fatal("unknown status must include shared icons")
+	}
+}
+
+// TestStatusObserverImportProxy exercises the offline bridge through the actual
+// relay proxy. The fixture is synthetic, and the service clock is never reset.
+func TestStatusObserverImportProxy(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "imported.db")
+	command := exec.Command("python3", "../../scripts/status-observer/import_status.py", "--data-dir", "../../scripts/status-observer/testdata/synthetic", "--db", dbPath, "--synthetic", "--now", "2026-10-01T12:02:10Z")
+	report, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatal(err, string(report))
+	}
+	t.Log("SYNTHETIC import report:", string(report))
+	s, err := statuspage.Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	now, _ := time.Parse(time.RFC3339, "2026-10-01T12:02:10Z")
+	v, err := s.Snapshot(context.Background(), now)
+	if err != nil || v.Observed != 2 || v.Healthy != 2 || v.State != "healthy" || v.Days[len(v.Days)-1].State != "partial" {
+		t.Fatal("imported health/readiness history", v, err)
+	}
+	if v.Days[0].State != "unknown" || v.Days[0].Observed != 0 {
+		t.Fatal("invented history", v.Days[0])
+	}
+	stale, err := s.Snapshot(context.Background(), now.Add(151*time.Second))
+	if err != nil || stale.State != "unknown" || stale.Observed != 2 {
+		t.Fatal("stale history", stale, err)
+	}
+	// Fixed fixture clock in the backend only, to render all historical states.
+	// The operator's offline server always uses the current clock.
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		statuspage.Render(w, r, v, 200)
+	}))
+	defer backend.Close()
+	p := securityProxy(securityDB(t))
+	p.config.StatusURL = backend.URL
+	for _, path := range []string{"/status", "/status.json"} {
+		w := statusRequest(p, "GET", path)
+		if w.Code != 200 {
+			t.Fatal(path, w.Code, w.Body.String())
+		}
+		if path == "/status.json" {
+			var got statuspage.Snapshot
+			if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil || got.Observed != 2 || got.Healthy != 2 || got.State != "healthy" {
+				t.Fatal(got, err)
+			}
+		} else if !strings.Contains(w.Body.String(), "Synthetic fixture") || !strings.Contains(w.Body.String(), "partial") {
+			t.Fatal("synthetic history missing", w.Body.String())
+		}
+		t.Logf("SYNTHETIC loopback proxy %s: HTTP %d; observed=2 healthy=2; home/download failures excluded", path, w.Code)
+	}
+	// Production-time rendering of a recorded fixture remains stale/unknown.
+	actual := httptest.NewRecorder()
+	statuspage.Handler(s).ServeHTTP(actual, httptest.NewRequest("GET", "/status.json", nil))
+	var current statuspage.Snapshot
+	if err := json.Unmarshal(actual.Body.Bytes(), &current); err != nil || current.State != "unknown" {
+		t.Fatal(current, err)
 	}
 }

@@ -6,7 +6,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -282,4 +284,24 @@ func percent(part, whole int) string {
 	s := strconv.FormatFloat(p, 'f', 2, 64)
 	s = strings.TrimSuffix(strings.TrimSuffix(s, "0"), ".0")
 	return strings.TrimSuffix(s, ".") + "%"
+}
+
+// OpenOffline reads an existing origin-bound store without migration or writes.
+func OpenOffline(path, origin string) (*Store, error) {
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
+	u := url.URL{Scheme: "file", Path: absolute, RawQuery: "mode=ro"}
+	db, err := sql.Open("sqlite", u.String())
+	if err != nil {
+		return nil, err
+	}
+	db.SetMaxOpenConns(1)
+	var saved string
+	if err = db.QueryRow(`SELECT origin FROM status_meta WHERE id=1`).Scan(&saved); err != nil || saved != origin {
+		db.Close()
+		return nil, errors.New("offline status database must exist and match the selected probe origin")
+	}
+	return &Store{db: db}, nil
 }

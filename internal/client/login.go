@@ -346,6 +346,9 @@ func (l *LoginClient) checkToken(ctx context.Context, deviceCode string) (*Token
 	}
 	var tokenResp TokenResponse
 	if err := decodeLoginResponse(resp.Body, &tokenResp); err != nil {
+		if transientLoginTransport(err) {
+			return nil, &loginRetryError{}
+		}
 		return nil, errors.New("invalid sign-in token response")
 	}
 	if tokenResp.Error != "" {

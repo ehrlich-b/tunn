@@ -28,6 +28,12 @@ func retryResponse(status int, body string) *http.Response {
 	return &http.Response{StatusCode: status, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}
 }
 
+type retryTimeoutReader struct{}
+
+func (retryTimeoutReader) Read([]byte) (int, error) {
+	return 0, &url.Error{Op: "read", URL: retryURL, Err: context.DeadlineExceeded}
+}
+
 type retryFixture struct {
 	client                 *LoginClient
 	output                 bytes.Buffer
@@ -87,7 +93,7 @@ func retryNoSecrets(t *testing.T, diagnostic string) {
 }
 
 func TestLoginPollRetryRecovery(t *testing.T) {
-	for _, fault := range []string{"timeout", "502", "503", "429", "reset"} {
+	for _, fault := range []string{"timeout", "body timeout", "502", "503", "429", "reset"} {
 		t.Run(fault, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				f := newRetryFixture(t, func(f *retryFixture, r *http.Request) (*http.Response, error) {
@@ -98,6 +104,10 @@ func TestLoginPollRetryRecovery(t *testing.T) {
 						switch fault {
 						case "timeout":
 							return nil, &url.Error{Op: "Get", URL: retryURL, Err: context.DeadlineExceeded}
+						case "body timeout":
+							resp := retryResponse(200, "")
+							resp.Body = io.NopCloser(retryTimeoutReader{})
+							return resp, nil
 						case "reset":
 							return nil, fmt.Errorf("%s: %w", retryURL, syscall.ECONNRESET)
 						case "429":

@@ -892,6 +892,10 @@ func sshWaitInspection(ctx context.Context, expected int, read func(context.Cont
 		if err != nil {
 			if ctx.Err() != nil {
 				err = ctx.Err()
+			} else if deadline, ok := ctx.Deadline(); ok && !time.Now().Before(deadline) {
+				// A connection's deadline can fire before the context timer
+				// publishes its error. Both enforce the same capture deadline.
+				err = context.DeadlineExceeded
 			}
 			return events, fmt.Errorf("inspection command: %w", err)
 		}
@@ -1000,7 +1004,40 @@ func TestSSHOwnerTokenInspectionSchedules(t *testing.T) {
 			t.Fatalf("command exceeded deadline: %v", err)
 		}
 	})
+	t.Run("command_deadline_before_context_notification", func(t *testing.T) {
+		// Model the socket deadline firing while the context timer's
+		// notification is still pending; Err is deliberately still nil.
+		ctx := sshInspectionPendingDeadline{Context: context.Background(), deadline: time.Now()}
+		calls := 0
+		events, err := sshWaitInspection(ctx, 2, func(context.Context) ([]byte, error) {
+			calls++
+			return nil, errors.New("ssh: handshake failed: i/o timeout")
+		})
+		if !errors.Is(err, context.DeadlineExceeded) || len(events) != 0 || calls != 1 {
+			t.Fatalf("expired command deadline: events=%v calls=%d error=%v", events, calls, err)
+		}
+	})
+	t.Run("command_error_before_deadline", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		commandErr := errors.New("inspection failed")
+		calls := 0
+		_, err := sshWaitInspection(ctx, 2, func(context.Context) ([]byte, error) {
+			calls++
+			return nil, commandErr
+		})
+		if !errors.Is(err, commandErr) || errors.Is(err, context.DeadlineExceeded) || calls != 1 {
+			t.Fatalf("command error retried or masked: calls=%d error=%v", calls, err)
+		}
+	})
 }
+
+type sshInspectionPendingDeadline struct {
+	context.Context
+	deadline time.Time
+}
+
+func (c sshInspectionPendingDeadline) Deadline() (time.Time, bool) { return c.deadline, true }
 
 // Inspection polling opens one session per connection, as required by SSH.
 // Give each synthetic peer its own documentation-only address so repeated

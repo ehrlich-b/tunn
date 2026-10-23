@@ -10,6 +10,8 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
+	"fmt"
 	"github.com/ehrlich-b/tunn/internal/testnet"
 	"io"
 	"math/big"
@@ -28,7 +30,9 @@ import (
 	"github.com/ehrlich-b/tunn/internal/sshfront"
 	"github.com/ehrlich-b/tunn/internal/storage"
 	"github.com/ehrlich-b/tunn/internal/store"
+	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
 	"golang.org/x/crypto/ssh"
+	"google.golang.org/protobuf/proto"
 )
 
 func sshSigner(t *testing.T) ssh.Signer {
@@ -48,6 +52,11 @@ func sshRelay(t *testing.T, known bool) (*ProxyServer, *ssh.Client, func() *ssh.
 }
 
 func sshRelayWithClock(t *testing.T, known bool, now func() time.Time) (*ProxyServer, *ssh.Client, func() *ssh.Client) {
+	p, c, dial, _ := sshRelayWithSchedule(t, known, now, nil, false)
+	return p, c, dial
+}
+
+func sshRelayWithSchedule(t *testing.T, known bool, now func() time.Time, schedule *sshInspectionSchedule, inspection bool) (*ProxyServer, *ssh.Client, func() *ssh.Client, func(context.Context) (*ssh.Client, error)) {
 	t.Helper()
 	db, err := store.InitForTest()
 	if err != nil {
@@ -77,7 +86,12 @@ func sshRelayWithClock(t *testing.T, known bool, now func() time.Time) (*ProxySe
 	}
 	p := &ProxyServer{Domain: cfg.Domain, config: cfg, tunnelServer: s, storage: st, meter: ledger, sshKeys: keys, quotaCache: NewQuotaCache(time.Minute), usageBuffer: NewUsageBuffer(), tunnelCache: map[string]string{}}
 	hostKey := sshSigner(t)
-	server, err := sshfront.New(sshfront.Config{HostKey: hostKey, Resolve: keys.Owner, ResolveAccount: keys.AccountID, CanonicalAccount: keys.CanonicalAccountID, Establish: p.establishSSH, Command: p.sshCommand, RotateToken: p.rotateSSHToken, Connect: p.sshConnect})
+	server, err := sshfront.New(sshfront.Config{HostKey: hostKey, Resolve: keys.Owner, ResolveAccount: keys.AccountID, CanonicalAccount: keys.CanonicalAccountID, Establish: func(ctx context.Context, id sshfront.Identity, stream *sshfront.Stream) error {
+		if schedule != nil {
+			stream = schedule.bridge(ctx, stream)
+		}
+		return p.establishSSH(ctx, id, stream)
+	}, Command: p.sshCommand, RotateToken: p.rotateSSHToken, Connect: p.sshConnect})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,21 +99,41 @@ func sshRelayWithClock(t *testing.T, known bool, now func() time.Time) (*ProxySe
 	l := testnet.NewListener()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	go func() { _ = server.Serve(ctx, l) }()
-	dial := func() *ssh.Client {
+	var listener net.Listener = l
+	if inspection {
+		listener = &sshInspectionListener{Listener: l}
+	}
+	go func() { _ = server.Serve(ctx, listener) }()
+	dialContext := func(ctx context.Context) (*ssh.Client, error) {
 		raw, err := l.Dial()
 		if err != nil {
-			t.Fatal(err)
+			return nil, err
+		}
+		stop := context.AfterFunc(ctx, func() { _ = raw.Close() })
+		defer stop()
+		if deadline, ok := ctx.Deadline(); ok {
+			_ = raw.SetDeadline(deadline)
 		}
 		conn, channels, requests, err := ssh.NewClientConn(raw, l.Addr().String(), &ssh.ClientConfig{User: "tunn", Auth: []ssh.AuthMethod{ssh.PublicKeys(signer)}, HostKeyCallback: ssh.FixedHostKey(hostKey.PublicKey()), Timeout: 3 * time.Second})
 		if err != nil {
-			t.Fatal(err)
+			_ = raw.Close()
+			return nil, err
 		}
+		_ = raw.SetDeadline(time.Time{})
 		client := ssh.NewClient(conn, channels, requests)
 		t.Cleanup(func() { _ = client.Close() })
-		return client
+		return client, nil
 	}
-	return p, dial(), dial
+	dial := func() *ssh.Client {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		c, err := dialContext(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return c
+	}
+	return p, dial(), dial, dialContext
 }
 
 func sshForward(t *testing.T, c *ssh.Client, command string, handler http.Handler) (*ssh.Session, *bufio.Reader) {
@@ -373,11 +407,23 @@ func sshOwnerCommand(t *testing.T, dial func() *ssh.Client, command string) []by
 }
 
 func TestSSHOwnerTokenInspectionAndReplay(t *testing.T) {
-	p, c, dial := sshRelay(t, true)
+	testSSHOwnerTokenInspection(t, "normal")
+}
+
+func testSSHOwnerTokenInspection(t *testing.T, mode string) {
+	t.Helper()
+	var schedule *sshInspectionSchedule
+	if mode == "delayed_second_capture" || mode == "never_completing_capture" {
+		schedule = &sshInspectionSchedule{held: make(chan struct{}), release: make(chan struct{})}
+	}
+	p, c, dial, dialContext := sshRelayWithSchedule(t, true, time.Now, schedule, true)
 	var requests atomic.Int32
 	_, out := sshForward(t, c, "--name ssh-owner --bearer --inspect", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
-		_, _ = io.Copy(io.Discard, r.Body)
+		body, err := io.ReadAll(r.Body)
+		if err != nil || string(body) != "replay-body" || r.Header.Get("X-Replay-Original") != "owner-value" {
+			t.Errorf("original request not preserved: body=%q headers=%v error=%v", body, r.Header, err)
+		}
 		_, _ = io.WriteString(w, "ok")
 	}))
 	_ = sshLine(t, out)
@@ -387,6 +433,7 @@ func TestSSHOwnerTokenInspectionAndReplay(t *testing.T) {
 	request := func(token string) int {
 		r := httptest.NewRequest("POST", "https://ssh-owner.tunn.test/action", strings.NewReader("replay-body"))
 		r.Header.Set("Tunn-Authorization", "Bearer "+token)
+		r.Header.Set("X-Replay-Original", "owner-value")
 		originalHeaders = p.forwardedHTTPHeaders(r)
 		w := httptest.NewRecorder()
 		p.handleWebProxy(w, r)
@@ -405,10 +452,83 @@ func TestSSHOwnerTokenInspectionAndReplay(t *testing.T) {
 	if status := request(newToken); status != 200 {
 		t.Fatal(status)
 	}
-	data := sshOwnerCommand(t, dial, "inspect ssh-owner")
-	var events []map[string]any
-	if err := json.Unmarshal(data, &events); err != nil || len(events) != 2 {
-		t.Fatalf("inspection=%s %v", data, err)
+	// The response can arrive before the publisher commits its terminal
+	// inspection record. The scheduled fixture holds its completion signal.
+	if schedule != nil {
+		select {
+		case <-schedule.held:
+		case <-time.After(3 * time.Second):
+			t.Fatal("second completion was not held")
+		}
+	}
+	read := func(ctx context.Context) ([]byte, error) {
+		inspectionConnection, err := dialContext(ctx)
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = inspectionConnection.Close() }()
+		stop := context.AfterFunc(ctx, func() { _ = inspectionConnection.Close() })
+		defer stop()
+		session, err := inspectionConnection.NewSession()
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = session.Close() }()
+		data, err := session.CombinedOutput("inspect ssh-owner")
+		if schedule != nil && mode == "delayed_second_capture" {
+			// Release only after an observable one-event snapshot. The next poll
+			// must see the real second capture, rather than a manufactured event.
+			var events []client.InspectionEvent
+			if json.Unmarshal(data, &events) == nil && len(events) == 1 {
+				select {
+				case <-schedule.release:
+				default:
+					close(schedule.release)
+				}
+			}
+		}
+		return data, err
+	}
+	if mode == "excess_capture" {
+		if status := request(newToken); status != 200 {
+			t.Fatal(status)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if _, err := sshWaitInspection(ctx, 3, read); err != nil {
+			t.Fatal(err)
+		}
+	}
+	timeout := 3 * time.Second
+	if mode == "never_completing_capture" {
+		timeout = 100 * time.Millisecond
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	events, err := sshWaitInspection(ctx, 2, read)
+	if mode == "never_completing_capture" {
+		if !errors.Is(err, context.DeadlineExceeded) || len(events) != 1 {
+			t.Fatalf("never-completing capture: events=%v error=%v", events, err)
+		}
+		if requests.Load() != 2 {
+			t.Fatalf("partial capture dispatched replay: %d", requests.Load())
+		}
+		return
+	}
+	if mode == "excess_capture" {
+		if err == nil || !strings.Contains(err.Error(), "excess capture") || len(events) != 3 {
+			t.Fatalf("excess capture: events=%v error=%v", events, err)
+		}
+		if requests.Load() != 3 {
+			t.Fatalf("excess capture dispatched replay: %d", requests.Load())
+		}
+		return
+	}
+	if err != nil {
+		t.Fatalf("inspection missing capture: %v", err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("inspection count=%d", len(events))
 	}
 	// Metadata capture cannot silently substitute an empty body or redacted
 	// forwarding headers; the owner reconstructs the original request explicitly.
@@ -430,7 +550,7 @@ func TestSSHOwnerTokenInspectionAndReplay(t *testing.T) {
 	if requests.Load() != 3 {
 		t.Fatalf("replay target requests=%d", requests.Load())
 	}
-	data = sshOwnerCommand(t, dial, "usage ssh-owner")
+	data := sshOwnerCommand(t, dial, "usage ssh-owner")
 	if !json.Valid(data) || !strings.Contains(string(data), "ssh-owner") {
 		t.Fatalf("usage=%s", data)
 	}
@@ -757,3 +877,150 @@ func TestSSHPublishAfterPrimarySwitchOnExistingConnection(t *testing.T) {
 		t.Fatal(response.Code, response.Body)
 	}
 }
+
+// sshWaitInspection waits for exactly the expected terminal captures. Each read
+// must honor ctx, including SSH command execution; a partial list is never success.
+func sshWaitInspection(ctx context.Context, expected int, read func(context.Context) ([]byte, error)) ([]client.InspectionEvent, error) {
+	ticker := time.NewTicker(5 * time.Millisecond)
+	defer ticker.Stop()
+	var events []client.InspectionEvent
+	for {
+		if err := ctx.Err(); err != nil {
+			return events, fmt.Errorf("capture timeout: got %d, want %d: %w", len(events), expected, err)
+		}
+		data, err := read(ctx)
+		if err != nil {
+			if ctx.Err() != nil {
+				err = ctx.Err()
+			}
+			return events, fmt.Errorf("inspection command: %w", err)
+		}
+		if len(bytes.TrimSpace(data)) == 0 || bytes.TrimSpace(data)[0] != '[' {
+			return nil, fmt.Errorf("malformed inspection: %q", data)
+		}
+		if err := json.Unmarshal(data, &events); err != nil {
+			return nil, fmt.Errorf("malformed inspection: %w", err)
+		}
+		if len(events) > expected {
+			return events, fmt.Errorf("excess capture: got %d, want %d", len(events), expected)
+		}
+		for i, event := range events {
+			if event.ID != uint64(i+1) || event.TerminalReason != "complete" || !event.BodyComplete || !event.Reconstructable || event.Status != http.StatusOK || event.Method != "POST" || event.Path != "/action" {
+				return events, fmt.Errorf("malformed completed capture: %+v", event)
+			}
+		}
+		if err := ctx.Err(); err != nil {
+			return events, fmt.Errorf("capture timeout: %w", err)
+		}
+		if len(events) == expected {
+			return events, nil
+		}
+		select {
+		case <-ctx.Done():
+			return events, fmt.Errorf("capture timeout: got %d, want %d: %w", len(events), expected, ctx.Err())
+		case <-ticker.C:
+		}
+	}
+}
+
+// sshInspectionSchedule holds the second relay completion, after the response
+// has been delivered but before the publisher can commit its capture. Both
+// directions still use real SSH streams and the ordinary admission callback.
+type sshInspectionSchedule struct {
+	held    chan struct{}
+	release chan struct{}
+}
+
+func (s *sshInspectionSchedule) bridge(ctx context.Context, original *sshfront.Stream) *sshfront.Stream {
+	host, messages := sshfront.NewStream(ctx)
+	go func() {
+		for {
+			message, err := original.Recv()
+			if err != nil {
+				return
+			}
+			if err := messages.Send(message); err != nil {
+				return
+			}
+		}
+	}()
+	go func() {
+		completed := 0
+		for {
+			message, err := messages.Recv()
+			if err != nil {
+				return
+			}
+			if closeMessage := message.GetConnectionClose(); closeMessage != nil {
+				completed++
+				if completed == 2 {
+					close(s.held)
+					select {
+					case <-s.release:
+					case <-ctx.Done():
+						return
+					}
+				}
+			}
+			message = proto.Clone(message).(*pb.TunnelMessage)
+			if open := message.GetConnectionOpen(); open != nil {
+				// Opt this fixture into the existing timing-completion handshake so
+				// terminal capture can be held deterministically after response EOF.
+				// The ordinary regression above retains SSH's default capabilities.
+				open.RequestTiming = true
+			}
+			if err := original.Send(message); err != nil {
+				return
+			}
+		}
+	}()
+	return host
+}
+
+func TestSSHOwnerTokenInspectionSchedules(t *testing.T) {
+	for _, mode := range []string{"normal", "delayed_second_capture", "never_completing_capture", "excess_capture"} {
+		t.Run(mode, func(t *testing.T) { testSSHOwnerTokenInspection(t, mode) })
+	}
+	for _, output := range []string{`null`, `{}`, `[{}]`, `[`, `["event"]`} {
+		t.Run("malformed_"+output, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			calls := 0
+			_, err := sshWaitInspection(ctx, 2, func(context.Context) ([]byte, error) { calls++; return []byte(output), nil })
+			if err == nil || !strings.Contains(err.Error(), "malformed") || calls != 1 {
+				t.Fatalf("malformed output retried or accepted: calls=%d error=%v", calls, err)
+			}
+		})
+	}
+	t.Run("command_deadline", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+		defer cancel()
+		_, err := sshWaitInspection(ctx, 2, func(ctx context.Context) ([]byte, error) { <-ctx.Done(); return nil, ctx.Err() })
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("command exceeded deadline: %v", err)
+		}
+	})
+}
+
+// Inspection polling opens one session per connection, as required by SSH.
+// Give each synthetic peer its own documentation-only address so repeated
+// observation does not exhaust the per-IP handshake admission budget.
+type sshInspectionListener struct {
+	net.Listener
+	peers atomic.Uint64
+}
+
+func (l *sshInspectionListener) Accept() (net.Conn, error) {
+	c, err := l.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	return &sshInspectionPeer{Conn: c, address: &net.TCPAddr{IP: net.ParseIP(fmt.Sprintf("2001:db8::%x", l.peers.Add(1))), Port: 1234}}, nil
+}
+
+type sshInspectionPeer struct {
+	net.Conn
+	address net.Addr
+}
+
+func (c *sshInspectionPeer) RemoteAddr() net.Addr { return c.address }

@@ -113,9 +113,26 @@ func fixtureReadFrame(r io.Reader, wantMasked bool) (fixtureWireFrame, error) {
 }
 
 type webSocketFixture struct {
-	hits   atomic.Int64
-	active atomic.Int64
-	closes chan []byte
+	hits         atomic.Int64
+	active       atomic.Int64
+	closes       chan []byte
+	readBytes    atomic.Int64
+	readProgress chan struct{}
+}
+
+type webSocketFixtureReader struct {
+	io.Reader
+	fixture *webSocketFixture
+}
+
+func (r webSocketFixtureReader) Read(p []byte) (int, error) {
+	n, err := r.Reader.Read(p)
+	r.fixture.readBytes.Add(int64(n))
+	select {
+	case r.fixture.readProgress <- struct{}{}:
+	default:
+	}
+	return n, err
 }
 
 func (f *webSocketFixture) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -175,8 +192,9 @@ func (f *webSocketFixture) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		p, _ := json.Marshal(map[string]string{"host": r.Host, "origin": r.Header.Get("Origin"), "for": r.Header.Get("X-Forwarded-For"), "proto": r.Header.Get("X-Forwarded-Proto"), "forwardedHost": r.Header.Get("X-Forwarded-Host"), "auth": r.Header.Get("Authorization"), "tunnAuth": r.Header.Get("Tunn-Authorization"), "cookie": r.Header.Get("Cookie"), "uri": r.URL.RequestURI(), "extensions": r.Header.Get("Sec-WebSocket-Extensions")})
 		_, _ = conn.Write(fixtureFrame(1, true, false, p))
 	}
+	input := webSocketFixtureReader{rw, f}
 	for {
-		frame, err := fixtureReadFrame(rw, true)
+		frame, err := fixtureReadFrame(input, true)
 		if err != nil {
 			return
 		}
@@ -219,7 +237,7 @@ type webSocketStack struct {
 
 func startWebSocketStack(t *testing.T, configure func(*client.ServeClient)) *webSocketStack {
 	t.Helper()
-	fixture := &webSocketFixture{closes: make(chan []byte, 200)}
+	fixture := &webSocketFixture{closes: make(chan []byte, 200), readProgress: make(chan struct{}, 1)}
 	var local *httptest.Server
 	var localPipe, relayPipe *webSocketMemoryListener
 	if *webSocketMemory {
@@ -388,13 +406,40 @@ func waitWebSocketsClosed(t *testing.T, s *webSocketStack) {
 func TestWebSocketEchoAcrossTLSRelay(t *testing.T) {
 	s := startWebSocketStack(t, nil)
 	conn, reader := mustWebSocket(t, s, "/echo", nil)
+	// Keep the single large frame, but acknowledge each transport-sized prefix
+	// at the origin before sending more. An unpaced burst can legitimately
+	// overflow the publisher's bounded upload queue when its worker falls behind;
+	// this test checks frame fidelity, while TestInboundIsolation checks overflow.
+	writeFrame := func(frame []byte) {
+		t.Helper()
+		consumed := s.fixture.readBytes.Load()
+		deadline := time.NewTimer(5 * time.Second)
+		defer deadline.Stop()
+		for len(frame) > 0 {
+			prefix := frame[:min(len(frame), 16*1024)]
+			n, err := conn.Write(prefix)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if n != len(prefix) {
+				t.Fatal(io.ErrShortWrite)
+			}
+			consumed += int64(n)
+			for s.fixture.readBytes.Load() < consumed {
+				select {
+				case <-s.fixture.readProgress:
+				case <-deadline.C:
+					t.Fatal("origin did not consume WebSocket frame prefix")
+				}
+			}
+			frame = frame[n:]
+		}
+	}
 	for _, test := range []struct {
 		opcode  byte
 		payload []byte
 	}{{1, []byte("text hello")}, {2, []byte{0, 255, 1, 128}}, {2, bytes.Repeat([]byte{0xab}, 1<<20)}} {
-		if _, err := conn.Write(fixtureFrame(test.opcode, true, true, test.payload)); err != nil {
-			t.Fatal(err)
-		}
+		writeFrame(fixtureFrame(test.opcode, true, true, test.payload))
 		expectWireFrame(t, reader, test.opcode, test.payload)
 	}
 	// Control frames interleave with a fragmented data message.

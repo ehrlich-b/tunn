@@ -66,17 +66,30 @@ func reviewCancel(t *testing.T, local *storage.LocalStorage, a *storage.Account,
 }
 
 func TestReviewRefundCannotDowngradeActiveSubscription(t *testing.T) {
-	_, p, local, a := reviewRevenueFixture(t)
+	db, p, local, a := reviewRevenueFixture(t)
 	reviewActivate(t, local, a, "cus_a", "sub_a")
 	body := `{"id":"evt_refund","type":"charge.refunded","data":{"object":{"id":"ch_a","customer":"cus_a","amount":600,"amount_refunded":600,"refunded":true}}}`
 	refund := stripeFixtureRequest(p, body, signedStripeFixture(body, p.config.StripeWebhookSecret, time.Now().Unix()))
-	if refund.Code != 200 || !strings.Contains(refund.Body.String(), `"state":"ignored"`) {
+	if refund.Code != 200 || !strings.Contains(refund.Body.String(), `"state":"reconciliation_required"`) {
 		t.Fatal(refund.Code, refund.Body.String())
 	}
-	// A refund does not cancel the provider subscription. A scoped operator
-	// can nevertheless revoke payment eligibility using fresh evidence.
+	// Without a configured provider reader, the signed refund is queued and
+	// cannot revoke eligibility on its own. A scoped operator can still use
+	// fresh evidence to end the payment entitlement.
+	account, err := local.AccountStore().GetByID(a.ID)
+	if err != nil || account.Plan != "pro" {
+		t.Fatal(account, err)
+	}
+	var outcome string
+	if err = db.QueryRow(`SELECT outcome FROM ops_billing_events WHERE event_id='evt_refund'`).Scan(&outcome); err != nil || outcome != "reconciliation_required" {
+		t.Fatal(outcome, err)
+	}
+	replay := stripeFixtureRequest(p, body, signedStripeFixture(body, p.config.StripeWebhookSecret, time.Now().Unix()))
+	if replay.Code != 200 || !strings.Contains(replay.Body.String(), `"duplicate":true`) {
+		t.Fatal(replay.Code, replay.Body.String())
+	}
 	snap := reviewSnapshot(a, "cus_a", "sub_a", "evt_paid_sub_a", 1, "free", "active")
-	_, err := local.OperationsStore().ApplyReviewedBilling(context.Background(), accountOperationsAdmin(t, a.ID), []store.BillingSnapshot{snap})
+	_, err = local.OperationsStore().ApplyReviewedBilling(context.Background(), accountOperationsAdmin(t, a.ID), []store.BillingSnapshot{snap})
 	if err != nil {
 		t.Fatalf("unexpected result: %v", err)
 	}

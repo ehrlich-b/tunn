@@ -140,8 +140,8 @@ func (p *ProxyServer) handleStripeWebhook(w http.ResponseWriter, r *http.Request
 	_ = json.NewEncoder(w).Encode(result)
 }
 
-// Stripe provides no authoritative per-subscription event revision. All
-// supported lifecycle events await an operator-supplied authoritative snapshot.
+// Stripe provides no authoritative per-subscription event revision. Receipts
+// await a current provider read at the database authority or operator action.
 // Email, metadata.account_id, checkout completion and arrival order confer no
 // entitlement and cannot create or reassign an account.
 func normalizeStripeEvent(event StripeEvent, body []byte) (store.BillingEvent, error) {
@@ -154,6 +154,36 @@ func normalizeStripeEvent(event StripeEvent, body []byte) (store.BillingEvent, e
 			return out, err
 		}
 		out.CustomerID, out.SubscriptionID, out.Supported = sub.Customer, sub.ID, true
+	case "charge.refunded", "charge.dispute.created":
+		var charge struct {
+			ID     string `json:"id"`
+			Charge string `json:"charge"`
+		}
+		if err := json.Unmarshal(event.Data.Object, &charge); err != nil {
+			return out, err
+		}
+		out.ChargeID = charge.ID
+		if event.Type == "charge.dispute.created" {
+			out.ChargeID = charge.Charge
+		}
+		out.Supported = true
+	case "invoice.paid", "invoice.payment_succeeded":
+		var invoice struct {
+			Customer     string `json:"customer"`
+			Subscription string `json:"subscription"`
+			Parent       struct {
+				SubscriptionDetails struct {
+					Subscription string `json:"subscription"`
+				} `json:"subscription_details"`
+			} `json:"parent"`
+		}
+		if err := json.Unmarshal(event.Data.Object, &invoice); err != nil {
+			return out, err
+		}
+		out.CustomerID, out.SubscriptionID, out.Supported = invoice.Customer, invoice.Subscription, true
+		if out.SubscriptionID == "" {
+			out.SubscriptionID = invoice.Parent.SubscriptionDetails.Subscription
+		}
 	case "checkout.session.completed":
 		var session struct {
 			ID           string `json:"id"`

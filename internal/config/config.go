@@ -5,6 +5,7 @@ import (
 	statuspage "github.com/ehrlich-b/tunn/internal/status"
 	"os"
 	"strconv"
+	"strings"
 )
 
 // Environment represents the deployment environment
@@ -75,11 +76,12 @@ type Config struct {
 	// Stripe configuration (for billing)
 	StripeSecretKey          string // Stripe secret key (sk_...) for API calls
 	StripeWebhookSecret      string
-	StripeCheckoutURLMonthly string // Payment link for monthly Pro
-	StripeCheckoutURLYearly  string // Payment link for yearly Pro
-	StripePortalURL          string // Customer portal for managing subscriptions
-	BillingEnabled           bool   // Explicitly enable checkout after fulfillment acceptance
-	ProMonthlyUSD            int    // Display must match the approved Stripe Price
+	StripeProPriceIDs        []string // Explicitly approved provider Price IDs; empty disables automation
+	StripeCheckoutURLMonthly string   // Payment link for monthly Pro
+	StripeCheckoutURLYearly  string   // Payment link for yearly Pro
+	StripePortalURL          string   // Customer portal for managing subscriptions
+	BillingEnabled           bool     // Explicitly enable checkout after fulfillment acceptance
+	ProMonthlyUSD            int      // Display must match the approved Stripe Price
 	ProYearlyUSD             int
 
 	// Client configuration
@@ -228,6 +230,11 @@ func (c *Config) loadDevConfig() {
 	// Stripe (optional in dev)
 	c.StripeSecretKey = getEnvOrDefault("TUNN_STRIPE_SECRET_KEY", "")
 	c.StripeWebhookSecret = getEnvOrDefault("TUNN_STRIPE_WEBHOOK_SECRET", "")
+	for _, price := range strings.Split(getEnvOrDefault("TUNN_STRIPE_PRO_PRICE_IDS", ""), ",") {
+		if price = strings.TrimSpace(price); price != "" {
+			c.StripeProPriceIDs = append(c.StripeProPriceIDs, price)
+		}
+	}
 	c.StripeCheckoutURLMonthly = getEnvOrDefault("TUNN_STRIPE_CHECKOUT_URL_MONTHLY", "")
 	c.StripeCheckoutURLYearly = getEnvOrDefault("TUNN_STRIPE_CHECKOUT_URL_YEARLY", "")
 	c.StripePortalURL = getEnvOrDefault("TUNN_STRIPE_PORTAL_URL", "")
@@ -292,6 +299,11 @@ func (c *Config) loadProdConfig() {
 	// Stripe (for billing)
 	c.StripeSecretKey = getEnvOrDefault("TUNN_STRIPE_SECRET_KEY", "")
 	c.StripeWebhookSecret = getEnvOrDefault("TUNN_STRIPE_WEBHOOK_SECRET", "")
+	for _, price := range strings.Split(getEnvOrDefault("TUNN_STRIPE_PRO_PRICE_IDS", ""), ",") {
+		if price = strings.TrimSpace(price); price != "" {
+			c.StripeProPriceIDs = append(c.StripeProPriceIDs, price)
+		}
+	}
 	c.StripeCheckoutURLMonthly = getEnvOrDefault("TUNN_STRIPE_CHECKOUT_URL_MONTHLY", "")
 	c.StripeCheckoutURLYearly = getEnvOrDefault("TUNN_STRIPE_CHECKOUT_URL_YEARLY", "")
 	c.StripePortalURL = getEnvOrDefault("TUNN_STRIPE_PORTAL_URL", "")

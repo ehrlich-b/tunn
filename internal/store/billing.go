@@ -29,6 +29,7 @@ type BillingEvent struct {
 	CheckoutReference string `json:"checkout_reference,omitempty"`
 	SessionID         string `json:"session_id,omitempty"`
 	CompletedAt       int64  `json:"completed_at,omitempty"`
+	ChargeID          string `json:"charge_id,omitempty"`
 }
 type BillingResult struct {
 	EventID   string `json:"event_id"`
@@ -204,7 +205,7 @@ func (s *OperationsStore) AdminBillingStatusPage(ctx context.Context, p AdminPri
 	return out, nil
 }
 func (s *OperationsStore) ProcessBillingEvent(ctx context.Context, e BillingEvent) (*BillingResult, error) {
-	if !boundedText(e.Provider, 32) || !boundedText(e.ID, 128) || !boundedText(e.Type, 128) || len(e.CustomerID) > 128 || len(e.SubscriptionID) > 128 || len(e.CheckoutReference) > 128 || len(e.SessionID) > 128 || e.CompletedAt < 0 || e.Revision < 0 || e.Plan != "" && e.Plan != "free" && e.Plan != "pro" {
+	if !boundedText(e.Provider, 32) || !boundedText(e.ID, 128) || !boundedText(e.Type, 128) || len(e.CustomerID) > 128 || len(e.SubscriptionID) > 128 || len(e.CheckoutReference) > 128 || len(e.SessionID) > 128 || len(e.ChargeID) > 128 || e.CompletedAt < 0 || e.Revision < 0 || e.Plan != "" && e.Plan != "free" && e.Plan != "pro" {
 		return nil, fmt.Errorf("invalid billing metadata")
 	}
 	if e.PayloadSHA256 != "" {

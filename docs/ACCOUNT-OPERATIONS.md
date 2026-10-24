@@ -49,7 +49,7 @@ remain unique. The adapter never establishes ownership from a
 webhook email or client-supplied metadata. A supported unbound event remains `reconciliation_required` and cannot create
 an account. An issued opaque checkout intent may associate its receipt with an
 account for review; arbitrary account UUIDs in editable references are ignored.
-Neither association nor a pending purchase grants Pro.
+A pending purchase alone never grants Pro.
 
 `ops_billing_events` atomically commits a metadata digest and processing result
 with any entitlement change. The durable key is `(provider,event_id)`; exact
@@ -63,15 +63,40 @@ bindings and unorderable events require reconciliation. Unknown types are
 recorded `ignored`; they do not modify entitlements. No webhook body is stored.
 
 Stripe `created` and event IDs are not an authoritative subscription revision.
-Checkout completion is not payment/entitlement proof. The Stripe adapter therefore
-records lifecycle events as `reconciliation_required`; it never fetches Stripe
-customer data, upgrades by email, or changes a plan based on arrival order.
-Configured signed webhook intake still validates signatures and a 64 KiB bound.
-Non-login nodes forward only normalized metadata through the authenticated
-internal `LoginNodeDB.ProcessBillingEvent` RPC. Do not infer automatic Stripe paid
-pilot readiness from passing local provider fixtures. An operator must supply
-current authoritative snapshots; automatic snapshot retrieval is outside this
-change. `ops_billing_states` persists the newest verified state per binding,
+Checkout completion alone is not payment/entitlement proof. Signed intake still
+validates signatures and a 64 KiB bound. Non-login nodes forward only normalized
+metadata through the authenticated internal `LoginNodeDB.ProcessBillingEvent`
+RPC. The database authority performs automatic fulfillment when both
+`TUNN_STRIPE_SECRET_KEY` and `TUNN_STRIPE_PRO_PRICE_IDS` are configured. The latter
+is a comma-separated allowlist of explicitly approved Stripe Price IDs; an empty
+allowlist disables automation. Configure it on the login authority before
+serving intake. No price IDs are inferred from checkout links or webhook data.
+
+For checkout completion, subscription creation/update/deletion and paid invoice
+notifications, the authority reads the current subscription from Stripe with
+API version `2024-06-20`, expanding its latest invoice and charge. Pro requires
+one approved subscription item, active status, a current billing period, and a
+paid nonzero invoice whose subscription, customer, Price and line period match.
+The matching charge must be paid, without any refund or dispute. Manual
+out-of-band invoices, incomplete or ambiguous evidence, unknown prices and
+provider-read failures leave the durable receipt in `reconciliation_required`.
+A server-issued on-time consumed checkout intent can bind its first payment
+automatically; existing explicit bindings also qualify. Unknown completion times,
+unbound lifecycle events, expired purchases and quarantined duplicates cannot
+automatically grant Pro. On-time completions delivered late remain eligible.
+
+Cancellation scheduled for period end retains the paid active period; the
+current canceled subscription read ends that subscription's entitlement. Refund
+and dispute notifications resolve charge -> invoice -> subscription using Stripe
+reads. A refund or dispute on the current paid charge ends its entitlement
+immediately; older-period or unassociated charges remain for operator handling.
+Replayed receipts do not grant again. Fresh unchanged-state receipts advance the
+provider-read watermark without another activation audit or CAS increment.
+Each entitlement change, receipt resolution and account projection commits
+atomically with a `system:stripe` audit. CAS and provider-read ordering still
+protect operator work. Automation never clears operational suspension, legacy
+grants or another eligible subscription. No provider writes are performed.
+The scoped operator paths below remain available for anomalies. `ops_billing_states` persists the newest verified state per binding,
 ordered by authoritative provider revision or the time of the verified current
 provider read. Arrival order and refreshed local CAS cannot override its
 watermark. Equal-order conflicting state fails; equal-state replay does not
@@ -102,13 +127,13 @@ reviewed Price ID. Pro requires `provider_status=active` and
 `payment_confirmed=true`; all other reviewed eligibility derives Free. An
 explicit refund/dispute revocation can use `provider_status=active` with
 `payment_confirmed=false`. Refund webhooks alone do not make that decision.
-The backend does not independently retrieve evidence or enforce an approved
-Price allowlist: the scoped operator must verify actual ownership, Price and
-current-period payment. Both apply modes are mutually exclusive; default is
+This operator path accepts supplied evidence separately from automatic
+retrieval: the scoped operator must verify actual ownership, an approved Price
+and current-period payment. Both apply modes are mutually exclusive; default is
 still read-only. CAS, complete-batch validation, audit, suspension and usage
 preservation apply to reviewed writes as well. Review current provider ownership, payment and subscription state before
-activation, renewal or cancellation. Checkout defaults disabled until that workflow has passed acceptance and is
-staffed. `PrepareBillingCheckout` persists a random intent and exact destination
+activation, renewal or cancellation. Checkout defaults disabled until fulfillment has passed acceptance and anomaly
+handling is staffed. `PrepareBillingCheckout` persists a random intent and exact destination
 before redirect. Unpaid retries resume that same reference/destination across
 tabs and restarts, with a 24-hour redirect window. Paid completions and multiple
 merged intents block redirects. Expiry retains the hold and never creates a

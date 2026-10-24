@@ -15,9 +15,10 @@ import (
 // LocalStorage implements Storage using local SQLite stores.
 // Used by the login node for direct database access.
 type LocalStorage struct {
-	deviceCodes *store.DeviceCodeStore
-	accounts    *store.AccountStore
-	db          *sql.DB
+	deviceCodes      *store.DeviceCodeStore
+	accounts         *store.AccountStore
+	db               *sql.DB
+	stripeAutomation *store.StripeAutomation
 
 	// Active tunnels tracked in memory
 	// Maps tunnel_id -> account_id
@@ -468,6 +469,9 @@ func (s *LocalStorage) OperationsStore() *store.OperationsStore {
 	return store.NewOperationsStore(s.db, nil)
 }
 func (s *LocalStorage) ProcessBillingEvent(ctx context.Context, e store.BillingEvent) (*store.BillingResult, error) {
+	if s.stripeAutomation != nil {
+		return s.stripeAutomation.Process(ctx, s.OperationsStore(), e)
+	}
 	return s.OperationsStore().ProcessBillingEvent(ctx, e)
 }
 func (s *LocalStorage) IntakeReport(ctx context.Context, id, category, endpoint string) (*store.IncidentReport, error) {
@@ -531,4 +535,9 @@ func (s *LocalStorage) LinkAccountEmail(ctx context.Context, id, email, jti stri
 
 func (s *LocalStorage) RevokeBrowserSessions(ctx context.Context, id, expected string) error {
 	return s.accounts.RevokeBrowserSessions(ctx, id, expected)
+}
+
+// ConfigureStripeAutomation must run before serving webhook or node RPC intake.
+func (s *LocalStorage) ConfigureStripeAutomation(key string, prices []string) {
+	s.stripeAutomation = store.NewStripeAutomation(key, prices, nil)
 }

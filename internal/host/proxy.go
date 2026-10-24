@@ -192,6 +192,7 @@ func NewProxyServer(cfg *config.Config) (*ProxyServer, error) {
 			return nil, fmt.Errorf("initialize device credentials: %w", err)
 		}
 		localStorage = storage.NewLocalStorage(db)
+		localStorage.ConfigureStripeAutomation(cfg.StripeSecretKey, cfg.StripeProPriceIDs)
 		localAppDevices, err = newAppDeviceStore(db)
 		if err != nil {
 			return nil, fmt.Errorf("initialize app devices: %w", err)

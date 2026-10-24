@@ -90,6 +90,13 @@ func TestAccountTunnelsBrowserJourney(t *testing.T) {
 	if module == "" {
 		t.Skip("set TUNN_ACCOUNT_TUNNELS_PLAYWRIGHT_MODULE to run browser acceptance")
 	}
+	schedule := os.Getenv("TUNN_ACCOUNT_TUNNELS_POLL_SCHEDULE")
+	if schedule == "" {
+		schedule = "normal"
+	}
+	if schedule != "normal" && schedule != "delayed" {
+		t.Fatalf("unknown account tunnels poll schedule %q", schedule)
+	}
 	f := newWebInspectorFixture(t, 0, 0)
 	p := f.p
 	delete(p.tunnelServer.tunnels, "api")
@@ -165,7 +172,7 @@ func TestAccountTunnelsBrowserJourney(t *testing.T) {
 		t.Fatal(err)
 	}
 	command := exec.CommandContext(ctx, "node", script, port, evidence)
-	command.Env = append(os.Environ(), "NO_PROXY=*")
+	command.Env = append(os.Environ(), "NO_PROXY=*", "TUNN_ACCOUNT_TUNNELS_POLL_SCHEDULE="+schedule)
 	output, err := command.CombinedOutput()
 	t.Log(string(output))
 	if err != nil || !strings.Contains(string(output), `"result":"PASS"`) {

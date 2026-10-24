@@ -3,6 +3,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const {chromium} = require(process.env.TUNN_ACCOUNT_TUNNELS_PLAYWRIGHT_MODULE);
 const port = process.argv[2], evidence = path.resolve(process.argv[3]);
+const schedule = process.env.TUNN_ACCOUNT_TUNNELS_POLL_SCHEDULE || 'normal';
+assert.ok(['normal','delayed'].includes(schedule), `unknown poll schedule: ${schedule}`);
 const apex = `https://tunn.test:${port}`;
 (async () => {
   const browser = await chromium.launch({headless:true,args:['--no-proxy-server','--disable-background-networking','--host-resolver-rules=MAP *.tunn.test 127.0.0.1, MAP tunn.test 127.0.0.1']});
@@ -10,6 +12,69 @@ const apex = `https://tunn.test:${port}`;
     async function person(email) {
       const context = await browser.newContext({ignoreHTTPSErrors:true,viewport:{width:1440,height:1000}});
       context.setDefaultTimeout(12000);
+      await context.exposeBinding('pollTrace',(_,event)=>fs.appendFileSync(path.join(evidence,'ordering.jsonl'),JSON.stringify({email,...event})+'\n'));
+      await context.addInitScript(() => {
+        const nativeFetch = window.fetch.bind(window);
+        const state = window.__accountPolls = {generation:0, requests:[], events:[]};
+        function event(record, phase) {
+          state.events.push({generation:record.id, phase, time:Date.now()});
+          window.pollTrace?.({generation:record.id, phase, time:Date.now()});
+        }
+        window.fetch = async (...args) => {
+          if (String(args[0]) !== '/api/account/tunnels') return nativeFetch(...args);
+          const record = {id:++state.generation, settled:false, hold:state.holdNext};
+          state.holdNext = undefined; state.requests.push(record);
+          event(record,'request');
+          const finish = () => {
+            // A browser task runs after the fetch/json promise continuations, including
+            // refresh's render and finally. It also runs while the fake clock is paused.
+            const channel = new MessageChannel();
+            channel.port1.onmessage = () => {
+              record.aborted = args[1]?.signal?.aborted || false;
+              record.dom = {names:Array.from(document.querySelectorAll('.live-tunnel-name'),n=>n.textContent), summary:document.querySelector('#live-tunnels-summary')?.textContent, stale:!document.querySelector('#live-tunnels-stale')?.hidden};
+              record.settled = true; event(record,'settled');
+              channel.port1.close(); channel.port2.close();
+            };
+            channel.port2.postMessage(null);
+          };
+          const holdBody = async () => {
+            if (!record.hold) return;
+            // Headers and JSON have arrived, but refresh still owns its controller.
+            // Release in a browser task after visibility's abort/refresh guard, even
+            // when update() uses the old ordering and never calls settleActive().
+            await new Promise(resolve => {
+              state.held = record.id;
+              let releasing = false;
+              const release = () => {
+                if (releasing) return;
+                releasing = true;
+                document.removeEventListener('visibilitychange',visible);
+                const channel = new MessageChannel();
+                channel.port1.onmessage = () => {
+                  event(record,'release'); state.held = undefined; state.releaseHeld = undefined; resolve();
+                  channel.port1.close(); channel.port2.close();
+                };
+                channel.port2.postMessage(null);
+              };
+              const visible = () => { event(record,'visibility-while-held'); release(); };
+              state.releaseHeld = release;
+              document.addEventListener('visibilitychange',visible,{once:true});
+              event(record,'body-held');
+            });
+          };
+          try {
+            const response = await nativeFetch(...args);
+            record.status = response.status; event(record,'response');
+            if (!response.ok) { await holdBody(); finish(); return response; }
+            const json = response.json.bind(response);
+            response.json = async () => {
+              try { const data = await json(); await holdBody(); return data; }
+              finally { event(record,'body'); finish(); }
+            };
+            return response;
+          } catch (error) { record.error = error.name; event(record,'rejected'); finish(); throw error; }
+        };
+      });
       await context.route('**/auth/google?*', async route => {
         const url = new URL(route.request().url()); url.hostname = '127.0.0.1';
         const response = await route.fetch({url:url.href,headers:{...route.request().headers(),host:`tunn.test:${port}`},maxRedirects:0});
@@ -29,6 +94,12 @@ const apex = `https://tunn.test:${port}`;
       const url = new URL(target), host = url.host, cookies = await context.cookies(target); url.hostname = '127.0.0.1';
       return context.request.fetch(url.href,{...options,headers:{...options.headers,Host:host,Cookie:cookies.map(c => c.name+'='+c.value).join('; ')},maxRedirects:0});
     }
+    async function settled(page, generation) {
+      await page.waitForFunction(id => {
+        const state = window.__accountPolls;
+        return state.requests.every(r=>r.settled) && (id === undefined || state.requests.some(r=>r.id===id && r.settled));
+      }, generation);
+    }
     const {context,page} = await person('owner@example.com');
     const errors = []; page.on('pageerror',error => errors.push(error.message));
     await page.locator('#live-tunnels-empty').waitFor({state:'visible'});
@@ -38,8 +109,9 @@ const apex = `https://tunn.test:${port}`;
     await page.route('**/api/account/tunnels',route=>route.fulfill({json:{complete:false,tunnels:[{
       name:'known-online',public_url:'https://known-online.example.test',kind:'HTTP',connected_since:new Date().toISOString()
     }]}}));
-    const partial=page.waitForResponse(r=>r.url().endsWith('/api/account/tunnels'));
-    await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));await partial;
+    await settled(page);
+    const partial = await page.evaluate(()=>{ document.dispatchEvent(new Event('visibilitychange')); return window.__accountPolls.generation; });
+    await settled(page, partial);
     await page.locator('#start-tunnel').waitFor({state:'detached'});
     assert.equal(await page.locator('.live-tunnel').count(),1,'proven partial row missing');
     assert.match(await page.locator('.live-tunnel-name').innerText(),/known-online/);
@@ -87,12 +159,14 @@ const apex = `https://tunn.test:${port}`;
     }
     await anonymous.close(); await other.context.close();
     let polls = 0; page.on('request',r => { if (r.url().endsWith('/api/account/tunnels')) polls++; });
+    await settled(page);
     // Dispatch the browser visibility event deterministically in headless mode.
     await page.evaluate(() => { Object.defineProperty(document,'hidden',{configurable:true,value:true}); document.dispatchEvent(new Event('visibilitychange')); });
     await page.waitForTimeout(5500); assert.equal(polls,0,'polling continued while hidden');
-    await page.evaluate(() => { Object.defineProperty(document,'hidden',{configurable:true,value:false}); document.dispatchEvent(new Event('visibilitychange')); });
+    const resumed = await page.evaluate(() => { Object.defineProperty(document,'hidden',{configurable:true,value:false}); document.dispatchEvent(new Event('visibilitychange')); return window.__accountPolls.generation; });
+    await settled(page, resumed);
     await page.waitForFunction(() => document.querySelector('.live-tunnel'));
-    await page.waitForTimeout(300); assert.ok(polls>0,'polling did not resume');
+    assert.ok(polls>0,'polling did not resume');
     assert.equal((await request(context,apex+'/_fixture/disconnect',{method:'POST'})).status(),204);
     await page.locator('#live-tunnels-empty').waitFor({state:'visible'});
     assert.equal(await page.locator('.live-tunnel').count(),0);
@@ -102,8 +176,10 @@ const apex = `https://tunn.test:${port}`;
     await page.screenshot({path:path.join(evidence,'account-disconnected-390.png'),fullPage:true});
     // Exercise the production renderer with deterministic account snapshots.
     // The journey above uses real authenticated endpoints and publisher connections.
+    await settled(page);
     await page.clock.install({time:new Date('2026-10-17T20:00:00Z')});
     await page.clock.pauseAt(new Date('2026-10-17T20:00:01Z'));
+    await settled(page);
     const names = ['forge-ssh','ehrlich-grafana','ehrlich-dash','apps-dash','apps-grafana','apps-home','apps-pmo','webhooks'];
     function fixture(count) {
       return Array.from({length:count}, (_,i) => ({
@@ -116,11 +192,64 @@ const apex = `https://tunn.test:${port}`;
       })).reverse();
     }
     let data = {complete:true,tunnels:[]}, failed = false;
-    await page.route('**/api/account/tunnels',route => failed ? route.fulfill({status:503,body:'Unavailable'}) : route.fulfill({json:data}));
+    await page.route('**/api/account/tunnels',async route => {
+      // Snapshot at request time; changing the next inventory cannot change an
+      // already-active response or let its completion stand in for a new poll.
+      const reply = failed ? {status:503,body:'Unavailable'} : {json:structuredClone(data)};
+      await route.fulfill(reply);
+    });
+    async function settleActive() {
+      await page.evaluate(() => {
+        const state = window.__accountPolls;
+        if (state.held !== undefined) {
+          const record = state.requests.find(r=>r.id===state.held);
+          if (record.hold === 'failed') document.dispatchEvent(new Event('visibilitychange'));
+          else state.releaseHeld();
+        }
+      });
+      await settled(page);
+    }
     async function update() {
-      const response = page.waitForResponse(r => r.url().endsWith('/api/account/tunnels'));
-      await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
-      await response; await page.waitForTimeout(60);
+      await settleActive();
+      const expected = failed || !data.complete ? await page.locator('.live-tunnel-name').allTextContents() :
+        [...data.tunnels].sort((a,b)=>(Date.parse(b.last_request)||0)-(Date.parse(a.last_request)||0) || a.name.localeCompare(b.name)).map(t=>t.name);
+      const generation = await page.evaluate(() => {
+        const before = window.__accountPolls.generation;
+        document.dispatchEvent(new Event('visibilitychange'));
+        return {before, after:window.__accountPolls.generation};
+      });
+      assert.equal(generation.after,generation.before+1,'update did not start its own poll');
+      await settled(page, generation.after);
+      await page.waitForFunction(({id,names}) => {
+        const record = window.__accountPolls.requests.find(r=>r.id===id);
+        const actual = Array.from(document.querySelectorAll('.live-tunnel-name'),n=>n.textContent);
+        return record?.settled && JSON.stringify(record.dom.names)===JSON.stringify(names) &&
+          JSON.stringify(actual)===JSON.stringify(names) &&
+          document.querySelector('#live-tunnels-summary').textContent===(names.length?`${names.length} online`:'None online');
+      }, {id:generation.after,names:expected});
+    }
+    async function advance(milliseconds) {
+      await settleActive();
+      await page.clock.fastForward(milliseconds);
+      // fastForward can return after a timer starts fetch but before its body,
+      // render and finally. Drain that generation before the next visibility.
+      await settleActive();
+    }
+    async function delayedPoll(label, milliseconds) {
+      if (schedule !== 'delayed') {
+        if (milliseconds !== undefined) await advance(milliseconds);
+        return;
+      }
+      await settled(page);
+      await page.evaluate(label => { window.__accountPolls.holdNext = label; },label);
+      if (milliseconds === undefined) {
+        await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+      } else {
+        // Leave this timer's body active for update() to encounter. The fixture's
+        // release listener is independent of both update() and advance().
+        await page.clock.fastForward(milliseconds);
+      }
+      await page.waitForFunction(() => window.__accountPolls.held !== undefined);
     }
     const shots = [], metrics = [];
     for (const count of [0,1,8,30]) {
@@ -173,23 +302,47 @@ const apex = `https://tunn.test:${port}`;
       }
     }
     const beforeFailure = await page.locator('#live-tunnel-list').innerHTML();
-    failed = true; await update();
+    failed = true; await delayedPoll('failed'); await update();
     assert.equal(await page.locator('#live-tunnel-list').innerHTML(),beforeFailure,'failed poll changed list');
     assert.equal(await page.locator('#live-tunnels-stale').isVisible(),false);
-    await page.clock.fastForward(60000); await update();
+    await delayedPoll('fresh-at-60s',60000); await update();
     assert.equal(await page.locator('#live-tunnels-stale').isVisible(),false,'stale warning at exactly 60 seconds');
-    await page.clock.fastForward(61000); await update();
+    // Probe both sides of production's freshness boundary, rather than merely
+    // comparing two fake Date.now() readings. No complete poll intervenes.
+    await delayedPoll('stale-at-60s-plus-1ms',1); await update();
+    assert.equal(await page.locator('#live-tunnels-stale').innerText(),'last updated 1 min ago');
+    await delayedPoll('later-staleness',60999); await update();
     assert.equal(await page.locator('#live-tunnels-stale').innerText(),'last updated 2 min ago');
     assert.equal(await page.locator('#live-tunnel-list').innerHTML(),beforeFailure);
     await page.screenshot({path:path.join(evidence,'tunnels-stale-1440-dark.png'),fullPage:true});
-    failed = false; data = {complete:false,tunnels:[]}; await update();
+    failed = false; data = {complete:false,tunnels:[]}; await delayedPoll('partial-retention'); await update();
     assert.equal(await page.locator('#live-tunnel-list').innerHTML(),beforeFailure,'partial response cleared good list');
-    data = {complete:true,tunnels:fixture(1)}; await update();
+    data = {complete:true,tunnels:fixture(1)}; await delayedPoll('complete-recovery'); await update();
     assert.equal(await page.locator('#live-tunnels-stale').isVisible(),false,'fresh response did not clear warning');
     data = {complete:true,tunnels:[]}; await update();
     assert.equal(await page.locator('.live-tunnel').count(),0,'disconnect did not drop row');
     assert.deepEqual(errors,[]);
-    const report = {result:'PASS',connected_without_reload:true,disconnected_without_reload:true,other_account_isolated:true,anonymous_requires_sign_in:true,hidden_visibility_event_stops_polling:true,resumes_on_visible:true,failed_poll_keeps_list:true,partial_response_keeps_list:true,stale_after_60_seconds:true,recovers_after_outage:true,sort_by_last_request_then_name:true,inline_expansion_and_keyboard_details:true,viewport_widths:[390,1440],shots,signInShots,metrics,browser_errors:errors};
+    const pollState = await page.evaluate(()=>window.__accountPolls);
+    const delayedEvents = pollState.events.filter(e=>['body-held','visibility-while-held','release'].includes(e.phase));
+    const heldPolls = pollState.requests.filter(r=>r.hold);
+    if (schedule === 'delayed') {
+      assert.deepEqual(heldPolls.map(r=>r.hold),['failed','fresh-at-60s','stale-at-60s-plus-1ms','later-staleness','partial-retention','complete-recovery']);
+      for (const record of heldPolls) {
+        assert.ok(record.settled && !record.error,'delayed body did not reach refresh');
+        const phases = ['request','response','body-held'];
+        if (record.hold === 'failed') phases.push('visibility-while-held');
+        phases.push('release');
+        if (record.status===200) phases.push('body');
+        phases.push('settled');
+        assert.deepEqual(pollState.events.filter(e=>e.generation===record.id).map(e=>e.phase),phases);
+        assert.equal(record.aborted,record.hold==='failed','unexpected abort at delayed boundary');
+        if (record.hold === 'complete-recovery') {
+          assert.equal(record.dom.names.length,1,'delayed recovery did not render');
+          assert.equal(record.dom.stale,false,'delayed recovery did not clear staleness');
+        }
+      }
+    }
+    const report = {result:'PASS',schedule,delayedEvents,heldPolls,pollState,connected_without_reload:true,disconnected_without_reload:true,other_account_isolated:true,anonymous_requires_sign_in:true,hidden_visibility_event_stops_polling:true,resumes_on_visible:true,failed_poll_keeps_list:true,partial_response_keeps_list:true,stale_after_60_seconds:true,recovers_after_outage:true,sort_by_last_request_then_name:true,inline_expansion_and_keyboard_details:true,viewport_widths:[390,1440],shots,signInShots,metrics,browser_errors:errors};
     fs.writeFileSync(path.join(evidence,'account-browser.json'),JSON.stringify(report,null,2)+'\n');
     console.log(JSON.stringify(report));
     await context.close();

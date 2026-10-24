@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -207,6 +208,54 @@ func TestHTTP3CrashRestartResetsOldConnection(t *testing.T) {
 	}
 }
 
+// Drop client packets during the crash/restart boundary. Otherwise a delayed
+// ACK or retransmission can elicit a valid reset before the timed probe starts.
+// Serialize with WriteTo so pausing also waits for any in-flight write.
+type http3RestartPacketConn struct {
+	net.PacketConn
+	mu     sync.Mutex
+	paused bool
+}
+
+func (c *http3RestartPacketConn) WriteTo(b []byte, addr net.Addr) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.paused {
+		return len(b), nil
+	}
+	return c.PacketConn.WriteTo(b, addr)
+}
+
+func (c *http3RestartPacketConn) pause(paused bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.paused = paused
+}
+
+func dialHTTP3Restart(t *testing.T, addr string, tlsConfig *tls.Config) (*quic.Conn, *http3RestartPacketConn) {
+	t.Helper()
+	socket, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	packets := &http3RestartPacketConn{PacketConn: socket}
+	transport := &quic.Transport{Conn: packets}
+	t.Cleanup(func() { _ = transport.Close(); _ = socket.Close() })
+	remote, err := net.ResolveUDPAddr("udp", addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	tlsConfig = tlsConfig.Clone()
+	tlsConfig.NextProtos = []string{http3.NextProtoH3}
+	conn, err := transport.Dial(ctx, remote, tlsConfig, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return conn, packets
+}
+
 func testHTTP3CrashRestart(t *testing.T, source string) {
 	p, http2Client, _ := opsProxy(t)
 	if source == "tls" {
@@ -214,28 +263,40 @@ func testHTTP3CrashRestart(t *testing.T, source string) {
 	}
 	first := startHTTP3Process(t, p, false)
 	tlsConfig := http2Client.Transport.(*http.Transport).TLSClientConfig
-	conn := dialHTTP3(t, p.HTTP3Addr, tlsConfig, false)
+	conn, packets := dialHTTP3Restart(t, p.HTTP3Addr, tlsConfig)
 	transport := &http3.Transport{}
 	client := transport.NewClientConn(conn)
 	checkHTTP3Response(t, client, p.HTTP3Addr)
+	packets.pause(true)
 	if err := first.cmd.Process.Kill(); err != nil {
 		t.Fatal(err)
 	}
 	first.wait(t)
-	startHTTP3Process(t, p, false)
-	if conn.Context().Err() != nil {
-		t.Fatal("old connection closed before sending restart probe")
+	second := startHTTP3Process(t, p, false)
+	select {
+	case <-second.done:
+		t.Fatalf("restarted HTTP/3 process exited: %v", second.err)
+	default:
 	}
+	if conn.Context().Err() != nil {
+		t.Fatalf("old connection closed before sending restart probe: %T %v", context.Cause(conn.Context()), context.Cause(conn.Context()))
+	}
+	start := time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), 750*time.Millisecond)
 	defer cancel()
-	start := time.Now()
+	packets.pause(false)
 	response, err := client.RoundTrip(http3Request(ctx, p.HTTP3Addr))
 	if response != nil {
 		_ = response.Body.Close()
 	}
+	select {
+	case <-conn.Context().Done():
+	case <-ctx.Done():
+	}
 	var reset *quic.StatelessResetError
-	if !errors.As(err, &reset) || time.Since(start) >= 750*time.Millisecond {
-		t.Fatalf("old connection did not reset quickly: elapsed=%s err=%v", time.Since(start), err)
+	cause := context.Cause(conn.Context())
+	if !errors.As(err, &reset) || !errors.As(cause, &reset) || time.Since(start) >= 750*time.Millisecond {
+		t.Fatalf("old connection did not reset quickly: elapsed=%s err=%v cause=%T %v", time.Since(start), err, cause, cause)
 	}
 	t.Logf("old connection received stateless reset in %s", time.Since(start))
 	fresh := dialHTTP3(t, p.HTTP3Addr, tlsConfig, false)

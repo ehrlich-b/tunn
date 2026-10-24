@@ -181,13 +181,16 @@ func (f *appDeviceFixture) redeem(t *testing.T, i appInvitation, verifier string
 }
 func (f *appDeviceFixture) enroll(t *testing.T, cookie *http.Cookie) (appDevice, string) {
 	t.Helper()
+	started := time.Now()
 	i := f.invite(t, cookie)
 	verifier, err := randomOAuthValue("")
 	if err != nil {
 		t.Fatal(err)
 	}
 	claim := f.claim(t, i, verifier)
-	if w := f.approve(t, claim, cookie); w.Code != 200 {
+	approval := f.approve(t, claim, cookie)
+	enrollmentDiagnostic(t, "original", "approve", approval, started, true)
+	if w := approval; w.Code != 200 {
 		t.Fatalf("approval status=%d", w.Code)
 	}
 	w := f.redeem(t, claim, verifier, true)

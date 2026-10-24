@@ -304,7 +304,14 @@ func (a *StripeAutomation) Process(ctx context.Context, s *OperationsStore, e Bi
 		return nil, err
 	}
 	auditID := ""
-	if m.Plan != snap.Plan || change.CurrentPlan != snap.Plan {
+	// A reviewed payment approval may require a fresh version even when its
+	// old subscription state had the same plan. Other subscriptions and legacy
+	// grants do not cause another audit for this unchanged subscription.
+	var needsApprovalVersion bool
+	if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM ops_checkout_payments WHERE provider='stripe' AND subscription_id=? AND resolution='approved' AND approval_version>=?)`, snap.SubscriptionID, m.Version).Scan(&needsApprovalVersion); err != nil {
+		return nil, err
+	}
+	if m.Plan != snap.Plan || needsApprovalVersion {
 		auditID = "auto:" + uuid.NewString()
 		data, _ := json.Marshal(snap)
 		hash := sha256.Sum256(data)

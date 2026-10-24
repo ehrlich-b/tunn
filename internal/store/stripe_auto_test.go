@@ -345,3 +345,26 @@ func TestAutoActivationCASAndAuditRollback(t *testing.T) {
 		}
 	})
 }
+
+func TestAutoActivationPreservesOtherEntitlements(t *testing.T) {
+	f := newAutoStripeFixture(t, false)
+	f.send(f.event)
+	// A preserved grant arriving through a merge remains independent of Stripe.
+	if _, err := f.db.Exec(`INSERT INTO ops_legacy_entitlements(original_account_id,account_id,plan) VALUES(?,?,'pro')`, f.account.ID, f.account.ID); err != nil {
+		t.Fatal(err)
+	}
+	f.sub.Status = "canceled"
+	ended := f.event
+	ended.ID, ended.Type = "evt_end_with_legacy", "customer.subscription.deleted"
+	f.send(ended)
+	requirePlan(t, f.db, f.account.ID, "pro")
+	f.audits(2)
+	ended.ID = "evt_unchanged_end"
+	f.send(ended)
+	requirePlan(t, f.db, f.account.ID, "pro")
+	f.audits(2)
+	m, err := readBillingMapping(context.Background(), f.db, "stripe", f.sub.ID)
+	if err != nil || m.Plan != "free" || m.Version != 2 {
+		t.Fatal(m, err)
+	}
+}

@@ -2,7 +2,9 @@ package host
 
 import (
 	"bytes"
+	"context"
 	"fmt"
+	ipb "github.com/ehrlich-b/tunn/pkg/proto/internalv1"
 	"image/png"
 	"net/http/httptest"
 	"testing"
@@ -186,6 +188,31 @@ func TestFaviconRegistrationHonored(t *testing.T) {
 		}
 		if !checked {
 			t.Fatal("no registration reply")
+		}
+	}
+}
+
+func TestFaviconForwardedPrivate(t *testing.T) {
+	for _, disabled := range []bool{false, true} {
+		for _, method := range []string{"GET", "HEAD", "POST"} {
+			for _, path := range []string{"/favicon.ico", "/favicon.svg", "/private"} {
+				cfg := webproxyTestConfig()
+				server := NewTunnelServer(cfg, nil, nil, nil)
+				server.tunnels["favicon-test"] = &TunnelConnection{TunnelID: "favicon-test", NoFavicon: disabled, AllowedEmails: []string{"owner@example.com"}}
+				proxy := &ProxyServer{Domain: cfg.Domain, config: cfg, tunnelServer: server, storage: storage.NewProxyStorage()}
+				internal := &InternalServer{proxy: proxy}
+				out, err := internal.CheckForwardedPermission(context.Background(), &ipb.ForwardedPermissionRequest{TunnelId: "favicon-test", Host: "favicon-test.tunn.to", Path: path, Method: method, Admission: true})
+				if err != nil {
+					t.Fatal(err)
+				}
+				want := !disabled && method != "POST" && path != "/private"
+				if out.Allowed != want {
+					t.Fatalf("disabled=%v %s %s: %#v", disabled, method, path, out)
+				}
+				if want && out.Status != 200 {
+					t.Fatalf("favicon status=%d", out.Status)
+				}
+			}
 		}
 	}
 }

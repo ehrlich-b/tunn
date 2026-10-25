@@ -411,6 +411,11 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		if !authenticated {
 			session.reason = "authentication_required"
 			if serveTunnelFavicon(w, r, tunnel) {
+				// The remote relay may forward this hostname-only response;
+				// this grants no access to the private application.
+				if probe != nil {
+					*probe = true
+				}
 				return nil
 			}
 			// MCP clients cannot consume the browser login redirect. Return an

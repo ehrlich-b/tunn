@@ -120,8 +120,16 @@ if ! openssl x509 -in "${CERT_PATH}" -noout -checkend 2592000 >/dev/null; then
 	exit 1
 fi
 
-if ! openssl x509 -in "${CERT_PATH}" -noout -checkhost "${DOMAIN}" >/dev/null ||
-	! openssl x509 -in "${CERT_PATH}" -noout -checkhost "*.${DOMAIN}" >/dev/null; then
+# Some OpenSSL versions exit zero even when -checkhost reports a mismatch.
+# Require the affirmative result as well as a successful command.
+certificate_covers_hostname() {
+	local checked_hostname="$1" check_output
+	check_output="$(openssl x509 -in "${CERT_PATH}" -noout -checkhost "${checked_hostname}")" || return 1
+	[[ "${check_output}" == "Hostname ${checked_hostname} does match certificate" ]]
+}
+
+if ! certificate_covers_hostname "${DOMAIN}" ||
+	! certificate_covers_hostname "*.${DOMAIN}"; then
 	echo "ERROR: resulting certificate must cover the apex and wildcard tunnel hostnames" >&2
 	exit 1
 fi

@@ -51,8 +51,13 @@ elif name == "openssl":
                 result = subprocess.run([os.environ["TUNN_EDGE_REAL_OPENSSL"], "x509", "-in",
                                          os.environ["TUNN_EDGE_REAL_TLS_FILE"], "-noout", "-checkhost", host],
                                         capture_output=True, timeout=5)
+                sys.stdout.buffer.write(result.stdout)
+                sys.stderr.buffer.write(result.stderr)
                 sys.exit(result.returncode)
-            sys.exit(1 if scenario == "wrong_domain" or scenario == "missing_wildcard" and host != "edge.example.com" else 0)
+            matches = not (scenario == "wrong_domain" or scenario == "missing_wildcard" and host != "edge.example.com")
+            print(f"Hostname {host} {'does match' if matches else 'does NOT match'} certificate")
+            # Model OpenSSL versions that report a mismatch with exit status 0.
+            sys.exit(0)
         if "-pubkey" in args:
             print("fixture-public-key")
         elif "-serial" in args:

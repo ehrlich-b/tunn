@@ -151,24 +151,32 @@ func TestServeClientMissingOrRevokedAccountStops(t *testing.T) {
 				accounts := &rejectedRegistrationAccount{Storage: f.remote, lookup: lookup, state: state}
 				f.relay.tunnelServer.storage = accounts
 				done := f.run(t)
-				select {
-				case err := <-done:
-					if err == nil || errors.Is(err, context.DeadlineExceeded) || client.ClassifyFailure(err) != client.FailureRegistration {
-						t.Fatalf("account rejection did not stop publisher: %v", err)
-					}
-					// The first lookup rejects authentication, allowing one forced
-					// renewal; neither lookup may enter outage reconnect backoff.
-					for len(f.events) > 0 {
-						if event := <-f.events; event.State == client.StateReconnecting || event.State == client.StateReady {
+				// Observe lifecycle events while waiting for the fixture's bounded
+				// Run context. A separate short timer races TLS and credential
+				// renewal under load and does not prove that a retry occurred.
+				for {
+					select {
+					case event := <-f.events:
+						if event.State == client.StateReconnecting || event.State == client.StateReady {
 							t.Fatalf("missing or revoked account entered %s", event.State)
 						}
+					case err := <-done:
+						if err == nil || errors.Is(err, context.DeadlineExceeded) || client.ClassifyFailure(err) != client.FailureRegistration {
+							t.Fatalf("account rejection did not stop publisher: %v", err)
+						}
+						// The first lookup rejects authentication, allowing one forced
+						// renewal; neither lookup may enter outage reconnect backoff.
+						for len(f.events) > 0 {
+							if event := <-f.events; event.State == client.StateReconnecting || event.State == client.StateReady {
+								t.Fatalf("missing or revoked account entered %s", event.State)
+							}
+						}
+						if _, exists := f.relay.tunnelServer.GetTunnel(f.publisher.TunnelID); exists {
+							t.Fatal("rejected account retained a tunnel")
+						}
+						t.Logf("account rejected terminally at lookup %d: %v", lookup, err)
+						return
 					}
-					if _, exists := f.relay.tunnelServer.GetTunnel(f.publisher.TunnelID); exists {
-						t.Fatal("rejected account retained a tunnel")
-					}
-					t.Logf("account rejected terminally at lookup %d: %v", lookup, err)
-				case <-time.After(3 * time.Second):
-					t.Fatal("missing or revoked account kept retrying")
 				}
 			})
 		}

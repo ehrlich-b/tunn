@@ -31,10 +31,10 @@ func (p *ProxyServer) agentKitIndex() string {
 	out.WriteString("## Documentation\n\n- [Quickstart](https://tunn.to/docs): Install, sign in and publish a local port.\n")
 	out.WriteString("- [MCP connectors](https://tunn.to/docs/mcp-to-claude): Client setup and connector verification.\n")
 	out.WriteString("- [Pricing and limits](https://tunn.to/pricing): Current plans and account allowances.\n\n")
-	// The pricing page uses these same configured amounts and enforced limits.
+	// Share configured amounts and request allowance wording with the pricing page.
 	d := p.revenueData()
-	fmt.Fprintf(&out, "Free: %d concurrent tunnels, %d monthly admissions, %s monthly metered transfer, %d reserved name.\n", d.FreeTunnels, d.FreeRequests, d.FreeBytes, d.FreeReservations)
-	fmt.Fprintf(&out, "Pro: $%d/month or $%d/year; %d concurrent tunnels, %d monthly admissions, %s monthly metered transfer, %d reserved names.\n\n", d.MonthlyUSD, d.YearlyUSD, d.ProTunnels, d.ProRequests, d.ProBytes, d.Reservations)
+	fmt.Fprintf(&out, "Free: %d concurrent tunnels, Requests: %s, %s monthly metered transfer, %d reserved name.\n", d.FreeTunnels, d.FreeRequestsShort, d.FreeBytes, d.FreeReservations)
+	fmt.Fprintf(&out, "Pro: $%d/month or $%d/year; %d concurrent tunnels, Requests: %s, %s monthly metered transfer, %d reserved names.\n\n", d.MonthlyUSD, d.YearlyUSD, d.ProTunnels, d.ProRequestsShort, d.ProBytes, d.Reservations)
 	out.WriteString("## For coding agents\n\n")
 	for _, page := range agentKitPages {
 		fmt.Fprintf(&out, "- [%s](https://tunn.to%s): %s\n", page.title, page.path, page.description)

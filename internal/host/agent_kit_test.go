@@ -119,6 +119,7 @@ func TestAgentKitIndexUsesPricingSources(t *testing.T) {
 	for _, cfg := range []*config.Config{
 		{Domain: "tunn.to"},
 		{Domain: "tunn.to", ProMonthlyUSD: 7, ProYearlyUSD: 70, OwnerMonthlyRequests: 1234, OwnerMonthlyBytes: 123456789},
+		{Domain: "tunn.to", OwnerMonthlyRequests: 1500000},
 	} {
 		handler := agentKitHandler(cfg)
 		w := httptest.NewRecorder()
@@ -126,12 +127,15 @@ func TestAgentKitIndexUsesPricingSources(t *testing.T) {
 		body := w.Body.String()
 		d := (&ProxyServer{config: cfg}).revenueData()
 		for _, want := range []string{
-			fmt.Sprintf("Free: %d concurrent tunnels, %d monthly admissions, %s monthly metered transfer, %d reserved name.", d.FreeTunnels, d.FreeRequests, d.FreeBytes, d.FreeReservations),
-			fmt.Sprintf("Pro: $%d/month or $%d/year; %d concurrent tunnels, %d monthly admissions, %s monthly metered transfer, %d reserved names.", d.MonthlyUSD, d.YearlyUSD, d.ProTunnels, d.ProRequests, d.ProBytes, d.Reservations),
+			fmt.Sprintf("Free: %d concurrent tunnels, Requests: unlimited (fair use), %s monthly metered transfer, %d reserved name.", d.FreeTunnels, d.FreeBytes, d.FreeReservations),
+			fmt.Sprintf("Pro: $%d/month or $%d/year; %d concurrent tunnels, Requests: unlimited (fair use), %s monthly metered transfer, %d reserved names.", d.MonthlyUSD, d.YearlyUSD, d.ProTunnels, d.ProBytes, d.Reservations),
 		} {
 			if !strings.Contains(body, want) {
 				t.Errorf("index disagrees with pricing data: missing %q", want)
 			}
+		}
+		if allowance := regexp.MustCompile(`(?i)\b[0-9][0-9,]* (monthly admissions|requests)\b`).FindString(body); allowance != "" {
+			t.Errorf("index advertises a numeric request allowance with abuse ceiling %d: %q", cfg.OwnerMonthlyRequests, allowance)
 		}
 		for _, page := range agentKitPages {
 			if !strings.Contains(body, "https://tunn.to"+page.path) {

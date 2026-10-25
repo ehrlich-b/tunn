@@ -504,7 +504,11 @@ func TestOpsLoopbackShutdownWithLivePublisherAndRestart(t *testing.T) {
 	next.tunnelServer.storage = next.storage
 	nextCancel, nextDone := opsStart(t, next)
 	opsWaitHealth(t, next, client, "/readyz", 200)
-	nextStream, err := pb.NewTunnelServiceClient(conn).EstablishTunnel(streamCtx)
+	// The replacement publisher gets its own connection budget; the first
+	// stream's deadline also covered shutdown and may already have expired.
+	nextStreamCtx, stopNextStream := context.WithTimeout(context.Background(), 10*time.Second)
+	defer stopNextStream()
+	nextStream, err := pb.NewTunnelServiceClient(conn).EstablishTunnel(nextStreamCtx)
 	if err != nil {
 		t.Fatal(err)
 	}

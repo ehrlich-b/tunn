@@ -766,7 +766,7 @@ func (c *connection) start(f *forward) error {
 		f.digest = digest
 		f.token = token
 	}
-	reg := &pb.RegisterClient{TunnelId: name, TargetUrl: c.protocol, AllowedEmails: o.AllowedEmails, AccessTokenSha256: digest, EndpointProtocol: c.protocol, Capabilities: []string{common.CapabilityHTTPStreamV1, common.CapabilityConnectionStreamV1, common.CapabilityWebSocketV1}}
+	reg := &pb.RegisterClient{NoFavicon: o.NoFavicon, TunnelId: name, TargetUrl: c.protocol, AllowedEmails: o.AllowedEmails, AccessTokenSha256: digest, EndpointProtocol: c.protocol, Capabilities: []string{common.CapabilityHTTPStreamV1, common.CapabilityConnectionStreamV1, common.CapabilityWebSocketV1}}
 	if err = messages.Send(&pb.TunnelMessage{Message: &pb.TunnelMessage_RegisterClient{RegisterClient: reg}}); err != nil {
 		cancel()
 		return err

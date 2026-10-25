@@ -148,6 +148,7 @@ type mcpCommandOptions struct {
 	allowedEmails []string
 	tunnelKey     string
 	clientSecret  string
+	noFavicon     bool
 	public        bool
 	command       []string
 	targetURL     string
@@ -203,6 +204,7 @@ func parseMCPFlags(args []string) (*mcpCommandOptions, error) {
 		tunnelKey:     shared.TunnelKey,
 		clientSecret:  clientSecret,
 		public:        shared.Public,
+		noFavicon:     shared.NoFavicon,
 		allowedTools:  allowedTools,
 	}
 	if separator == -1 {
@@ -379,6 +381,7 @@ func runMCP(args []string) {
 		EndpointTokenPath: endpointTokenPath,
 		TunnelKey:         tunnelKey,
 		AllowedEmails:     allowedEmails,
+		NoFavicon:         opts.noFavicon,
 		Insecure:          cfg.Insecure || *insecure,
 		HTTPTimeout:       27 * time.Second,
 	}
@@ -475,6 +478,7 @@ type tcpCommandOptions struct {
 	allowedEmails []string
 	tunnelKey     string
 	clientSecret  string
+	noFavicon     bool
 	public        bool
 	target        string
 	adapter       string
@@ -536,6 +540,7 @@ func parseRawPublisherFlags(command string, args []string, normalize func(string
 		tunnelKey:     shared.TunnelKey,
 		clientSecret:  clientSecret,
 		public:        shared.Public,
+		noFavicon:     shared.NoFavicon,
 		target:        target,
 		adapter:       strings.ToLower(strings.TrimSpace(*asFlag)),
 		accountOnly:   *accountOnly,
@@ -684,6 +689,7 @@ func runRawPublisher(opts *tcpCommandOptions, targetNetwork, endpointProtocol st
 		DialAddress:       dialAddress,
 		TunnelKey:         tunnelKey,
 		AllowedEmails:     allowedEmails,
+		NoFavicon:         opts.noFavicon,
 		Insecure:          cfg.Insecure || *insecure,
 	}
 	if err := serveClient.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
@@ -893,6 +899,7 @@ type serveCommandOptions struct {
 	tunnelKey                          string
 	clientSecret                       string
 	skipLocalTLSVerify                 bool
+	noFavicon                          bool
 	inspect                            bool
 	inspectBody                        bool
 	bearer                             bool
@@ -916,7 +923,7 @@ func parseServeFlags(args []string) (*serveCommandOptions, error) {
 	if o.Secret == "" {
 		o.Secret = os.Getenv("TUNN_SECRET")
 	}
-	return &serveCommandOptions{webhookProvider: o.WebhookProvider, webhookSecretFile: o.WebhookSecretFile, webhookTolerance: o.WebhookTolerance, target: o.Target, tunnelID: o.Name, namespace: o.Namespace, allowedEmails: o.AllowedEmails, tunnelKey: o.TunnelKey, clientSecret: o.Secret, skipLocalTLSVerify: o.SkipLocalTLSVerify, inspect: o.Inspect, inspectBody: o.InspectBody, bearer: o.Bearer, requireUpstreamAuth: o.RequireUpstreamAuth, webSocket: o.WebSocket, expire: o.Expire, qr: o.QR, public: o.Public, jsonOutput: o.JSON}, nil
+	return &serveCommandOptions{webhookProvider: o.WebhookProvider, webhookSecretFile: o.WebhookSecretFile, webhookTolerance: o.WebhookTolerance, target: o.Target, tunnelID: o.Name, namespace: o.Namespace, allowedEmails: o.AllowedEmails, tunnelKey: o.TunnelKey, clientSecret: o.Secret, skipLocalTLSVerify: o.SkipLocalTLSVerify, noFavicon: o.NoFavicon, inspect: o.Inspect, inspectBody: o.InspectBody, bearer: o.Bearer, requireUpstreamAuth: o.RequireUpstreamAuth, webSocket: o.WebSocket, expire: o.Expire, qr: o.QR, public: o.Public, jsonOutput: o.JSON}, nil
 }
 
 func runLogin() {
@@ -1111,6 +1118,7 @@ func runServe(args []string) {
 		AllowedEmails:       allowedEmails,
 		Insecure:            cfg.Insecure || *insecure,
 		SkipLocalTLSVerify:  opts.skipLocalTLSVerify,
+		NoFavicon:           opts.noFavicon,
 		RequireUpstreamAuth: opts.requireUpstreamAuth,
 		WebSocket:           &opts.webSocket,
 	}
@@ -1204,6 +1212,7 @@ Options:
   --ws-idle-timeout DURATION     WebSocket inactivity timeout (default 5m; 0 disables)
   --ws-keepalive DURATION        Ping interval (default 30s; 0 disables)
   --ws-max-message-size BYTES    Message limit across fragments (default 8388608)
+  --no-favicon                  Disable the generated tunnel favicon
   --inspect                     Open a local metadata inspector
   --inspect-body                Retain local bodies up to 64 KiB (requires --inspect)
   --skip-local-tls-verify        Skip local HTTPS certificate verification

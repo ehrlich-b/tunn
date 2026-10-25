@@ -29,13 +29,14 @@ type Config struct {
 }
 
 type Tunnel struct {
-	Name    string   `yaml:"name" json:"name"`
-	Kind    string   `yaml:"kind" json:"kind"`
-	Target  string   `yaml:"target" json:"-"`
-	Allow   []string `yaml:"allow" json:"-"`
-	As      string   `yaml:"as" json:"-"`
-	Command []string `yaml:"command" json:"-"`
-	Tools   []string `yaml:"tools" json:"-"`
+	NoFavicon bool     `yaml:"no_favicon" json:"-"`
+	Name      string   `yaml:"name" json:"name"`
+	Kind      string   `yaml:"kind" json:"kind"`
+	Target    string   `yaml:"target" json:"-"`
+	Allow     []string `yaml:"allow" json:"-"`
+	As        string   `yaml:"as" json:"-"`
+	Command   []string `yaml:"command" json:"-"`
+	Tools     []string `yaml:"tools" json:"-"`
 }
 
 func DefaultPath() (string, error) {

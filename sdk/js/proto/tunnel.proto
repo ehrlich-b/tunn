@@ -87,6 +87,8 @@ message RegisterClient {
   // Optional display metadata; never send a hostname or local address.
   string client_version = 15;
   string client_host = 16; // coarse OS/architecture label, e.g. linux/amd64
+  // Disable the default hostname-derived favicon fallback.
+  bool no_favicon = 17;
 
 }
 

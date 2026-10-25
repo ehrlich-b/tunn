@@ -261,7 +261,7 @@ func (r *Runtime) publish(ctx context.Context, t Tunnel, health *Health) error {
 	defer cancel()
 	s := &client.ServeClient{TunnelID: t.Name, HostID: r.Config.Machine, ServerAddr: r.API.Server,
 		AuthToken: r.API.Token, TunnelKey: r.TunnelKey, Insecure: r.API.Insecure, Quiet: true, Persistent: true,
-		AllowedEmails: append([]string(nil), t.Allow...), OnState: func(online bool) { health.Set(t.Name, online) }}
+		NoFavicon: t.NoFavicon, AllowedEmails: append([]string(nil), t.Allow...), OnState: func(online bool) { health.Set(t.Name, online) }}
 	defer health.Set(t.Name, false)
 	if len(s.AllowedEmails) == 0 {
 		owner, err := common.ExtractEmailFromJWT(r.API.Token)

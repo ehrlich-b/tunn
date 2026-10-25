@@ -13,6 +13,7 @@ import (
 )
 
 type Serve struct {
+	NoFavicon                                                                               bool
 	Target, Name, Namespace, TunnelKey, Secret                                              string
 	AllowedEmails                                                                           []string
 	SkipLocalTLSVerify, Inspect, InspectBody, Bearer, RequireUpstreamAuth, Public, QR, JSON bool
@@ -50,6 +51,7 @@ func PublicationFlags(fs *flag.FlagSet, o *Serve) {
 	})
 	fs.StringVar(&o.TunnelKey, "tunnel-key", "", "tunnel creation authorization key")
 	fs.StringVar(&o.Secret, "secret", "", "self-hosted authentication secret (or TUNN_SECRET)")
+	fs.BoolVar(&o.NoFavicon, "no-favicon", false, "disable the generated tunnel favicon")
 	fs.BoolVar(&o.Public, "public", false, "allow unauthenticated internet access")
 
 }

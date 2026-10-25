@@ -87,6 +87,7 @@ type TunnelConnection struct {
 	stop               atomic.Pointer[publisherStop]
 	PolicyResourceID   string // MCP policy generation; separate from browser sharing
 	ResourceID         string
+	NoFavicon          bool
 	ExposureMode       string
 	HostID             string
 	TunnelID           string
@@ -574,6 +575,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		AccountID:          accountID,
 		accountQuotaExempt: !requiresAccount && hostID == "",
 		AllowedEmails:      allowedEmails,
+		NoFavicon:          regClient.NoFavicon,
 		AccessTokenSHA256:  append([]byte(nil), regClient.AccessTokenSha256...),
 		WebhookPolicy:      webhookPolicy,
 		Capabilities:       capabilities,

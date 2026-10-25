@@ -410,6 +410,9 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		}
 		if !authenticated {
 			session.reason = "authentication_required"
+			if serveTunnelFavicon(w, r, tunnel) {
+				return nil
+			}
 			// MCP clients cannot consume the browser login redirect. Return an
 			// explicit bearer challenge for protocol endpoints and bearer attempts.
 			if r.Context().Value(domainOwnerKey{}) != nil || common.IsWebSocketUpgrade(r.Header) || r.URL.Path == "/mcp" || tunnel.EndpointProtocol == "tcp" || r.Header.Get("Authorization") != "" || r.Header.Get("Tunn-Authorization") != "" {
@@ -737,6 +740,9 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		}
 		proxyErr = p.proxyTCPOverGRPC(w, r, tunnel)
 	} else {
+		if !tunnel.NoFavicon && faviconRequest(r) {
+			meterWriter.ResponseWriter = &faviconResponseWriter{ResponseWriter: meterWriter.ResponseWriter, request: r, tunnel: tunnel, header: meterWriter.ResponseWriter.Header().Clone()}
+		}
 		proxyErr = p.proxyHTTPOverGRPC(w, r, tunnel)
 	}
 

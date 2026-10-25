@@ -70,6 +70,7 @@ type ServeClient struct {
 	ClientVersion      string            // Release version, when supplied by the embedding application.
 	WebhookPolicy      *pb.WebhookPolicy // contains a key; never log this value
 	WebhookSecretPath  string            // reload the private file on every registration
+	NoFavicon          bool              // Disable the generated favicon fallback.
 	Public             bool              // Explicit anonymous web exposure; false is private.
 	RequireSharing     bool              // Reject relays without versioned web sharing before ready.
 	TunnelID           string
@@ -378,6 +379,7 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 				AuthToken:         s.AuthToken,
 				CreatorEmail:      creatorEmail,
 				AllowedEmails:     s.AllowedEmails,
+				NoFavicon:         s.NoFavicon,
 				TunnelKey:         s.TunnelKey,
 				AccessTokenSha256: accessTokenDigest,
 				Capabilities: []string{

@@ -383,6 +383,9 @@ func (p *ProxyServer) authorizeDomainApp(w http.ResponseWriter, r *http.Request,
 	}
 	session, ok := p.accountSession(r)
 	if !ok {
+		if serveTunnelFavicon(w, r, tunnel) {
+			return nil, false
+		}
 		p.appLoginRequired(w, r)
 		return nil, false
 	}
@@ -390,6 +393,9 @@ func (p *ProxyServer) authorizeDomainApp(w http.ResponseWriter, r *http.Request,
 	account, status := p.appAccountAccess(r.WithContext(check), session, owner, tunnel)
 	stop()
 	if status == http.StatusUnauthorized {
+		if serveTunnelFavicon(w, r, tunnel) {
+			return nil, false
+		}
 		p.clearBrowserSessionCookie(w, r)
 		p.appLoginRequired(w, r)
 		return nil, false

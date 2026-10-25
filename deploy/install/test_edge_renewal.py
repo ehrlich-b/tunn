@@ -54,7 +54,7 @@ elif name == "openssl":
                 sys.stdout.buffer.write(result.stdout)
                 sys.stderr.buffer.write(result.stderr)
                 sys.exit(result.returncode)
-            matches = not (scenario == "wrong_domain" or scenario == "missing_wildcard" and host != "edge.example.com")
+            matches = not (scenario in ("wrong_domain", "wrong_domain_success_exit") or scenario == "missing_wildcard" and host != "edge.example.com")
             print(f"Hostname {host} {'does match' if matches else 'does NOT match'} certificate")
             # Model OpenSSL versions that report a mismatch with exit status 0.
             sys.exit(0)
@@ -165,6 +165,12 @@ class RenewalTests(unittest.TestCase):
     def test_wrong_domain_refuses_publication(self):
         result, events = self.run_renewal("wrong_domain")
         self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(any(event["command"] == "flyctl" for event in events))
+
+    def test_zero_exit_hostname_mismatch_refuses_publication(self):
+        result, events = self.run_renewal("wrong_domain_success_exit")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("must cover the apex and wildcard", result.stderr)
         self.assertFalse(any(event["command"] == "flyctl" for event in events))
 
     def test_missing_wildcard_refuses_publication(self):

@@ -52,10 +52,8 @@ func (p *ProxyServer) serveDistributionPage(w http.ResponseWriter, r *http.Reque
 	contentType := "text/html; charset=utf-8"
 	var body string
 	switch r.URL.Path {
-	case "/agents":
-		contentType, body = "text/markdown; charset=utf-8", agentsMarkdown
-	case "/agents/SKILLS.md":
-		contentType, body = "text/markdown; charset=utf-8", agentsSkillsMarkdown
+	case "/llms.txt":
+		contentType, body = "text/plain; charset=utf-8", p.agentKitIndex()
 	case "/ngrok-alternative":
 		body = ngrokAlternativeHTML
 	case "/mcp-to-claude":
@@ -69,7 +67,17 @@ func (p *ProxyServer) serveDistributionPage(w http.ResponseWriter, r *http.Reque
 	case "/sitemap.xml":
 		contentType, body = "application/xml; charset=utf-8", distributionSitemap
 	default:
-		return false
+		found := false
+		for _, page := range agentKitPages {
+			if r.URL.Path == page.path {
+				contentType, body = "text/markdown; charset=utf-8", page.body
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
 	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")

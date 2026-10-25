@@ -5,6 +5,11 @@ description: Share a local HTTP app or MCP server through an authenticated HTTPS
 
 # tunn
 
+For a skill you can install in Claude Code, Codex or Cursor, use the
+[packaged skill](https://tunn.to/agents/skill/SKILL.md).
+For a request to paste into any coding agent, use the
+[install prompt](https://tunn.to/agents/prompt.md).
+
 Use when a local app needs phone access, a client preview, a callback endpoint,
 or an MCP connection from another machine. Keep the app and tunn running.
 

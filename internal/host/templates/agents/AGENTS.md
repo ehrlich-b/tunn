@@ -5,6 +5,9 @@ its owner by default. Add allowed account emails to share access. Keep the local
 app and publisher running. The relay terminates TLS and can read traffic.
 
 Load [the tunn skill](https://tunn.to/agents/SKILLS.md) for the short procedure.
+For a ready-to-paste request, use the [install prompt](https://tunn.to/agents/prompt.md).
+Install the [packaged skill](https://tunn.to/agents/skill/SKILL.md) for Claude Code,
+Codex or Cursor. The [documentation index](https://tunn.to/llms.txt) links current plans and limits.
 
 ## Install and authenticate
 

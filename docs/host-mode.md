@@ -247,7 +247,7 @@ References for service semantics and OpenClaw's transport:
 Tunnel favicons use a stable color and pattern for each public hostname when the
 app returns 404 or 410 for `/favicon.ico` or `/favicon.svg`. Signed-out visitors
 to private tunnels receive the generated icon without contacting the app.
-Existing app icons pass through for authorized visitors. Generated icons may be
-cached for up to one day. Disable this per tunnel with `tunn 3000 --no-favicon`
-or `no_favicon: true` in that tunnel's host YAML entry. Older clients keep the
-default behavior when connected to an updated relay.
+Existing app icons pass through for authorized visitors. Generated icons are
+served with `Cache-Control: no-store`. Disable this per tunnel with
+`tunn 3000 --no-favicon` or `no_favicon: true` in that tunnel's host YAML entry.
+Older clients keep the default behavior when connected to an updated relay.

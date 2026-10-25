@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/ehrlich-b/tunn/internal/common"
 )
 
 // faviconPixels contains only public hostname-derived data. A mirrored 5x5
@@ -54,13 +56,18 @@ func faviconPixels(host string) *image.RGBA {
 }
 
 func faviconRequest(r *http.Request) bool {
-	return (r.Method == http.MethodGet || r.Method == http.MethodHead) && (r.URL.Path == "/favicon.ico" || r.URL.Path == "/favicon.svg")
+	return (r.Method == http.MethodGet || r.Method == http.MethodHead) && !common.IsWebSocketUpgrade(r.Header) && (r.URL.Path == "/favicon.ico" || r.URL.Path == "/favicon.svg")
 }
 
 func serveTunnelFavicon(w http.ResponseWriter, r *http.Request, tunnel *TunnelConnection) bool {
 	if tunnel.NoFavicon || tunnel.EndpointProtocol == "tcp" || !faviconRequest(r) {
 		return false
 	}
+	_ = writeTunnelFavicon(w, r)
+	return true
+}
+
+func writeTunnelFavicon(w http.ResponseWriter, r *http.Request) error {
 	img := faviconPixels(r.Host)
 	var body bytes.Buffer
 	contentType := "image/png"
@@ -80,15 +87,30 @@ func serveTunnelFavicon(w http.ResponseWriter, r *http.Request, tunnel *TunnelCo
 	} else {
 		_ = png.Encode(&body, img)
 	}
+	// Reserve the generated body before committing a success. Backend error
+	// bodies are discarded outside the meter and consume no response allowance.
+	meter, metered := w.(*meterResponseWriter)
+	if metered && meter.bodyMeter && r.Method != http.MethodHead {
+		if _, err := meter.meter.charge(r.Context(), false, body.Len()); err != nil {
+			return err
+		}
+		meter.bodyMeter = false
+	}
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Content-Length", strconv.Itoa(body.Len()))
-	w.Header().Set("Cache-Control", "public, max-age=86400")
+	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(http.StatusOK)
 	if r.Method != http.MethodHead {
-		_, _ = w.Write(body.Bytes())
+		n, err := w.Write(body.Bytes())
+		if metered {
+			recordMeteredWrite(r, n)
+		}
+		if err != nil {
+			return &responseStartedError{err: truncatedHTTPResponse(err)}
+		}
 	}
-	return true
+	return nil
 }
 
 // Only failed icon responses are replaced. Successful bodies stream untouched,
@@ -99,6 +121,7 @@ type faviconResponseWriter struct {
 	tunnel            *TunnelConnection
 	header            http.Header
 	started, replaced bool
+	err               error
 }
 
 func (w *faviconResponseWriter) Header() http.Header {
@@ -113,27 +136,43 @@ func (w *faviconResponseWriter) WriteHeader(status int) {
 		return
 	}
 	if status < 200 {
+		// Informational headers belong to this response too, but must not
+		// become backend headers on a later generated fallback.
+		original := w.ResponseWriter.Header().Clone()
+		w.copyHeaders(w.header)
 		w.ResponseWriter.WriteHeader(status)
+		w.copyHeaders(original)
 		return
 	}
 	w.started = true
-	if status == 404 || status == 410 {
-		w.replaced = serveTunnelFavicon(w.ResponseWriter, w.request, w.tunnel)
-		if w.replaced {
-			return
-		}
+	if w.fallback(status) {
+		w.replaced = true
+		w.err = writeTunnelFavicon(w.ResponseWriter, w.request)
+		return
 	}
-	for k := range w.ResponseWriter.Header() {
-		w.ResponseWriter.Header().Del(k)
-	}
-	for k, v := range w.header {
-		w.ResponseWriter.Header()[k] = append([]string(nil), v...)
-	}
+	w.copyHeaders(w.header)
 	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *faviconResponseWriter) fallback(status int) bool {
+	return (status == http.StatusNotFound || status == http.StatusGone) && !w.tunnel.NoFavicon && w.tunnel.EndpointProtocol != "tcp" && faviconRequest(w.request)
+}
+
+func (w *faviconResponseWriter) copyHeaders(source http.Header) {
+	target := w.ResponseWriter.Header()
+	for k := range target {
+		delete(target, k)
+	}
+	for k, v := range source {
+		target[k] = append([]string(nil), v...)
+	}
 }
 func (w *faviconResponseWriter) Write(b []byte) (int, error) {
 	if !w.started {
 		w.WriteHeader(200)
+	}
+	if w.err != nil {
+		return 0, w.err
 	}
 	if w.replaced {
 		return len(b), nil
@@ -144,5 +183,7 @@ func (w *faviconResponseWriter) Flush() {
 	if !w.started {
 		w.WriteHeader(200)
 	}
-	_ = http.NewResponseController(w.ResponseWriter).Flush()
+	if w.err == nil {
+		_ = http.NewResponseController(w.ResponseWriter).Flush()
+	}
 }

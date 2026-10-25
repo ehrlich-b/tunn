@@ -3,14 +3,21 @@ package host
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
-	ipb "github.com/ehrlich-b/tunn/pkg/proto/internalv1"
+	"image/color"
 	"image/png"
+	"io"
+	"math/bits"
+	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/ehrlich-b/tunn/internal/storage"
+	ipb "github.com/ehrlich-b/tunn/pkg/proto/internalv1"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
 	"google.golang.org/protobuf/proto"
 )
@@ -25,7 +32,7 @@ func faviconBody(t *testing.T, host string) []byte {
 	if err != nil || img.Bounds().Dx() != 32 {
 		t.Fatalf("invalid PNG: %v", err)
 	}
-	if w.Header().Get("Cache-Control") != "public, max-age=86400" {
+	if w.Header().Get("Cache-Control") != "no-store" {
 		t.Fatal(w.Header())
 	}
 	return w.Body.Bytes()
@@ -80,6 +87,9 @@ func TestFaviconProxy(t *testing.T) {
 						proxy.handleWebProxy(w, httptest.NewRequest("GET", "https://api.tunn.to"+path, nil))
 						fallback := !disabled && (status == 404 || status == 410)
 						if fallback {
+							if w.Header().Get("Cache-Control") != "no-store" || w.Header().Get("Pragma") != "no-cache" {
+								t.Fatalf("proxy cache policy: %v", w.Header())
+							}
 							if w.Code != 200 || w.Header().Get("Set-Cookie") != "" || w.Header().Get("ETag") != "" || w.Header().Get("Content-Encoding") != "" {
 								t.Fatalf("fallback: %d %v", w.Code, w.Header())
 							}
@@ -114,6 +124,9 @@ func TestFaviconPrivateUnauthenticated(t *testing.T) {
 			}
 			if w.Code != want {
 				t.Fatalf("%s disabled=%v: %d", path, disabled, w.Code)
+			}
+			if want == 200 && w.Header().Get("Cache-Control") != "no-store" {
+				t.Fatalf("private proxy cache policy: %v", w.Header())
 			}
 		}
 	}
@@ -214,5 +227,199 @@ func TestFaviconForwardedPrivate(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// Compare rendered cells and colors rather than relying on encoded PNG bytes.
+func TestFaviconVisualDistinctness(t *testing.T) {
+	type signature struct {
+		ink   color.RGBA
+		cells uint32
+	}
+	for _, format := range []string{"app-%d.example.com", "svc%d.apps.ehrlich.dev"} {
+		var seen []signature
+		for i := 0; i < 50; i++ {
+			host := fmt.Sprintf(format, i)
+			img := faviconPixels(host)
+			var current signature
+			for row := 0; row < 5; row++ {
+				for col := 0; col < 5; col++ {
+					pixel := img.RGBAAt(3+col*5, 3+row*5)
+					if pixel != img.RGBAAt(3+(4-col)*5, 3+row*5) {
+						t.Fatalf("asymmetric icon for %s", host)
+					}
+					if pixel.R != 245 || pixel.G != 245 || pixel.B != 245 {
+						current.cells |= 1 << uint(row*5+col)
+						current.ink = pixel
+					}
+				}
+			}
+			for j, previous := range seen {
+				dr := int(current.ink.R) - int(previous.ink.R)
+				dg := int(current.ink.G) - int(previous.ink.G)
+				db := int(current.ink.B) - int(previous.ink.B)
+				if bits.OnesCount32(current.cells^previous.cells) < 2 && dr*dr+dg*dg+db*db < 30*30 {
+					t.Fatalf("near-identical rendered icons: %s and %s", host, fmt.Sprintf(format, j))
+				}
+			}
+			seen = append(seen, current)
+		}
+	}
+}
+
+type faviconInformationalRecorder struct {
+	*httptest.ResponseRecorder
+	hints []http.Header
+}
+
+func (w *faviconInformationalRecorder) WriteHeader(status int) {
+	if status < 200 {
+		w.hints = append(w.hints, w.Header().Clone())
+		return
+	}
+	w.ResponseRecorder.WriteHeader(status)
+}
+func TestFaviconInformationalHeaders(t *testing.T) {
+	for _, status := range []int{200, 404, 410} {
+		t.Run(strconv.Itoa(status), func(t *testing.T) {
+			rec := &faviconInformationalRecorder{ResponseRecorder: httptest.NewRecorder()}
+			w := &faviconResponseWriter{ResponseWriter: rec, request: httptest.NewRequest("GET", "https://api.tunn.to/favicon.ico", nil), tunnel: &TunnelConnection{}, header: make(http.Header)}
+			w.Header().Set("Link", "</backend.css>; rel=preload")
+			w.WriteHeader(http.StatusEarlyHints)
+			if len(rec.hints) != 1 || rec.hints[0].Get("Link") != "</backend.css>; rel=preload" {
+				t.Fatal(rec.hints)
+			}
+			w.Header().Del("Link")
+			w.Header().Set("ETag", "backend")
+			w.WriteHeader(status)
+			_, _ = w.Write([]byte("backend-icon"))
+			if rec.Header().Get("Link") != "" {
+				t.Fatal("informational header leaked into final response")
+			}
+			if status != 200 && (rec.Code != 200 || rec.Header().Get("ETag") != "" || rec.Body.String() == "backend-icon") {
+				t.Fatalf("fallback leaked backend: %v", rec)
+			}
+			if status == 200 && (rec.Code != 200 || rec.Header().Get("ETag") != "backend" || rec.Body.String() != "backend-icon") {
+				t.Fatalf("pass-through changed: %v", rec)
+			}
+		})
+	}
+}
+
+func TestFaviconMetering(t *testing.T) {
+	for _, streaming := range []bool{false, true} {
+		for _, path := range []string{"/favicon.ico", "/favicon.svg"} {
+			for _, method := range []string{"GET", "HEAD"} {
+				for _, limited := range []bool{false, true} {
+					if limited && method == "HEAD" {
+						continue
+					}
+					t.Run(fmt.Sprintf("stream=%v%s/%s/limited=%v", streaming, path, method, limited), func(t *testing.T) {
+						p, tunnel, ledger, stream := meteringRelay(t, streaming, "")
+						icon := httptest.NewRecorder()
+						serveTunnelFavicon(icon, httptest.NewRequest("GET", "https://api.tunn.test"+path, nil), tunnel)
+						budget := int64(icon.Body.Len())
+						if limited {
+							budget--
+						}
+						_, token := relayGrant(t, ledger, 1, budget)
+						// Larger than the entire allowance: none of these discarded bytes
+						// should be charged or recorded as egress.
+						backend := strings.Repeat("error page", 1024)
+						headers := map[string]string{"Content-Type": "text/html", "Content-Length": strconv.Itoa(len(backend))}
+						stream.hook = func(m *pb.TunnelMessage) error {
+							if req := m.GetHttpRequest(); req != nil {
+								tunnel.pendingMu.RLock()
+								ch := tunnel.pendingRequests[req.ConnectionId]
+								tunnel.pendingMu.RUnlock()
+								ch <- &pb.HttpResponse{StatusCode: 404, Headers: headers, Body: []byte(backend)}
+							}
+							if end := m.GetConnectionHalfClose(); end != nil {
+								id := end.ConnectionId
+								tunnel.routeConnectionMessage(&pb.TunnelMessage{Message: &pb.TunnelMessage_ConnectionAccept{ConnectionAccept: &pb.ConnectionAccept{ConnectionId: id, Success: true, HttpResponse: &pb.HttpResponseHead{StatusCode: 410, Headers: headers}}}})
+								if method != "HEAD" {
+									tunnel.routeConnectionMessage(&pb.TunnelMessage{Message: &pb.TunnelMessage_ConnectionData{ConnectionData: &pb.ConnectionData{ConnectionId: id, Data: []byte(backend)}}})
+								}
+								tunnel.routeConnectionMessage(&pb.TunnelMessage{Message: &pb.TunnelMessage_ConnectionHalfClose{ConnectionHalfClose: &pb.ConnectionHalfClose{ConnectionId: id}}})
+							}
+							return nil
+						}
+						req := httptest.NewRequest(method, "https://api.tunn.test"+path, nil)
+						req.Header.Set("Tunn-Authorization", "Bearer "+token)
+						rec := httptest.NewRecorder()
+						p.handleWebProxy(rec, req)
+						out := relayExport(t, ledger)
+						if len(out.Events) != 1 {
+							t.Fatal(out)
+						}
+						event := out.Events[0]
+						if limited {
+							if rec.Code != 429 || event.Status != 429 || event.ResponseBytes != 0 || !event.Finished {
+								t.Fatalf("limit: response=%d event=%v", rec.Code, event)
+							}
+							return
+						}
+						if rec.Code != 200 || rec.Header().Get("Cache-Control") != "no-store" {
+							t.Fatalf("response=%d %v", rec.Code, rec.Header())
+						}
+						expected := icon.Body.Bytes()
+						if method == "HEAD" {
+							expected = nil
+						}
+						if !bytes.Equal(rec.Body.Bytes(), expected) {
+							t.Fatalf("wrong body: %d bytes", rec.Body.Len())
+						}
+						if !event.Finished || event.Status != 200 || event.ResponseBytes != int64(len(expected)) {
+							t.Fatalf("event=%v, sent=%d", event, len(expected))
+						}
+						if len(out.Usage) != 1 || out.Usage[0].ResponseBytes != int64(len(expected)) {
+							t.Fatalf("usage=%v", out.Usage)
+						}
+					})
+				}
+			}
+		}
+	}
+}
+
+func TestFaviconBackendMetering(t *testing.T) {
+	for _, streaming := range []bool{false, true} {
+		t.Run(fmt.Sprint(streaming), func(t *testing.T) {
+			p, _, ledger, _ := meteringRelay(t, streaming, "backend-icon")
+			_, token := relayGrant(t, ledger, 1, 10000)
+			req := httptest.NewRequest("GET", "https://api.tunn.test/favicon.ico", nil)
+			req.Header.Set("Tunn-Authorization", "Bearer "+token)
+			rec := httptest.NewRecorder()
+			p.handleWebProxy(rec, req)
+			out := relayExport(t, ledger)
+			if rec.Code != 200 || rec.Body.String() != "backend-icon" || len(out.Events) != 1 {
+				t.Fatalf("response=%d %q export=%v", rec.Code, rec.Body.String(), out)
+			}
+			if event := out.Events[0]; event.ResponseBytes != int64(rec.Body.Len()) || event.Status != 200 || !event.Finished {
+				t.Fatal(event)
+			}
+		})
+	}
+}
+
+type faviconFailedWriter struct{ *httptest.ResponseRecorder }
+
+func (w *faviconFailedWriter) Write(body []byte) (int, error) { return 0, io.ErrClosedPipe }
+func TestFaviconDeliveryError(t *testing.T) {
+	rec := &faviconFailedWriter{httptest.NewRecorder()}
+	err := writeTunnelFavicon(rec, httptest.NewRequest("GET", "https://api.tunn.test/favicon.ico", nil))
+	var truncated *truncatedHTTPResponseError
+	if rec.Code != 200 || !responseHasStarted(err) || !errors.As(err, &truncated) || !errors.Is(err, io.ErrClosedPipe) {
+		t.Fatalf("delivery error=%v status=%d", err, rec.Code)
+	}
+}
+
+func TestFaviconWebSocketUpgrade(t *testing.T) {
+	r := httptest.NewRequest("GET", "https://api.tunn.test/favicon.ico", nil)
+	r.Header.Set("Connection", "Upgrade")
+	r.Header.Set("Upgrade", "websocket")
+	w := httptest.NewRecorder()
+	if serveTunnelFavicon(w, r, &TunnelConnection{}) || w.Body.Len() != 0 {
+		t.Fatal("WebSocket request replaced by favicon")
 	}
 }

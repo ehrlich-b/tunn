@@ -191,8 +191,11 @@ func (p *ProxyServer) proxyStreamingHTTPOverGRPC(w http.ResponseWriter, r *http.
 					responseSize = length
 				}
 			}
-			if err := checkMeteredResponse(r, responseSize); err != nil {
-				return err
+			icon, iconRequest := w.(*faviconResponseWriter)
+			if !iconRequest || !icon.fallback(int(event.accept.HttpResponse.StatusCode)) {
+				if err := checkMeteredResponse(r, responseSize); err != nil {
+					return err
+				}
 			}
 			timing.OriginTtfbUs = event.accept.HttpResponse.OriginTtfbUs
 			timing.OriginTotalUs = event.accept.HttpResponse.OriginTotalUs
@@ -202,6 +205,9 @@ func (p *ProxyServer) proxyStreamingHTTPOverGRPC(w http.ResponseWriter, r *http.
 				return err
 			}
 			if err := p.writeStreamingHTTPResponse(w, r, tunnel, pending, event.accept.HttpResponse, &requestBytes, &responseBytes, requestResult, &requestFinished, firstEvent); err != nil {
+				if iconRequest && icon.err != nil {
+					return icon.err
+				}
 				return &responseStartedError{err: err}
 			}
 			return nil
@@ -377,6 +383,9 @@ func (p *ProxyServer) writeStreamingHTTPResponse(
 	// response, recreating the upload/prefix deadlock at the net/http boundary.
 	_ = http.NewResponseController(w).EnableFullDuplex()
 	w.WriteHeader(int(head.StatusCode))
+	if icon, ok := w.(*faviconResponseWriter); ok && icon.err != nil {
+		return icon.err
+	}
 	if flusher, ok := w.(http.Flusher); ok {
 		flusher.Flush()
 	}

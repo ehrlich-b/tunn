@@ -746,9 +746,12 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 		proxyErr = p.proxyTCPOverGRPC(w, r, tunnel)
 	} else {
 		if !tunnel.NoFavicon && faviconRequest(r) {
-			meterWriter.ResponseWriter = &faviconResponseWriter{ResponseWriter: meterWriter.ResponseWriter, request: r, tunnel: tunnel, header: meterWriter.ResponseWriter.Header().Clone()}
+			// Discard backend failures before they reach metering; generated
+			// responses pass through the same meter as application responses.
+			w = &faviconResponseWriter{ResponseWriter: w, request: r, tunnel: tunnel, header: w.Header().Clone()}
 		}
 		proxyErr = p.proxyHTTPOverGRPC(w, r, tunnel)
+		w = meterWriter
 	}
 
 	if proxyErr != nil {
@@ -904,6 +907,8 @@ func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, 
 		if err := validateResponseTrailers(tunnel, httpResp.TrailerNames, httpResp.Trailers); err != nil {
 			return err
 		}
+		icon, iconRequest := w.(*faviconResponseWriter)
+		fallback := iconRequest && icon.fallback(int(httpResp.StatusCode))
 		// Check bandwidth rate limit (request + response)
 		totalSize := len(body) + len(httpResp.Body)
 		if !tunnel.CheckRateLimit(totalSize) {
@@ -918,12 +923,18 @@ func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, 
 			return nil // Return nil - we handled the error by sending 429
 		}
 
-		if err := checkMeteredResponse(r, int64(len(httpResp.Body))); err != nil {
-			return err
+		if !fallback {
+			if err := checkMeteredResponse(r, int64(len(httpResp.Body))); err != nil {
+				return err
+			}
 		}
 		// Reserve the buffered response atomically before committing its
 		// headers. A preflight alone races other account traffic.
-		if writer, ok := w.(*meterResponseWriter); ok && writer.bodyMeter {
+		metered := w
+		if iconRequest {
+			metered = icon.ResponseWriter
+		}
+		if writer, ok := metered.(*meterResponseWriter); ok && writer.bodyMeter && !fallback {
 			if _, err := writer.meter.charge(r.Context(), false, len(httpResp.Body)); err != nil {
 				return err
 			}
@@ -937,6 +948,9 @@ func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, 
 
 		// Write status code
 		w.WriteHeader(int(httpResp.StatusCode))
+		if iconRequest && icon.err != nil {
+			return icon.err
+		}
 
 		// Write body
 		var n int
@@ -944,7 +958,7 @@ func (p *ProxyServer) proxyHTTPOverGRPC(w http.ResponseWriter, r *http.Request, 
 		if common.HTTPResponseHasBody(r.Method, int(httpResp.StatusCode)) {
 			n, writeErr = w.Write(httpResp.Body)
 		}
-		if meterForRequest(r) != nil {
+		if meterForRequest(r) != nil && !fallback {
 			recordMeteredWrite(r, n)
 		}
 		if writeErr != nil {

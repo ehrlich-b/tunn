@@ -32,8 +32,6 @@ const (
 	MaxOwnerSharingAudit               = common.MaxOwnerSharingAudit
 	MaxSharingMutationsPerMinute       = 60
 	RetentionMonths                    = 13
-	FreeMonthlyRequests          int64 = 1000000
-	ProMonthlyRequests           int64 = 10000000
 	FreeMonthlyBytes             int64 = 10000000000
 	ProMonthlyBytes              int64 = 500000000000
 )
@@ -413,12 +411,9 @@ func (s *Store) ownerRemaining(tx *sql.Tx, e *pb.Event, d *pb.Decision) error {
 		if err := tx.QueryRow(`SELECT plan FROM accounts WHERE id=?`, e.Owner).Scan(&plan); err != nil {
 			return fmt.Errorf("verify account entitlement: %w", err)
 		}
-		planRequests, planBytes := FreeMonthlyRequests, FreeMonthlyBytes
+		planBytes := FreeMonthlyBytes
 		if plan == "pro" {
-			planRequests, planBytes = ProMonthlyRequests, ProMonthlyBytes
-		}
-		if requestLimit == 0 || requestLimit > planRequests {
-			requestLimit = planRequests
+			planBytes = ProMonthlyBytes
 		}
 		if byteLimit == 0 || byteLimit > planBytes {
 			byteLimit = planBytes

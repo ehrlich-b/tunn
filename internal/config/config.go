@@ -91,7 +91,7 @@ type Config struct {
 	// Other nodes proxy DB operations to it
 	LoginNode            bool
 	DBPath               string // Path to SQLite database (login node only)
-	OwnerMonthlyRequests int64  // optional tighter shared transport admission cap per owner
+	OwnerMonthlyRequests int64  // optional per-account monthly abuse ceiling; zero disables
 	OwnerMonthlyBytes    int64  // optional tighter shared transport byte cap per owner
 	IdentityKeysFile     string // Ed25519 JWK ring, active key and retained public keys
 	CustomDomainsEnabled bool

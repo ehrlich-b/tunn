@@ -47,10 +47,13 @@ even if the publisher fails or the caller disconnects. Application retries are
 new ingress requests and consume new units.
 
 The login node enforces plan allowances across HTTP, streaming/SSE, MCP,
-WebSocket frames and TCP CONNECT. Free accounts get 1,000,000 monthly admissions
-and 10 GB; Pro accounts get 10,000,000 admissions and 500 GB (decimal units).
-`TUNN_OWNER_MONTHLY_REQUESTS` and `TUNN_OWNER_MONTHLY_BYTES` optionally impose
-*tighter* caps. Zero leaves the plan allowance in place. The authority reads the
+WebSocket frames and TCP CONNECT. Requests are unlimited (fair use) and are
+still counted. Free accounts get 10 GB of transfer; Pro accounts get 500 GB
+(decimal units). `TUNN_OWNER_MONTHLY_REQUESTS` optionally sets a monthly abuse
+ceiling, counted separately for each account across all its endpoints and callers.
+It defaults to zero (off); operators can set it on the login node and restart
+without a code deploy. `TUNN_OWNER_MONTHLY_BYTES` optionally tightens transfer
+caps; zero leaves the plan transfer allowance in place. The authority reads the
 current account plan, so a connected publisher cannot retain an old paid limit.
 Anonymous visitors, email aliases, endpoint tokens and grants all share the
 account UUID's allowance. New grants and endpoints cannot multiply it.

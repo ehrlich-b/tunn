@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/ehrlich-b/tunn/internal/common"
-	"github.com/ehrlich-b/tunn/internal/metering"
 	"github.com/ehrlich-b/tunn/internal/storage"
 	meterpb "github.com/ehrlich-b/tunn/pkg/proto/meteringv1"
 	"github.com/golang-jwt/jwt/v4"
@@ -991,11 +990,8 @@ type AccountPageData struct {
 	UsageFormatted           string
 	QuotaFormatted           string
 	RequestsUsed             int64
-	RequestsLimit            int64
 	UsageAvailable           bool
-	RequestsPercent          int
 	RequestsUsedFormatted    string
-	RequestsLimitFormatted   string
 	TunnelLimit              int
 	NameLimit                int
 	ResetsOn                 string
@@ -1025,17 +1021,10 @@ func (p *ProxyServer) handleAccount(w http.ResponseWriter, r *http.Request) {
 
 	// Calculate percentage (quota defined in limits.go)
 	quotaBytes := GetQuotaBytes(plan)
-	requestsLimit := metering.FreeMonthlyRequests
-	if plan == "pro" {
-		requestsLimit = metering.ProMonthlyRequests
-	}
-	if p.config.OwnerMonthlyRequests > 0 {
-		requestsLimit = min(requestsLimit, p.config.OwnerMonthlyRequests)
-	}
 	if p.config.OwnerMonthlyBytes > 0 {
 		quotaBytes = min(quotaBytes, p.config.OwnerMonthlyBytes)
 	}
-	usagePercent, requestsPercent := percentOf(usageBytes, quotaBytes), percentOf(requestsUsed, requestsLimit)
+	usagePercent := percentOf(usageBytes, quotaBytes)
 	tunnelLimit, nameLimit := planLimits(plan)
 
 	// Format bytes
@@ -1068,9 +1057,9 @@ func (p *ProxyServer) handleAccount(w http.ResponseWriter, r *http.Request) {
 		BillingSupport:   account.BillingState != "available" && account.Plan == "free",
 		BillingResumable: account.BillingState == "resumable" && r.URL.Query().Get("billing") != "return",
 		Email:            email,
-		RequestsUsed:     requestsUsed, RequestsLimit: requestsLimit, UsageAvailable: usageAvailable,
-		RequestsPercent: requestsPercent, RequestsUsedFormatted: formatCount(requestsUsed), RequestsLimitFormatted: shortCount(requestsLimit),
-		TunnelLimit: tunnelLimit, NameLimit: nameLimit, Tunnels: tunnels,
+		RequestsUsed:     requestsUsed, UsageAvailable: usageAvailable,
+		RequestsUsedFormatted: formatCount(requestsUsed),
+		TunnelLimit:           tunnelLimit, NameLimit: nameLimit, Tunnels: tunnels,
 		ResetsOn:                 time.Date(now.Year(), now.Month()+1, 1, 0, 0, 0, 0, time.UTC).Format("Jan 2"),
 		Plan:                     plan,
 		UsageBytes:               usageBytes,

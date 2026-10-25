@@ -154,3 +154,21 @@ func TestGetEnvOrDefault(t *testing.T) {
 		t.Errorf("Expected default, got %s", value)
 	}
 }
+
+func TestLimitsBandwidthOnlyAbuseCeilingConfiguration(t *testing.T) {
+	for _, env := range []string{"dev", "prod"} {
+		t.Run(env, func(t *testing.T) {
+			t.Setenv("TUNN_ENV", env)
+			t.Setenv("TUNN_OWNER_MONTHLY_REQUESTS", "")
+			cfg, err := LoadConfig()
+			if err != nil || cfg.OwnerMonthlyRequests != 0 {
+				t.Fatalf("ceiling must default off: %v %v", cfg, err)
+			}
+			t.Setenv("TUNN_OWNER_MONTHLY_REQUESTS", "12000000")
+			cfg, err = LoadConfig()
+			if err != nil || cfg.OwnerMonthlyRequests != 12000000 {
+				t.Fatalf("operator ceiling: %v %v", cfg, err)
+			}
+		})
+	}
+}

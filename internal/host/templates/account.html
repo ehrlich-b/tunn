@@ -119,9 +119,8 @@
       <div class="glass gauge{{if not .UsageAvailable}} off{{end}}"><div class="g-hud"><span>Transfer</span>{{if .UsageAvailable}}<span class="pct">{{.UsagePercent}}%</span>{{end}}</div>
         <div class="read">{{if .UsageAvailable}}{{.UsageFormatted}}{{else}}--{{end}}<small>of {{.QuotaFormatted}}</small></div>
         <div class="usage-bar"><div class="usage-fill {{if gt .UsagePercent 90}}warning{{end}}" style="width: {{.UsagePercent}}%;"></div></div></div>
-      <div class="glass gauge{{if not .UsageAvailable}} off{{end}}"><div class="g-hud"><span>Requests</span>{{if .UsageAvailable}}<span class="pct">{{.RequestsPercent}}%</span>{{end}}</div>
-        <div class="read">{{if .UsageAvailable}}{{.RequestsUsedFormatted}}{{else}}--{{end}}<small>of {{.RequestsLimitFormatted}}</small></div>
-        <div class="usage-bar"><div class="usage-fill {{if gt .RequestsPercent 90}}warning{{end}}" style="width: {{.RequestsPercent}}%;"></div></div></div>
+      <div class="glass gauge{{if not .UsageAvailable}} off{{end}}" aria-label="Request usage"><div class="g-hud"><span>Requests: unlimited (fair use)</span></div>
+        <div class="read">{{if .UsageAvailable}}{{.RequestsUsedFormatted}}{{else}}--{{end}}<small>this month</small></div></div>
     </div>
     <div class="readings"><div><span class="lbl">Tunnels at once</span><b>{{.TunnelLimit}}</b></div><div><span class="lbl">Reserved names</span><b>{{.NameLimit}}</b></div><div><span class="lbl">Over the limit</span><b>Stops</b></div></div>
     {{if or (not .UsageAvailable) .Tunnels}}
@@ -204,7 +203,7 @@
   {{else if eq .Plan "free"}}
   <div class="card upgrade-card">
     <div class="card-title">Upgrade to Pro</div>
-    <p>{{.ProBytesShort}} and {{.ProRequestsShort}} requests a month, {{.ProTunnels}} tunnels at once and {{.Reservations}} reserved names. No overage charges.</p>
+    <p>{{.ProBytesShort}} a month. Requests: {{.ProRequestsShort}}, {{.ProTunnels}} tunnels at once and {{.Reservations}} reserved names. No overage charges.</p>
     {{if .MonthlyAvailable}}<a href="{{.StripeCheckoutURLMonthly}}" class="btn sig upgrade-btn-white">Pro — ${{.MonthlyUSD}}/month</a>{{end}}
     {{if .YearlyAvailable}}<a href="{{.StripeCheckoutURLYearly}}" class="btn sig upgrade-btn-white">Pro — ${{.YearlyUSD}}/year</a>{{end}}
     {{if not .MonthlyAvailable}}{{if not .YearlyAvailable}}<p>Checkout is not available yet. Free tunnels still work.</p>{{end}}{{end}}

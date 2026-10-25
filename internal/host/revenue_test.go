@@ -46,7 +46,7 @@ func TestRevenueRoutesLimitsAndConfiguredCheckout(t *testing.T) {
 		}
 	}
 	w := revenueRequest(t, p, "/pricing", false)
-	for _, want := range []string{"$5/month", "$48", "1M requests", "10M requests", "10 GB", "500 GB", "5 concurrent", "25 concurrent", "1 reserved", "10 reserved", "ngrok Free", "2026-10-12", "/upgrade?period=monthly"} {
+	for _, want := range []string{"$5/month", "$48", "unlimited (fair use)", "10 GB", "500 GB", "5 concurrent", "25 concurrent", "1 reserved", "10 reserved", "ngrok Free", "2026-10-12", "/upgrade?period=monthly"} {
 		if !strings.Contains(w.Body.String(), want) {
 			t.Error("missing pricing fact", want)
 		}
@@ -69,7 +69,7 @@ func TestRevenueRoutesLimitsAndConfiguredCheckout(t *testing.T) {
 	p.config.OwnerMonthlyBytes = 500000000
 	p.config.OwnerMonthlyRequests = 4000
 	w = revenueRequest(t, p, "/pricing", false)
-	for _, want := range []string{"$8/month", "500 MB", "4K requests"} {
+	for _, want := range []string{"$8/month", "500 MB", "unlimited (fair use)"} {
 		if !strings.Contains(w.Body.String(), want) {
 			t.Error("config not reflected", want)
 		}

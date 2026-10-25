@@ -21,7 +21,7 @@ func TestAccountPlansImportRestartDowngradeAndFailClosed(t *testing.T) {
 	s.now = func() time.Time { return testNow }
 	e := event(nil, 1)
 	d := admit(t, s, e)
-	if !d.Allowed || d.BytesRemaining != 3 || d.RequestsRemaining != FreeMonthlyRequests-1 {
+	if !d.Allowed || d.BytesRemaining != 3 || d.RequestsRemaining != -1 {
 		t.Fatal(d)
 	}
 	d = charge(t, s, e.RequestId, 2, 4)
@@ -126,7 +126,7 @@ func TestRetentionCannotResetActiveBudgetAndRestartEndsOldRequest(t *testing.T) 
 }
 
 // Seed rollups near each allowance instead of issuing millions of requests.
-func TestAccountPlanAllowanceBoundaries(t *testing.T) {
+func TestLimitsBandwidthOnlyAllowanceBoundaries(t *testing.T) {
 	for _, plan := range []string{"free", "pro"} {
 		for _, budget := range []string{"requests", "bytes"} {
 			t.Run(plan+"/"+budget, func(t *testing.T) {
@@ -139,9 +139,9 @@ func TestAccountPlanAllowanceBoundaries(t *testing.T) {
 					t.Fatal(err)
 				}
 				s.now = func() time.Time { return testNow }
-				requests, bytes := FreeMonthlyRequests, FreeMonthlyBytes
+				requests, bytes := int64(1000000), FreeMonthlyBytes
 				if plan == "pro" {
-					requests, bytes = ProMonthlyRequests, ProMonthlyBytes
+					requests, bytes = 10000000, ProMonthlyBytes
 				}
 				usedRequests, usedBytes := int64(0), int64(0)
 				if budget == "requests" {
@@ -157,19 +157,55 @@ func TestAccountPlanAllowanceBoundaries(t *testing.T) {
 				if !d.Allowed {
 					t.Fatal(d)
 				}
-				reason := "owner_request_budget"
 				if budget == "bytes" {
 					d = charge(t, s, e.RequestId, 0, 2)
 					if d.Allowed || d.ResponseBytes != 1 || d.Reason != "owner_byte_budget" {
 						t.Fatal(d)
 					}
-					reason = "owner_byte_budget"
 				}
 				finish(t, s, e, d.ResponseBytes)
-				if d := admit(t, s, event(nil, 2)); d.Allowed || d.Reason != reason {
+				if d := admit(t, s, event(nil, 2)); (budget == "bytes" && (d.Allowed || d.Reason != "owner_byte_budget")) || (budget == "requests" && (!d.Allowed || d.RequestsRemaining != -1)) {
 					t.Fatal(d)
 				}
 			})
 		}
+	}
+}
+
+// The configured ceiling applies independently to each account, above either old
+// plan cap. Restarting the authority with a new setting requires no code deploy.
+func TestLimitsBandwidthOnlyAbuseCeiling(t *testing.T) {
+	_, db := fixture(t)
+	if _, err := db.Exec(`CREATE TABLE accounts(id TEXT PRIMARY KEY,plan TEXT); CREATE TABLE account_usage(account_id TEXT,month TEXT,bytes_used INTEGER); INSERT INTO accounts VALUES('owner@example.com','free'),('other@example.com','pro')`); err != nil {
+		t.Fatal(err)
+	}
+	const ceiling int64 = 12000000
+	s, err := New(db, WithAccountPlans(), WithOwnerBudgets(ceiling, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.now = func() time.Time { return testNow }
+	for i, owner := range []string{"owner@example.com", "other@example.com"} {
+		if _, err := db.Exec(`INSERT INTO meter_usage(owner,endpoint,caller,month,requests,admitted) VALUES(?,'old','anonymous','2026-10',?,?)`, owner, ceiling-1, ceiling-1); err != nil {
+			t.Fatal(err)
+		}
+		e := event(nil, i*2+1)
+		e.Owner = owner
+		if d := admit(t, s, e); !d.Allowed || d.RequestsRemaining != 0 {
+			t.Fatal(d)
+		}
+		e = event(nil, i*2+2)
+		e.Owner = owner
+		if d := admit(t, s, e); d.Allowed || d.Reason != "owner_request_budget" {
+			t.Fatal(d)
+		}
+	}
+	s, err = New(db, WithAccountPlans())
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.now = func() time.Time { return testNow }
+	if d := admit(t, s, event(nil, 10)); !d.Allowed || d.RequestsRemaining != -1 {
+		t.Fatal(d)
 	}
 }

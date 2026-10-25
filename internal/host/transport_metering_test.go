@@ -167,7 +167,7 @@ func TestAccountUsageViewIncludesActiveStreamBytes(t *testing.T) {
 	r.AddCookie(&http.Cookie{Name: authCookieName, Value: relayJWT(t, p, "owner@example.com")})
 	rec = httptest.NewRecorder()
 	p.createHandler().ServeHTTP(rec, r)
-	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "10 B<small>of 10 GB</small>") || !strings.Contains(rec.Body.String(), "1<small>of 1M</small>") {
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "10 B<small>of 10 GB</small>") || !strings.Contains(rec.Body.String(), "1<small>this month</small>") {
 		t.Fatalf("%d %s", rec.Code, rec.Body)
 	}
 	out := relayExport(t, ledger)

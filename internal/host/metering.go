@@ -107,7 +107,7 @@ func (s *ingressMeter) admit(ctx context.Context, w http.ResponseWriter, r *http
 		return false
 	}
 	s.admitted = true
-	if s.proxy.planMeter && s.accountID != "" && (d.RequestsRemaining < 0 || d.BytesRemaining < 0) {
+	if s.proxy.planMeter && s.accountID != "" && d.BytesRemaining < 0 {
 		s.reason = "meter_unavailable"
 		w.Header().Set("Tunn-Limit-Reason", s.reason)
 		http.Error(w, "Usage authority must support account plan limits", http.StatusServiceUnavailable)

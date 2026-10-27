@@ -67,11 +67,16 @@ def validate(report):
     for name, item in report['screenshots'].items():
         p = Path(report['output']) / name
         require(p.is_file() and digest(p) == item['sha256'], 'screenshot changed: ' + name)
-        require(int.from_bytes(p.read_bytes()[16:20], 'big') == item['width'] and item['width'] in (390, 1440), 'wrong screenshot width')
+        expected_width = int(name.rsplit('-', 2)[1])
+        require(type(item['width']) is int and int.from_bytes(p.read_bytes()[16:20], 'big') == item['width'] == expected_width, 'wrong screenshot width: ' + name)
         require(item['horizontal_overflow'] is False, 'horizontal overflow: ' + name)
     require(report['idp_exchanges'] == 3, 'missing external identity exchange')
     require(len(report['denials']) == len(DENIALS) and {d['label'] for d in report['denials']} == DENIALS, 'missing or duplicate denials')
-    require(all(d['origin_before'] == d['origin_after'] for d in report['denials']), 'denied traffic reached origin')
+    for denial in report['denials']:
+        require(type(denial.get('origin_before')) is int and denial['origin_before'] >= 0 and
+                type(denial.get('origin_after')) is int and denial['origin_after'] >= 0, 'invalid origin measurements')
+        require(denial['origin_before'] == denial['origin_after'], 'denied traffic reached origin')
+        require(type(denial.get('status')) is int and denial['status'] == 403, 'invalid denial status')
     require(report['head'] == command('git', 'rev-parse', 'HEAD'), 'stale source head')
     require(digest(Path(report['binary'])) == report['binary_sha256'], 'staged binary changed')
     manifest = json.loads(Path(report['manifest']).read_text())
@@ -348,6 +353,26 @@ class Journey:
             require(len(self.origin.hits) == before, label + ' reached origin')
             self.denials.append(dict(label=label, status=response.status, origin_before=before, origin_after=len(self.origin.hits)))
 
+        def denied_upgrade(context, label):
+            before = len(self.origin.hits)
+            cookies = '; '.join(f"{c['name']}={c['value']}" for c in context.cookies(self.app))
+            conn = http.client.HTTPSConnection('127.0.0.1', self.port,
+                context=ssl.create_default_context(cafile=str(self.cert)), timeout=5)
+            try:
+                conn.request('GET', '/ws?' + label, headers={
+                    'Host': f'recipient.tunn.test:{self.port}', 'Cookie': cookies,
+                    'Connection': 'Upgrade', 'Upgrade': 'websocket',
+                    'Sec-WebSocket-Version': '13',
+                    'Sec-WebSocket-Key': base64.b64encode(os.urandom(16)).decode()})
+                response = conn.getresponse()
+                status = response.status
+                response.read()
+            finally:
+                conn.close()
+            require(status == 403, label + ' upgrade was not denied')
+            require(len(self.origin.hits) == before, label + ' upgrade reached origin')
+            self.denials.append(dict(label=label, status=status, origin_before=before, origin_after=len(self.origin.hits)))
+
         def people(page, expected):
             rows = page.locator('form.sharing-person')
             actual = rows.locator('input[name=email]').evaluate_all('(nodes) => nodes.map(n => n.value)')
@@ -410,11 +435,7 @@ class Journey:
         require('Access denied' in stranger.locator('body').inner_text(), 'stranger login admitted')
         require(len(self.origin.hits) == before, 'stranger callback reached origin')
         denied(stranger, 'stranger')
-        before = len(self.origin.hits)
-        stranger.evaluate('''() => {window.deniedWS=false; const s=new WebSocket('wss://'+location.host+'/ws?stranger'); s.onerror=()=>window.deniedWS=true;}''')
-        stranger.wait_for_function('window.deniedWS')
-        require(len(self.origin.hits) == before, 'stranger upgrade reached origin')
-        self.denials.append(dict(label='stranger-upgrade', origin_before=before, origin_after=len(self.origin.hits)))
+        denied_upgrade(stranger_ctx, 'stranger-upgrade')
         capture(stranger, 'stranger-denied')
         self.cases['stranger'] = 'PASS'
         require(alice.evaluate('socket.readyState === WebSocket.OPEN && closedAt === 0'), 'invitee stream closed before revocation')
@@ -427,11 +448,7 @@ class Journey:
         require(self.cutoff <= 5000, 'revoked stream survived five seconds')
         denied(alice, 'revoked')
         # A fresh WebSocket upgrade from the revoked session must also stop at edge.
-        before = len(self.origin.hits)
-        alice.evaluate('''() => {window.deniedWS=false; const s=new WebSocket('wss://'+location.host+'/ws?revoked'); s.onerror=()=>window.deniedWS=true;}''')
-        alice.wait_for_function('window.deniedWS')
-        require(len(self.origin.hits) == before, 'revoked upgrade reached origin')
-        self.denials.append(dict(label='revoked-upgrade', origin_before=before, origin_after=len(self.origin.hits)))
+        denied_upgrade(alice_ctx, 'revoked-upgrade')
         capture(alice, 'revoked-denied')
         self.cases.update(revocation='PASS', stream_cutoff='PASS')
         self.stop(publisher)
@@ -508,6 +525,9 @@ def main():
         return
     require(args.release and args.output, '--release and --output are required')
     journey = Journey(args)
+    def terminate(_signum, _frame):
+        raise SystemExit('journey terminated')
+    signal.signal(signal.SIGTERM, terminate)
     try:
         journey.run()
     finally:

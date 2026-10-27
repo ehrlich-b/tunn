@@ -135,7 +135,6 @@ func TestStripeFirstCustomerCheckoutToConsumer(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				now := time.Now().Unix()
 				duration := int64(30 * 24 * 3600)
 				if period == "yearly" {
 					duration = 365 * 24 * 3600
@@ -143,7 +142,7 @@ func TestStripeFirstCustomerCheckoutToConsumer(t *testing.T) {
 				price := "price_" + period
 				customer, currentPrice, status, invoiceStatus := "cus_first", price, "active", "paid"
 				paid, unknown, refunded, scheduled := true, false, false, false
-				start, end := now-10, now+duration
+				var start, end int64
 				reads := 0
 				transport := autoStripeTransport(func(r *http.Request) (*http.Response, error) {
 					reads++
@@ -171,6 +170,8 @@ func TestStripeFirstCustomerCheckoutToConsumer(t *testing.T) {
 				if err != nil || checkout.Code != 303 || u.Path != "/"+period+"_fixture" {
 					t.Fatal(checkout.Code, u, err)
 				}
+				now := time.Now().Unix() // The durable intent has already been committed.
+				start, end = now-10, now+duration
 				reference := u.Query().Get("client_reference_id")
 				if reference == "" || reference == owner.ID {
 					t.Fatal("missing opaque intent")
@@ -180,6 +181,9 @@ func TestStripeFirstCustomerCheckoutToConsumer(t *testing.T) {
 					object := `{"id":"sub_first","customer":"cus_first","status":"active","metadata":{"account_id":"` + other.ID + `"}}`
 					if completion {
 						object = fmt.Sprintf(`{"id":"cs_first","customer":"cus_first","subscription":"sub_first","mode":"subscription","payment_status":"paid","client_reference_id":%q,"metadata":{"account_id":%q}}`, reference, other.ID)
+					}
+					if typ == "invoice.paid" {
+						object = `{"id":"in_first","customer":"cus_first","subscription":"sub_first"}`
 					}
 					if typ == "charge.refunded" {
 						object = `{"id":"ch_first"}`
@@ -254,17 +258,44 @@ func TestStripeFirstCustomerCheckoutToConsumer(t *testing.T) {
 				if replay := send("evt_checkout", "checkout.session.completed", true); !replay.Duplicate || reads != before {
 					t.Fatal("duplicate re-read or lost deduplication", replay, reads, before)
 				}
-				paid = false
-				pending := send("evt_delayed_renewal", "invoice.paid", false)
-				if pending.State != "reconciliation_required" {
-					t.Fatal(pending)
+				assertReceipt := func(id, outcome, account string) {
+					t.Helper()
+					var gotOutcome, gotAccount, sub, cust string
+					err := db.QueryRow(`SELECT outcome,account_id,subscription_id,customer_id FROM ops_billing_events WHERE provider='stripe' AND event_id=?`, id).Scan(&gotOutcome, &gotAccount, &sub, &cust)
+					if err != nil || gotOutcome != outcome || gotAccount != account || sub != "sub_first" || cust != "cus_first" {
+						t.Fatal(id, gotOutcome, gotAccount, sub, cust, err)
+					}
 				}
-				check("pro", 1, 1) // ambiguous new payment never revokes prior verified entitlement
+				paid = false
+				before = reads
+				pending := send("evt_delayed_renewal", "invoice.paid", false)
+				if pending.State != "reconciliation_required" || reads != before+1 {
+					t.Fatal(pending, reads, before)
+				}
+				assertReceipt("evt_delayed_renewal", "reconciliation_required", owner.ID)
+				check("pro", 1, 1) // Ambiguous payment preserves the prior entitlement.
 				paid = true
-				send("evt_delayed_renewal", "invoice.paid", false)
-				// A new paid renewal period does not append a second entitlement grant.
+				before = reads
+				recovered := send("evt_delayed_renewal", "invoice.paid", false)
+				if recovered.State != "reconciled" || recovered.AccountID != owner.ID || reads != before+1 {
+					t.Fatal(recovered, reads, before)
+				}
+				assertReceipt("evt_delayed_renewal", "reconciled", owner.ID)
+				var oldDigest, newDigest, statePlan string
+				if err := db.QueryRow(`SELECT digest FROM ops_billing_states WHERE provider='stripe' AND subscription_id='sub_first'`).Scan(&oldDigest); err != nil {
+					t.Fatal(err)
+				}
+				// A new paid renewal period commits a new state without another grant.
 				start, end = now-1, now+duration+3600
-				send("evt_renewal", "invoice.paid", false)
+				before = reads
+				renewed := send("evt_renewal", "invoice.paid", false)
+				if renewed.State != "reconciled" || renewed.AccountID != owner.ID || reads != before+1 {
+					t.Fatal(renewed, reads, before)
+				}
+				assertReceipt("evt_renewal", "reconciled", owner.ID)
+				if err := db.QueryRow(`SELECT digest,plan FROM ops_billing_states WHERE provider='stripe' AND subscription_id='sub_first'`).Scan(&newDigest, &statePlan); err != nil || newDigest == oldDigest || statePlan != "pro" {
+					t.Fatal(oldDigest, newDigest, statePlan, err)
+				}
 				check("pro", 1, 1)
 				scheduled = true
 				send("evt_scheduled", "customer.subscription.updated", false)

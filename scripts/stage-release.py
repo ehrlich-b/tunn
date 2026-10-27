@@ -44,12 +44,15 @@ end
 '''
 
 
-def stage(tag, source, output):
+def stage(tag, source, output, proposed=False):
     if not re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", tag):
         raise ValueError("only stable vMAJOR.MINOR.PATCH tags may produce latest.json")
     if not re.fullmatch(r"[0-9a-f]{40}", source):
         raise ValueError("source must be the full selected commit SHA")
-    if run("git", "rev-parse", "--verify", f"refs/tags/{tag}^{{commit}}") != source:
+    if proposed:
+        if run("git", "rev-parse", "HEAD") != source or run("git", "status", "--porcelain"):
+            raise ValueError("proposed release requires the clean current commit")
+    elif run("git", "rev-parse", "--verify", f"refs/tags/{tag}^{{commit}}") != source:
         raise ValueError("tag does not resolve to the selected source")
     output = output.absolute()
     # A fresh destination makes versioned assets immutable; never overwrite a release.
@@ -78,7 +81,7 @@ def stage(tag, source, output):
         (release / name).write_text(sums)
     license_path = checkout / "LICENSE"
     license_ready = license_path.is_file() and bool(license_path.read_bytes().strip())
-    manifest = {"tag": tag, "source_commit": source, "source_url": PROJECT + ".git",
+    manifest = {"proposed": proposed, "tag": tag, "source_commit": source, "source_url": PROJECT + ".git",
                 "builder_commit": run("git", "rev-parse", "HEAD"),
                 "license_file_present": license_ready,
                 "publication_requires": ["maintainer-approved distribution rights and full license text",
@@ -107,9 +110,10 @@ def main():
     parser.add_argument("--tag", required=True)
     parser.add_argument("--source", required=True)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--proposed", action="store_true", help="stage a clean local HEAD without creating a tag")
     args = parser.parse_args()
     try:
-        stage(args.tag, args.source, args.output)
+        stage(args.tag, args.source, args.output, args.proposed)
     except (ValueError, FileExistsError, subprocess.CalledProcessError) as error:
         parser.exit(1, f"Release staging refused: {error}\n")
 

@@ -96,7 +96,7 @@ func hasGitHubSignInVocabulary(sentence string) bool {
 
 // Exceptions are exact normalized sentences, scoped to one file, so nearby new
 // promises cannot inherit an exemption. Retained provider contracts describe
-// existing identities, not visitor sign-in choices; legal text is frozen by the brief.
+// existing identities, not visitor sign-in choices.
 var allowedGitHubCopy = map[string]map[string]string{
 	"USER-JOURNEY.md": {
 		"Unverified GitHub primary emails and non-authoritative Google third-party emails fail at the provider callback.": "Retained provider validation contract for existing identities.",
@@ -123,12 +123,6 @@ var allowedGitHubCopy = map[string]map[string]string{
 	},
 	"main.go": {
 		"--verify-webhook PROVIDER Stripe, GitHub, Slack, Shopify or hmac-sha256 (lowercase)": "Repository-host webhook CLI option, not sign-in providers.",
-	},
-	"internal/host/templates/privacy.html": {
-		"GitHub Account Info: When you log in, we get your email address(es) from GitHub.": "Existing legal sentence is frozen by the brief pending separate legal review.",
-	},
-	"internal/host/templates/terms.html": {
-		"You need a verified email address to use tunn (via GitHub login or magic link).": "Existing legal sentence is frozen by the brief pending separate legal review.",
 	},
 }
 

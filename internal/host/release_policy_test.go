@@ -23,7 +23,7 @@ func TestReleasePolicy(t *testing.T) {
 	p, _, _ := revenueFixture(t)
 	cases := map[string][]string{
 		"/terms":   {"Google, GitHub, or an email link", "10 GB", "500 GB", "5 concurrent tunnels", "25 concurrent tunnels", "1 reserved", "10", "Requests are unlimited subject to fair use", "Stripe"},
-		"/privacy": {"Google, GitHub, or email links", "configured email provider", "Stripe processes payments", "does not delete retained usage records", "deletion across active stores and backups are under review"},
+		"/privacy": {"sign-in methods configured by its operator", "configured email provider", "Authentication providers process information when their methods are configured and used", "Stripe processes payments", "does not delete retained usage records", "deletion across active stores and backups are under review"},
 	}
 	for path, wants := range cases {
 		w := revenueRequest(t, p, path, false)

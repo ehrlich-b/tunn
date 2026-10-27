@@ -202,3 +202,7 @@ or losing namespace/app-name authority closes idle connections within the
 designed five-second bound. Platform logout does not invalidate other app cookies;
 they expire after one hour, or revoke through live authority/key changes. Existing
 EdDSA assertions can remain valid for their two-minute lifetime.
+
+Background requests after an app session expires receive HTTP 401 with
+`Tunn-Auth: login` and a `login_required` JSON response. Apps should reload the
+page to start sign-in again.

@@ -244,6 +244,20 @@ func TestDomainSSOBrowserBindingReplayAndRepeatApp(t *testing.T) {
 			t.Fatalf("%s=%d", bad, out.Code)
 		}
 	}
+	// A background request from another tab must not overwrite the binding.
+	background := httptest.NewRequest("GET", "https://dashboard.apps.example.com/poll", nil)
+	background.Header.Set("Sec-Fetch-Mode", "cors")
+	background.AddCookie(nonce)
+	bg := httptest.NewRecorder()
+	handler.ServeHTTP(bg, background)
+	if bg.Code != 401 || bg.Header().Get("Location") != "" {
+		t.Fatalf("background: %d %v", bg.Code, bg.Header())
+	}
+	for _, c := range bg.Result().Cookies() {
+		if c.Name == appNonceCookie {
+			t.Fatal("background request changed nonce")
+		}
+	}
 	r = httptest.NewRequest("GET", callback, nil)
 	r.AddCookie(nonce)
 	w = httptest.NewRecorder()

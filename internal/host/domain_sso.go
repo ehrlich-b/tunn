@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"time"
@@ -19,7 +20,8 @@ import (
 const appCookie = "__Host-tunn_app"
 const appNonceCookie = "__Host-tunn_sso"
 const appCallback = "/.tunn/sso/callback"
-const appSessionLifetime = 12 * time.Hour
+const appSessionIdle = 24 * time.Hour
+const appSessionRenewAfter = 10 * time.Minute
 
 func (p *ProxyServer) signedSession(w http.ResponseWriter, claims jwt.MapClaims, name, domain string, lifetime time.Duration) error {
 	// Provider logins snapshot the live epoch. App callbacks must preserve the
@@ -40,13 +42,71 @@ func (p *ProxyServer) signedSession(w http.ResponseWriter, claims jwt.MapClaims,
 		claims["session_epoch"] = account.BrowserSessionEpoch
 	}
 	claims["type"] = "session"
-	claims["iat"] = time.Now().Unix()
-	claims["exp"] = time.Now().Add(lifetime).Unix()
+	now := p.currentTime()
+	claims["iat"] = now.Unix()
+	claims["exp"] = now.Add(lifetime).Unix()
 	raw, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(p.getJWTSigningKey())
 	if err != nil {
 		return err
 	}
 	http.SetCookie(w, &http.Cookie{Name: name, Value: raw, Domain: domain, Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: int(lifetime.Seconds())})
+	return nil
+}
+
+// appAuthIAT falls back to the issue time of pre-migration credentials.
+func appAuthIAT(claims jwt.MapClaims) int64 {
+	for _, key := range []string{"auth_iat", "iat"} {
+		switch v := claims[key].(type) {
+		case float64:
+			return int64(v)
+		case int64:
+			return v
+		}
+	}
+	if claims["type"] == "domain_handoff" {
+		if exp, ok := claims["exp"].(float64); ok {
+			return int64(exp) - 60
+		}
+	}
+	return 0
+}
+
+func (p *ProxyServer) signAppSession(w http.ResponseWriter, claims jwt.MapClaims) error {
+	auth := appAuthIAT(claims)
+	remaining := time.Unix(auth, 0).Add(authCookieLifetime).Sub(p.currentTime())
+	if auth <= 0 || remaining <= 0 {
+		return fmt.Errorf("app session authority expired")
+	}
+	if remaining > appSessionIdle {
+		remaining = appSessionIdle
+	}
+	claims["auth_iat"] = auth
+	return p.signedSession(w, claims, appCookie, "", remaining)
+}
+
+func (p *ProxyServer) appRenewalCookie(r *http.Request, session jwt.MapClaims) *http.Cookie {
+	issued, ok := session["iat"].(float64)
+	_, replay := r.Context().Value(inspectorReplayKey{}).(*inspectorReplay)
+	if !ok || replay || session["type"] != "session" || p.currentTime().Unix()-int64(issued) < int64(appSessionRenewAfter/time.Second) {
+		return nil
+	}
+	claims := make(jwt.MapClaims, len(session)+1)
+	for key, value := range session {
+		claims[key] = value
+	}
+	claims["auth_iat"] = appAuthIAT(session)
+	if _, ok := claims["session_epoch"]; !ok {
+		claims["session_epoch"] = ""
+	}
+	recorder := httptest.NewRecorder()
+	if p.signAppSession(recorder, claims) != nil {
+		return nil
+	}
+	for _, cookie := range recorder.Result().Cookies() {
+		if cookie.Name == appCookie {
+			return cookie
+		}
+	}
 	return nil
 }
 
@@ -74,7 +134,7 @@ func (p *ProxyServer) accountSession(r *http.Request) (jwt.MapClaims, bool) {
 	if !ok || !validAccountClaims(claims) {
 		return nil, false
 	}
-	if name == appCookie && claims["aud"] != requestHostname(r.Host) {
+	if name == appCookie && (claims["aud"] != requestHostname(r.Host) || appAuthIAT(claims) <= 0 || p.currentTime().Unix() >= appAuthIAT(claims)+int64(authCookieLifetime/time.Second)) {
 		return nil, false
 	}
 	return claims, true
@@ -164,13 +224,14 @@ func (p *ProxyServer) parseDomainToken(raw, kind string) (jwt.MapClaims, bool) {
 	if !p.visitorJWTConfigured() {
 		return nil, false
 	}
-	token, err := jwt.Parse(raw, func(*jwt.Token) (interface{}, error) { return p.getJWTSigningKey(), nil }, jwt.WithValidMethods([]string{"HS256"}))
+	token, err := jwt.Parse(raw, func(*jwt.Token) (interface{}, error) { return p.getJWTSigningKey(), nil }, jwt.WithValidMethods([]string{"HS256"}), jwt.WithoutClaimsValidation())
 	if err != nil || !token.Valid {
 		return nil, false
 	}
 	claims, ok := token.Claims.(jwt.MapClaims)
 	_, hasExpiry := claims["exp"].(float64)
-	return claims, ok && hasExpiry && claims["type"] == kind
+	now := p.currentTime().Unix()
+	return claims, ok && hasExpiry && claims["type"] == kind && claims.VerifyExpiresAt(now, true) && claims.VerifyIssuedAt(now, false) && claims.VerifyNotBefore(now, false)
 }
 func (p *ProxyServer) startDomainSSO(w http.ResponseWriter, r *http.Request) {
 	nonce, err := generateConnectionID()
@@ -178,7 +239,7 @@ func (p *ProxyServer) startDomainSSO(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Login unavailable", 503)
 		return
 	}
-	raw, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"type": "domain_login_request", "host": requestHostname(r.Host), "nonce": nonce, "path": r.URL.RequestURI(), "exp": time.Now().Add(5 * time.Minute).Unix()}).SignedString(p.getJWTSigningKey())
+	raw, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"type": "domain_login_request", "host": requestHostname(r.Host), "nonce": nonce, "path": r.URL.RequestURI(), "exp": p.currentTime().Add(5 * time.Minute).Unix()}).SignedString(p.getJWTSigningKey())
 	if err != nil {
 		http.Error(w, "Login unavailable", 503)
 		return
@@ -228,7 +289,7 @@ func (p *ProxyServer) handleDomainLogin(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "Access denied", 403)
 		return
 	}
-	handoff := jwt.MapClaims{"type": "domain_handoff", "session_epoch": browserSessionEpoch(session), "aud": host, "nonce": nonce, "path": path, "account_id": account.ID, "email": session["email"], "provider": session["provider"], "email_verified": true, "google_authoritative": session["google_authoritative"], "issuer": session["issuer"], "exp": time.Now().Add(time.Minute).Unix()}
+	handoff := jwt.MapClaims{"type": "domain_handoff", "session_epoch": browserSessionEpoch(session), "aud": host, "nonce": nonce, "path": path, "account_id": account.ID, "email": session["email"], "provider": session["provider"], "email_verified": true, "google_authoritative": session["google_authoritative"], "issuer": session["issuer"], "auth_iat": session["iat"], "iat": p.currentTime().Unix(), "exp": p.currentTime().Add(time.Minute).Unix()}
 	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, handoff).SignedString(p.getJWTSigningKey())
 	if err != nil {
 		http.Error(w, "Login unavailable", 503)
@@ -286,7 +347,7 @@ func (p *ProxyServer) handleDomainCallback(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	http.SetCookie(w, &http.Cookie{Name: appNonceCookie, Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: -1})
-	if err := p.signedSession(w, jwt.MapClaims{"session_epoch": browserSessionEpoch(claims), "account_id": claims["account_id"], "email": claims["email"], "provider": claims["provider"], "email_verified": true, "google_authoritative": claims["google_authoritative"], "issuer": claims["issuer"], "aud": requestHostname(r.Host)}, appCookie, "", appSessionLifetime); err != nil {
+	if err := p.signAppSession(w, jwt.MapClaims{"session_epoch": browserSessionEpoch(claims), "account_id": claims["account_id"], "email": claims["email"], "provider": claims["provider"], "email_verified": true, "google_authoritative": claims["google_authoritative"], "issuer": claims["issuer"], "aud": requestHostname(r.Host), "auth_iat": appAuthIAT(claims)}); err != nil {
 		http.Error(w, "Login unavailable", 503)
 		return
 	}
@@ -297,13 +358,13 @@ func (p *ProxyServer) handleDomainCallback(w http.ResponseWriter, r *http.Reques
 // reserved name belong to the publisher UUID; guests require an explicit live
 // sharing permission even if the publisher selected public mode.
 func (p *ProxyServer) appLoginRequired(w http.ResponseWriter, r *http.Request) {
-	mode, accept := r.Header.Get("Sec-Fetch-Mode"), r.Header.Get("Accept")
-	if (mode != "" && mode != "navigate") || !strings.Contains(strings.ToLower(accept), "text/html") {
+	mode := r.Header.Get("Sec-Fetch-Mode")
+	if mode != "navigate" && !(mode == "" && acceptsHTML(r)) {
 		w.Header().Set("Tunn-Auth", "login")
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
 		w.WriteHeader(http.StatusUnauthorized)
-		_, _ = w.Write([]byte(`{"error":"login required"}`))
+		_, _ = w.Write([]byte(`{"error":"login_required","reload":true}`))
 		return
 	}
 	p.startDomainSSO(w, r)
@@ -334,24 +395,6 @@ func (p *ProxyServer) authorizeDomainApp(w http.ResponseWriter, r *http.Request,
 		}
 		p.writeAuthError(w, r, http.StatusText(status), status, "Ask the app owner to share access, or sign in with a different account.")
 		return nil, false
-	}
-	// Renew only after host binding and live authority have both succeeded. Keep
-	// the original epoch even if logout races this response.
-	issued, iok := session["iat"].(float64)
-	expires, eok := session["exp"].(float64)
-	_, replay := r.Context().Value(inspectorReplayKey{}).(*inspectorReplay)
-	if p.customerHost(r.Host) && !replay && iok && eok && expires > issued && float64(time.Now().Unix()) > (issued+expires)/2 {
-		renewed := make(jwt.MapClaims, len(session)+1)
-		for key, value := range session {
-			renewed[key] = value
-		}
-		if _, ok := renewed["session_epoch"]; !ok {
-			renewed["session_epoch"] = ""
-		}
-		if err := p.signedSession(w, renewed, appCookie, "", appSessionLifetime); err != nil {
-			http.Error(w, "Login unavailable", http.StatusServiceUnavailable)
-			return nil, false
-		}
 	}
 	session["account_id"] = account.ID
 	return session, true

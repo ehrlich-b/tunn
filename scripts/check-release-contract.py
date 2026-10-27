@@ -44,6 +44,16 @@ def check(root, expected):
             if feed.stat().st_mtime_ns < artifact.stat().st_mtime_ns:
                 raise ValueError('feed predates asset')
             _, system, arch = name.split('-')
+            provenance = call('go', 'version', '-m', str(artifact))
+            required = (f'GOOS={system}', f'GOARCH={arch}',
+                        f'vcs.revision={expected}', 'vcs.modified=false')
+            if any(item not in provenance for item in required):
+                raise ValueError('binary build provenance mismatch: ' + name)
+            retained = root / (name + '.build.txt')
+            if retained.is_file():
+                # The first line contains a path; settings must remain identical.
+                if retained.read_text().splitlines()[1:] != provenance.splitlines()[1:]:
+                    raise ValueError('retained build info mismatch: ' + name)
             target = Path(temp) / name
             env = dict(os.environ, CGO_ENABLED='0', GOOS=system, GOARCH=arch)
             call('go', 'build', '-p', '2', '-trimpath', '-buildvcs=true', '-ldflags', f'-s -w -X main.version={tag}', '-o', str(target), '.', cwd=checkout, env=env)

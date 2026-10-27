@@ -991,6 +991,7 @@ type AccountPageData struct {
 	QuotaFormatted           string
 	RequestsUsed             int64
 	UsageAvailable           bool
+	BytesExhausted           bool
 	RequestsUsedFormatted    string
 	TunnelLimit              int
 	NameLimit                int
@@ -1058,6 +1059,7 @@ func (p *ProxyServer) handleAccount(w http.ResponseWriter, r *http.Request) {
 		BillingResumable: account.BillingState == "resumable" && r.URL.Query().Get("billing") != "return",
 		Email:            email,
 		RequestsUsed:     requestsUsed, UsageAvailable: usageAvailable,
+		BytesExhausted:        usageAvailable && quotaBytes > 0 && usageBytes >= quotaBytes,
 		RequestsUsedFormatted: formatCount(requestsUsed),
 		TunnelLimit:           tunnelLimit, NameLimit: nameLimit, Tunnels: tunnels,
 		ResetsOn:                 time.Date(now.Year(), now.Month()+1, 1, 0, 0, 0, 0, time.UTC).Format("Jan 2"),

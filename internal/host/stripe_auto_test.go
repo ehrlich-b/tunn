@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -108,6 +110,185 @@ func TestAutoActivationRefundNormalization(t *testing.T) {
 		e, err := normalizeStripeEvent(StripeEvent{ID: "evt_refund", Type: tc.typ, Data: StripeEventData{Object: json.RawMessage(tc.body)}}, []byte(tc.body))
 		if err != nil || !e.Supported || e.ChargeID != "ch_refund" || e.SubscriptionID != "" {
 			t.Fatal(e, err)
+		}
+	}
+}
+
+// Exercise the buyer path without pre-binding or supplied reconciliation truth.
+// Every case gets a new on-disk database and an entirely local provider.
+func TestStripeFirstCustomerCheckoutToConsumer(t *testing.T) {
+	for _, period := range []string{"monthly", "yearly"} {
+		for _, scenario := range []string{"paid", "wrong_customer", "wrong_price", "unpaid", "failed_invoice", "unknown_response", "refund", "cancellation"} {
+			t.Run(period+"/"+scenario, func(t *testing.T) {
+				p, db := stripeCorrectnessFixture(t)
+				local := p.storage.(*storage.LocalStorage)
+				p.Domain, p.config.Domain = "tunn.to", "tunn.to"
+				p.config.BillingEnabled = true
+				p.config.StripeWebhookSecret = "whsec_first_fixture"
+				p.config.StripeCheckoutURLMonthly = "https://buy.stripe.com/monthly_fixture"
+				p.config.StripeCheckoutURLYearly = "https://buy.stripe.com/yearly_fixture"
+				owner, err := local.FindOrCreateByEmails(context.Background(), []string{"owner+demo@example.com"}, "fixture")
+				if err != nil {
+					t.Fatal(err)
+				}
+				other, err := local.FindOrCreateByEmails(context.Background(), []string{"other@example.invalid"}, "fixture")
+				if err != nil {
+					t.Fatal(err)
+				}
+				now := time.Now().Unix()
+				duration := int64(30 * 24 * 3600)
+				if period == "yearly" {
+					duration = 365 * 24 * 3600
+				}
+				price := "price_" + period
+				customer, currentPrice, status, invoiceStatus := "cus_first", price, "active", "paid"
+				paid, unknown, refunded, scheduled := true, false, false, false
+				start, end := now-10, now+duration
+				reads := 0
+				transport := autoStripeTransport(func(r *http.Request) (*http.Response, error) {
+					reads++
+					if r.Method != "GET" || r.URL.Host != "api.stripe.com" || r.Header.Get("Stripe-Version") != "2024-06-20" {
+						t.Fatalf("unexpected provider request: %s %s", r.Method, r.URL)
+					}
+					if r.URL.Path == "/v1/charges/ch_first" {
+						return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"id":"ch_first","customer":"cus_first","invoice":"in_first"}`)), Header: make(http.Header)}, nil
+					}
+					if r.URL.Path == "/v1/invoices/in_first" {
+						return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"customer":"cus_first","subscription":"sub_first"}`)), Header: make(http.Header)}, nil
+					}
+					if r.URL.Path != "/v1/subscriptions/sub_first" {
+						t.Fatalf("unexpected provider path: %s", r.URL.Path)
+					}
+					body := fmt.Sprintf(`{"id":"sub_first","customer":%q,"status":%q,"cancel_at_period_end":%t,"current_period_start":%d,"current_period_end":%d,"items":{"data":[{"price":{"id":%q}}]},"latest_invoice":{"id":"in_first","customer":%q,"subscription":"sub_first","status":%q,"paid":%t,"amount_paid":500,"amount_remaining":0,"charge":{"id":"ch_first","customer":%q,"invoice":"in_first","paid":true,"amount_refunded":%d},"lines":{"data":[{"type":"subscription","subscription":"sub_first","price":{"id":%q},"period":{"start":%d,"end":%d}}]}}}`, customer, status, scheduled, start, end, currentPrice, customer, invoiceStatus, paid, customer, map[bool]int{true: 500}[refunded], currentPrice, start, end)
+					if unknown {
+						body = `{"unexpected":"unknown provider shape"}`
+					}
+					return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+				})
+				p.storage = autoStripeStorage{local, store.NewStripeAutomation("sk_test_fixture", []string{price}, transport)}
+				checkout := revenueRequest(t, p, "/upgrade?period="+period, true)
+				u, err := url.Parse(checkout.Header().Get("Location"))
+				if err != nil || checkout.Code != 303 || u.Path != "/"+period+"_fixture" {
+					t.Fatal(checkout.Code, u, err)
+				}
+				reference := u.Query().Get("client_reference_id")
+				if reference == "" || reference == owner.ID {
+					t.Fatal("missing opaque intent")
+				}
+				send := func(id, typ string, completion bool) store.BillingResult {
+					t.Helper()
+					object := `{"id":"sub_first","customer":"cus_first","status":"active","metadata":{"account_id":"` + other.ID + `"}}`
+					if completion {
+						object = fmt.Sprintf(`{"id":"cs_first","customer":"cus_first","subscription":"sub_first","mode":"subscription","payment_status":"paid","client_reference_id":%q,"metadata":{"account_id":%q}}`, reference, other.ID)
+					}
+					if typ == "charge.refunded" {
+						object = `{"id":"ch_first"}`
+					}
+					body := fmt.Sprintf(`{"id":%q,"created":%d,"type":%q,"data":{"object":%s}}`, id, now, typ, object)
+					w := stripeFixtureRequest(p, body, signedStripeFixture(body, p.config.StripeWebhookSecret, time.Now().Unix()))
+					var result store.BillingResult
+					if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &result) != nil {
+						t.Fatal(w.Code, w.Body.String())
+					}
+					return result
+				}
+				check := func(plan string, mappings, audits int) {
+					t.Helper()
+					api := revenueRequest(t, p, "/api/billing/status?paid=true&plan=pro", true)
+					var output struct{ Plan, State string }
+					if api.Code != 200 || json.Unmarshal(api.Body.Bytes(), &output) != nil || output.Plan != plan {
+						t.Fatal(api.Code, api.Body.String(), plan)
+					}
+					wantState := "pending"
+					if plan == "pro" {
+						wantState = "active"
+					}
+					if output.State != wantState {
+						t.Fatal(output)
+					}
+					page := revenueRequest(t, p, "/account?billing=return", true)
+					if page.Code != 200 || plan == "free" && !strings.Contains(page.Body.String(), "Pro activation is pending") {
+						t.Fatal(page.Code, page.Body.String())
+					}
+					account, e := local.GetAccount(context.Background(), other.ID)
+					if e != nil || account.Plan != "free" {
+						t.Fatal("metadata transferred ownership", account, e)
+					}
+					var n, a int
+					if e = db.QueryRow(`SELECT (SELECT count(*) FROM ops_billing_mappings WHERE account_id=?),(SELECT count(*) FROM ops_billing_events WHERE actor='system:stripe')`, owner.ID).Scan(&n, &a); e != nil || n != mappings || a != audits {
+						t.Fatal(n, a, e)
+					}
+					t.Logf("consumer plan=%s state=%s owner mappings=%d automatic audits=%d", output.Plan, output.State, n, a)
+				}
+				// Notification before the ownership receipt cannot grant.
+				send("evt_early", "customer.subscription.updated", false)
+				check("free", 0, 0)
+				switch scenario {
+				case "wrong_customer":
+					customer = "cus_other"
+				case "wrong_price":
+					currentPrice = "price_unknown"
+				case "unpaid":
+					paid = false
+				case "failed_invoice":
+					invoiceStatus = "open"
+				case "unknown_response":
+					unknown = true
+				}
+				first := send("evt_checkout", "checkout.session.completed", true)
+				negative := scenario != "paid" && scenario != "refund" && scenario != "cancellation"
+				if negative {
+					if first.State != "reconciliation_required" {
+						t.Fatal(first)
+					}
+					check("free", 0, 0)
+					// A delayed invoice/provider recovery retries the SAME durable receipt.
+					customer, currentPrice, paid, invoiceStatus, unknown = "cus_first", price, true, "paid", false
+					first = send("evt_checkout", "checkout.session.completed", true)
+				}
+				if first.State != "reconciled" || first.AccountID != owner.ID {
+					t.Fatal(first)
+				}
+				check("pro", 1, 1)
+				before := reads
+				if replay := send("evt_checkout", "checkout.session.completed", true); !replay.Duplicate || reads != before {
+					t.Fatal("duplicate re-read or lost deduplication", replay, reads, before)
+				}
+				paid = false
+				pending := send("evt_delayed_renewal", "invoice.paid", false)
+				if pending.State != "reconciliation_required" {
+					t.Fatal(pending)
+				}
+				check("pro", 1, 1) // ambiguous new payment never revokes prior verified entitlement
+				paid = true
+				send("evt_delayed_renewal", "invoice.paid", false)
+				// A new paid renewal period does not append a second entitlement grant.
+				start, end = now-1, now+duration+3600
+				send("evt_renewal", "invoice.paid", false)
+				check("pro", 1, 1)
+				scheduled = true
+				send("evt_scheduled", "customer.subscription.updated", false)
+				check("pro", 1, 1)
+				if scenario == "refund" || scenario == "cancellation" {
+					if scenario == "refund" {
+						refunded = true
+					} else {
+						status = "canceled"
+					}
+					typ := "customer.subscription.deleted"
+					if scenario == "refund" {
+						typ = "charge.refunded"
+					}
+					send("evt_revoke", typ, false)
+					check("free", 1, 2)
+					send("evt_checkout", "checkout.session.completed", true)
+					send("evt_old_active", "customer.subscription.created", false)
+					check("free", 1, 2)
+					if w := revenueRequest(t, p, "/upgrade", true); w.Code != 409 {
+						t.Fatal("returning purchase must require support", w.Code)
+					}
+				}
+			})
 		}
 	}
 }

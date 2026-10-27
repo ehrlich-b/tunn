@@ -6,7 +6,7 @@ T-01 remains **OPEN**. The [original acceptance](billing/original-T-01.md) is th
 
 The configured path in [account operations](ACCOUNT-OPERATIONS.md) automatically processes eligible Pro payments when the login authority has both its Stripe secret and the explicitly approved Price ID allowlist configured. It reads current provider subscription, invoice and charge state; an active current period, matching approved price and paid nonzero invoice and charge without refund or dispute are required. A server-issued, on-time consumed checkout intent or an existing explicit binding establishes ownership. A completion or notification by itself is not proof of entitlement. This describes source capability, not observed live configuration.
 
-The commercial-copy `a5246b7` operator runbook is the separately reviewed runtime-consistent reference for integration; use it together with account operations once integrated. Its file is maintained separately from this checklist.
+The included commercial-copy `92d282da` [operator runbook](billing/operator-runbook.md) is a reviewed runtime-consistent reference; use it together with account operations. Combined qualification and live acceptance remain separate.
 
 For future authorized operator acceptance:
 

@@ -173,7 +173,7 @@
   <div class="card" role="status" aria-live="polite">
     <div class="card-title">Subscription status</div>
     <p id="billing-status">{{if eq .Plan "pro"}}Pro is on.{{else}}Pro activation is pending.{{end}}</p>
-    <p>During the beta, we turn Pro on by hand after each payment, so it isn't instant. This page checks every few seconds. If you've paid and it still says Free, <a href="mailto:support@tunn.to">email support</a>. Don't pay twice.</p>
+    <p>When configured, payment can be processed automatically after verification. Otherwise, or if something needs review, activation requires manual review. Your committed account plan determines when Pro is on. This page checks every few seconds. If you've paid and it still says Free, <a href="mailto:support@tunn.to">email support</a>. Don't pay twice.</p>
     <a href="/account?billing=return">Check again</a>
   </div>
   <script>
@@ -213,7 +213,7 @@
     {{if .MonthlyAvailable}}<a href="{{.StripeCheckoutURLMonthly}}" class="btn sig upgrade-btn-white">Pro — ${{.MonthlyUSD}}/month</a>{{end}}
     {{if .YearlyAvailable}}<a href="{{.StripeCheckoutURLYearly}}" class="btn sig upgrade-btn-white">Pro — ${{.YearlyUSD}}/year</a>{{end}}
     {{if not .MonthlyAvailable}}{{if not .YearlyAvailable}}<p>Checkout is not available yet. Free tunnels still work.</p>{{end}}{{end}}
-    <p class="fine">Beta: Pro is turned on by hand after you pay, so it isn't instant.</p>
+    <p class="fine">When configured, payment can be processed automatically after verification; otherwise activation requires manual review. If you've paid, contact support before paying again.</p>
     <a href="/pricing" class="btn upgrade-btn-white">Compare plans</a>
   </div>
   {{else}}

@@ -1,9 +1,9 @@
 # Hosted plans
 
-| Plan | Price | Concurrent tunnels | Monthly admissions | Monthly metered transfer | Reserved tunn.to names |
+| Plan | Price | Concurrent tunnels | Monthly requests | Monthly metered transfer | Reserved tunn.to names |
 | --- | --- | --- | --- | --- | --- |
-| Free | $0 | 5 | 1,000,000 | 10 GB | 1 |
-| Pro | $5/month or $48/year | 25 | 10,000,000 | 500 GB | 10 |
+| Free | $0 | 5 | Unlimited (fair use) | 10 GB | 1 |
+| Pro | $5/month or $48/year | 25 | Unlimited (fair use) | 500 GB | 10 |
 
 Budgets apply across the account and reset on the first day of each UTC month.
 GB means 1,000,000,000 bytes. Admission counts include HTTP/MCP requests and
@@ -42,7 +42,11 @@ monthly/yearly checkout links. Existing Stripe prices and subscriptions are
 not changed by a code deployment. Checkout remains unavailable unless the
 billing gate, valid Stripe checkout URL and webhook secret are configured.
 
-Payment returns and client references do not grant entitlements. Activation
-requires the existing reviewed fulfillment workflow; see [account operations](docs/ACCOUNT-OPERATIONS.md).
+Payment returns and client references do not grant entitlements. When configured,
+automatic processing verifies current payment and ownership before committing
+entitlement. Otherwise, or when evidence needs review, operators use the reviewed
+fulfillment workflow; see [account operations](docs/ACCOUNT-OPERATIONS.md).
+A paid notice alone does not establish Pro: the committed account plan governs.
+If payment is pending or needs review, contact support before paying again.
 No usage billing, automatic overage, SLA or unvalidated capacity promise is
 included in these plans. Custom domains retain their existing feature gates.

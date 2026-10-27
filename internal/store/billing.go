@@ -246,7 +246,24 @@ func (s *OperationsStore) ProcessBillingEvent(ctx context.Context, e BillingEven
 	err = tx.QueryRowContext(ctx, `SELECT digest,account_id,outcome FROM ops_billing_events WHERE provider=? AND event_id=?`, e.Provider, e.ID).Scan(&priorDigest, &out.AccountID, &out.State)
 	if err == nil {
 		if priorDigest != digest {
-			return nil, fmt.Errorf("event ID reused with conflicting metadata")
+			// Before these Stripe notifications acquired accounting semantics,
+			// their signed bodies were recorded as unsupported and ignored. Match
+			// that exact historical fingerprint without replaying its effects.
+			legacy := e.Provider == "stripe" && e.PayloadSHA256 != "" && out.State == "ignored"
+			switch e.Type {
+			case "charge.refunded", "charge.dispute.created", "invoice.paid", "invoice.payment_succeeded":
+			default:
+				legacy = false
+			}
+			if legacy {
+				old := BillingEvent{Provider: e.Provider, ID: e.ID, Type: e.Type, PayloadSHA256: e.PayloadSHA256}
+				data, _ := json.Marshal(old)
+				hash := sha256.Sum256(data)
+				legacy = priorDigest == hex.EncodeToString(hash[:])
+			}
+			if !legacy {
+				return nil, fmt.Errorf("event ID reused with conflicting metadata")
+			}
 		}
 		out.Duplicate = true
 		return out, nil

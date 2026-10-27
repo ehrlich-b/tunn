@@ -19,6 +19,7 @@ import (
 const appCookie = "__Host-tunn_app"
 const appNonceCookie = "__Host-tunn_sso"
 const appCallback = "/.tunn/sso/callback"
+const appSessionLifetime = 12 * time.Hour
 
 func (p *ProxyServer) signedSession(w http.ResponseWriter, claims jwt.MapClaims, name, domain string, lifetime time.Duration) error {
 	// Provider logins snapshot the live epoch. App callbacks must preserve the
@@ -285,7 +286,7 @@ func (p *ProxyServer) handleDomainCallback(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	http.SetCookie(w, &http.Cookie{Name: appNonceCookie, Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: -1})
-	if err := p.signedSession(w, jwt.MapClaims{"session_epoch": browserSessionEpoch(claims), "account_id": claims["account_id"], "email": claims["email"], "provider": claims["provider"], "email_verified": true, "google_authoritative": claims["google_authoritative"], "issuer": claims["issuer"], "aud": requestHostname(r.Host)}, appCookie, "", time.Hour); err != nil {
+	if err := p.signedSession(w, jwt.MapClaims{"session_epoch": browserSessionEpoch(claims), "account_id": claims["account_id"], "email": claims["email"], "provider": claims["provider"], "email_verified": true, "google_authoritative": claims["google_authoritative"], "issuer": claims["issuer"], "aud": requestHostname(r.Host)}, appCookie, "", appSessionLifetime); err != nil {
 		http.Error(w, "Login unavailable", 503)
 		return
 	}
@@ -295,13 +296,26 @@ func (p *ProxyServer) handleDomainCallback(w http.ResponseWriter, r *http.Reques
 // Wildcard apps always require a tunn browser account. The namespace and
 // reserved name belong to the publisher UUID; guests require an explicit live
 // sharing permission even if the publisher selected public mode.
+func (p *ProxyServer) appLoginRequired(w http.ResponseWriter, r *http.Request) {
+	mode, accept := r.Header.Get("Sec-Fetch-Mode"), r.Header.Get("Accept")
+	if (mode != "" && mode != "navigate") || !strings.Contains(strings.ToLower(accept), "text/html") {
+		w.Header().Set("Tunn-Auth", "login")
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":"login required"}`))
+		return
+	}
+	p.startDomainSSO(w, r)
+}
+
 func (p *ProxyServer) authorizeDomainApp(w http.ResponseWriter, r *http.Request, owner *storage.Account, tunnel *TunnelConnection) (jwt.MapClaims, bool) {
 	if secret, explicit, malformed := appCredential(r); explicit {
 		return p.authorizeAppDevice(w, r, owner, tunnel, secret, malformed)
 	}
 	session, ok := p.accountSession(r)
 	if !ok {
-		p.startDomainSSO(w, r)
+		p.appLoginRequired(w, r)
 		return nil, false
 	}
 	check, stop := appAuthorityContext(r)
@@ -309,7 +323,7 @@ func (p *ProxyServer) authorizeDomainApp(w http.ResponseWriter, r *http.Request,
 	stop()
 	if status == http.StatusUnauthorized {
 		p.clearBrowserSessionCookie(w, r)
-		p.startDomainSSO(w, r)
+		p.appLoginRequired(w, r)
 		return nil, false
 	}
 	if status != http.StatusOK {
@@ -320,6 +334,24 @@ func (p *ProxyServer) authorizeDomainApp(w http.ResponseWriter, r *http.Request,
 		}
 		p.writeAuthError(w, r, http.StatusText(status), status, "Ask the app owner to share access, or sign in with a different account.")
 		return nil, false
+	}
+	// Renew only after host binding and live authority have both succeeded. Keep
+	// the original epoch even if logout races this response.
+	issued, iok := session["iat"].(float64)
+	expires, eok := session["exp"].(float64)
+	_, replay := r.Context().Value(inspectorReplayKey{}).(*inspectorReplay)
+	if p.customerHost(r.Host) && !replay && iok && eok && expires > issued && float64(time.Now().Unix()) > (issued+expires)/2 {
+		renewed := make(jwt.MapClaims, len(session)+1)
+		for key, value := range session {
+			renewed[key] = value
+		}
+		if _, ok := renewed["session_epoch"]; !ok {
+			renewed["session_epoch"] = ""
+		}
+		if err := p.signedSession(w, renewed, appCookie, "", appSessionLifetime); err != nil {
+			http.Error(w, "Login unavailable", http.StatusServiceUnavailable)
+			return nil, false
+		}
 	}
 	session["account_id"] = account.ID
 	return session, true

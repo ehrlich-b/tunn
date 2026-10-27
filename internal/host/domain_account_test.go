@@ -36,7 +36,7 @@ func TestDomainAccountCompleteProviderLogin(t *testing.T) {
 				p, tunnel, _ := appProxyFixture(t)
 				handler := p.createHandler()
 				initial := httptest.NewRecorder()
-				handler.ServeHTTP(initial, httptest.NewRequest("GET", "https://"+appHost+"/report?q=1", nil))
+				handler.ServeHTTP(initial, appNavigationRequest("GET", "https://"+appHost+"/report?q=1", nil))
 				login, nonce := initial.Header().Get("Location"), initial.Result().Cookies()[0]
 				var central *http.Cookie
 				switch provider {
@@ -95,7 +95,7 @@ func TestDomainAccountCompleteProviderLogin(t *testing.T) {
 				if callback.Code != 302 || callback.Header().Get("Location") != "/report?q=1" {
 					t.Fatal("app callback", callback.Code, callback.Body)
 				}
-				request = httptest.NewRequest("GET", "https://"+appHost+"/report?q=1", nil)
+				request = appNavigationRequest("GET", "https://"+appHost+"/report?q=1", nil)
 				for _, c := range callback.Result().Cookies() {
 					if c.Name == appCookie {
 						request.AddCookie(c)
@@ -123,6 +123,7 @@ func TestDomainAccountCompleteProviderLogin(t *testing.T) {
 
 func appOpenWithCookie(p *ProxyServer, cookie *http.Cookie) *httptest.ResponseRecorder {
 	r := httptest.NewRequest("GET", "https://"+appHost+"/", nil)
+	r.Header.Set("Accept", "text/html")
 	r.AddCookie(cookie)
 	w := httptest.NewRecorder()
 	p.createHandler().ServeHTTP(w, r)

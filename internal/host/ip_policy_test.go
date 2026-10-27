@@ -349,7 +349,7 @@ func TestIPPolicyDomainAppAndCallbackBeforeAuthentication(t *testing.T) {
 		}
 	}
 	for _, authenticated := range []bool{false, true} {
-		r := httptest.NewRequest("GET", "https://"+appHost+"/report", nil)
+		r := appNavigationRequest("GET", "https://"+appHost+"/report", nil)
 		r.RemoteAddr = "192.0.2.1:1234"
 		want := 302
 		if authenticated {

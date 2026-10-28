@@ -1,14 +1,18 @@
 package host
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/ehrlich-b/tunn/internal/common"
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
 	"github.com/golang-jwt/jwt/v4"
 )
@@ -178,17 +182,24 @@ func TestAppSessionIdleAndPolling(t *testing.T) {
 	p.now = func() time.Time { return now }
 	legacy := appSessionCookie(t, p, appOwnerEmail, "github", true, appHost)
 	claims, _ := p.parseDomainToken(legacy.Value, "session")
+	delete(claims, "auth_iat")
+	claims["exp"] = now.Add(12 * time.Hour).Unix()
+	raw, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(p.getJWTSigningKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy.Value = raw
 	w := httptest.NewRecorder()
 	if err := p.signAppSession(w, claims); err != nil {
 		t.Fatal(err)
 	}
 	fresh := w.Result().Cookies()[0]
-	now = now.Add(70 * time.Minute)
+	now = now.Add(12*time.Hour + time.Minute)
 	if got := appOpenWithCookie(p, legacy).Code; got != 302 {
-		t.Fatalf("legacy after 70 minutes: %d", got)
+		t.Fatalf("legacy after 12 hours: %d", got)
 	}
 	if got := appOpenWithCookie(p, fresh).Code; got != 200 {
-		t.Fatalf("new session after 70 minutes: %d", got)
+		t.Fatalf("new session after 12 hours: %d", got)
 	}
 	for i := 0; i < 36; i++ {
 		now = now.Add(5 * time.Minute)
@@ -227,6 +238,268 @@ func TestAppRenewalExcludedFromPublicUpstream(t *testing.T) {
 	for _, c := range w.Result().Cookies() {
 		if c.Name == appCookie {
 			t.Fatalf("public response carried session: %v", c)
+		}
+	}
+}
+
+func TestAppSessionExactBoundariesAndBaseMigration(t *testing.T) {
+	p, _, _ := appProxyFixture(t)
+	start := time.Now().Truncate(time.Second)
+	now := start
+	p.now = func() time.Time { return now }
+	// The base release used a 12-hour app cookie with iat but no auth_iat.
+	legacy := appSessionCookie(t, p, appOwnerEmail, "github", true, appHost)
+	claims, _ := p.parseDomainToken(legacy.Value, "session")
+	delete(claims, "auth_iat")
+	claims["exp"] = start.Add(12 * time.Hour).Unix()
+	raw, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(p.getJWTSigningKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy.Value = raw
+	for _, tc := range []struct {
+		age   time.Duration
+		renew bool
+	}{{10*time.Minute - time.Second, false}, {10 * time.Minute, true}} {
+		now = start.Add(tc.age)
+		out := appOpenWithCookie(p, legacy)
+		if out.Code != 200 {
+			t.Fatalf("age %v: status %d", tc.age, out.Code)
+		}
+		var renewed *http.Cookie
+		for _, c := range out.Result().Cookies() {
+			if c.Name == appCookie && c.MaxAge > 0 {
+				renewed = c
+			}
+		}
+		if (renewed != nil) != tc.renew {
+			t.Fatalf("age %v: renewal %v", tc.age, renewed)
+		}
+		if renewed != nil {
+			c, ok := p.parseDomainToken(renewed.Value, "session")
+			if !ok || appAuthIAT(c) != start.Unix() {
+				t.Fatalf("migration: %v", c)
+			}
+		}
+	}
+	now = start
+	w := httptest.NewRecorder()
+	if err := p.signAppSession(w, claims); err != nil {
+		t.Fatal(err)
+	}
+	fresh := w.Result().Cookies()[0]
+	now = start.Add(24*time.Hour - time.Second)
+	if got := appOpenWithCookie(p, fresh).Code; got != 200 {
+		t.Fatalf("before idle: %d", got)
+	}
+	now = start.Add(24 * time.Hour)
+	if got := appOpenWithCookie(p, fresh).Code; got != 302 {
+		t.Fatalf("at idle: %d", got)
+	}
+	// A renewal just before the cap must not extend beyond it.
+	now = start.Add(authCookieLifetime - time.Second)
+	w = httptest.NewRecorder()
+	if err := p.signAppSession(w, claims); err != nil {
+		t.Fatal(err)
+	}
+	capped := w.Result().Cookies()[0]
+	if capped.MaxAge != 1 {
+		t.Fatalf("remaining cap: %d", capped.MaxAge)
+	}
+	if got := appOpenWithCookie(p, capped).Code; got != 200 {
+		t.Fatalf("before cap: %d", got)
+	}
+	now = start.Add(authCookieLifetime)
+	if got := appOpenWithCookie(p, capped).Code; got != 302 {
+		t.Fatalf("at cap: %d", got)
+	}
+}
+
+func TestLegacyHandoffMigration(t *testing.T) {
+	p, _, _ := appProxyFixture(t)
+	now := time.Now().Truncate(time.Second)
+	p.now = func() time.Time { return now }
+	platform := appSessionCookie(t, p, appOwnerEmail, "github", true, "")
+	nav := httptest.NewRequest("GET", "https://"+appHost+"/", nil)
+	init := httptest.NewRecorder()
+	p.startDomainSSO(init, nav)
+	login := httptest.NewRequest("GET", init.Header().Get("Location"), nil)
+	login.AddCookie(platform)
+	out := httptest.NewRecorder()
+	p.handleDomainLogin(out, login)
+	dest, err := url.Parse(out.Header().Get("Location"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	claims, ok := p.parseDomainToken(dest.Query().Get("token"), "domain_handoff")
+	if !ok {
+		t.Fatal("handoff")
+	}
+	// The base handoff omitted both timestamps and expired after one minute.
+	delete(claims, "iat")
+	delete(claims, "auth_iat")
+	raw, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(p.getJWTSigningKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := dest.Query()
+	q.Set("token", raw)
+	dest.RawQuery = q.Encode()
+	callback := httptest.NewRequest("GET", dest.String(), nil)
+	for _, c := range init.Result().Cookies() {
+		callback.AddCookie(c)
+	}
+	complete := httptest.NewRecorder()
+	p.handleDomainCallback(complete, callback)
+	if complete.Code != 302 {
+		t.Fatalf("legacy callback: %d %s", complete.Code, complete.Body)
+	}
+	for _, c := range complete.Result().Cookies() {
+		if c.Name == appCookie {
+			got, ok := p.parseDomainToken(c.Value, "session")
+			if !ok || appAuthIAT(got) != now.Unix() {
+				t.Fatalf("migrated: %v", got)
+			}
+			return
+		}
+	}
+	t.Fatal("missing migrated app cookie")
+}
+
+func TestRenewalRepeatedCacheControl(t *testing.T) {
+	h := http.Header{}
+	h.Add("Cache-Control", "private, max-age=10")
+	h.Add("Cache-Control", "s-MaXaGe=30")
+	if responseAllowsAppRenewal(h, http.StatusOK) {
+		t.Fatal("shared cache directive in second field")
+	}
+	h.Del("Cache-Control")
+	h.Add("Cache-Control", "private")
+	h.Add("Cache-Control", "no-store")
+	if !responseAllowsAppRenewal(h, http.StatusNotModified) {
+		t.Fatal("private 304 should allow renewal")
+	}
+	if responseAllowsAppRenewal(h, http.StatusSwitchingProtocols) {
+		t.Fatal("websocket must not renew")
+	}
+}
+
+func TestAppRenewalBufferedAndStreamingResponses(t *testing.T) {
+	for _, streaming := range []bool{false, true} {
+		for _, status := range []int{200, 304} {
+			for _, shared := range []bool{false, true} {
+				name := fmt.Sprintf("stream=%t/status=%d/shared=%t", streaming, status, shared)
+				t.Run(name, func(t *testing.T) {
+					p, tunnel, _ := appProxyFixture(t)
+					now := time.Now().Truncate(time.Second)
+					p.now = func() time.Time { return now }
+					cookie := appSessionCookie(t, p, appOwnerEmail, "github", true, appHost)
+					now = now.Add(10 * time.Minute)
+					fields := []*pb.HttpHeader{{Name: "Cache-Control", Value: "private"}, {Name: "Set-Cookie", Value: "app_pref=blue; Path=/"}}
+					if shared {
+						fields = append(fields, &pb.HttpHeader{Name: "cache-control", Value: "s-MaXaGe=60"})
+					} else {
+						fields = append(fields, &pb.HttpHeader{Name: "cache-control", Value: "no-store"})
+					}
+					if streaming {
+						tunnel.Capabilities = map[string]bool{common.CapabilityConnectionStreamV1: true, common.CapabilityHTTPStreamV1: true}
+						tunnel.pendingStreams = make(map[string]*pendingConnection)
+					}
+					tunnel.Stream.(*meteringFixtureStream).hook = func(msg *pb.TunnelMessage) error {
+						if req := msg.GetHttpRequest(); req != nil {
+							tunnel.pendingMu.RLock()
+							ch := tunnel.pendingRequests[req.ConnectionId]
+							tunnel.pendingMu.RUnlock()
+							ch <- &pb.HttpResponse{ConnectionId: req.ConnectionId, StatusCode: int32(status), HeaderFields: fields}
+						}
+						if half := msg.GetConnectionHalfClose(); half != nil {
+							tunnel.routeConnectionMessage(&pb.TunnelMessage{Message: &pb.TunnelMessage_ConnectionAccept{ConnectionAccept: &pb.ConnectionAccept{ConnectionId: half.ConnectionId, Success: true, HttpResponse: &pb.HttpResponseHead{StatusCode: int32(status), HeaderFields: fields}}}})
+							tunnel.routeConnectionMessage(&pb.TunnelMessage{Message: &pb.TunnelMessage_ConnectionHalfClose{ConnectionHalfClose: &pb.ConnectionHalfClose{ConnectionId: half.ConnectionId}}})
+						}
+						return nil
+					}
+					out := appOpenWithCookie(p, cookie)
+					if out.Code != status {
+						t.Fatalf("status %d: %s", out.Code, out.Body)
+					}
+					app, renewed := false, false
+					for _, c := range out.Result().Cookies() {
+						if c.Name == "app_pref" && c.Value == "blue" {
+							app = true
+						}
+						if c.Name == appCookie && c.MaxAge > 0 {
+							renewed = true
+						}
+					}
+					if !app || renewed == shared {
+						t.Fatalf("application cookie=%v renewal=%v headers=%v", app, renewed, out.Header())
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestAppRenewalExcludedRequests(t *testing.T) {
+	p, _, _ := appProxyFixture(t)
+	now := time.Now().Truncate(time.Second)
+	p.now = func() time.Time { return now }
+	cookie := appSessionCookie(t, p, appOwnerEmail, "github", true, appHost)
+	claims, _ := p.parseDomainToken(cookie.Value, "session")
+	now = now.Add(11 * time.Minute)
+	for _, tc := range []struct {
+		name, path, authorization string
+		websocket                 bool
+	}{
+		{"mcp", "/mcp", "", false},
+		{"grant", "/", "Bearer tunn_gr_invalid", false},
+		{"mcp-bearer", "/", "Bearer tunn_mcp_invalid", false},
+		{"websocket", "/", "", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := httptest.NewRequest("GET", "https://"+appHost+tc.path, nil)
+			r.AddCookie(cookie)
+			if tc.authorization != "" {
+				r.Header.Set("Authorization", tc.authorization)
+			}
+			if tc.websocket {
+				r.Header.Set("Connection", "Upgrade")
+				r.Header.Set("Upgrade", "websocket")
+			}
+			w := httptest.NewRecorder()
+			p.createHandler().ServeHTTP(w, r)
+			for _, c := range w.Result().Cookies() {
+				if c.Name == appCookie && c.MaxAge > 0 {
+					t.Fatalf("unexpected renewal: %v", w.Header())
+				}
+			}
+		})
+	}
+	r := httptest.NewRequest("GET", "https://"+appHost+"/", nil)
+	r = r.WithContext(context.WithValue(r.Context(), inspectorReplayKey{}, &inspectorReplay{}))
+	if p.appRenewalCookie(r, claims) != nil {
+		t.Fatal("inspector replay renewed the browser cookie")
+	}
+}
+
+func TestAppDeviceDoesNotRenewBrowserCookie(t *testing.T) {
+	f := newAppDeviceFixture(t)
+	_, secret := f.enroll(t, f.cookie)
+	now := time.Now().Truncate(time.Second)
+	f.p.now = func() time.Time { return now }
+	browser := appSessionCookie(t, f.p, appDeviceTestEmail, "github", true, appDeviceTestHost)
+	now = now.Add(11 * time.Minute)
+	r := httptest.NewRequest("GET", "https://"+appDeviceTestHost+"/", nil)
+	r.AddCookie(browser)
+	r.Header.Set("Tunn-Authorization", "Bearer "+secret)
+	w := httptest.NewRecorder()
+	f.p.createHandler().ServeHTTP(w, r)
+	if w.Code != 200 {
+		t.Fatalf("device: %d %s", w.Code, w.Body)
+	}
+	for _, c := range w.Result().Cookies() {
+		if c.Name == appCookie && c.MaxAge > 0 {
+			t.Fatal("device request renewed browser cookie")
 		}
 	}
 }

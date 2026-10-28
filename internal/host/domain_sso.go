@@ -43,6 +43,13 @@ func (p *ProxyServer) signedSession(w http.ResponseWriter, claims jwt.MapClaims,
 	}
 	claims["type"] = "session"
 	now := p.currentTime()
+	// The platform issuers without a carried timestamp are provider sign-ins.
+	// Reissues must explicitly carry the original authentication time.
+	if name == authCookieName {
+		if _, carried := claims["auth_iat"]; !carried {
+			claims["auth_iat"] = now.Unix()
+		}
+	}
 	claims["iat"] = now.Unix()
 	claims["exp"] = now.Add(lifetime).Unix()
 	raw, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(p.getJWTSigningKey())
@@ -272,7 +279,7 @@ func (p *ProxyServer) handleDomainLogin(w http.ResponseWriter, r *http.Request) 
 		target := "https://" + p.loginAuthority() + r.URL.RequestURI()
 		http.Redirect(w, r, "/auth/login?return_to="+url.QueryEscape(target), 302)
 	}
-	if !ok {
+	if !ok || appAuthIAT(session) <= 0 || p.currentTime().Unix() >= appAuthIAT(session)+int64(authCookieLifetime/time.Second) {
 		signedOut()
 		return
 	}
@@ -289,7 +296,7 @@ func (p *ProxyServer) handleDomainLogin(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "Access denied", 403)
 		return
 	}
-	handoff := jwt.MapClaims{"type": "domain_handoff", "session_epoch": browserSessionEpoch(session), "aud": host, "nonce": nonce, "path": path, "account_id": account.ID, "email": session["email"], "provider": session["provider"], "email_verified": true, "google_authoritative": session["google_authoritative"], "issuer": session["issuer"], "auth_iat": session["iat"], "iat": p.currentTime().Unix(), "exp": p.currentTime().Add(time.Minute).Unix()}
+	handoff := jwt.MapClaims{"type": "domain_handoff", "session_epoch": browserSessionEpoch(session), "aud": host, "nonce": nonce, "path": path, "account_id": account.ID, "email": session["email"], "provider": session["provider"], "email_verified": true, "google_authoritative": session["google_authoritative"], "issuer": session["issuer"], "auth_iat": appAuthIAT(session), "iat": p.currentTime().Unix(), "exp": p.currentTime().Add(time.Minute).Unix()}
 	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, handoff).SignedString(p.getJWTSigningKey())
 	if err != nil {
 		http.Error(w, "Login unavailable", 503)

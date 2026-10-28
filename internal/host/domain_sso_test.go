@@ -122,7 +122,7 @@ func TestDomainAppAccountOwnerAndSignedIdentity(t *testing.T) {
 		{appOwnerEmail, "github", true, 200}, {appOwnerEmail, "magic_link", true, 200}, {"other@gmail.com", "github", true, 403}, {"other@example.com", "magic_link", true, 403}, {appOwnerEmail, "google", false, 302},
 	} {
 		headers = nil
-		r := httptest.NewRequest("GET", "https://dashboard.apps.example.com/", nil)
+		r := appNavigationRequest("GET", "https://dashboard.apps.example.com/", nil)
 		r.AddCookie(appSessionCookie(t, p, tc.email, tc.provider, tc.verified, "dashboard.apps.example.com"))
 		r.Header.Set(identity.Header, "spoof")
 		r.Header.Set("Connection", "X-Tunn-Identity, x-tunn-user-email")
@@ -162,7 +162,7 @@ func TestDomainAppAccountOwnerAndSignedIdentity(t *testing.T) {
 		}
 	}
 	for _, token := range []string{relayJWT(t, p, appOwnerEmail), "tunn_gr_fake", "tunn_mcp_fake"} {
-		r := httptest.NewRequest("GET", "https://dashboard.apps.example.com/", nil)
+		r := appNavigationRequest("GET", "https://dashboard.apps.example.com/", nil)
 		r.Header.Set("Tunn-Authorization", "Bearer "+token)
 		w := httptest.NewRecorder()
 		p.createHandler().ServeHTTP(w, r)
@@ -170,7 +170,7 @@ func TestDomainAppAccountOwnerAndSignedIdentity(t *testing.T) {
 			t.Fatal("bearer bypassed account gate", w.Code)
 		}
 	}
-	r := httptest.NewRequest("GET", "https://dashboard.apps.example.com/", nil)
+	r := appNavigationRequest("GET", "https://dashboard.apps.example.com/", nil)
 	r.AddCookie(appSessionCookie(t, p, appOwnerEmail, "google", true, "other.apps.example.com"))
 	w := httptest.NewRecorder()
 	p.createHandler().ServeHTTP(w, r)
@@ -194,7 +194,7 @@ func TestDomainSSOBrowserBindingReplayAndRepeatApp(t *testing.T) {
 	p, _, _ := appProxyFixture(t)
 	handler := p.createHandler()
 	initial := httptest.NewRecorder()
-	handler.ServeHTTP(initial, httptest.NewRequest("GET", "https://dashboard.apps.example.com/report?q=1", nil))
+	handler.ServeHTTP(initial, appNavigationRequest("GET", "https://dashboard.apps.example.com/report?q=1", nil))
 	if initial.Code != 302 {
 		t.Fatal(initial.Code)
 	}
@@ -244,6 +244,20 @@ func TestDomainSSOBrowserBindingReplayAndRepeatApp(t *testing.T) {
 			t.Fatalf("%s=%d", bad, out.Code)
 		}
 	}
+	// A background request from another tab must not overwrite the binding.
+	background := httptest.NewRequest("GET", "https://dashboard.apps.example.com/poll", nil)
+	background.Header.Set("Sec-Fetch-Mode", "cors")
+	background.AddCookie(nonce)
+	bg := httptest.NewRecorder()
+	handler.ServeHTTP(bg, background)
+	if bg.Code != 401 || bg.Header().Get("Location") != "" {
+		t.Fatalf("background: %d %v", bg.Code, bg.Header())
+	}
+	for _, c := range bg.Result().Cookies() {
+		if c.Name == appNonceCookie {
+			t.Fatal("background request changed nonce")
+		}
+	}
 	r = httptest.NewRequest("GET", callback, nil)
 	r.AddCookie(nonce)
 	w = httptest.NewRecorder()
@@ -265,7 +279,7 @@ func TestDomainSSOBrowserBindingReplayAndRepeatApp(t *testing.T) {
 	if repeat.Code != 400 {
 		t.Fatal("handoff replay accepted")
 	}
-	r = httptest.NewRequest("GET", "https://dashboard.apps.example.com/report?q=1", nil)
+	r = appNavigationRequest("GET", "https://dashboard.apps.example.com/report?q=1", nil)
 	r.AddCookie(session)
 	w = httptest.NewRecorder()
 	handler.ServeHTTP(w, r)

@@ -207,7 +207,7 @@ func (f *appDeviceFixture) enroll(t *testing.T, cookie *http.Cookie) (appDevice,
 	return out.Device, out.Secret
 }
 func appDeviceOpen(p *ProxyServer, host, token string, cookie *http.Cookie) *httptest.ResponseRecorder {
-	r := httptest.NewRequest("GET", "https://"+host+"/", nil)
+	r := appNavigationRequest("GET", "https://"+host+"/", nil)
 	if token != "" {
 		r.Header.Set("Tunn-Authorization", "Bearer "+token)
 	}

@@ -365,7 +365,9 @@ func TestTwoDomainLoginJourney(t *testing.T) {
 	browse := func(browser *http.Client, target string) (int, string) {
 		t.Helper()
 		for hop := 0; hop < 12; hop++ {
-			resp, err := browser.Get(target)
+			req, _ := http.NewRequest("GET", target, nil)
+			req.Header.Set("Accept", "text/html")
+			resp, err := browser.Do(req)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -490,7 +492,9 @@ func TestTwoDomainLoginJourney(t *testing.T) {
 		if !found {
 			t.Fatal("logout removed an app cookie instead of revoking it")
 		}
-		resp, err = owner.Get(target.String())
+		req, _ := http.NewRequest("GET", target.String(), nil)
+		req.Header.Set("Accept", "text/html")
+		resp, err = owner.Do(req)
 		if err != nil {
 			t.Fatal(err)
 		}

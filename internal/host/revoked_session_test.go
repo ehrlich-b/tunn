@@ -148,7 +148,7 @@ func TestRevokedAppSessionRestartsSignIn(t *testing.T) {
 	app := appSessionCookie(t, p, appOwnerEmail, "github", true, "dashboard.apps.example.com")
 	handler := p.createHandler()
 	call := func(target string, cookie *http.Cookie) *httptest.ResponseRecorder {
-		r := httptest.NewRequest("GET", target, nil)
+		r := appNavigationRequest("GET", target, nil)
 		if cookie != nil {
 			r.AddCookie(cookie)
 		}
@@ -169,6 +169,13 @@ func TestRevokedAppSessionRestartsSignIn(t *testing.T) {
 		r.AddCookie(app)
 		stale := httptest.NewRecorder()
 		handler.ServeHTTP(stale, r)
+		if accept == "application/json" {
+			if stale.Code != 401 || stale.Header().Get("Tunn-Auth") != "login" {
+				t.Fatal("stale fetch did not require login", stale.Code)
+			}
+			requireSessionCleared(t, stale, appCookie, "")
+			continue
+		}
 		if stale.Code != none.Code {
 			t.Fatalf("app stale status %d != %d", stale.Code, none.Code)
 		}

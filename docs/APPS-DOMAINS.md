@@ -200,5 +200,24 @@ New requests and idle streaming/WebSocket connections recheck live account and
 sharing authority. Removing a person, suspending an account, removing a mailbox,
 or losing namespace/app-name authority closes idle connections within the
 designed five-second bound. Platform logout does not invalidate other app cookies;
-they expire after one hour, or revoke through live authority/key changes. Existing
+they have a 24-hour idle lifetime, renewed after ten minutes of activity, with
+a seven-day absolute cap from provider sign-in; live authority/key changes can
+revoke them sooner. For older platform sessions without a recorded provider
+sign-in time, migration uses the cookie issue time; any earlier sign-in time
+cannot be recovered. Existing
 EdDSA assertions can remain valid for their two-minute lifetime.
+
+Background requests after an app session expires receive HTTP 401 with
+`Tunn-Auth: login` and a `login_required` JSON response. Apps must integrate
+recovery themselves: on this specific header and status, navigate the top-level
+page to start sign-in again. Do not reload for an ordinary upstream 401. For
+example:
+
+```js
+const response = await fetch("/api/status");
+if (response.status === 401 && response.headers.get("Tunn-Auth") === "login") {
+  window.location.reload();
+}
+```
+
+This response does not automatically navigate arbitrary applications.

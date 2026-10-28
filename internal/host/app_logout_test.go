@@ -75,7 +75,7 @@ func TestAppLogoutLiveAuthorityAndHandoff(t *testing.T) {
 			tunnel.AllowedEmails = []string{"guest@example.com"}
 			handler := p.createHandler()
 			open := func(cookie *http.Cookie) int {
-				r := httptest.NewRequest("GET", "https://dashboard.apps.example.com/", nil)
+				r := appNavigationRequest("GET", "https://dashboard.apps.example.com/", nil)
 				r.AddCookie(cookie)
 				w := httptest.NewRecorder()
 				handler.ServeHTTP(w, r)
@@ -86,7 +86,7 @@ func TestAppLogoutLiveAuthorityAndHandoff(t *testing.T) {
 			}
 			// Capture an unconsumed handoff before sign-out.
 			start := httptest.NewRecorder()
-			handler.ServeHTTP(start, httptest.NewRequest("GET", "https://dashboard.apps.example.com/report", nil))
+			handler.ServeHTTP(start, appNavigationRequest("GET", "https://dashboard.apps.example.com/report", nil))
 			r := httptest.NewRequest("GET", start.Header().Get("Location"), nil)
 			r.AddCookie(platform)
 			handoff := httptest.NewRecorder()
@@ -105,7 +105,7 @@ func TestAppLogoutLiveAuthorityAndHandoff(t *testing.T) {
 				t.Fatal("unconfirmed logout revoked access")
 			}
 			// A live idle app stream is checked by the same epoch enforcement.
-			watch := httptest.NewRequest("GET", "https://dashboard.apps.example.com/", nil)
+			watch := appNavigationRequest("GET", "https://dashboard.apps.example.com/", nil)
 			watch.AddCookie(old)
 			watch = watch.WithContext(context.WithValue(watch.Context(), domainOwnerKey{}, tunnel.AccountID))
 			watched, stop := p.watchAppPermission(watch, tunnel)
@@ -185,7 +185,7 @@ func TestAppLogoutAuthorityFailureDoesNotClaimSuccess(t *testing.T) {
 		}
 	}
 	db.Close()
-	r := httptest.NewRequest("GET", "https://dashboard.apps.example.com/", nil)
+	r := appNavigationRequest("GET", "https://dashboard.apps.example.com/", nil)
 	r.AddCookie(old)
 	w = httptest.NewRecorder()
 	p.createHandler().ServeHTTP(w, r)
@@ -232,7 +232,7 @@ func TestAppLogoutCannotBeUndoneByEmailSessionRenewal(t *testing.T) {
 				p.storage = authority
 				handler := p.createHandler()
 				open := func(cookie *http.Cookie) int {
-					r := httptest.NewRequest("GET", "https://dashboard.apps.example.com/", nil)
+					r := appNavigationRequest("GET", "https://dashboard.apps.example.com/", nil)
 					r.AddCookie(cookie)
 					w := httptest.NewRecorder()
 					handler.ServeHTTP(w, r)
@@ -286,7 +286,7 @@ func TestAppLogoutCannotBeUndoneByEmailSessionRenewal(t *testing.T) {
 					}
 					// Try the actual app SSO route with the late response's cookie.
 					start := httptest.NewRecorder()
-					handler.ServeHTTP(start, httptest.NewRequest("GET", "https://dashboard.apps.example.com/report", nil))
+					handler.ServeHTTP(start, appNavigationRequest("GET", "https://dashboard.apps.example.com/report", nil))
 					if start.Code != 302 {
 						t.Fatalf("start SSO: %d", start.Code)
 					}

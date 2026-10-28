@@ -65,8 +65,9 @@ already linked mailbox is account authentication under tunn's existing rules.
 
 The platform signs a 60-second hostname/path/nonce handoff. Its callback requires
 the secure host nonce, live namespace, live account/email binding and durable
-one-use nonce consumption. A secure, HTTP-only, host-only one-hour app cookie is
-bound to the exact hostname; the seven-day platform cookie never reaches apps.
+one-use nonce consumption. A secure, HTTP-only, host-only app cookie is bound to the exact hostname.
+It renews after ten minutes of activity, with a 24-hour idle lifetime and an
+absolute seven-day limit from provider sign-in; the platform cookie never reaches apps.
 Identity headers are stripped, then EdDSA assertions carry canonical account ID
 in both `sub` and `account_id`, verified email and provider, exact hostname `aud`,
 issuer, `kid`, and a two-minute expiry; existing public JWKS/key rotation remain.
@@ -76,7 +77,7 @@ sharing. Idle SSE/WebSocket requests poll those authorities and session expiry
 every second with a two-second check deadline and close on revocation/outage
 (designed bound five seconds). Account suspension, email removal, sharing removal
 and namespace/reservation loss revoke access. Ordinary logout clears its platform
-cookie; it does not globally revoke existing app cookies. Their one-hour expiry,
+cookie; it does not globally revoke existing app cookies. Their idle and absolute expiry,
 authority changes, or visitor signing-key rotation provide the existing session
 revocation mechanisms. Apps validate assertions at ingress; assertions already
 issued remain cryptographically valid for at most two minutes.

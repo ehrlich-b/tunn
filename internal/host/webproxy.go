@@ -278,12 +278,18 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 	}
 
 	appEmail, appOwner := "", false
+	var renewalCookie *http.Cookie
 	if r.Context().Value(domainAppKey{}) == true {
 		appSession, allowed := p.authorizeDomainApp(w, r, account, tunnel)
 		if !allowed {
 			return nil
 		}
 		defer p.releaseAppDevice(r)
+		if _, explicit, _ := appCredential(r); !explicit && !common.IsWebSocketUpgrade(r.Header) && r.URL.Path != "/mcp" {
+			if token, _ := grantBearer(r); token == "" {
+				renewalCookie = p.appRenewalCookie(r, appSession)
+			}
+		}
 		appEmail, _ = appSession["email"].(string)
 		appID, _ := appSession["account_id"].(string)
 		appProvider, _ := appSession["provider"].(string)
@@ -666,6 +672,14 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 			session.recordError(cause, r.Context())
 			writeIngressError(w, cause)
 			return nil
+		}
+	}
+	if renewalCookie != nil {
+		meterWriter.beforeHeaders = func(h http.Header, status int) {
+			if !responseAllowsAppRenewal(h, status) {
+				return
+			}
+			h.Add("Set-Cookie", renewalCookie.String())
 		}
 	}
 	var proxyErr error
@@ -1185,4 +1199,20 @@ func isEmailBucketAllowed(userEmails []string, allowList []string) bool {
 		}
 	}
 	return false
+}
+
+// Never attach a personal cookie to a response intended for shared caches.
+func responseAllowsAppRenewal(h http.Header, status int) bool {
+	if status == http.StatusSwitchingProtocols {
+		return false
+	}
+	for _, value := range h.Values("Cache-Control") {
+		for _, directive := range strings.Split(value, ",") {
+			name := strings.ToLower(strings.TrimSpace(strings.SplitN(directive, "=", 2)[0]))
+			if name == "public" || name == "s-maxage" {
+				return false
+			}
+		}
+	}
+	return true
 }

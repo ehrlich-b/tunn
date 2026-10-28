@@ -316,6 +316,7 @@ type meterResponseWriter struct {
 	ctx                context.Context
 	status             int
 	started, bodyMeter bool
+	beforeHeaders      func(http.Header, int)
 }
 
 func (w *meterResponseWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
@@ -326,6 +327,9 @@ func (w *meterResponseWriter) WriteHeader(status int) {
 	}
 	if w.started {
 		return
+	}
+	if w.beforeHeaders != nil {
+		w.beforeHeaders(w.Header(), status)
 	}
 	w.status = status
 	w.started = true

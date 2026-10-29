@@ -166,10 +166,13 @@ func TestFaviconCustomDomainPrivate(t *testing.T) {
 		p.handleWebProxy(w, httptest.NewRequest("GET", "https://dashboard.apps.example.com/favicon.ico", nil))
 		want := 200
 		if disabled {
-			want = 302
+			want = http.StatusUnauthorized
 		}
 		if w.Code != want {
 			t.Fatalf("disabled=%v: %d %s", disabled, w.Code, w.Body.String())
+		}
+		if disabled && (w.Header().Get("Tunn-Auth") != "login" || !strings.Contains(w.Body.String(), `"error":"login_required"`)) {
+			t.Fatalf("disabled favicon must retain background login recovery: %v %s", w.Header(), w.Body.String())
 		}
 	}
 }

@@ -396,6 +396,12 @@ func (p *ProxyServer) writeStreamingHTTPResponse(
 		}
 	}()
 
+	// The generated icon is the complete response. Stop the upstream exchange
+	// now; its discarded body and any later close cannot affect delivery.
+	if icon, ok := w.(*faviconResponseWriter); ok && icon.replaced {
+		return nil
+	}
+
 	if !common.HTTPResponseHasBody(r.Method, int(head.StatusCode)) {
 		return nil
 	}

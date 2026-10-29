@@ -25,6 +25,8 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/crypto/bcrypt"
+
 	"github.com/ehrlich-b/tunn/internal/metering"
 	"github.com/ehrlich-b/tunn/internal/store"
 	"github.com/ehrlich-b/tunn/internal/trafficpolicy"
@@ -107,6 +109,50 @@ func TestPolicyRelayAfterAuthBeforeBufferedAndStreamingOrigin(t *testing.T) {
 				t.Fatal("rate-rejected request reached origin")
 			}
 		})
+	}
+}
+
+func TestBasicPolicyPublicEndpoint(t *testing.T) {
+	for _, streaming := range []bool{false, true} {
+		p, tunnel, ledger, stream := policyRelay(t, streaming)
+		out, err := ledger.Sharing(context.Background(), &meterpb.SharingRequest{Operation: "register", Owner: tunnel.AccountID, Endpoint: tunnel.TunnelID, Mode: "public"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		tunnel.ResourceID, tunnel.ExposureMode = out.Resources[0].Id, "public"
+		tunnel.AllowedEmails = nil
+		tunnel.updateAccessTokenDigest(nil)
+		hash, err := bcrypt.GenerateFromPassword([]byte("fixture password"), 10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, _ := json.Marshal(trafficpolicy.Policy{BasicAuth: &trafficpolicy.BasicAuth{Username: "demo", PasswordHash: string(hash)}})
+		relayPolicy(t, p, tunnel, string(data))
+		for _, valid := range []bool{false, true} {
+			r := relayRequest("", "")
+			if valid {
+				r.SetBasicAuth("demo", "fixture password")
+			}
+			w := httptest.NewRecorder()
+			p.handleWebProxy(w, r)
+			want := 401
+			if valid {
+				want = 200
+			}
+			if w.Code != want {
+				t.Fatalf("streaming=%t valid=%t status=%d body=%s", streaming, valid, w.Code, w.Body)
+			}
+		}
+		stream.mu.Lock()
+		for _, msg := range stream.sentMsgs {
+			if req := msg.GetHttpRequest(); req != nil && req.Headers["Authorization"] != "" {
+				t.Fatal("Basic credential reached origin")
+			}
+			if open := msg.GetConnectionOpen(); open != nil && open.GetHttpRequest().GetHeaders()["Authorization"] != "" {
+				t.Fatal("Basic credential reached streamed origin")
+			}
+		}
+		stream.mu.Unlock()
 	}
 }
 
@@ -413,6 +459,62 @@ func TestPolicyLoopbackOwnerCLIToTLSRelayToRealOrigin(t *testing.T) {
 	if err = client.ExecutePolicy(ctx, "clear", "policy-loopback", nil, management, io.Discard); err != nil {
 		t.Fatal(err)
 	}
+	hash, err := bcrypt.GenerateFromPassword([]byte("correct horse battery staple"), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	basicPolicy := &trafficpolicy.Policy{BasicAuth: &trafficpolicy.BasicAuth{Username: "demo", PasswordHash: string(hash)}}
+	if err = client.ExecutePolicy(ctx, "set", "policy-loopback", basicPolicy, management, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		user, password string
+		duplicate      bool
+		want           int
+	}{
+		{"", "", false, 401}, {"demo", "wrong", false, 401}, {"wrong", "correct horse battery staple", false, 401},
+		{"demo", "correct horse battery staple", true, 401}, {"demo", "correct horse battery staple", false, 200},
+	} {
+		r, _ := http.NewRequest("GET", relay.URL+"/", nil)
+		r.Host = "policy-loopback.tunn.test"
+		r.Header.Set("Tunn-Authorization", "Bearer "+relayJWT(t, p, "owner@example.com"))
+		if tc.user != "" {
+			r.SetBasicAuth(tc.user, tc.password)
+		}
+		if tc.duplicate {
+			r.Header.Add("Authorization", "Basic ZGVtbzpiYWQ=")
+		}
+		response, err := hc.Do(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(response.Body)
+		_ = response.Body.Close()
+		if response.StatusCode != tc.want {
+			t.Fatalf("basic auth status=%d want=%d body=%s", response.StatusCode, tc.want, body)
+		}
+		if tc.want == 401 && response.Header.Get("WWW-Authenticate") == "" {
+			t.Fatal("missing Basic challenge")
+		}
+		if tc.want == 200 {
+			var echoed struct {
+				Headers http.Header
+				Body    string
+			}
+			if err := json.Unmarshal(body, &echoed); err != nil {
+				t.Fatal(err)
+			}
+			if echoed.Headers.Get("Authorization") != "" || echoed.Headers.Get("Tunn-Authorization") != "" {
+				t.Fatal("credential reached origin")
+			}
+		}
+	}
+	if hits.Load() != 2 {
+		t.Fatalf("Basic auth forwarded %d requests total", hits.Load())
+	}
+	if err = client.ExecutePolicy(ctx, "clear", "policy-loopback", nil, management, io.Discard); err != nil {
+		t.Fatal(err)
+	}
 	wsPolicy, err := trafficpolicy.Decode([]byte(`{"headers":{"rewrite":[{"name":"X-Policy","value":"ws-owner"}]},"rate_limits":{"per_ip":{"requests_per_minute":1,"burst":1}}}`))
 	if err != nil {
 		t.Fatal(err)
@@ -471,8 +573,8 @@ func TestPolicyLoopbackOwnerCLIToTLSRelayToRealOrigin(t *testing.T) {
 		t.Fatalf("second WS handshake=%d %s", res.StatusCode, body)
 	}
 	_ = ws.Close()
-	if hits.Load() != 2 {
-		t.Fatalf("HTTP+WS origin hits=%d want 2", hits.Load())
+	if hits.Load() != 3 {
+		t.Fatalf("HTTP+WS origin hits=%d want 3", hits.Load())
 	}
 }
 

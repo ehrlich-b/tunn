@@ -4,6 +4,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 func TestPolicyHeaderOperations(t *testing.T) {
@@ -26,6 +28,26 @@ func TestPolicyHeaderOperations(t *testing.T) {
 	}
 	if r.Header.Get("X-Rewrite") != "old" || r.Header["x-remove"][0] != "gone" {
 		t.Fatal("input request changed")
+	}
+}
+
+func TestBasicAuthPolicyValidation(t *testing.T) {
+	hash, err := bcrypt.GenerateFromPassword([]byte("fixture password"), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		user, hash string
+		valid      bool
+	}{
+		{"demo", string(hash), true}, {"", string(hash), false}, {"a:b", string(hash), false},
+		{"demo", "plaintext", false}, {"demo", "$2a$04$" + strings.Repeat("x", 53), false},
+		{"demo", "$2a$15$" + strings.Repeat("x", 53), false},
+	} {
+		err := (&Policy{BasicAuth: &BasicAuth{Username: tc.user, PasswordHash: tc.hash}}).Validate()
+		if (err == nil) != tc.valid {
+			t.Errorf("user=%q hash=%q error=%v", tc.user, tc.hash, err)
+		}
 	}
 }
 

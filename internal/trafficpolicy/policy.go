@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"strings"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 const MaxJSONBytes = 16 * 1024
@@ -34,6 +36,13 @@ type RateLimits struct {
 type Policy struct {
 	Headers    Headers    `json:"headers"`
 	RateLimits RateLimits `json:"rate_limits"`
+	BasicAuth  *BasicAuth `json:"basic_auth,omitempty"`
+}
+
+// BasicAuth stores a bcrypt verifier, never the plaintext password.
+type BasicAuth struct {
+	Username     string `json:"username"`
+	PasswordHash string `json:"password_hash"`
 }
 
 func Decode(data []byte) (*Policy, error) {
@@ -57,6 +66,15 @@ func Decode(data []byte) (*Policy, error) {
 }
 
 func (p *Policy) Validate() error {
+	if b := p.BasicAuth; b != nil {
+		if len(b.Username) == 0 || len(b.Username) > 128 || strings.ContainsAny(b.Username, ":\r\n\x00") {
+			return fmt.Errorf("invalid basic auth username")
+		}
+		cost, err := bcrypt.Cost([]byte(b.PasswordHash))
+		if err != nil || cost < 10 || cost > 14 || len(b.PasswordHash) != 60 {
+			return fmt.Errorf("basic auth password_hash must be a bcrypt hash with cost 10..14")
+		}
+	}
 	if len(p.Headers.Remove)+len(p.Headers.Rewrite)+len(p.Headers.Add) > 64 {
 		return fmt.Errorf("at most 64 header edits are allowed")
 	}

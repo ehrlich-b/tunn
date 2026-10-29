@@ -2,6 +2,7 @@ package host
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"io"
@@ -10,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/ehrlich-b/tunn/internal/metering"
 	"github.com/ehrlich-b/tunn/internal/trafficpolicy"
@@ -134,6 +137,21 @@ func (p *ProxyServer) applyEndpointPolicy(w http.ResponseWriter, r *http.Request
 	policy, err := trafficpolicy.Decode(out.PolicyJson)
 	if err != nil {
 		return fail("policy_unavailable")
+	}
+	if basic := policy.BasicAuth; basic != nil {
+		user, password, valid := r.BasicAuth()
+		// Compare the password even for a wrong username. Reject ambiguous headers.
+		passwordOK := bcrypt.CompareHashAndPassword([]byte(basic.PasswordHash), []byte(password)) == nil
+		if !valid || len(r.Header.Values("Authorization")) != 1 || subtle.ConstantTimeCompare([]byte(user), []byte(basic.Username)) != 1 || !passwordOK {
+			s.reason = "policy_basic_auth"
+			w.Header().Set("WWW-Authenticate", `Basic realm="tunn", charset="UTF-8"`)
+			w.Header().Set("Cache-Control", "no-store")
+			http.Error(w, "Authentication required", http.StatusUnauthorized)
+			return r, false
+		}
+		r = r.Clone(r.Context())
+		r.Header = r.Header.Clone()
+		r.Header.Del("Authorization")
 	}
 	// A connection-nominated application header must not discard an owner's
 	// configured field at the target's hop-by-hop sanitation boundary.

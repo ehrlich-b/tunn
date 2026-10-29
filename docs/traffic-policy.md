@@ -36,6 +36,39 @@ visitors and all consumer credentials. It does not identify visitor accounts or
 combine other endpoint names. Both buckets must admit the request atomically;
 a rejection consumes neither bucket.
 
+## Shared password at the edge
+
+For an account-managed HTTP endpoint, add `basic_auth` to the policy JSON:
+
+```json
+"basic_auth": {"username": "demo", "password_hash": "$2a$12$REPLACE_WITH_A_REAL_BCRYPT_HASH"}
+```
+
+Generate a bcrypt hash with cost 10 through 14 using a trusted password manager
+or `htpasswd -nBC 12 demo` (enter the password at its prompt). Copy only the
+hash after the colon into the JSON. Use a strong unique password; protect the
+policy file and hash, and distribute the password separately. The hash is stored
+and returned by the owner policy API. PUT replaces the complete policy; omit
+`basic_auth` to remove the password gate. Do not put the plaintext password in
+the policy, command line, or version control.
+
+Requests without the correct Basic credential receive 401 and a Basic challenge.
+The relay consumes `Authorization` before forwarding, so the origin cannot use
+that same header for its own credentials. For a private endpoint this gate is
+additional to tunn identity/sharing; a machine can send its tunn credential in
+`Tunn-Authorization` and its Basic credential in `Authorization`. Use a public
+HTTP endpoint when the shared password alone should grant access. Raw TCP is not
+covered. Existing IP, webhook, quota and rate checks still apply. Rate policy
+admission precedes the password check, so failed attempts consume rate tokens;
+configure a per-IP rate limit to bound guessing. Replay must supply the current
+credential again and is subject to the same gate. Active streams are checked on
+their initial request, not disconnected when this policy changes.
+
+Upgrade the policy authority and all publishing relays before enabling this
+field. Older relays reject an unknown policy field and fail closed; validate the
+upgrade with a disposable endpoint before relying on it. Self-hosted endpoints
+without an account-managed resource do not have an owner policy.
+
 `requests_per_minute` is the continuous refill rate, between 1 and 1,000,000.
 `burst` is total bucket capacity, between 1 and 10,000, and is initially full.
 For 60 RPM with burst 10, ten requests can arrive immediately; thereafter one

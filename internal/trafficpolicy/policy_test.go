@@ -43,6 +43,12 @@ func TestBasicAuthPolicyValidation(t *testing.T) {
 		{"demo", string(hash), true}, {"", string(hash), false}, {"a:b", string(hash), false},
 		{"demo", "plaintext", false}, {"demo", "$2a$04$" + strings.Repeat("x", 53), false},
 		{"demo", "$2a$15$" + strings.Repeat("x", 53), false},
+		{"tunn-app", string(hash), false},
+		{"demo", "$2a$10$" + strings.Repeat("!", 53), false},
+		{"demo", string(hash[:29]) + strings.Repeat("!", 31), false},
+		{"demo", "$2x$" + string(hash[4:]), false},
+		{"demo", string(hash[:6]) + "!" + string(hash[7:]), false},
+		{"demo", string(hash[:28]) + "B" + string(hash[29:]), false},
 	} {
 		err := (&Policy{BasicAuth: &BasicAuth{Username: tc.user, PasswordHash: tc.hash}}).Validate()
 		if (err == nil) != tc.valid {

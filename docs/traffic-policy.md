@@ -48,7 +48,8 @@ Generate a bcrypt hash with cost 10 through 14 using a trusted password manager
 or `htpasswd -nBC 12 demo` (enter the password at its prompt). Copy only the
 hash after the colon into the JSON. Use a strong unique password; protect the
 policy file and hash, and distribute the password separately. The hash is stored
-and returned by the owner policy API. PUT replaces the complete policy; omit
+and returned by the owner policy API. The username `tunn-app` is reserved.
+PUT replaces the complete policy; omit
 `basic_auth` to remove the password gate. Do not put the plaintext password in
 the policy, command line, or version control.
 
@@ -63,6 +64,8 @@ admission precedes the password check, so failed attempts consume rate tokens;
 configure a per-IP rate limit to bound guessing. Replay must supply the current
 credential again and is subject to the same gate. Active streams are checked on
 their initial request, not disconnected when this policy changes.
+When password verification is busy, the relay returns 503 with `Retry-After`;
+retry the request after the indicated delay.
 
 Upgrade the policy authority and all publishing relays before enabling this
 field. Older relays reject an unknown policy field and fail closed; validate the

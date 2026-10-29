@@ -3,6 +3,7 @@ package trafficpolicy
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -45,6 +46,27 @@ type BasicAuth struct {
 	PasswordHash string `json:"password_hash"`
 }
 
+var bcryptEncoding = base64.NewEncoding("./ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789").WithPadding(base64.NoPadding).Strict()
+
+// validBcryptHash validates the complete canonical verifier without doing an
+// expensive password comparison. bcrypt.Cost only parses the version and cost.
+func validBcryptHash(hash string) bool {
+	if len(hash) != 60 || (hash[:4] != "$2a$" && hash[:4] != "$2b$" && hash[:4] != "$2y$") || hash[6] != '$' {
+		return false
+	}
+	cost, err := bcrypt.Cost([]byte(hash))
+	if err != nil || cost < 10 || cost > 14 {
+		return false
+	}
+	for _, part := range []string{hash[7:29], hash[29:]} {
+		decoded, err := bcryptEncoding.DecodeString(part)
+		if err != nil || bcryptEncoding.EncodeToString(decoded) != part {
+			return false
+		}
+	}
+	return true
+}
+
 func Decode(data []byte) (*Policy, error) {
 	if len(data) > MaxJSONBytes || bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
 		return nil, fmt.Errorf("policy must be a JSON object of at most %d bytes", MaxJSONBytes)
@@ -67,11 +89,10 @@ func Decode(data []byte) (*Policy, error) {
 
 func (p *Policy) Validate() error {
 	if b := p.BasicAuth; b != nil {
-		if len(b.Username) == 0 || len(b.Username) > 128 || strings.ContainsAny(b.Username, ":\r\n\x00") {
+		if len(b.Username) == 0 || len(b.Username) > 128 || b.Username == "tunn-app" || strings.ContainsAny(b.Username, ":\r\n\x00") {
 			return fmt.Errorf("invalid basic auth username")
 		}
-		cost, err := bcrypt.Cost([]byte(b.PasswordHash))
-		if err != nil || cost < 10 || cost > 14 || len(b.PasswordHash) != 60 {
+		if !validBcryptHash(b.PasswordHash) {
 			return fmt.Errorf("basic auth password_hash must be a bcrypt hash with cost 10..14")
 		}
 	}

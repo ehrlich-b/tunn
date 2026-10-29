@@ -156,6 +156,44 @@ func TestBasicPolicyPublicEndpoint(t *testing.T) {
 	}
 }
 
+func TestBasicPolicyVerificationCapacity(t *testing.T) {
+	p, tunnel, _, _ := policyRelay(t, false)
+	hash, err := bcrypt.GenerateFromPassword([]byte("fixture password"), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, _ := json.Marshal(trafficpolicy.Policy{BasicAuth: &trafficpolicy.BasicAuth{Username: "demo", PasswordHash: string(hash)}})
+	relayPolicy(t, p, tunnel, string(data))
+	for i := 0; i < cap(basicAuthSlots); i++ {
+		basicAuthSlots <- struct{}{}
+	}
+	defer func() {
+		for i := 0; i < cap(basicAuthSlots); i++ {
+			<-basicAuthSlots
+		}
+	}()
+	for _, tc := range []struct {
+		name          string
+		authorization []string
+		want          int
+	}{
+		{"absent", nil, 401},
+		{"malformed", []string{"Basic not-base64"}, 401},
+		{"duplicate", []string{"Basic ZGVtbzpwYXNz", "Basic ZGVtbzpwYXNz"}, 401},
+		{"valid syntax", []string{"Basic ZGVtbzpwYXNz"}, 503},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := relayRequest(relayJWT(t, p, "owner@example.com"), "")
+			r.Header["Authorization"] = tc.authorization
+			w := httptest.NewRecorder()
+			p.handleWebProxy(w, r)
+			if w.Code != tc.want || (tc.want == 503 && w.Header().Get("Retry-After") == "") {
+				t.Fatalf("status=%d headers=%v body=%s", w.Code, w.Header(), w.Body)
+			}
+		})
+	}
+}
+
 func TestPolicyRelayIgnoresSpoofedPeerAndAcceptsSignedClusterHop(t *testing.T) {
 	p, tunnel, _, _ := policyRelay(t, false)
 	p.config.NodeSecret = "policy-cluster-fixture"

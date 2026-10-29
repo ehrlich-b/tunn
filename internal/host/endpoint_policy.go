@@ -21,6 +21,10 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// Bound CPU-intensive password verification across all endpoints in a relay.
+// A full pool rejects immediately rather than accumulating waiting requests.
+var basicAuthSlots = make(chan struct{}, 4)
+
 func (p *ProxyServer) handleEndpointPolicyAPI(w http.ResponseWriter, r *http.Request, endpoint string) {
 	w.Header().Set("Cache-Control", "no-store")
 	if !p.isPlatformHost(r.Host) {
@@ -140,14 +144,30 @@ func (p *ProxyServer) applyEndpointPolicy(w http.ResponseWriter, r *http.Request
 	}
 	if basic := policy.BasicAuth; basic != nil {
 		user, password, valid := r.BasicAuth()
-		// Compare the password even for a wrong username. Reject ambiguous headers.
-		passwordOK := bcrypt.CompareHashAndPassword([]byte(basic.PasswordHash), []byte(password)) == nil
-		if !valid || len(r.Header.Values("Authorization")) != 1 || subtle.ConstantTimeCompare([]byte(user), []byte(basic.Username)) != 1 || !passwordOK {
+		challenge := func() (*http.Request, bool) {
 			s.reason = "policy_basic_auth"
 			w.Header().Set("WWW-Authenticate", `Basic realm="tunn", charset="UTF-8"`)
 			w.Header().Set("Cache-Control", "no-store")
 			http.Error(w, "Authentication required", http.StatusUnauthorized)
 			return r, false
+		}
+		if !valid || len(r.Header.Values("Authorization")) != 1 || len(password) > 72 {
+			return challenge()
+		}
+		select {
+		case basicAuthSlots <- struct{}{}:
+		default:
+			s.reason = "policy_basic_auth_busy"
+			w.Header().Set("Retry-After", "1")
+			w.Header().Set("Cache-Control", "no-store")
+			http.Error(w, "Authentication temporarily unavailable", http.StatusServiceUnavailable)
+			return r, false
+		}
+		// Keep username and password failures indistinguishable for valid inputs.
+		passwordOK := bcrypt.CompareHashAndPassword([]byte(basic.PasswordHash), []byte(password)) == nil
+		<-basicAuthSlots
+		if subtle.ConstantTimeCompare([]byte(user), []byte(basic.Username)) != 1 || !passwordOK {
+			return challenge()
 		}
 		r = r.Clone(r.Context())
 		r.Header = r.Header.Clone()

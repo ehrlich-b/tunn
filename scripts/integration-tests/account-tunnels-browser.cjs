@@ -213,6 +213,9 @@ const apex = `https://tunn.test:${port}`;
       await settleActive();
       const expected = failed || !data.complete ? await page.locator('.live-tunnel-name').allTextContents() :
         [...data.tunnels].sort((a,b)=>(Date.parse(b.last_request)||0)-(Date.parse(a.last_request)||0) || a.name.localeCompare(b.name)).map(t=>t.name);
+      const summary = failed ? await page.locator('#live-tunnels-summary').textContent() :
+        !data.complete ? (expected.length ? `${expected.length} online · Partial list` : 'Partial list') :
+        (expected.length ? `${expected.length} online` : 'None online');
       const generation = await page.evaluate(() => {
         const before = window.__accountPolls.generation;
         document.dispatchEvent(new Event('visibilitychange'));
@@ -220,13 +223,13 @@ const apex = `https://tunn.test:${port}`;
       });
       assert.equal(generation.after,generation.before+1,'update did not start its own poll');
       await settled(page, generation.after);
-      await page.waitForFunction(({id,names}) => {
+      await page.waitForFunction(({id,names,summary}) => {
         const record = window.__accountPolls.requests.find(r=>r.id===id);
         const actual = Array.from(document.querySelectorAll('.live-tunnel-name'),n=>n.textContent);
         return record?.settled && JSON.stringify(record.dom.names)===JSON.stringify(names) &&
           JSON.stringify(actual)===JSON.stringify(names) &&
-          document.querySelector('#live-tunnels-summary').textContent===(names.length?`${names.length} online`:'None online');
-      }, {id:generation.after,names:expected});
+          document.querySelector('#live-tunnels-summary').textContent===summary;
+      }, {id:generation.after,names:expected,summary});
     }
     async function advance(milliseconds) {
       await settleActive();

@@ -5,12 +5,14 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -52,7 +54,7 @@ func TestLoopbackHostMode(t *testing.T) {
 			go func() { defer func() { _ = c.Close() }(); _, _ = io.Copy(c, c) }()
 		}
 	}()
-	// A short repository-local path stays below macOS's Unix socket path limit.
+	// Keep the socket inside the checkout, even when the checkout path is long.
 	if err := os.MkdirAll(".scratch", 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -64,6 +66,15 @@ func TestLoopbackHostMode(t *testing.T) {
 	socket, err := filepath.Abs(filepath.Join(dir, "u"))
 	if err != nil {
 		t.Fatal(err)
+	}
+	if runtime.GOOS == "linux" {
+		// The descriptor alias is short even when the checkout path is not.
+		directory, err := os.Open(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer directory.Close()
+		socket = fmt.Sprintf("/proc/self/fd/%d/u", directory.Fd())
 	}
 	unix, err := net.Listen("unix", socket)
 	if err != nil {

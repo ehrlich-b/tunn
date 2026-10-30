@@ -83,3 +83,5 @@ JWT signing key and email login (or another existing login provider). Peer nodes
 forward OAuth requests to the login node and verify grants through shared
 metering; all peers must include the MCP ownership fields in `FindTunnel`.
 This change requires deployment before a hosted connector can use it.
+
+For HTTP MCP upstreams, tunn sends the upstream host as Host and the public host as X-Forwarded-Host; use `--keep-original-host` to preserve the public Host.

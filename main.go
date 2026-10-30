@@ -144,15 +144,16 @@ func main() {
 }
 
 type mcpCommandOptions struct {
-	tunnelID      string
-	allowedEmails []string
-	tunnelKey     string
-	clientSecret  string
-	noFavicon     bool
-	public        bool
-	command       []string
-	targetURL     string
-	allowedTools  []string
+	tunnelID         string
+	allowedEmails    []string
+	tunnelKey        string
+	clientSecret     string
+	noFavicon        bool
+	public           bool
+	command          []string
+	targetURL        string
+	allowedTools     []string
+	keepOriginalHost bool
 }
 
 func parseMCPFlags(args []string) (*mcpCommandOptions, error) {
@@ -173,6 +174,7 @@ func parseMCPFlags(args []string) (*mcpCommandOptions, error) {
 	cliopts.PublicationFlags(fs, shared)
 	var allowedTools []string
 	cliopts.MCPToolFlag(fs, &allowedTools)
+	keepOriginalHost := fs.Bool("keep-original-host", false, "Preserve the public Host for HTTP upstreams")
 
 	flagArgs := args
 	if separator != -1 {
@@ -199,13 +201,14 @@ func parseMCPFlags(args []string) (*mcpCommandOptions, error) {
 	}
 
 	opts := &mcpCommandOptions{
-		tunnelID:      tunnelID,
-		allowedEmails: allowedEmails,
-		tunnelKey:     shared.TunnelKey,
-		clientSecret:  clientSecret,
-		public:        shared.Public,
-		noFavicon:     shared.NoFavicon,
-		allowedTools:  allowedTools,
+		tunnelID:         tunnelID,
+		allowedEmails:    allowedEmails,
+		tunnelKey:        shared.TunnelKey,
+		clientSecret:     clientSecret,
+		public:           shared.Public,
+		noFavicon:        shared.NoFavicon,
+		allowedTools:     allowedTools,
+		keepOriginalHost: *keepOriginalHost,
 	}
 	if separator == -1 {
 		if len(allowedTools) > 0 {
@@ -240,6 +243,7 @@ Options:
   --allow <emails>          Share with additional tunn account emails
   --public                  Explicitly allow unauthenticated access
   --tools <names>           Exact comma-separated tool allow-list (stdio only)
+  --keep-original-host      Preserve the public Host for HTTP upstreams
   --tunnel-key <key>        Tunnel creation authorization key
   --secret <secret>         Self-hosted client authentication secret
 
@@ -369,6 +373,7 @@ func runMCP(args []string) {
 		ClientVersion:     version,
 		TunnelID:          tunnelID,
 		TargetURL:         targetURL,
+		RewriteMCPHost:    opts.targetURL != "" && !opts.keepOriginalHost,
 		DisplayTarget:     displayTarget,
 		PublicPath:        "/mcp",
 		UpstreamPath:      upstreamPath,

@@ -17,10 +17,12 @@ const fs = require("node:fs"), path = require("node:path"), assert = require("no
       return route.abort();
     });
     const page = await context.newPage(); page.setDefaultTimeout(12000);
-    page.on("console", message => { if(message.type() === "error") console.log("browser:",message.text()); });
+    const cspErrors = [];
+    page.on("console", message => { if(message.type() === "error") { console.log("browser:",message.text()); if (/content security policy|violates.*csp/i.test(message.text())) cspErrors.push(message.text()); } });
     await page.goto(f.login);
     await page.getByRole("button",{name:"Allow",exact:true}).waitFor();
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),false,"consent overflow");
+    assert.deepEqual(cspErrors, [], "consent CSP errors");
     if(process.env.TUNN_MCP_SCREENSHOTS) {
       fs.mkdirSync(process.env.TUNN_MCP_SCREENSHOTS,{recursive:true});
       await page.screenshot({path:path.join(process.env.TUNN_MCP_SCREENSHOTS,`consent-${f.port}-${f.scenario}.png`),fullPage:true});

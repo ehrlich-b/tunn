@@ -120,8 +120,7 @@ func (s *ServeClient) handleWebSocket(ctx context.Context, sender messageSender,
 		sendConnectionRejection(sender, id, "invalid request headers")
 		return
 	}
-	request.Host = request.Header.Get("Host")
-	request.Header.Del("Host")
+	s.setUpstreamHost(request)
 	// Compression would require limiting inflated messages. Negotiate the base
 	// protocol only so fragmentation cannot bypass the actual message limit.
 	request.Header.Del("Sec-WebSocket-Extensions")

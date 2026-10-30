@@ -67,6 +67,7 @@ func (s *streamSender) Send(msg *pb.TunnelMessage) error {
 
 // ServeClient is the new gRPC-based tunnel client for "tunn serve"
 type ServeClient struct {
+	RewriteMCPHost     bool
 	ClientVersion      string            // Release version, when supplied by the embedding application.
 	WebhookPolicy      *pb.WebhookPolicy // contains a key; never log this value
 	WebhookSecretPath  string            // reload the private file on every registration
@@ -772,8 +773,7 @@ func (s *ServeClient) handleHTTPRequestContext(ctx context.Context, sender messa
 		s.sendErrorResponse(sender, httpReq.ConnectionId, http.StatusBadGateway, "Invalid request headers")
 		return
 	}
-	req.Host = req.Header.Get("Host")
-	req.Header.Del("Host")
+	s.setUpstreamHost(req)
 	if s.RequireUpstreamAuth && strings.TrimSpace(req.Header.Get("Authorization")) == "" {
 		status, reason = http.StatusUnauthorized, "auth_required"
 		s.Inspector.denied()
@@ -1027,4 +1027,18 @@ func (s *ServeClient) registrationVersion() string {
 		}
 	}
 	return "development"
+}
+
+// setUpstreamHost preserves the relay's public host in X-Forwarded-Host and
+// optionally selects the local authority for MCP HTTP upstreams.
+func (s *ServeClient) setUpstreamHost(req *http.Request) {
+	publicHost := req.Header.Get("Host")
+	req.Host = publicHost
+	req.Header.Del("Host")
+	if s.RewriteMCPHost {
+		if publicHost != "" {
+			req.Header.Set("X-Forwarded-Host", publicHost)
+		}
+		req.Host = req.URL.Host
+	}
 }

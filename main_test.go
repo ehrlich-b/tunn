@@ -189,3 +189,18 @@ func TestParseServeFlagsInspectBody(t *testing.T) {
 		t.Fatal("body capture without inspector accepted")
 	}
 }
+
+func TestMCPKeepOriginalHostFlag(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want bool
+	}{
+		{[]string{"http://127.0.0.1:3000/mcp"}, false},
+		{[]string{"--keep-original-host", "http://127.0.0.1:3000/mcp"}, true},
+	} {
+		opts, err := parseMCPFlags(tc.args)
+		if err != nil || opts.keepOriginalHost != tc.want {
+			t.Fatalf("parse %v: opts=%+v err=%v", tc.args, opts, err)
+		}
+	}
+}

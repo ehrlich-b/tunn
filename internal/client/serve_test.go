@@ -739,3 +739,20 @@ func TestExponentialBackoffCap(t *testing.T) {
 		}
 	}
 }
+
+func TestUpstreamHostPolicy(t *testing.T) {
+	for _, rewrite := range []bool{false, true} {
+		s := &ServeClient{RewriteMCPHost: rewrite}
+		req, _ := http.NewRequest("GET", "http://127.0.0.1:1234/mcp", nil)
+		req.Header.Set("Host", "public.example")
+		req.Header.Set("X-Forwarded-Host", "public.example")
+		s.setUpstreamHost(req)
+		want := "public.example"
+		if rewrite {
+			want = "127.0.0.1:1234"
+		}
+		if req.Host != want || req.Header.Get("X-Forwarded-Host") != "public.example" {
+			t.Fatalf("rewrite=%t host=%q forwarded=%q", rewrite, req.Host, req.Header.Get("X-Forwarded-Host"))
+		}
+	}
+}

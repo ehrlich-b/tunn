@@ -484,8 +484,7 @@ func (s *ServeClient) handleStreamingHTTPRequest(ctx context.Context, sender mes
 		sendConnectionRejection(sender, open.ConnectionId, "invalid request headers")
 		return
 	}
-	request.Host = request.Header.Get("Host")
-	request.Header.Del("Host")
+	s.setUpstreamHost(request)
 	if s.RequireUpstreamAuth && strings.TrimSpace(request.Header.Get("Authorization")) == "" {
 		status, reason = http.StatusUnauthorized, "auth_required"
 		s.Inspector.denied()

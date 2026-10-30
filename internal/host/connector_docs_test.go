@@ -36,7 +36,7 @@ func TestConnectorGuideRoutes(t *testing.T) {
 			}
 		}
 	}
-	for _, want := range []string{"Claude.ai and ChatGPT", "connector-check --oauth --expect-tools echo", "--deny-tool hidden_echo", "25 seconds", "27 seconds", "have not yet been verified end to end", "/pricing", "/account/mcp"} {
+	for _, want := range []string{"Claude.ai and ChatGPT", "connector-check --oauth --expect-tools echo", "--deny-tool hidden_echo", "25 seconds", "27 seconds", "have not yet been verified end to end", "/pricing", "/account/mcp", "Access tokens expire after one hour", "single-use refresh token", "up to 30 days after consent", "Clients without refresh"} {
 		if !strings.Contains(mcpToClaudeHTML, want) {
 			t.Errorf("guide missing %q", want)
 		}

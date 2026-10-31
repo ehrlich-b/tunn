@@ -304,7 +304,7 @@ func TestAppDeviceOfflineAuditUsesRemainingAdmissionBudget(t *testing.T) {
 	f.p.tunnelServer.mu.Lock()
 	delete(f.p.tunnelServer.tunnels, f.tunnel.TunnelID)
 	f.p.tunnelServer.mu.Unlock()
-	f.p.meter = appDeviceHangingAdmit{f.p.meter}
+	f.p.meter = appDeviceHangingAdmit{f.p.meter, t}
 	started := time.Now()
 	w := appDeviceOpen(f.p, appDeviceTestHost, token, nil)
 	if w.Code != 503 || time.Since(started) > 2500*time.Millisecond {

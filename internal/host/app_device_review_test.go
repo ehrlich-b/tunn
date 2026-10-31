@@ -29,19 +29,33 @@ func appDeviceShareGuest(t *testing.T, f *appDeviceFixture, email string) *http.
 	return cookie
 }
 
-type appDeviceHangingAdmit struct{ metering.Backend }
+// Inspect the propagated deadline instead of using wall-clock timing as the
+// regression assertion: scheduling delays must not hide a longer deadline.
+func assertAppDeviceDeadline(t *testing.T, ctx context.Context) {
+	t.Helper()
+	deadline, ok := ctx.Deadline()
+	if !ok || time.Until(deadline) > 2*time.Second {
+		t.Errorf("admission deadline = %v (present %v), want at most two seconds", deadline, ok)
+	}
+}
+
+type appDeviceHangingAdmit struct {
+	metering.Backend
+	t *testing.T
+}
 
 func (b appDeviceHangingAdmit) Sharing(ctx context.Context, in *mp.SharingRequest) (*mp.SharingResponse, error) {
 	return b.Backend.(metering.SharingBackend).Sharing(ctx, in)
 }
 func (b appDeviceHangingAdmit) Admit(ctx context.Context, in *mp.Event) (*mp.Decision, error) {
+	assertAppDeviceDeadline(b.t, ctx)
 	<-ctx.Done()
 	return nil, ctx.Err()
 }
 func TestAppDeviceMeterAdmissionUsesSameDeadline(t *testing.T) {
 	f := newAppDeviceFixture(t)
 	_, token := f.enroll(t, nil)
-	f.p.meter = appDeviceHangingAdmit{f.p.meter}
+	f.p.meter = appDeviceHangingAdmit{f.p.meter, t}
 	started := time.Now()
 	w := appDeviceOpen(f.p, appDeviceTestHost, token, nil)
 	if w.Code != 503 || time.Since(started) > 10*time.Second {
@@ -169,12 +183,14 @@ func TestAppDeviceOwnerRevokeAllWorksWithPublisherOffline(t *testing.T) {
 
 type appDeviceDomainFault struct {
 	domains.Backend
+	t          *testing.T
 	hang       bool
 	wrongOwner bool
 }
 
 func (b appDeviceDomainFault) Route(ctx context.Context, in *domainpb.Domain) (*domainpb.Domain, error) {
 	if b.hang {
+		assertAppDeviceDeadline(b.t, ctx)
 		<-ctx.Done()
 		return nil, ctx.Err()
 	}
@@ -185,9 +201,13 @@ func (b appDeviceDomainFault) Route(ctx context.Context, in *domainpb.Domain) (*
 	return out, err
 }
 
-type appDeviceAccountFault struct{ storage.Storage }
+type appDeviceAccountFault struct {
+	storage.Storage
+	t *testing.T
+}
 
 func (s appDeviceAccountFault) GetAccount(ctx context.Context, id string) (*storage.Account, error) {
+	assertAppDeviceDeadline(s.t, ctx)
 	<-ctx.Done()
 	return nil, ctx.Err()
 }
@@ -198,10 +218,10 @@ func TestAppDeviceAdmissionDeadlineAndInvalidCredentialPrecedence(t *testing.T) 
 			f := newAppDeviceFixture(t)
 			d, token := f.enroll(t, nil)
 			if fault == "domain" {
-				f.p.domains = appDeviceDomainFault{Backend: f.p.domains, hang: true}
+				f.p.domains = appDeviceDomainFault{Backend: f.p.domains, t: t, hang: true}
 			}
 			if fault == "account" {
-				f.p.storage = appDeviceAccountFault{f.p.storage}
+				f.p.storage = appDeviceAccountFault{f.p.storage, t}
 			}
 			if fault == "owner" {
 				f.p.domains = appDeviceDomainFault{Backend: f.p.domains, wrongOwner: true}

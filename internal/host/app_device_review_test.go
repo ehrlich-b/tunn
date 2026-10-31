@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -212,6 +213,26 @@ func (s appDeviceAccountFault) GetAccount(ctx context.Context, id string) (*stor
 	return nil, ctx.Err()
 }
 
+type appDeviceCountingDomain struct {
+	domains.Backend
+	calls *atomic.Int32
+}
+
+func (b appDeviceCountingDomain) Route(ctx context.Context, in *domainpb.Domain) (*domainpb.Domain, error) {
+	b.calls.Add(1)
+	return b.Backend.Route(ctx, in)
+}
+
+type appDeviceCountingAccount struct {
+	storage.Storage
+	calls *atomic.Int32
+}
+
+func (s appDeviceCountingAccount) GetAccount(ctx context.Context, id string) (*storage.Account, error) {
+	s.calls.Add(1)
+	return s.Storage.GetAccount(ctx, id)
+}
+
 func TestAppDeviceAdmissionDeadlineAndInvalidCredentialPrecedence(t *testing.T) {
 	for _, fault := range []string{"domain", "account", "owner"} {
 		t.Run(fault, func(t *testing.T) {
@@ -238,10 +259,16 @@ func TestAppDeviceAdmissionDeadlineAndInvalidCredentialPrecedence(t *testing.T) 
 			if _, err := f.p.appDevices.revoke(context.Background(), d.Host, d.Account, d.ID, true); err != nil {
 				t.Fatal(err)
 			}
+			var domainCalls, accountCalls atomic.Int32
+			f.p.domains = appDeviceCountingDomain{f.p.domains, &domainCalls}
+			f.p.storage = appDeviceCountingAccount{f.p.storage, &accountCalls}
 			started = time.Now()
 			w = appDeviceOpen(f.p, appDeviceTestHost, token, nil)
 			if w.Code != 401 || time.Since(started) > 10*time.Second {
 				t.Fatal("scope lookup masked revoked credential", w.Code)
+			}
+			if domainCalls.Load() != 0 || accountCalls.Load() != 0 {
+				t.Fatalf("revoked credential triggered scope lookups: domain=%d account=%d", domainCalls.Load(), accountCalls.Load())
 			}
 		})
 	}

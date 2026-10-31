@@ -14,10 +14,10 @@ func (p *ProxyServer) writeAuthError(w http.ResponseWriter, r *http.Request, mes
 	if !p.isPlatformHost(r.Host) {
 		origin = p.loginAuthority()
 	}
-	writeBrowserAuthError(w, r, message, status, detail, origin)
+	writeBrowserAuthError(w, r, message, status, detail, origin, p.config.StatusURL == "")
 }
 
-func writeBrowserAuthError(w http.ResponseWriter, r *http.Request, message string, status int, detail, authority string) {
+func writeBrowserAuthError(w http.ResponseWriter, r *http.Request, message string, status int, detail, authority string, hideStatus ...bool) {
 	if !acceptsHTML(r) {
 		http.Error(w, message, status)
 		return
@@ -27,7 +27,7 @@ func writeBrowserAuthError(w http.ResponseWriter, r *http.Request, message strin
 		message = "Sign-in expired or interrupted"
 		detail = "Start sign-in again to continue."
 	}
-	writeBrowserError(w, status, browserErrorPage{Label: "Sign-in problem", Title: message, Detail: detail, Action: "Sign in again", Href: "/auth/login"}, authority)
+	writeBrowserError(w, status, browserErrorPage{Label: "Sign-in problem", Title: message, Detail: detail, Action: "Sign in again", Href: "/auth/login"}, authority, hideStatus...)
 }
 
 type browserErrorPage struct {

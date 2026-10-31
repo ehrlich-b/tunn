@@ -340,3 +340,22 @@ func TestStatusPublisherDenial(t *testing.T) {
 		}
 	}
 }
+
+func TestStatusWildcardDenial(t *testing.T) {
+	p, _, _ := appProxyFixture(t)
+	cookie := appSessionCookie(t, p, "guest@example.com", "google", true, appHost)
+	for _, configured := range []bool{false, true} {
+		p.config.StatusURL = ""
+		if configured {
+			p.config.StatusURL = "http://127.0.0.1:8091"
+		}
+		r := httptest.NewRequest("GET", "https://"+appHost+"/", nil)
+		r.Header.Set("Accept", "text/html")
+		r.AddCookie(cookie)
+		w := httptest.NewRecorder()
+		p.createHandler().ServeHTTP(w, r)
+		if w.Code != http.StatusForbidden || strings.Contains(w.Body.String(), `href="https://tunn.test/status"`) != configured {
+			t.Fatalf("configured=%v code=%d body=%s", configured, w.Code, w.Body.String())
+		}
+	}
+}

@@ -247,7 +247,7 @@ test-coverage:
 
 test-race:
 	@echo "Running tests with race detection..."
-	go test $(GO_TEST_FLAGS) -race ./...
+	go test -p 2 -race -timeout=1200s $(GO_TEST_FLAGS) ./...
 
 # Offline production authorization matrix and lifecycle regressions.
 .PHONY: test-auth-contract

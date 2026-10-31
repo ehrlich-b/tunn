@@ -990,8 +990,8 @@ func (p *ProxyServer) createHandler() http.Handler {
 			p.handleWebProxy(w, r)
 			return
 		}
-		if p.config == nil || p.config.StatusURL == "" {
-			w = statusLinksHiddenWriter{ResponseWriter: w}
+		if p.statusUnconfigured() && !strings.HasPrefix(r.URL.Path, "/dl/") {
+			w = &statusLinksHiddenWriter{ResponseWriter: w}
 		}
 		mux.ServeHTTP(w, r)
 	})

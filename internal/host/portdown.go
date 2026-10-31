@@ -42,5 +42,5 @@ func (p *ProxyServer) writeLocalAppDown(w http.ResponseWriter, r *http.Request) 
 		Label: "App unavailable", Title: "Local app not answering",
 		Detail: "The tunnel is reachable, but its local app is not responding.",
 		Body:   template.HTML(body.String()), Action: "Reload", Href: "",
-	}, p.Domain)
+	}, p.Domain, p.statusUnconfigured())
 }

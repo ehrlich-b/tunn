@@ -39,13 +39,16 @@ var browserErrorTemplate = template.Must(template.New("browser-error").Parse(`<s
 
 // Shared product chrome and recovery hierarchy for browser-facing failures.
 // The caller owns the HTTP status and supplies a reachable platform authority.
-func writeBrowserError(w http.ResponseWriter, status int, data browserErrorPage, authority string) {
+func writeBrowserError(w http.ResponseWriter, status int, data browserErrorPage, authority string, hideStatus ...bool) {
 	var page strings.Builder
 	writePageStart(&page, "tunn - "+html.EscapeString(data.Title))
 	data.Label = fmt.Sprintf("%d · %s", status, data.Label)
 	_ = browserErrorTemplate.Execute(&page, data)
 	writePageEnd(&page)
 	body := page.String()
+	if len(hideStatus) > 0 && hideStatus[0] {
+		body = hideStatusLinks(body)
+	}
 	// An app-host denial must send recovery and asset requests to the login authority.
 	if authority != "" {
 		origin := "https://" + authority

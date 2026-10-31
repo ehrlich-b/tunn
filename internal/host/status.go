@@ -105,18 +105,38 @@ func serveFeatureDocs(w http.ResponseWriter, r *http.Request, title, content str
 
 // statusLinksHiddenWriter removes links from platform HTML when no collector is configured.
 // It leaves publisher traffic untouched and preserves the surrounding documentation text.
-type statusLinksHiddenWriter struct{ http.ResponseWriter }
+type statusLinksHiddenWriter struct {
+	http.ResponseWriter
+	checked, html bool
+}
 
-func (w statusLinksHiddenWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
-func (w statusLinksHiddenWriter) Write(b []byte) (int, error) {
+func (w *statusLinksHiddenWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+func (w *statusLinksHiddenWriter) Write(b []byte) (int, error) {
+	if !w.checked {
+		contentType := w.Header().Get("Content-Type")
+		if contentType == "" {
+			contentType = http.DetectContentType(b)
+		}
+		w.html = strings.HasPrefix(strings.ToLower(contentType), "text/html")
+		w.checked = true
+	}
+	if !w.html {
+		return w.ResponseWriter.Write(b)
+	}
 	original := len(b)
-	text := string(b)
-	text = strings.ReplaceAll(text, `<a data-nav="status" href="/status">Status</a>`, "")
-	text = strings.ReplaceAll(text, `<a href="/status">Status</a>`, "")
-	text = strings.ReplaceAll(text, `<a href="/status">status page</a>`, "status page")
+	text := hideStatusLinks(string(b))
 	if len(text) != original {
 		w.Header().Del("Content-Length")
 	}
 	_, err := io.WriteString(w.ResponseWriter, text)
 	return original, err
 }
+
+func hideStatusLinks(text string) string {
+	text = strings.ReplaceAll(text, `<a data-nav="status" href="/status">Status</a>`, "")
+	text = strings.ReplaceAll(text, `<a href="/status">Status</a>`, "")
+	text = strings.ReplaceAll(text, `<a href="/status">status page</a>`, "status page")
+	return text
+}
+
+func (p *ProxyServer) statusUnconfigured() bool { return p.config == nil || p.config.StatusURL == "" }

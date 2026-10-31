@@ -64,7 +64,7 @@ func (p *ProxyServer) writeIPPolicyDenied(w http.ResponseWriter) {
 		Label: "IP restriction", Title: "Your IP address cannot access this endpoint",
 		Detail: "Connect from an allowed network or ask the endpoint owner to update the IP restrictions. Signing in or using a shared link does not bypass this policy.",
 		Action: "Try again", Href: "",
-	}, p.loginAuthority())
+	}, p.loginAuthority(), p.statusUnconfigured())
 }
 
 func writeIPPolicyError(w http.ResponseWriter, err error) {

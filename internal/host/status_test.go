@@ -298,3 +298,45 @@ func TestStatusAccountLinks(t *testing.T) {
 		}
 	}
 }
+
+func TestStatusDownloadPreservesBytes(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("TUNN_DOWNLOAD_DIR", root)
+	t.Setenv("TUNN_DOWNLOAD_BASE", "")
+	body := []byte("\x7fELF\x00binary <a href=\"/status\">Status</a>\x00end")
+	if err := os.Mkdir(filepath.Join(root, "v0.149.5"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "v0.149.5", "tunn-linux-amd64"), body, 0644); err != nil {
+		t.Fatal(err)
+	}
+	p := securityProxy(securityDB(t))
+	for _, configured := range []bool{false, true} {
+		if configured {
+			p.config.StatusURL = "http://127.0.0.1:8091"
+		}
+		w := statusRequest(p, "GET", "/dl/v0.149.5/tunn-linux-amd64")
+		if w.Code != 200 || string(w.Body.Bytes()) != string(body) {
+			t.Fatalf("configured=%v code=%d body=%q", configured, w.Code, w.Body.Bytes())
+		}
+	}
+}
+
+func TestStatusPublisherDenial(t *testing.T) {
+	p := securityProxy(securityDB(t))
+	securityEndpoint(p, "demo", "owner@example.com", "", []string{"owner@example.com"}, false)
+	cookie := securityCookie(t, p, "other@example.com")
+	for _, configured := range []bool{false, true} {
+		if configured {
+			p.config.StatusURL = "http://127.0.0.1:8091"
+		}
+		r := httptest.NewRequest("GET", "https://demo.tunn.test/", nil)
+		r.Header.Set("Accept", "text/html")
+		r.AddCookie(cookie)
+		w := httptest.NewRecorder()
+		p.createHandler().ServeHTTP(w, r)
+		if w.Code != 403 || strings.Contains(w.Body.String(), `href="https://tunn.test/status"`) != configured {
+			t.Fatalf("configured=%v code=%d body=%s", configured, w.Code, w.Body.String())
+		}
+	}
+}

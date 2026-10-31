@@ -503,7 +503,7 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 				Label: "Access denied", Title: "Access denied",
 				Detail: fmt.Sprintf("You (%s) are not authorized to access this tunnel. Contact the tunnel owner to request access.", userEmail),
 				Action: "Sign out to switch accounts", Href: "/auth/logout",
-			}, p.loginAuthority())
+			}, p.loginAuthority(), p.statusUnconfigured())
 			return nil
 		}
 

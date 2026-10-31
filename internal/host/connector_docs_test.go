@@ -9,7 +9,7 @@ import (
 )
 
 func TestConnectorGuideRoutes(t *testing.T) {
-	cfg := &config.Config{Domain: "tunn.to"}
+	cfg := &config.Config{Domain: "tunn.to", StatusURL: "http://127.0.0.1:8091"}
 	p := &ProxyServer{Domain: cfg.Domain, config: cfg, tunnelServer: NewTunnelServer(cfg, nil, nil, nil)}
 	handler := p.createHandler()
 	for _, path := range []string{"/mcp-to-claude", "/docs/mcp-to-claude"} {

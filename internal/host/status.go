@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	statuspage "github.com/ehrlich-b/tunn/internal/status"
@@ -30,7 +31,19 @@ func (p *ProxyServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	unknown := func() { statuspage.RenderWithHead(w, r, statuspage.Unknown(time.Now().UTC()), 503, iconHead) }
 	if p.config.StatusURL == "" {
-		unknown()
+		if r.URL.Path == "/status.json" {
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			if r.Method != http.MethodHead {
+				_, _ = io.WriteString(w, "Public checks aren't published yet.\n")
+			}
+		} else {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			if r.Method != http.MethodHead {
+				writePageStart(w, "tunn - Status")
+				_, _ = io.WriteString(w, `<h1>Status</h1><p>Public checks aren't published yet.</p><p><a href="mailto:support@tunn.to">Contact support</a></p>`)
+				writePageEnd(w)
+			}
+		}
 		return
 	}
 	origin, err := statuspage.Origin(p.config.StatusURL)
@@ -88,4 +101,22 @@ func serveFeatureDocs(w http.ResponseWriter, r *http.Request, title, content str
 	writePageStart(w, title)
 	_, _ = fmt.Fprint(w, content)
 	writePageEnd(w)
+}
+
+// statusLinksHiddenWriter removes links from platform HTML when no collector is configured.
+// It leaves publisher traffic untouched and preserves the surrounding documentation text.
+type statusLinksHiddenWriter struct{ http.ResponseWriter }
+
+func (w statusLinksHiddenWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+func (w statusLinksHiddenWriter) Write(b []byte) (int, error) {
+	original := len(b)
+	text := string(b)
+	text = strings.ReplaceAll(text, `<a data-nav="status" href="/status">Status</a>`, "")
+	text = strings.ReplaceAll(text, `<a href="/status">Status</a>`, "")
+	text = strings.ReplaceAll(text, `<a href="/status">status page</a>`, "status page")
+	if len(text) != original {
+		w.Header().Del("Content-Length")
+	}
+	_, err := io.WriteString(w.ResponseWriter, text)
+	return original, err
 }

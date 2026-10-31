@@ -35,8 +35,7 @@ enough to the relay to satisfy that deadline. No public incident write route
 exists. Put collector HTTP behind TLS and a read-only reverse proxy if remote.
 Its `/status` route can also be served at a separate status origin for outages:
 `tunn.to/status` itself depends on tunn.to ingress and cannot remain reachable
-when that ingress is down. Unconfigured/unreachable collectors return HTTP 503
-and an unknown page, rather than a healthy claim. Observed relay failure still
+when that ingress is down. When no collector is configured, both routes return HTTP 200 and say public checks are not published yet. Unreachable collectors return HTTP 503 and an unknown page, rather than a healthy claim. Observed relay failure still
 returns HTTP 200 for the successfully rendered status page.
 
 ## Read the history

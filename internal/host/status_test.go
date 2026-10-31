@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -105,7 +106,7 @@ func TestStatusRelayPublicRoutesAndDocs(t *testing.T) {
 }
 func TestStatusRelayFailuresRemainUnknown(t *testing.T) {
 	p := securityProxy(securityDB(t))
-	for _, origin := range []string{"", "not-an-origin", "http://127.0.0.1:1"} {
+	for _, origin := range []string{"not-an-origin", "http://127.0.0.1:1"} {
 		p.config.StatusURL = origin
 		w := statusRequest(p, "GET", "/status.json")
 		var v statuspage.Snapshot
@@ -150,6 +151,7 @@ func TestStatusRelayFailuresRemainUnknown(t *testing.T) {
 
 func TestStatusUnknownSharedIcons(t *testing.T) {
 	p := securityProxy(securityDB(t))
+	p.config.StatusURL = "http://127.0.0.1:1"
 	w := statusRequest(p, "GET", "/status")
 	if w.Code != 503 || !strings.Contains(w.Body.String(), iconHead) {
 		t.Fatal("unknown status must include shared icons")
@@ -212,5 +214,87 @@ func TestStatusObserverImportProxy(t *testing.T) {
 	var current statuspage.Snapshot
 	if err := json.Unmarshal(actual.Body.Bytes(), &current); err != nil || current.State != "unknown" {
 		t.Fatal(current, err)
+	}
+}
+
+func TestStatusUnconfigured(t *testing.T) {
+	p := securityProxy(securityDB(t))
+	for _, path := range []string{"/status", "/status.json"} {
+		w := statusRequest(p, "GET", path)
+		if w.Code != 200 || !strings.Contains(w.Body.String(), "Public checks aren't published yet.") || (path == "/status" && !strings.Contains(w.Body.String(), "mailto:support@tunn.to")) {
+			t.Fatalf("%s: %d %q", path, w.Code, w.Body.String())
+		}
+		w = statusRequest(p, "HEAD", path)
+		if w.Code != 200 || w.Body.Len() != 0 {
+			t.Fatalf("HEAD %s: %d %q", path, w.Code, w.Body.String())
+		}
+	}
+	for _, path := range []string{"/", "/docs", "/docs/status", "/pricing", "/login"} {
+		w := statusRequest(p, "GET", path)
+		if strings.Contains(w.Body.String(), `href="/status"`) {
+			t.Fatalf("status link in %s", path)
+		}
+	}
+	p.config.StatusURL = "http://127.0.0.1:1"
+	if w := statusRequest(p, "GET", "/"); !strings.Contains(w.Body.String(), `href="/status"`) {
+		t.Fatal("configured homepage missing link")
+	}
+}
+
+// TestStatusScreens captures the real relay handlers using a local collector.
+func TestStatusScreens(t *testing.T) {
+	dir := os.Getenv("TUNN_STATUS_SCREENSHOTS")
+	browser := os.Getenv("TUNN_STATUS_BROWSER")
+	if dir == "" || browser == "" {
+		t.Skip("set screenshot directory and browser")
+	}
+	p := securityProxy(securityDB(t))
+	s, err := statuspage.Open(filepath.Join(t.TempDir(), "status.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err := s.Record(context.Background(), statuspage.Sample{CheckedAt: time.Now(), Health: true, Ready: true}); err != nil {
+		t.Fatal(err)
+	}
+	collector := httptest.NewServer(statuspage.Handler(s))
+	defer collector.Close()
+	for _, configured := range []bool{false, true} {
+		p.config.StatusURL = ""
+		label := "unset"
+		if configured {
+			p.config.StatusURL = collector.URL
+			label = "set"
+		}
+		handler := p.createHandler()
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { r.Host = "tunn.test"; handler.ServeHTTP(w, r) }))
+		for _, page := range []string{"home", "status"} {
+			path := "/"
+			if page == "status" {
+				path = "/status"
+			}
+			for _, width := range []string{"390", "1440"} {
+				file := filepath.Join(dir, label+"-"+page+"-"+width+".png")
+				cmd := exec.Command(browser, "--headless", "--no-sandbox", "--disable-gpu", "--disable-background-networking", "--hide-scrollbars", "--window-size="+width+",900", "--screenshot="+file, server.URL+path)
+				if out, err := cmd.CombinedOutput(); err != nil {
+					t.Fatalf("capture %s: %v %s", file, err, out)
+				}
+			}
+		}
+		server.Close()
+	}
+}
+
+func TestStatusAccountLinks(t *testing.T) {
+	f := newWebInspectorFixture(t, 0, 0)
+	for _, configured := range []bool{false, true} {
+		f.p.config.StatusURL = ""
+		if configured {
+			f.p.config.StatusURL = "http://127.0.0.1:8091"
+		}
+		w := f.call("GET", "/account", nil, f.cookie, nil)
+		if w.Code != 200 || strings.Contains(w.Body.String(), `href="/status"`) != configured {
+			t.Fatalf("configured=%v status=%d", configured, w.Code)
+		}
 	}
 }

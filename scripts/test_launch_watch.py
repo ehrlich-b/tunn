@@ -29,6 +29,15 @@ class WatchTest(unittest.TestCase):
         self.assertEqual(types['invoice.paid'], 4)
         self.assertEqual(counts['malformed'], 1)
 
+    def test_real_slog_text_handler(self):
+        logger = HERE / 'testdata/launch-watch-logger/main.go'
+        line = subprocess.check_output(['go', 'run', str(logger)], text=True)
+        self.assertIn("email=o'brien@example.com", line)
+        counts, types = watch.summarize([line], datetime(2026, 10, 31, 12, tzinfo=timezone.utc))
+        self.assertEqual(dict(counts), {'magic link': 1})
+        self.assertFalse(types)
+        self.assertEqual(watch.parse_fields(line)['error'], 'SMTP "failure"\nretry')
+
     def test_cli_file_and_stdin(self):
         fixture = HERE / 'testdata/launch-watch.txt'
         cmd = [sys.executable, str(HERE / 'launch-watch.py')]

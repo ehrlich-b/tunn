@@ -6,10 +6,10 @@ Counts are log records, not unique users, deliveries or successful payments.
 INFO records require the relay's request/trace log level and retained Fly logs.
 """
 import argparse
+import ast
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 import re
-import shlex
 import sys
 
 MESSAGES = {
@@ -24,6 +24,33 @@ MESSAGES = {
 }
 
 
+# TextHandler uses Go double-quoted strings where needed, not shell quoting.
+_QUOTED = r'"(?:[^"\\]|\\.)*"'
+_FIELD = re.compile(r'(' + _QUOTED + r'|[^\s="]+)=(' + _QUOTED + r'|[^\s"]+)')
+
+
+def parse_fields(text):
+    fields = {}
+    pos = 0
+    while pos < len(text):
+        match = _FIELD.match(text, pos)
+        if not match:
+            raise ValueError('invalid slog field')
+        key, value = match.groups()
+        if key.startswith('"'):
+            key = ast.literal_eval(key)
+        if value.startswith('"'):
+            value = ast.literal_eval(value)
+        fields[key] = value
+        pos = match.end()
+        if pos < len(text):
+            if not text[pos].isspace():
+                raise ValueError('missing field separator')
+            while pos < len(text) and text[pos].isspace():
+                pos += 1
+    return fields
+
+
 def summarize(lines, now):
     counts = Counter()
     types = Counter()
@@ -34,11 +61,11 @@ def summarize(lines, now):
             counts['malformed'] += 1
             continue
         try:
-            fields = dict(part.split('=', 1) for part in shlex.split(line[match.start(1):]) if '=' in part)
+            fields = parse_fields(line[match.start(1):])
             stamp = datetime.fromisoformat(fields['time'].replace('Z', '+00:00'))
             if stamp.tzinfo is None or not fields.get('level') or 'msg' not in fields:
                 raise ValueError('missing field')
-        except (ValueError, KeyError):
+        except (ValueError, KeyError, SyntaxError):
             counts['malformed'] += 1
             continue
         if not now - timedelta(hours=24) <= stamp <= now:

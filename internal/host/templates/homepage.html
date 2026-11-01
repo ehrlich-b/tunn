@@ -53,16 +53,24 @@
 <section class="section home-access" aria-labelledby="access-title">
  <div><h2 id="access-title">Choose who can open it.</h2><p>Only you can open a new tunnel. Add someone’s email to share it.</p></div>
  <div><div class="glass cmd"><code class="kbd" tabindex="0">tunn 3000 --allow=alex@example.com,sam@example.com</code><button class="btn sm copy" data-copy="tunn 3000 --allow=alex@example.com,sam@example.com" aria-describedby="allow-copy">Copy</button></div><div class="copy-status" id="allow-copy" role="status"></div>
- <p class="fine">Alex and Sam sign in to personal accounts with the listed emails using Google or an email link where offered. Manage people or revoke access in <a href="/account/sharing">Share access</a>.</p></div>
+ <p class="fine">Alex and Sam sign in to personal accounts with the listed emails. Manage or revoke access in <a href="/account/sharing">Share access</a>.</p></div>
 </section>
-<section class="home-details" aria-label="Before you share">
- <p><strong>Webhooks need a separate choice.</strong> Tunnels start private; a webhook sender cannot use browser sign-in. Use <code>tunn 3000 --public</code> for callbacks and verify the provider’s signature in your app. Anyone with that URL can reach it.</p>
- <p><strong>Keep your app’s own security.</strong> For OpenClaw, configure the allowed origin, token and pairing. Test live updates on your phone before relying on it away from home. WebSockets are supported; mobile and OpenClaw compatibility still need manual checks.</p>
- <p><strong>Know the trust boundary.</strong> TLS terminates at the tunn relay. The relay can read traffic. <a href="/agents">Authentication and access details</a>.</p>
-</section>
-<section class="section home-more" aria-label="Plans and guides">
- <p class="fine">Free keeps {{.FreeReservations}} name reserved. Pro keeps {{.Reservations}}.</p>
- <p class="fine"><a href="https://gitlab.com/ehrlich-b/tunn/-/releases">GitLab releases</a> · Free: {{.FreeTunnels}} tunnels, {{.FreeBytesShort}} a month. Requests: {{.FreeRequestsShort}}. Pro is ${{.MonthlyUSD}} a month. At a limit, tunn stops. <a href="/pricing">Pricing</a> · <a href="/docs">Quickstart</a> · <a href="/ngrok-alternative">tunn vs ngrok</a> · <a href="/mcp-to-claude">Local MCP</a> · <a href="/share-dev-server-oauth">OAuth sharing</a></p>
+<aside class="home-notes" aria-label="Sharing details">
+ <p>Public webhooks: <code>tunn 3000 --public</code> lets anyone with the URL connect. <a href="/docs/webhook-verification">Verify signatures in your app</a>.</p>
+ <p>TLS ends at the tunn relay, which can read traffic. <a href="/agents">Security and app setup</a>.</p>
+</aside>
+<section class="section home-more" aria-labelledby="plans-title">
+ <div><h2 id="plans-title">Start free.</h2>
+ <p>Free includes {{.FreeTunnels}} tunnels and {{.FreeBytesShort}} a month. Requests: {{.FreeRequestsShort}}.</p>
+ <p>Free keeps {{.FreeReservations}} name reserved. Pro keeps {{.Reservations}}.</p>
+ <p>Pro is ${{.MonthlyUSD}} a month. <a href="/pricing">Compare plans</a>. At a limit, tunn stops.</p></div>
+ <nav class="home-guides" aria-label="Guides and downloads">
+  <a href="/docs">Quickstart</a>
+  <a href="/mcp-to-claude">Connect an MCP server</a>
+  <a href="/share-dev-server-oauth">Share a dev server</a>
+  <a href="/ngrok-alternative">tunn vs ngrok</a>
+  <a href="https://gitlab.com/ehrlich-b/tunn/-/releases">Downloads</a>
+ </nav>
 </section>
 </div>
 </main>

@@ -27,6 +27,7 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/ehrlich-b/tunn/internal/domains"
 	"github.com/ehrlich-b/tunn/internal/metering"
 	"github.com/ehrlich-b/tunn/internal/store"
 	"github.com/ehrlich-b/tunn/internal/trafficpolicy"
@@ -718,6 +719,14 @@ func TestPolicyOwnerBrowserLoginObtainsUsableSeparateCredential(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := db.Exec(`UPDATE accounts SET plan = 'pro' WHERE primary_email = 'owner@example.com'`); err != nil {
+		t.Fatal(err)
+	}
+	registry, err := domains.New(db, p.Domain, []byte("01234567890123456789012345678901"), new(hostDomainDNS), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.domains = registry
 	out, err := p.meter.(metering.SharingBackend).Sharing(context.Background(), &meterpb.SharingRequest{Operation: "register", Owner: f.tunnel.AccountID, Endpoint: "tools", Mode: "policy-only"})
 	if err != nil {
 		t.Fatal(err)
@@ -760,6 +769,9 @@ func TestPolicyOwnerBrowserLoginObtainsUsableSeparateCredential(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := &client.ManagementClient{ServerURL: relay.URL, OwnerToken: token, HTTPClient: &ownerHTTP}
+	if _, err = c.DomainCall(ctx, "POST", "", "", map[string]string{"name": "*.apps.example.test", "tunnel": "openfront"}); err != nil {
+		t.Fatalf("domain add: %v", err)
+	}
 	if err = client.ExecutePolicy(ctx, "set", "tools", &trafficpolicy.Policy{}, c, io.Discard); err != nil {
 		t.Fatal(err)
 	}

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestParseDomainOptions(t *testing.T) {
@@ -128,5 +129,24 @@ func TestDomainManagementUsesOwnerLogin(t *testing.T) {
 	}
 	if calls != 1 {
 		t.Fatal("owner credential sent to a different origin")
+	}
+}
+
+func TestDomainExplicitOwnerLoginFile(t *testing.T) {
+	t.Setenv("TUNN_ENV", "dev")
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer fixture-owner-token" {
+			t.Error("wrong owner credential")
+		}
+		io.WriteString(w, `{}`)
+	}))
+	defer server.Close()
+	path := filepath.Join(t.TempDir(), "policy-owner.json")
+	data, _ := json.Marshal(map[string]any{"server": server.URL, "access_token": "fixture-owner-token", "expires_at": time.Now().Add(time.Hour)})
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := executeDomains([]string{"add", "*.apps.example.com", "--tunnel", "openfront", "--server", server.URL, "--owner-token-file", path, "--insecure"}, io.Discard); err != nil {
+		t.Fatal(err)
 	}
 }

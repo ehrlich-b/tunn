@@ -129,7 +129,14 @@ func executeDomains(args []string, out io.Writer) error {
 		if err != nil {
 			return err
 		}
-		token = string(data)
+		if strings.HasPrefix(strings.TrimSpace(string(data)), "{") {
+			token, err = client.LoadPolicyOwnerTokenFile(o.server, o.ownerFile)
+			if err != nil {
+				return err
+			}
+		} else {
+			token = string(data)
+		}
 	} else {
 		token, err = client.LoadPolicyOwnerToken(o.server)
 		if err != nil {

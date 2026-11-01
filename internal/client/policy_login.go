@@ -63,15 +63,19 @@ func (l *LoginClient) savePolicyOwnerCredentials(token *TokenResponse) error {
 // LoadPolicyOwnerToken cannot fall back to the scoped publisher token or send
 // an account-management credential to an origin selected after login.
 func LoadPolicyOwnerToken(server string) (string, error) {
-	origin, err := canonicalCredentialServer(server)
-	if err != nil {
-		return "", err
-	}
 	dir, err := configDirectory()
 	if err != nil {
 		return "", err
 	}
-	path := filepath.Join(dir, policyOwnerFilename)
+	return LoadPolicyOwnerTokenFile(server, filepath.Join(dir, policyOwnerFilename))
+}
+
+// LoadPolicyOwnerTokenFile validates a saved login before disclosing its token.
+func LoadPolicyOwnerTokenFile(server, path string) (string, error) {
+	origin, err := canonicalCredentialServer(server)
+	if err != nil {
+		return "", err
+	}
 	info, err := os.Lstat(path)
 	if os.IsNotExist(err) {
 		return "", fmt.Errorf("owner sign-in required; run 'tunn policy login' for this relay or use --owner-token-file")

@@ -11,7 +11,7 @@ with tempfile.TemporaryDirectory() as directory:
     env = dict(os.environ, PLAYWRIGHT_BROWSERS_PATH='/work/cache/ms-playwright')
     process = subprocess.Popen(['node', str(root / 'scripts/demo/record.cjs'), directory],
                                stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                               stderr=subprocess.PIPE, text=True, start_new_session=True)
+                               stderr=subprocess.PIPE, text=True, start_new_session=True, env=env)
     try:
         stdout, stderr = process.communicate(json.dumps({'type': 'login', 'url': 'http://127.0.0.1:1/'}) + '\n', timeout=30)
         assert 'ready' in stdout, (stdout, stderr)

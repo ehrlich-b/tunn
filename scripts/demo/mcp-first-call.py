@@ -31,6 +31,8 @@ def run_once(kind, record=False):
         run.env.update({'TUNN_SERVER_ADDR': f'{fixture.DOMAIN}:{run.port}', 'PATH': str(work) + os.pathsep + os.environ['PATH'],
                         'SSL_CERT_FILE': str(ROOT / 'certs/cert.pem'),
                         'NO_PROXY': '*', 'PLAYWRIGHT_BROWSERS_PATH': '/work/cache/ms-playwright'})
+        if os.environ.get('TUNN_PLAYWRIGHT_MODULE'):
+            run.env['TUNN_PLAYWRIGHT_MODULE'] = os.environ['TUNN_PLAYWRIGHT_MODULE']
         recorder = None
         messages = queue.Queue()
         def read_recorder():

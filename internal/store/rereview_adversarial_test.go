@@ -207,7 +207,7 @@ func seedLegacy110485c(t *testing.T) string {
 		t.Fatal(err)
 	}
 	// Retain exact usage amounts while making the historical fixture reusable.
-	if _, err = db.Exec("UPDATE account_usage SET month=?", time.Now().Format("2006-01")); err != nil {
+	if _, err = db.Exec("UPDATE account_usage SET month=?", time.Now().UTC().Format("2006-01")); err != nil {
 		t.Fatal(err)
 	}
 	return path

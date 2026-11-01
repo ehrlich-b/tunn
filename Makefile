@@ -752,3 +752,7 @@ test-request-timing:
 .PHONY: test-account-tunnels-browser
 test-account-tunnels-browser:
 	go test $(GO_TEST_FLAGS) -p 2 -count=1 -timeout=120s -run '^TestAccountTunnelsBrowserJourney$$' ./internal/host
+
+.PHONY: demo-mcp
+demo-mcp:
+	python3 scripts/demo/mcp-first-call.py

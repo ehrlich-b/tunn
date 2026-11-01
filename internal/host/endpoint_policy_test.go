@@ -19,6 +19,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync/atomic"
@@ -707,7 +709,8 @@ func TestPolicyRepeatedConnectionHeadersCannotDiscardOwnerEdit(t *testing.T) {
 }
 
 func TestPolicyOwnerBrowserLoginObtainsUsableSeparateCredential(t *testing.T) {
-	t.Setenv("TUNN_CONFIG_DIR", t.TempDir())
+	configDir := t.TempDir()
+	t.Setenv("TUNN_CONFIG_DIR", configDir)
 	db, err := store.InitForTest()
 	if err != nil {
 		t.Fatal(err)
@@ -768,6 +771,22 @@ func TestPolicyOwnerBrowserLoginObtainsUsableSeparateCredential(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The historical domain command loaded the publisher token file even after
+	// policy login. Exercise that exact selection with a real fixture device token.
+	publisher := durableLogin(t, p)
+	if err := os.WriteFile(filepath.Join(configDir, "token"), []byte(publisher.Access), 0600); err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := client.LoadToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldClient := &client.ManagementClient{ServerURL: relay.URL, OwnerToken: legacy, HTTPClient: &ownerHTTP}
+	_, err = oldClient.DomainCall(ctx, "POST", "", "", map[string]string{"name": "*.apps.example.test", "tunnel": "openfront"})
+	if err == nil || !strings.Contains(err.Error(), "401") || !strings.Contains(err.Error(), "Owner authentication required") {
+		t.Fatalf("historical publisher credential rejection: %v", err)
+	}
+	t.Log("historical publisher device_access rejected by relay: HTTP 401 Owner authentication required (invalid identity token purpose)")
 	c := &client.ManagementClient{ServerURL: relay.URL, OwnerToken: token, HTTPClient: &ownerHTTP}
 	if _, err = c.DomainCall(ctx, "POST", "", "", map[string]string{"name": "*.apps.example.test", "tunnel": "openfront"}); err != nil {
 		t.Fatalf("domain add: %v", err)

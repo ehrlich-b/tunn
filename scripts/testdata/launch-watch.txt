@@ -1,0 +1,16 @@
+2026-10-31T12:00:00Z app[abc] iad [info]time=2026-10-31T12:00:00Z level=INFO msg="received Stripe webhook" type=invoice.paid id=evt_1
+2026-10-31T12:00:00Z app[abc] iad [info]time=2026-10-31T12:00:00Z level=INFO msg="received Stripe webhook" type=checkout.session.completed id=evt_2
+2026-10-31T12:00:00Z app[abc] iad [error]time=2026-10-31T12:00:00Z level=ERROR msg="Stripe webhook received but STRIPE_WEBHOOK_SECRET not configured"
+2026-10-31T12:00:00Z app[abc] iad [error]time=2026-10-31T12:00:00Z level=ERROR msg="Stripe webhook received but storage not available"
+2026-10-31T12:00:00Z app[abc] iad [error]time=2026-10-31T12:00:00Z level=ERROR msg="failed to read webhook body" error="body too large"
+2026-10-31T12:00:00Z app[abc] iad [error]time=2026-10-31T12:00:00Z level=ERROR msg="missing Stripe-Signature header"
+2026-10-31T12:00:00Z app[abc] iad [error]time=2026-10-31T12:00:00Z level=ERROR msg="invalid Stripe signature"
+2026-10-31T12:00:00Z app[abc] iad [error]time=2026-10-31T12:00:00Z level=ERROR msg="failed to parse Stripe event" error="invalid JSON"
+2026-10-31T12:00:00Z app[abc] iad [error]time=2026-10-31T12:00:00Z level=ERROR msg="failed to send magic link email" email=test@example.com error="SMTP failure"
+2026-10-31T12:00:00Z app[abc] iad [error]time=2026-10-31T12:00:00Z level=ERROR msg="tunnel alert delivery failed" tunnel_id=demo error="SMTP failure"
+2026-10-31T12:00:00Z app[abc] iad [info]time=2026-10-31T12:00:00Z level=INFO msg="tunnel registered" tunnel_id=demo url=https://demo.example.com
+2026-10-30T11:59:59Z app[abc] iad [info]time=2026-10-30T11:59:59Z level=INFO msg="received Stripe webhook" type=old id=evt_old
+bad line
+2026-10-31T12:00:00Z app[abc] iad [info] time=2026-10-31T12:00:00Z level=INFO msg="control"
+time=2026-10-31T12:00:00Z level=INFO msg="control"
+time=2026-10-31T12:00:01Z level=INFO msg="received Stripe webhook" type=future

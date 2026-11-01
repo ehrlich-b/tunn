@@ -45,8 +45,22 @@ func stageFixture(t *testing.T, root string) {
 
 func buildChecker(t *testing.T) (string, string) {
 	t.Helper()
-	_, source, _, _ := runtime.Caller(0)
-	repo := filepath.Clean(filepath.Join(filepath.Dir(source), "../.."))
+	repo, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("working directory: %v", err)
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(repo, "go.mod")); err == nil {
+			break
+		} else if !os.IsNotExist(err) {
+			t.Fatalf("find go.mod: %v", err)
+		}
+		parent := filepath.Dir(repo)
+		if parent == repo {
+			t.Fatal("could not find go.mod in parent directories")
+		}
+		repo = parent
+	}
 	checker := filepath.Join(t.TempDir(), "checker")
 	build := exec.Command("nice", "-n", "10", "go", "build", "-p", "2", "-o", checker, "./cmd/check-downloads")
 	build.Dir = repo

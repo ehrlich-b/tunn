@@ -306,11 +306,14 @@ func TestDomainAccountStreamingAndWebSocketRevocation(t *testing.T) {
 			}
 			defer closeTransport()
 			forwarded := <-headers
-			token, err := jwt.Parse(forwarded[identity.Header], func(*jwt.Token) (any, error) { return pub, nil }, jwt.WithValidMethods([]string{"EdDSA"}))
+			token, err := jwt.Parse(forwarded[identity.Header], func(*jwt.Token) (any, error) { return pub, nil }, jwt.WithValidMethods([]string{"EdDSA"}), jwt.WithoutClaimsValidation())
 			if err != nil || !token.Valid {
 				t.Fatal("transport identity", err)
 			}
 			claims := token.Claims.(jwt.MapClaims)
+			if !claims.VerifyIssuedAt(now.Unix(), true) || !claims.VerifyNotBefore(now.Unix(), true) || !claims.VerifyExpiresAt(now.Unix(), true) {
+				t.Fatal("transport identity outside fixture clock")
+			}
 			if claims["provider"] != "magic_link" || claims["email"] != "guest@example.com" || !claims.VerifyAudience(appHost, true) || forwarded[identity.EmailHeader] != "guest@example.com" || strings.Contains(forwarded["Cookie"], appCookie) {
 				t.Fatal("transport identity binding")
 			}

@@ -236,7 +236,9 @@ func (s appDeviceCountingAccount) GetAccount(ctx context.Context, id string) (*s
 func TestAppDeviceAdmissionDeadlineAndInvalidCredentialPrecedence(t *testing.T) {
 	for _, fault := range []string{"domain", "account", "owner"} {
 		t.Run(fault, func(t *testing.T) {
-			f := newAppDeviceFixture(t)
+			// Issue and validate the browser session with the same clock.
+			now := time.Now()
+			f := newAppDeviceFixtureWithClock(t, func() time.Time { return now })
 			d, token := f.enroll(t, nil)
 			if fault == "domain" {
 				f.p.domains = appDeviceDomainFault{Backend: f.p.domains, t: t, hang: true}

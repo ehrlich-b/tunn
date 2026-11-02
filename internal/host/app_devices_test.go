@@ -369,7 +369,8 @@ func TestAppDeviceEnrollmentAndCredentialMatrix(t *testing.T) {
 }
 
 func TestAppDeviceInvitationAttacksAndBothConfirmations(t *testing.T) {
-	f := newAppDeviceFixture(t)
+	now := time.Now()
+	f := newAppDeviceFixtureWithClock(t, func() time.Time { return now })
 	i := f.invite(t, nil)
 	verifier, _ := randomOAuthValue("")
 	claim := f.claim(t, i, verifier)
@@ -384,7 +385,7 @@ func TestAppDeviceInvitationAttacksAndBothConfirmations(t *testing.T) {
 		t.Fatal("other account approved invitation")
 	}
 	if w = f.form(t, "/api/app-devices/claims/"+claim.Claim+"/approve", url.Values{"phrase": {"wrong"}, "confirmed": {"true"}}, nil); w.Code != 403 {
-		t.Fatal("wrong phrase approved")
+		t.Fatalf("wrong phrase status=%d, want 403", w.Code)
 	}
 	if w = f.form(t, "/api/app-devices/claims/"+claim.Claim+"/approve", url.Values{"phrase": {claim.Phrase}}, nil); w.Code != 403 {
 		t.Fatal("missing browser confirmation approved")
@@ -445,7 +446,7 @@ func TestAppDeviceInvitationAttacksAndBothConfirmations(t *testing.T) {
 	w = httptest.NewRecorder()
 	f.p.createHandler().ServeHTTP(w, r)
 	if w.Code != 403 {
-		t.Fatal("CSRF-less invitation accepted")
+		t.Fatalf("CSRF-less invitation status=%d, want 403", w.Code)
 	}
 }
 

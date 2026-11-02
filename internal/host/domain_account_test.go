@@ -239,6 +239,10 @@ func TestDomainAccountStreamingAndWebSocketRevocation(t *testing.T) {
 	for _, transport := range []string{"stream", "websocket"} {
 		t.Run(transport, func(t *testing.T) {
 			p, tunnel, pub := appProxyFixture(t)
+			// Keep the session issue and validation clocks consistent throughout
+			// this revocation test, including across wall-clock adjustments.
+			now := time.Now()
+			p.now = func() time.Time { return now }
 			appResource(t, p, tunnel, "private")
 			appShare(t, p, tunnel, "share", "guest@example.com")
 			cookie := appSessionCookie(t, p, "guest@example.com", "magic_link", true, appHost)
@@ -323,8 +327,8 @@ func TestDomainAccountStreamingAndWebSocketRevocation(t *testing.T) {
 			if time.Since(started) >= 5*time.Second {
 				t.Fatal("revocation exceeded five seconds")
 			}
-			if appOpenWithCookie(p, cookie).Code != 403 {
-				t.Fatal("revoked new request admitted")
+			if response := appOpenWithCookie(p, cookie); response.Code != 403 {
+				t.Fatalf("revoked new request status=%d, want 403", response.Code)
 			}
 		})
 	}

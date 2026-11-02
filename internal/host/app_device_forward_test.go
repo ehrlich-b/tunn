@@ -299,7 +299,10 @@ func TestAppDeviceCachedRemoteAdmissionTimeoutReturns503(t *testing.T) {
 }
 
 func TestAppDeviceOfflineAuditUsesRemainingAdmissionBudget(t *testing.T) {
-	f := newAppDeviceFixture(t)
+	// Session issue and validation share a fixed clock; the admission deadline
+	// itself still uses the real clock and exercises the remaining budget.
+	now := time.Now()
+	f := newAppDeviceFixtureWithClock(t, func() time.Time { return now })
 	_, token := f.enroll(t, nil)
 	f.p.tunnelServer.mu.Lock()
 	delete(f.p.tunnelServer.tunnels, f.tunnel.TunnelID)

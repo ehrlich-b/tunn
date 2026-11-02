@@ -45,7 +45,13 @@ type appDeviceFixture struct {
 
 func newAppDeviceFixture(t *testing.T) *appDeviceFixture {
 	t.Helper()
+	return newAppDeviceFixtureWithClock(t, nil)
+}
+
+func newAppDeviceFixtureWithClock(t *testing.T, clock func() time.Time) *appDeviceFixture {
+	t.Helper()
 	p, registry, dns := domainProxyFixture(t)
+	p.now = clock
 	p.config.PublicAddr = "tunn.test"
 	p.config.GitHubClientID = "fixture-id"
 	tunnel, _ := p.tunnelServer.GetTunnel("api")
@@ -217,6 +223,21 @@ func appDeviceOpen(p *ProxyServer, host, token string, cookie *http.Cookie) *htt
 	w := httptest.NewRecorder()
 	p.createHandler().ServeHTTP(w, r)
 	return w
+}
+
+// A future-issued browser session must remain invalid if the wall clock moves
+// backwards; fixtures which exercise other behavior use one stable clock.
+func TestAppDeviceEnrollmentRejectsFutureIssuedSession(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	f := newAppDeviceFixtureWithClock(t, func() time.Time { return now })
+	now = now.Add(-time.Second)
+	if w := f.form(t, "/api/app-devices/invitations", nil, nil); w.Code != http.StatusUnauthorized {
+		t.Fatalf("future-issued session status=%d, want 401", w.Code)
+	}
+	now = now.Add(time.Second)
+	if w := f.form(t, "/api/app-devices/invitations", nil, nil); w.Code != http.StatusCreated {
+		t.Fatalf("current session status=%d, want 201", w.Code)
+	}
 }
 
 func TestAppDeviceEnrollmentAndCredentialMatrix(t *testing.T) {

@@ -419,20 +419,6 @@ table.log .c4{color:var(--ink);font-weight:700}
 /* Pricing and docs use the homepage's type, panels and command surfaces. */
 .entry-heading{padding:64px 0 28px;margin:0}
 .entry-heading h1{font-size:40px;line-height:1.15;margin-top:10px}
-.pricing-entry .plan{padding:28px;display:flex;flex-direction:column}
-.pricing-entry .plan-pro{border-color:var(--sig-bg)}
-.pricing-entry .price{margin:28px 0;flex-wrap:wrap;gap:10px}
-.pricing-entry .price b{font-size:48px;letter-spacing:-.04em}
-.pricing-entry .readings{grid-template-columns:1fr 1fr;padding:0}
-.pricing-entry .readings div{padding:16px 0;gap:8px}
-.pricing-entry .readings div+div{border-left:0}
-.pricing-entry .readings div:nth-child(even){padding-left:24px}
-.pricing-entry .readings div:nth-child(n+3){border-top:1px solid var(--plate-lo)}
-.pricing-entry .readings b{font:500 22px/1.2 var(--mono)}
-.pricing-entry .plan-foot{flex-wrap:wrap;margin-top:auto;padding-top:20px;border-top:1px solid var(--plate-lo)}
-.pricing-entry .stopbar{background:var(--plate-hi)}
-.pricing-details{max-width:900px;margin:0 auto}
-.pricing-details h2:first-child{margin-top:0}
 .docs-heading{padding-bottom:32px}
 .docs-heading figure{margin:0}
 .docs-route{display:flex;flex-direction:column;align-items:center;gap:8px;padding:24px 12px;font-size:17px}
@@ -454,13 +440,6 @@ table.log .c4{color:var(--ink);font-weight:700}
 @media (max-width:760px){
  .entry-heading{padding:32px 0 24px}
  .entry-heading h1{font-size:30px}
- .pricing-entry .plan{padding:22px 18px}
- .pricing-entry .price{margin:22px 0}
- .pricing-entry .price b{font-size:40px}
- .pricing-entry .price .yr{flex-basis:auto;margin-left:auto}
- .pricing-entry .stopbar{flex-wrap:wrap}
- .pricing-entry .stopbar p{flex-basis:calc(100% - 32px)}
- .pricing-entry .stopbar code{margin-left:24px}
  .docs-heading{padding-bottom:24px}
  .guide-index{grid-template-columns:1fr;gap:12px}
  .guide-link{padding:18px}
@@ -499,3 +478,58 @@ table.log .c4{color:var(--ink);font-weight:700}
 .recovery h1{margin:12px 0}
 .recovery p{margin-bottom:24px;color:var(--ink2)}
 @media(max-width:760px){.management{padding-top:28px}.management .share-form{grid-template-columns:minmax(0,1fr);gap:0}.management .share-form .btn{margin-top:12px}.management .link-tools{flex-wrap:wrap}.management .link-tools input{flex-basis:100%}.management .btn{white-space:normal;line-height:1.4;padding-top:10px;padding-bottom:10px}}
+
+/* Pricing keeps both plans and their allowances easy to compare. */
+.pricing-entry{max-width:960px;margin:0 auto}
+.pricing-heading{text-align:center;padding:56px 0 32px}
+.pricing-heading h1{font-size:40px;line-height:1.15;letter-spacing:-.035em;margin:10px 0 12px}
+.pricing-heading p{font-size:17px;color:var(--ink2);margin-bottom:14px}
+.pricing-entry .plans{grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}
+.pricing-entry .plan{padding:24px;display:flex;flex-direction:column;min-width:0}
+.pricing-entry .plan-pro{border-color:var(--sig-bg)}
+.pricing-entry .plan h2{font-size:20px}
+.pricing-entry .price{margin:16px 0 10px;gap:6px;flex-wrap:wrap}
+.pricing-entry .price b{font-size:44px;letter-spacing:-.04em}
+.pricing-entry .price span{line-height:1.4}
+.pricing-entry .plan-billing{font-size:13px;color:var(--engrave)}
+.pricing-entry .plan-description{font-size:14px;color:var(--ink2);margin:16px 0 20px}
+.pricing-entry .plan-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:auto}
+.pricing-entry .plan-actions .btn{flex:1}
+.pricing-entry .plan>.fine{margin-top:12px}
+.pricing-comparison{margin-top:28px}
+.pricing-comparison h2{font-size:18px;margin-bottom:2px}
+.pricing-comparison>.fine{margin:0 0 12px}
+.pricing-comparison table{table-layout:fixed}
+.pricing-comparison th:first-child{width:30%}
+.pricing-comparison th,.pricing-comparison td{vertical-align:top}
+.pricing-comparison tbody tr:last-child>*{border-bottom:0}
+.pricing-comparison .pricing-included{margin:12px 0 0}
+.pricing-entry .stopbar{padding:16px 0;margin-top:16px;border-top:1px solid var(--plate-lo);border-bottom:1px solid var(--plate-lo);gap:12px}
+.pricing-entry .stopbar p{font-size:14px}
+.pricing-entry .stopbar a{font-size:13px;white-space:nowrap;color:var(--sig-ink)}
+.pricing-payment{margin-top:12px;max-width:72ch}
+.pricing-details{max-width:none;margin-top:36px}
+.pricing-details>h2{margin:0 0 12px}
+.pricing-details details{border-bottom:1px solid var(--plate-lo);padding:16px 0;scroll-margin-top:24px}
+.pricing-details summary{cursor:pointer;font-size:15px;font-weight:600}
+.pricing-details details[open] summary{margin-bottom:14px}
+.pricing-details details>p{max-width:76ch}
+.pricing-details>p{margin-top:24px;font-size:13px}
+@media(max-width:760px){
+ .pricing-heading{padding:24px 0 20px}
+ .pricing-heading h1{font-size:28px}
+ .pricing-heading p{font-size:15px}
+ .pricing-entry .plans{gap:10px}
+ .pricing-entry .plan{padding:16px 12px}
+ .pricing-entry .price{margin:12px 0 8px}
+ .pricing-entry .price b{font-size:34px}
+ .pricing-entry .price span{font-size:12px}
+ .pricing-entry .plan-description{font-size:13px;margin:10px 0 12px}
+ .pricing-entry .plan-actions{flex-direction:column}
+ .pricing-entry .plan-actions .btn{font-size:12px;padding:10px 6px;white-space:normal;line-height:1.3;min-height:40px}
+ .pricing-comparison{margin-top:18px}
+ .pricing-comparison th,.pricing-comparison td{padding:10px 8px;font-size:12px;overflow-wrap:anywhere}
+ .pricing-entry .stopbar{flex-wrap:nowrap}
+ .pricing-entry .stopbar p{font-size:13px}
+ .pricing-details{margin-top:24px}
+}

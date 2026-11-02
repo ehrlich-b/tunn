@@ -1,34 +1,58 @@
 <div class="pricing-entry">
-<header class="section-head entry-heading"><div><span class="lbl">Plans</span><h1>Pick your <span class="sig-t">limits.</span></h1></div><span class="lbl">USD · before tax</span></header>
+<header class="pricing-heading">
+ <span class="lbl">Pricing</span>
+ <h1>Start free. Grow with Pro.</h1>
+ <p>Private tunnels, with room for more.</p>
+ <span class="lbl">USD · before tax</span>
+</header>
 <div class="plans">
 <section class="panel plan" aria-labelledby="plan-free">
- <div class="plan-top"><h2 id="plan-free">Free</h2><span class="lbl"><i class="led"></i>&nbsp; Default</span></div>
- <div class="glass price"><b>$0</b><span>/ month</span></div>
- <div class="readings"><div><span class="lbl">Tunnels</span><b>{{.FreeTunnels}}</b></div><div><span class="lbl">Requests:</span><b>{{.FreeRequestsShort}}</b></div><div><span class="lbl">Transfer</span><b>{{.FreeBytesShort}}</b></div><div><span class="lbl">Names</span><b>{{.FreeReservations}}</b></div></div>
- <div class="plan-foot"><p>--allow, inspector, MCP sharing</p><a class="btn" href="/docs">Start free</a></div>
+ <h2 id="plan-free">Free</h2>
+ <div class="price"><b>$0</b><span>/ month</span></div>
+ <p class="plan-billing">Free to get started</p>
+ <p class="plan-description">For your first projects.</p>
+ <div class="plan-actions"><a class="btn" href="/docs">Start free</a></div>
 </section>
 <section class="panel plan plan-pro" aria-labelledby="plan-pro">
- <div class="plan-top"><h2 id="plan-pro">Pro</h2><span class="lbl"><i class="led on"></i>&nbsp; ${{.MonthlyUSD}}/month</span></div>
- <div class="glass price sig"><b>${{.MonthlyUSD}}</b><span>/ month</span><span class="yr">or ${{.YearlyUSD}} / year</span></div>
- <div class="readings"><div><span class="lbl">Tunnels</span><b>{{.ProTunnels}}</b></div><div><span class="lbl">Requests:</span><b>{{.ProRequestsShort}}</b></div><div><span class="lbl">Transfer</span><b>{{.ProBytesShort}}</b></div><div><span class="lbl">Names</span><b>{{.Reservations}}</b></div></div>
- <div class="plan-foot"><p>Everything in Free</p><span class="ctas" style="margin:0">{{if .MonthlyAvailable}}<a class="btn sig" href="/upgrade?period=monthly">Go Pro monthly</a>{{end}}{{if .YearlyAvailable}}<a class="btn" href="/upgrade?period=yearly">Go Pro yearly</a>{{end}}</span></div>
- {{if or .MonthlyAvailable .YearlyAvailable}}<p class="fine" style="margin-top:14px">Payment can be processed automatically when configured; other payments may need review. <a href="#paying">How that works</a></p>{{end}}
- {{if not .MonthlyAvailable}}{{if not .YearlyAvailable}}<p class="fine" role="status" style="margin-top:14px">Checkout is not available yet. Free tunnels still work.</p>{{end}}{{end}}
+ <h2 id="plan-pro">Pro</h2>
+ <div class="price"><b>${{.MonthlyUSD}}</b><span>/ month</span></div>
+ <p class="plan-billing">or ${{.YearlyUSD}} / year</p>
+ <p class="plan-description">For more tunnels and traffic.</p>
+ <div class="plan-actions">{{if .MonthlyAvailable}}<a class="btn sig" href="/upgrade?period=monthly">Go Pro monthly</a>{{end}}{{if .YearlyAvailable}}<a class="btn" href="/upgrade?period=yearly">Go Pro yearly</a>{{end}}</div>
+ {{if not .MonthlyAvailable}}{{if not .YearlyAvailable}}<p class="fine" role="status">Checkout is not available yet. Free tunnels still work.</p>{{end}}{{end}}
 </section>
 </div>
-<div class="panel stopbar"><span class="led on"></span><p>At a limit, tunn stops. No surprise bill.</p><code class="glass" style="padding:8px 12px;color:var(--glass-ink)"><span class="p">$ </span>tunn usage</code></div>
-
-<section class="section prose pricing-details" aria-labelledby="detail-title">
-<h2 id="detail-title">Limits in detail</h2>
-<div class="panel table-wrap"><table class="spec stack"><thead><tr><th scope="col">Monthly, per account</th><th scope="col">Free</th><th scope="col">Pro</th></tr></thead><tbody>
-<tr><th scope="row">Price</th><td data-l="Free">$0</td><td data-l="Pro">${{.MonthlyUSD}}/month or ${{.YearlyUSD}}/year</td></tr>
-<tr><th scope="row">Tunnels</th><td data-l="Free">{{.FreeTunnels}} concurrent tunnels</td><td data-l="Pro">{{.ProTunnels}} concurrent tunnels</td></tr>
-<tr><th scope="row">Requests</th><td data-l="Free">{{.FreeRequestsShort}}</td><td data-l="Pro">{{.ProRequestsShort}}</td></tr>
-<tr><th scope="row">Transfer</th><td data-l="Free">{{.FreeBytesShort}}</td><td data-l="Pro">{{.ProBytesShort}}</td></tr>
-<tr><th scope="row">Names</th><td data-l="Free">{{.FreeReservations}} reserved *.tunn.to name</td><td data-l="Pro">{{.Reservations}} reserved *.tunn.to names</td></tr>
+<section class="pricing-comparison" aria-labelledby="detail-title">
+<h2 id="detail-title">Compare plans</h2>
+<p class="fine">Monthly, per account</p>
+<div class="panel table-wrap"><table class="spec"><thead><tr><th scope="col">Included</th><th scope="col">Free</th><th scope="col">Pro</th></tr></thead><tbody>
+<tr><th scope="row">Tunnels</th><td>{{.FreeTunnels}} concurrent tunnels</td><td>{{.ProTunnels}} concurrent tunnels</td></tr>
+<tr><th scope="row">Transfer</th><td>{{.FreeBytesShort}}</td><td>{{.ProBytesShort}}</td></tr>
+<tr><th scope="row">Requests</th><td>{{.FreeRequestsShort}}</td><td>{{.ProRequestsShort}}</td></tr>
+<tr><th scope="row">Names</th><td>{{.FreeReservations}} reserved *.tunn.to name</td><td>{{.Reservations}} reserved *.tunn.to names</td></tr>
 </tbody></table></div>
-
-<h2>Next to ngrok</h2>
+<p class="fine pricing-included">Both plans include --allow, inspector, MCP sharing.</p>
+</section>
+<div class="stopbar"><p>At a limit, tunn stops. No surprise bill.</p><a href="/account">Check usage</a></div>
+{{if or .MonthlyAvailable .YearlyAvailable}}<p class="fine pricing-payment">Payment can be processed automatically when configured; other payments may need review. <a href="#paying">How that works</a></p>{{end}}
+<section class="prose pricing-details" aria-labelledby="questions-title">
+<h2 id="questions-title">Good to know</h2>
+<details>
+<summary>Paying for Pro</summary>
+<p id="paying">Pro is ${{.MonthlyUSD}}/month or ${{.YearlyUSD}}/year. Checkout runs on Stripe. When configured, payment can be processed automatically after verification. Otherwise, or if something needs review, activation requires manual review. Your committed account plan determines when Pro is on. Your <a href="/account">account page</a> shows when it's on. If you've paid and it still says Free, <a href="mailto:support@tunn.to">email support</a> rather than paying again.</p>
+</details>
+<details>
+<summary>What counts toward a limit?</summary>
+<p>All your tunnels share one monthly budget, which resets on the first day of each month (UTC). Each HTTP or MCP request counts once, and so does each WebSocket or TCP connection. Transfer counts what your app sends and receives: request and response bodies, WebSocket messages and TCP data, both ways. Encryption and protocol overhead don't count.</p>
+<p>At a limit, tunn stops taking requests or moving data and tells you why. There are no overage charges. Check usage in <a href="/account">your account</a> or with <code>tunn usage</code>. Upgrading raises the limit; it doesn't reset this month's usage. A download already under way can stop partway when you hit the limit.</p>
+<p>Uploads max out at 100 MiB, and each tunnel has a speed cap. Your local server has to stay running.</p>
+</details>
+<details>
+<summary>Keep a webhook or connector URL</summary>
+<p>Free keeps {{.FreeReservations}} name for you; Pro keeps {{.Reservations}}. tunn keeps a name the first time you use it, if it's free, and random names count too, so pick yours with <code>--name</code> on your first run. Past the limit, extra names last only while the tunnel runs, and someone else can take one while you're offline. To change a kept name, email support. <a href="/docs">Quickstart</a></p>
+</details>
+<details>
+<summary>Next to ngrok</summary>
 <div class="panel table-wrap"><table class="spec stack"><thead><tr><th scope="col">Plan</th><th scope="col">Price</th><th scope="col">Transfer</th><th scope="col">Requests</th></tr></thead><tbody>
 <tr><th scope="row">tunn Free</th><td data-l="Price">$0</td><td data-l="Transfer">{{.FreeBytesShort}}</td><td data-l="Requests">{{.FreeRequestsShort}}</td></tr>
 <tr><th scope="row">ngrok Free</th><td data-l="Price">$0</td><td data-l="Transfer">1 GB</td><td data-l="Requests">20K HTTP requests</td></tr>
@@ -37,14 +61,7 @@
 </tbody></table></div>
 <p class="fine" style="margin-top:12px">ngrok Hobbyist can use credit for extra usage. Sources: <a href="https://ngrok.com/pricing">ngrok pricing</a> and <a href="https://ngrok.com/docs/pricing-limits/">pricing limits</a>, accessed 2026-10-12. Units differ: tunn counts HTTP and MCP requests that get through, plus WebSocket and TCP opens, and bytes in both directions; ngrok counts HTTP requests and data out.</p>
 
-<h2>What counts toward a limit</h2>
-<p>All your tunnels share one monthly budget, which resets on the first day of each month (UTC). Each HTTP or MCP request counts once, and so does each WebSocket or TCP connection. Transfer counts what your app sends and receives: request and response bodies, WebSocket messages and TCP data, both ways. Encryption and protocol overhead don't count.</p>
-<p>At a limit, tunn stops taking requests or moving data and tells you why. There are no overage charges. Check usage in <a href="/account">your account</a> or with <code>tunn usage</code>. Upgrading raises the limit; it doesn't reset this month's usage. A download already under way can stop partway when you hit the limit.</p>
-<p>Uploads max out at 100 MiB, and each tunnel has a speed cap. Your local server has to stay running.</p>
-<h2 id="paying">Paying for Pro</h2>
-<p>Checkout runs on Stripe. When configured, payment can be processed automatically after verification. Otherwise, or if something needs review, activation requires manual review. Your committed account plan determines when Pro is on. Your <a href="/account">account page</a> shows when it's on. If you've paid and it still says Free, <a href="mailto:support@tunn.to">email support</a> rather than paying again.</p>
-<h2>Keep a webhook or connector URL</h2>
-<p>Free keeps {{.FreeReservations}} name for you; Pro keeps {{.Reservations}}. tunn keeps a name the first time you use it, if it's free, and random names count too, so pick yours with <code>--name</code> on your first run. Past the limit, extra names last only while the tunnel runs, and someone else can take one while you're offline. To change a kept name, email support. <a href="/docs">Quickstart</a></p>
+</details>
 <p>Questions about a subscription? <a href="/account">Manage your account</a> or <a href="mailto:support@tunn.to">contact support</a>. Self-hosting instructions are on <a href="https://gitlab.com/ehrlich-b/tunn">GitLab</a>.</p>
 </section>
 </div>

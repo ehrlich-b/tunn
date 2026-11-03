@@ -14,6 +14,15 @@ class FloatLookalike(float):
     pass
 
 
+class EqualToInt(type):
+    def __eq__(cls, other):
+        return other is int
+
+
+class DeceptiveInt(int, metaclass=EqualToInt):
+    pass
+
+
 class NumericOptions(IsolatedAsyncioTestCase):
     async def test_numeric_matrix_before_spawn_or_listener(self):
         base = Options(origin='http://localhost:8080')
@@ -58,10 +67,13 @@ class NumericOptions(IsolatedAsyncioTestCase):
 
         for field in duration + integers:
             invalid = [True, False, float('nan'), float('inf'), float('-inf'), 10**1000,
-                       -1, IntLookalike(1), FloatLookalike(1)]
+                       -1, IntLookalike(1), FloatLookalike(1), DeceptiveInt(1)]
             if field in integers:
                 invalid += [-0.0, 1.0, 2**31]
                 valid = [0, 1, 2**31 - 1]
+                if field == 'max_message_size':
+                    invalid += [0, 100 * 1024 * 1024 + 1, 2**31 - 1]
+                    valid = [1, 100 * 1024 * 1024]
             else:
                 invalid += [365 * 24 * 3600 + 1]
                 valid = [-0.0, 0, 1, 365 * 24 * 3600]

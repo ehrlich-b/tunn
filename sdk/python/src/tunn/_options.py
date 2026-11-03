@@ -76,7 +76,7 @@ class Options:
 
 
 def _duration(value, *, zero=True):
-    return (type(value) in (int, float)
+    return ((type(value) is int or type(value) is float)
             and (value >= 0 if zero else value > 0)
             and value <= 365 * 24 * 3600 and math.isfinite(value))
 
@@ -125,7 +125,7 @@ def validate(options: Options, *, handler=False):
             raise ValueError
         w = options.websocket
         if (not isinstance(w, WebSocketOptions) or not _duration(w.idle_timeout) or not _duration(w.keepalive_interval)
-                or type(w.max_message_size) is not int or not 0 <= w.max_message_size <= 2**31 - 1):
+                or type(w.max_message_size) is not int or not 1 <= w.max_message_size <= 100 * 1024 * 1024):
             raise ValueError
         for tls in (options.relay_tls, options.origin_tls):
             if tls is not None and (not isinstance(tls, TLSOptions) or not isinstance(tls.root_ca_pem, str) or not isinstance(tls.server_name, str)):

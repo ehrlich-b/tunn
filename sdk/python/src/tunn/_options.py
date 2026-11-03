@@ -76,9 +76,9 @@ class Options:
 
 
 def _duration(value, *, zero=True):
-    return (not isinstance(value, bool) and isinstance(value, (int, float))
-            and math.isfinite(value) and (value >= 0 if zero else value > 0)
-            and value <= 365 * 24 * 3600)
+    return (type(value) in (int, float)
+            and (value >= 0 if zero else value > 0)
+            and value <= 365 * 24 * 3600 and math.isfinite(value))
 
 
 def validate(options: Options, *, handler=False):

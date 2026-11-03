@@ -241,7 +241,8 @@ func TestAppDeviceEnrollmentRejectsFutureIssuedSession(t *testing.T) {
 }
 
 func TestAppDeviceEnrollmentAndCredentialMatrix(t *testing.T) {
-	f := newAppDeviceFixture(t)
+	now := time.Now()
+	f := newAppDeviceFixtureWithClock(t, func() time.Time { return now })
 	d, secret := f.enroll(t, nil)
 	if d.Account != f.tunnel.AccountID || d.Host != appDeviceTestHost || d.Resource != f.tunnel.ResourceID || d.Expires-d.Created != appDeviceLifetime.Milliseconds() {
 		t.Fatal("credential scope/lifetime mismatch")

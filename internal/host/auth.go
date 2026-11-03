@@ -32,15 +32,23 @@ const (
 	authCookieLifetime = 7 * 24 * time.Hour
 )
 
+func (p *ProxyServer) sessionTime() time.Time {
+	if p.sessionNow != nil {
+		return p.sessionNow()
+	}
+	return time.Now()
+}
+
 // setAuthCookie creates and sets a signed JWT auth cookie
 func (p *ProxyServer) setAuthCookie(w http.ResponseWriter, email string) error {
 	email = common.NormalizeEmail(email)
-	// Create JWT claims
+	// Use one clock reading for both timestamps.
+	now := p.sessionTime()
 	claims := jwt.MapClaims{
 		"email": email,
 		"type":  "session",
-		"iat":   time.Now().Unix(),
-		"exp":   time.Now().Add(authCookieLifetime).Unix(),
+		"iat":   now.Unix(),
+		"exp":   now.Add(authCookieLifetime).Unix(),
 	}
 
 	// Create and sign the token
@@ -89,13 +97,17 @@ func (p *ProxyServer) getAuthFromCookie(r *http.Request) (string, bool) {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
 		return p.getJWTSigningKey(), nil
-	})
+	}, jwt.WithoutClaimsValidation())
 	if err != nil || !token.Valid {
 		return "", false
 	}
 
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok {
+		return "", false
+	}
+	now := p.sessionTime().Unix()
+	if !claims.VerifyExpiresAt(now, false) || !claims.VerifyIssuedAt(now, false) || !claims.VerifyNotBefore(now, false) {
 		return "", false
 	}
 	if claims["type"] == "org_session" {

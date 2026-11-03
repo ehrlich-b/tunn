@@ -48,6 +48,7 @@ func TestMCPExchangeProcessHelper(t *testing.T) {
 	// time so a wall-clock adjustment cannot invalidate its fixture session.
 	started := time.Now()
 	sessionClock := func() time.Time { return started.Add(time.Since(started)) }
+	f.p.sessionNow = sessionClock
 	jwt.TimeFunc = sessionClock
 	t.Cleanup(func() { jwt.TimeFunc = time.Now })
 	var seconds atomic.Int64

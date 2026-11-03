@@ -48,8 +48,9 @@ paths and queries pass through the existing publisher adapter.
 Keep its context alive for the tunnel's entire lifetime. A blank name is
 generated once using cryptographic randomness; every reconnect registers that
 same identity. The public URL must identify that name and remain unchanged
-across reconnects. A registration rejection or invalid/duplicate registration
-response terminates the publisher.
+across reconnects. A permanent registration rejection or invalid/duplicate registration
+response terminates the publisher. Authority-outage rejections can be retried
+under the reconnect policy.
 
 The event sequence is `Connecting → Ready`, followed by `Reconnecting →
 Connecting → Ready` when a recoverable connection fails. `Reconnecting.Err`
@@ -74,6 +75,28 @@ WebSockets and backoff. `Wait` returns `context.Canceled` or
 shutdown. A previously completed failure remains observable through `Close`
 and `Wait`. Repeated and concurrent `Close` calls are safe. `Done()` closes
 after forwarding workers stop and the final event/channel closure is recorded.
+
+### Lifecycle and error reference
+
+`Ready` below means the first successful registration, observed with
+`WaitReady`; it is not a public channel. `Done` and `Events` are the public
+channels. `Events` can retain buffered values after it is closed, so drain it
+until the receive reports closure. “Repeat Close” means calling `Close` again;
+it does not restart the publisher or retry a failed operation.
+
+| Case | Result and channels | Repeat Close |
+| --- | --- | --- |
+| Initial terminal registration rejection | `WaitReady`, `Wait`, and `Close` report `RegistrationRejected`; `Done` and `Events` close after `Failed` and `Closed`. No Ready. Authority-outage rejections may instead retry and reach Ready. | Safe; returns the retained failure. |
+| Terminal rejection on reconnect after Ready | `Wait` and `Close` report `RegistrationRejected`; `WaitReady` retains the first URL. `Done` and `Events` close after `Failed` and `Closed`. | Safe; returns the retained failure. |
+| Publish context canceled before Ready | `WaitReady`, `Wait`, and `Close` report `context.Canceled`; `Done` and `Events` close after `Closed`. No Ready. | Safe; returns the retained cancellation. |
+| `WaitReady` caller timeout | That call returns `context.DeadlineExceeded` only; neither channel closes because of that timeout. The publisher can still become Ready. | Safe; closing subsequently stops the publisher and closes both channels. |
+| Origin unavailable during a buffered HTTP request | The request receives 502; the publisher stays Ready and neither channel closes due to that request. | Safe; closing subsequently stops the publisher and closes both channels. |
+| Concurrent Close after Ready | Every Close joins shutdown and returns nil; `Done` and `Events` close after `Closed`. `WaitReady` retains the original URL. | Safe; returns nil. |
+
+A lifetime deadline on the context passed to `Publish` is different from a
+`WaitReady` timeout: it stops the publisher and the terminal result is
+`context.DeadlineExceeded`. Origin behavior above describes the buffered HTTP
+path; streaming failures have the terminal behavior in the wire table below.
 
 Each tunnel owns its relay connection, forwarding transports/workers, timers
 and optional handler transport. Closing one tunnel never cancels the caller's

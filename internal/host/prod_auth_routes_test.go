@@ -171,7 +171,9 @@ func newProdAuthFixture(t *testing.T) *prodAuthFixture {
 	f := newMCPOAuthFixture(t)
 	// Keep issue and validation ordered even if the wall clock changes.
 	started := time.Now()
-	f.p.sessionNow = func() time.Time { return started.Add(time.Since(started)) }
+	clock := func() time.Time { return started.Add(time.Since(started)) }
+	f.p.sessionNow = clock
+	f.p.now = clock
 	db := f.p.mcpOAuth.db
 	db.SetMaxOpenConns(1)
 	deviceRegistry, deviceErr := newDeviceCredentialStore(db)

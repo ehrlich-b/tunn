@@ -93,7 +93,7 @@ func (s *ServeClient) handleWebSocket(ctx context.Context, sender messageSender,
 	status, reason := 0, "target_error"
 	var capture *inspectionCapture
 	if s.Inspector != nil {
-		capture = s.Inspector.beginConnection(id, "websocket", head.Method, head.Path, head.Headers)
+		capture = s.Inspector.beginFields(id, "websocket", head.Method, head.Path, head.Headers, head.HeaderFields)
 		input = &inspectionReader{reader: input, capture: capture}
 		defer func() {
 			if ctx.Err() != nil {

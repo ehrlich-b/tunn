@@ -40,7 +40,7 @@ func (p *ProxyServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			if r.Method != http.MethodHead {
 				writePageStart(w, "tunn - Status")
-				_, _ = io.WriteString(w, `<h1>Status</h1><p>Public checks aren't published yet.</p><p><a href="mailto:support@tunn.to">Contact support</a></p>`)
+				_, _ = io.WriteString(w, `<h1>Status</h1><p>Public checks aren't published yet.</p><p><a href="/report">Report a bug</a> · <a href="mailto:support@tunn.to">Contact support</a></p>`)
 				writePageEnd(w)
 			}
 		}

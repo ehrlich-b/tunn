@@ -90,6 +90,8 @@ func main() {
 
 	// Route to subcommand or default serve behavior
 	switch args[0] {
+	case "report":
+		runReport(args[1:])
 	case "status":
 		runStatus(args[1:])
 	case "admin":
@@ -421,8 +423,8 @@ func runMCP(args []string) {
 	if runErr != nil && !errors.Is(runErr, context.Canceled) {
 		cancel()
 		cleanupBridge()
-		exitIfLoginRequired(runErr)
-		common.LogError("MCP tunnel stopped", "error", runErr)
+		exitIfRuntimeLoginRequired(runErr)
+		common.LogError("MCP tunnel stopped; run tunn report to report a bug", "error", runErr)
 		os.Exit(1)
 	}
 }
@@ -698,8 +700,8 @@ func runRawPublisher(opts *tcpCommandOptions, targetNetwork, endpointProtocol st
 		Insecure:          cfg.Insecure || *insecure,
 	}
 	if err := serveClient.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
-		exitIfLoginRequired(err)
-		common.LogError("raw endpoint failed", "error", err)
+		exitIfRuntimeLoginRequired(err)
+		common.LogError("raw endpoint failed; run tunn report to report a bug", "error", err)
 		os.Exit(1)
 	}
 }
@@ -1186,7 +1188,7 @@ func runServe(args []string) {
 	attachCLI(ctx, serveClient, output, opts.inspect)
 	runErr := serveClient.Run(ctx)
 	if !stoppedNormally(runErr) {
-		if showHTTPLoginRequired(output, runErr) {
+		if showHTTPRuntimeLoginRequired(output, runErr) {
 			os.Exit(client.ExitLoginRequired)
 		}
 		showTunnelError(output, runErr, cfg.ServerAddr)

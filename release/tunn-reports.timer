@@ -1,0 +1,8 @@
+[Unit]
+Description=Pull tunn bug reports every 15 minutes
+[Timer]
+OnBootSec=15min
+OnUnitActiveSec=15min
+Persistent=true
+[Install]
+WantedBy=timers.target

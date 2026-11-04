@@ -219,7 +219,11 @@ func initSchema(db *sql.DB) error {
 	if err := MigrateTunnelAlerts(db); err != nil {
 		return err
 	}
-	return MigrateOperations(db)
+	if err := MigrateOperations(db); err != nil {
+		return err
+	}
+	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS bug_reports (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'new', ip TEXT NOT NULL, text TEXT NOT NULL, email TEXT NOT NULL, version TEXT NOT NULL, os TEXT NOT NULL)`)
+	return err
 }
 
 // OpenLocal opens an explicitly selected database without process-global state.

@@ -873,6 +873,8 @@ func (p *ProxyServer) createHandler() http.Handler {
 	mux.HandleFunc("/health", p.handleHealth)
 	mux.HandleFunc("/healthz", p.handleHealth)
 	mux.HandleFunc("/readyz", p.handleHealth)
+	mux.HandleFunc("/report", p.handleBugReport)
+	mux.HandleFunc("/ops/reports", p.handleBugReportsRead)
 	mux.HandleFunc("/status", p.handleStatus)
 	mux.HandleFunc("/status.json", p.handleStatus)
 

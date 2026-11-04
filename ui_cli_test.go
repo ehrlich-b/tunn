@@ -32,6 +32,9 @@ func TestCLIFailureCommands(t *testing.T) {
 		if !strings.Contains(errout.String(), test.title) || !strings.Contains(errout.String(), test.command) || strings.Contains(errout.String(), "private") {
 			t.Fatal(errout.String())
 		}
+		if !strings.Contains(errout.String(), "tunn report") {
+			t.Fatal("missing report command")
+		}
 		if out.Len() != 0 {
 			t.Fatal("diagnostic on stdout")
 		}

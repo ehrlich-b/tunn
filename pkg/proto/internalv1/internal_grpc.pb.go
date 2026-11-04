@@ -256,6 +256,7 @@ const (
 	LoginNodeDB_CheckMagicLinkRateLimit_FullMethodName = "/internal.LoginNodeDB/CheckMagicLinkRateLimit"
 	LoginNodeDB_ProcessBillingEvent_FullMethodName     = "/internal.LoginNodeDB/ProcessBillingEvent"
 	LoginNodeDB_IntakeReport_FullMethodName            = "/internal.LoginNodeDB/IntakeReport"
+	LoginNodeDB_BugReportHTTP_FullMethodName           = "/internal.LoginNodeDB/BugReportHTTP"
 	LoginNodeDB_BeginBillingCheckout_FullMethodName    = "/internal.LoginNodeDB/BeginBillingCheckout"
 	LoginNodeDB_AppDeviceCheck_FullMethodName          = "/internal.LoginNodeDB/AppDeviceCheck"
 )
@@ -295,6 +296,7 @@ type LoginNodeDBClient interface {
 	// Durable payment intake, authenticated by the existing internal node gate.
 	ProcessBillingEvent(ctx context.Context, in *ProcessBillingEventRequest, opts ...grpc.CallOption) (*ProcessBillingEventResponse, error)
 	IntakeReport(ctx context.Context, in *IntakeReportRequest, opts ...grpc.CallOption) (*IntakeReportResponse, error)
+	BugReportHTTP(ctx context.Context, in *BugReportHTTPRequest, opts ...grpc.CallOption) (*BugReportHTTPResponse, error)
 	BeginBillingCheckout(ctx context.Context, in *BeginBillingCheckoutRequest, opts ...grpc.CallOption) (*BeginBillingCheckoutResponse, error)
 	// Live app credentials and expiring concurrency leases; never carries raw secrets.
 	AppDeviceCheck(ctx context.Context, in *AppDeviceCheckRequest, opts ...grpc.CallOption) (*AppDeviceCheckResponse, error)
@@ -518,6 +520,16 @@ func (c *loginNodeDBClient) IntakeReport(ctx context.Context, in *IntakeReportRe
 	return out, nil
 }
 
+func (c *loginNodeDBClient) BugReportHTTP(ctx context.Context, in *BugReportHTTPRequest, opts ...grpc.CallOption) (*BugReportHTTPResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(BugReportHTTPResponse)
+	err := c.cc.Invoke(ctx, LoginNodeDB_BugReportHTTP_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *loginNodeDBClient) BeginBillingCheckout(ctx context.Context, in *BeginBillingCheckoutRequest, opts ...grpc.CallOption) (*BeginBillingCheckoutResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(BeginBillingCheckoutResponse)
@@ -573,6 +585,7 @@ type LoginNodeDBServer interface {
 	// Durable payment intake, authenticated by the existing internal node gate.
 	ProcessBillingEvent(context.Context, *ProcessBillingEventRequest) (*ProcessBillingEventResponse, error)
 	IntakeReport(context.Context, *IntakeReportRequest) (*IntakeReportResponse, error)
+	BugReportHTTP(context.Context, *BugReportHTTPRequest) (*BugReportHTTPResponse, error)
 	BeginBillingCheckout(context.Context, *BeginBillingCheckoutRequest) (*BeginBillingCheckoutResponse, error)
 	// Live app credentials and expiring concurrency leases; never carries raw secrets.
 	AppDeviceCheck(context.Context, *AppDeviceCheckRequest) (*AppDeviceCheckResponse, error)
@@ -648,6 +661,9 @@ func (UnimplementedLoginNodeDBServer) ProcessBillingEvent(context.Context, *Proc
 }
 func (UnimplementedLoginNodeDBServer) IntakeReport(context.Context, *IntakeReportRequest) (*IntakeReportResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method IntakeReport not implemented")
+}
+func (UnimplementedLoginNodeDBServer) BugReportHTTP(context.Context, *BugReportHTTPRequest) (*BugReportHTTPResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method BugReportHTTP not implemented")
 }
 func (UnimplementedLoginNodeDBServer) BeginBillingCheckout(context.Context, *BeginBillingCheckoutRequest) (*BeginBillingCheckoutResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method BeginBillingCheckout not implemented")
@@ -1054,6 +1070,24 @@ func _LoginNodeDB_IntakeReport_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _LoginNodeDB_BugReportHTTP_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BugReportHTTPRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LoginNodeDBServer).BugReportHTTP(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LoginNodeDB_BugReportHTTP_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LoginNodeDBServer).BugReportHTTP(ctx, req.(*BugReportHTTPRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _LoginNodeDB_BeginBillingCheckout_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(BeginBillingCheckoutRequest)
 	if err := dec(in); err != nil {
@@ -1180,6 +1214,10 @@ var LoginNodeDB_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "IntakeReport",
 			Handler:    _LoginNodeDB_IntakeReport_Handler,
+		},
+		{
+			MethodName: "BugReportHTTP",
+			Handler:    _LoginNodeDB_BugReportHTTP_Handler,
 		},
 		{
 			MethodName: "BeginBillingCheckout",

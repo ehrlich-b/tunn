@@ -649,3 +649,12 @@ func TestInventoryRetryQuotesShellCharactersAndKeepsInsecure(t *testing.T) {
 		})
 	}
 }
+
+func TestRuntimeLoginRequiredReportGuidance(t *testing.T) {
+	for _, machine := range []bool{false, true} {
+		var out, errout bytes.Buffer
+		if !showHTTPRuntimeLoginRequired(terminal.New(&out, &errout, machine), client.ErrNotLoggedIn) || !strings.Contains(errout.String(), "tunn report") {
+			t.Fatalf("missing runtime report guidance: %s", errout.String())
+		}
+	}
+}

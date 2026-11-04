@@ -2,6 +2,7 @@ package host
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"github.com/ehrlich-b/tunn/internal/store"
@@ -19,6 +20,7 @@ import (
 type LoginNodeDBServer struct {
 	internalv1.UnimplementedLoginNodeDBServer
 	storage    *storage.LocalStorage
+	reportDB   *sql.DB
 	appDevices *appDeviceStore
 }
 

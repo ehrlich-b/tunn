@@ -190,6 +190,22 @@ func showHTTPLoginRequired(o *terminal.Output, err error) bool {
 	}
 	return true
 }
+func showHTTPRuntimeLoginRequired(o *terminal.Output, err error) bool {
+	if !client.LoginRequired(err) {
+		return false
+	}
+	cause := loginCause(err)
+	state := "auth_expired"
+	if errors.Is(err, client.ErrNotLoggedIn) {
+		state = "auth_missing"
+	}
+	if o.JSON {
+		o.State(state, "Sign in required", cause, loginCommand()+"; run tunn report to report a bug", 0)
+	} else {
+		o.Diagnostic(client.LoginRequiredMessage() + " Run tunn report to report a bug.")
+	}
+	return true
+}
 func relayCause(err error) string {
 	var response *client.DeviceCodeHTTPError
 	if errors.As(err, &response) && response.StatusCode >= 500 && response.StatusCode <= 599 {
@@ -236,40 +252,43 @@ func relayRefused(err error) bool {
 	return status.Code(err) == codes.Unavailable && strings.Contains(strings.ToLower(err.Error()), "connection refused")
 }
 func showTunnelError(o *terminal.Output, err error, server string) {
+	reportState := func(state, title, detail, command string, delay time.Duration) {
+		o.State(state, title, detail+" Report a bug with tunn report.", command, delay)
+	}
 	if client.AuthenticationFailure(err) || status.Code(err) == codes.Unauthenticated {
-		o.State("auth_expired", "Sign in again", "Login expired or rejected", loginCommand(), 0)
+		reportState("auth_expired", "Sign in again", "Login expired or rejected", loginCommand(), 0)
 		return
 	}
 	text := strings.ToLower(err.Error())
 	if status.Code(err) == codes.PermissionDenied {
-		o.State("error", "Access denied", "Relay denied this account access", accountURL(server), 0)
+		reportState("error", "Access denied", "Relay denied this account access", accountURL(server), 0)
 		return
 	}
 	if status.Code(err) == codes.ResourceExhausted && strings.Contains(text, "larger than max") {
-		o.State("error", "Tunnel message too large", "Check the installed version", "tunn --version", 0)
+		reportState("error", "Tunnel message too large", "Check the installed version", "tunn --version", 0)
 		return
 	}
 	if match := tunnelLimit.FindStringSubmatch(text); len(match) == 3 {
-		o.State("limit", "Tunnel limit reached", match[1]+" / "+match[2]+" tunnels in use. Stop a running tunnel.", accountURL(server), 0)
+		reportState("limit", "Tunnel limit reached", match[1]+" / "+match[2]+" tunnels in use. Stop a running tunnel.", accountURL(server), 0)
 		return
 	}
 	if status.Code(err) == codes.ResourceExhausted || strings.Contains(text, "quota") || strings.Contains(text, "limit reached") {
-		o.State("limit", "Limit reached", "Relay usage limit reached. Check the reset time.", accountURL(server), 0)
+		reportState("limit", "Limit reached", "Relay usage limit reached. Check the reset time.", accountURL(server), 0)
 		return
 	}
 	if client.ClassifyFailure(err) == client.FailureRegistration {
 		if strings.Contains(text, "already in use") || strings.Contains(text, "reserved") {
-			o.State("error", "Tunnel name unavailable", "Choose another name", "tunn 3000 --name my-app", 0)
+			reportState("error", "Tunnel name unavailable", "Choose another name", "tunn 3000 --name my-app", 0)
 		} else {
-			o.State("error", "Tunnel rejected", "Relay rejected this account or tunnel", accountURL(server), 0)
+			reportState("error", "Tunnel rejected", "Relay rejected this account or tunnel", accountURL(server), 0)
 		}
 		return
 	}
 	if client.ClassifyFailure(err) == client.FailureProtocol {
-		o.State("error", "Relay cannot start this tunnel", "Check the installed version", "tunn --version", 0)
+		reportState("error", "Relay cannot start this tunnel", "Check the installed version", "tunn --version", 0)
 		return
 	}
-	o.State("offline", "Cannot reach tunn", relayCause(err)+". "+relayRecovery(err)+".", relayCheck(server), 0)
+	reportState("offline", "Cannot reach tunn", relayCause(err)+". "+relayRecovery(err)+".", relayCheck(server), 0)
 }
 
 // cliSession owns the human health reading. A relay alone cannot mark it Online.

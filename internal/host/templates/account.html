@@ -166,7 +166,7 @@
   <div class="card" role="status" aria-live="polite">
     <div class="card-title">Payment review</div>
     <p>{{if eq .BillingNotice "duplicate_payment_refund_needed"}}An additional payment needs review for cancellation and refund. {{if eq .Plan "pro"}}Your Pro service remains available.{{end}}{{else}}Your payment needs review. If the purchase cannot be fulfilled, support will review cancellation and refund.{{end}}</p>
-    <p>Do not pay again. <a href="mailto:support@tunn.to">Contact support</a> for help with this payment.</p>
+    <p>Do not pay again. <a href="/report">Report a bug</a> · <a href="mailto:support@tunn.to">Contact support</a> for help with this payment.</p>
   </div>
   {{end}}
   {{if .BillingReturn}}
@@ -227,7 +227,7 @@
   </div>
   </div>
 </main>
-<footer class="site-footer"><div class="container"><a href="/docs">Docs</a><a href="/pricing">Pricing</a><a href="/status">Status</a><span class="spacer"></span><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="mailto:support@tunn.to">Support</a></div></footer>
+<footer class="site-footer"><div class="container"><a href="/docs">Docs</a><a href="/pricing">Pricing</a><a href="/status">Status</a><span class="spacer"></span><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/report">Report a bug</a><a href="mailto:support@tunn.to">Support</a></div></footer>
 <script defer src="/assets/ui.js"></script>
 <script defer src="{{assetURL "account-tunnels.js"}}"></script>
 

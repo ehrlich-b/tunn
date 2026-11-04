@@ -48,6 +48,7 @@ service LoginNodeDB {
   // Durable payment intake, authenticated by the existing internal node gate.
   rpc ProcessBillingEvent(ProcessBillingEventRequest) returns (ProcessBillingEventResponse);
   rpc IntakeReport(IntakeReportRequest) returns (IntakeReportResponse);
+  rpc BugReportHTTP(BugReportHTTPRequest) returns (BugReportHTTPResponse);
   rpc BeginBillingCheckout(BeginBillingCheckoutRequest) returns (BeginBillingCheckoutResponse);
   // Live app credentials and expiring concurrency leases; never carries raw secrets.
   rpc AppDeviceCheck(AppDeviceCheckRequest) returns (AppDeviceCheckResponse);
@@ -305,3 +306,6 @@ message AccountTunnel {
   string client_host = 6;
   int64 last_request_unix = 7;
 }
+
+message BugReportHTTPRequest { string method = 1; string path = 2; string query = 3; bytes body = 4; string content_type = 5; string authorization = 6; string remote_addr = 7; }
+message BugReportHTTPResponse { int32 code = 1; bytes body = 2; string content_type = 3; }

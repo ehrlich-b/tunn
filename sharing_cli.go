@@ -161,6 +161,14 @@ func exitIfLoginRequired(err error) {
 	}
 }
 
+// exitIfRuntimeLoginRequired includes bug reporting guidance after a tunnel stops.
+func exitIfRuntimeLoginRequired(err error) {
+	if client.LoginRequired(err) {
+		_, _ = fmt.Fprintln(os.Stderr, client.LoginRequiredMessage()+" Run tunn report to report a bug.")
+		os.Exit(client.ExitLoginRequired)
+	}
+}
+
 // stdinIsTerminal reports a person at a terminal. A service's /dev/null stdin
 // is a character device too, so the mode bits alone would start a browser login.
 func stdinIsTerminal() bool {

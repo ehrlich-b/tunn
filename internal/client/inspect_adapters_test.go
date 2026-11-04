@@ -18,16 +18,22 @@ import (
 	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
 )
 
-type inspectContractSender struct{ fail bool }
+type inspectContractSender struct {
+	fail        bool
+	onHalfClose func()
+}
 
 func (s inspectContractSender) Send(msg *pb.TunnelMessage) error {
 	if s.fail && msg.GetConnectionData() != nil {
 		return errors.New("fixture relay send failure")
 	}
+	if s.onHalfClose != nil && msg.GetConnectionHalfClose() != nil {
+		s.onHalfClose()
+	}
 	return nil
 }
 func TestInspectContractStreamingTerminalOutcomes(t *testing.T) {
-	for _, mode := range []string{"http", "http-known-length", "sse", "response_error", "relay_error", "cancel"} {
+	for _, mode := range []string{"http", "http-known-length", "sse", "response_error", "relay_error", "cancel", "cancel_after_half_close"} {
 		t.Run(mode, func(t *testing.T) {
 			client := &ServeClient{TargetURL: "http://fixture.test", HTTPTimeout: time.Second}
 			client.DialContext = func(ctx context.Context, _, _ string) (net.Conn, error) {
@@ -62,7 +68,11 @@ func TestInspectContractStreamingTerminalOutcomes(t *testing.T) {
 			if mode == "http-known-length" {
 				length = 4
 			}
-			client.handleStreamingHTTPRequest(ctx, inspectContractSender{fail: mode == "relay_error"}, &pb.ConnectionOpen{ConnectionId: "correlation-7", Protocol: "http", HttpRequest: &pb.HttpRequestHead{Method: "POST", Path: "/hook", ContentLength: length}}, strings.NewReader("body"))
+			sender := inspectContractSender{fail: mode == "relay_error"}
+			if mode == "cancel_after_half_close" {
+				sender.onHalfClose = cancel
+			}
+			client.handleStreamingHTTPRequest(ctx, sender, &pb.ConnectionOpen{ConnectionId: "correlation-7", Protocol: "http", HttpRequest: &pb.HttpRequestHead{Method: "POST", Path: "/hook", ContentLength: length}}, strings.NewReader("body"))
 			events := client.Inspector.list()
 			if len(events) != 1 {
 				t.Fatal(events)

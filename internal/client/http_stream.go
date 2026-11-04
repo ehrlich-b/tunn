@@ -468,7 +468,9 @@ func (s *ServeClient) handleStreamingHTTPRequest(ctx context.Context, sender mes
 				}
 				timing.remove()
 			}
-			if ctx.Err() != nil {
+			// A relay close can cancel the context after the response half-close
+			// was sent successfully. Preserve that completed capture.
+			if ctx.Err() != nil && reason != "complete" {
 				reason = "canceled"
 			}
 			capture.finishReason(status, responseBytes, reason)

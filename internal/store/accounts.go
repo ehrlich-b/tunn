@@ -531,27 +531,22 @@ func (s *AccountStore) GetReservedSubdomains(accountID string) ([]ReservedSubdom
 		rs.CreatedAt = time.Unix(createdAtUnix, 0)
 		subdomains = append(subdomains, rs)
 	}
-	return subdomains, nil
+	return subdomains, rows.Err()
 }
 
 // ReleaseSubdomain releases a reserved subdomain
 func (s *AccountStore) ReleaseSubdomain(accountID, subdomain string) error {
 	subdomain = strings.ToLower(strings.TrimSpace(subdomain))
 
-	result, err := s.db.Exec(
-		`DELETE FROM reserved_subdomains WHERE subdomain = ?
-		 AND account_id = COALESCE((SELECT account_id FROM account_merges WHERE old_id = ?), ?)`,
-		subdomain, accountID, accountID,
-	)
+	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
-
-	rows, _ := result.RowsAffected()
-	if rows == 0 {
-		return fmt.Errorf("subdomain '%s' not found or not owned by this account", subdomain)
+	defer func() { _ = tx.Rollback() }()
+	if err = releaseSubdomain(context.Background(), tx, accountID, subdomain); err != nil {
+		return err
 	}
-	return nil
+	return tx.Commit()
 }
 
 // RecordUsage adds bytes to an account's monthly usage

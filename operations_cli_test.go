@@ -228,3 +228,62 @@ func TestReviewedBillingCLIOnNonFixtureDatabase(t *testing.T) {
 		t.Fatal("stale review applied")
 	}
 }
+
+func TestFunnelCLIReadOnlyAndScope(t *testing.T) {
+	dir := t.TempDir()
+	path, configPath, tokenPath := filepath.Join(dir, "funnel.db"), filepath.Join(dir, "admins.json"), filepath.Join(dir, "token")
+	token := "funnel-operator-token-0123456789abcdef"
+	digest := sha256.Sum256([]byte(token))
+	writeConfig := func(accounts []string) {
+		t.Helper()
+		data, err := json.Marshal([]store.AdminCredential{{Actor: "funnel-operator", TokenSHA256: hex.EncodeToString(digest[:]), Accounts: accounts}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(configPath, data, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeConfig([]string{"*"})
+	if err := os.WriteFile(tokenPath, []byte(token), 0600); err != nil {
+		t.Fatal(err)
+	}
+	call := func(action string, extra ...string) ([]byte, error) {
+		var out bytes.Buffer
+		args := []string{action, "--db", path, "--admin-config", configPath, "--token-file", tokenPath}
+		err := executeOperations(append(args, extra...), &out)
+		return out.Bytes(), err
+	}
+	if _, err := call("fixture-init", "--email", "funnel@example.invalid"); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		data, err := call("funnel", "--json")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var report store.FunnelReport
+		if err := json.Unmarshal(data, &report); err != nil {
+			t.Fatal(err)
+		}
+		if len(report.Days) != 1 || report.Days[0].Stage != "signup" || report.Days[0].Count != 1 || report.CheckoutWithoutPro != 0 {
+			t.Fatalf("report=%+v", report)
+		}
+		data, err = call("funnel")
+		if err != nil || !strings.Contains(string(data), "DAY\tSTAGE\tCOUNT") || !strings.Contains(string(data), "\tsignup\t1") || strings.Contains(string(data), "funnel@example.invalid") {
+			t.Fatalf("table=%s err=%v", data, err)
+		}
+	}
+	after, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatalf("read changed database: %v", err)
+	}
+	writeConfig([]string{"another-account"})
+	if _, err := call("funnel", "--json"); !errors.Is(err, store.ErrDenied) {
+		t.Fatalf("scoped operator read global funnel: %v", err)
+	}
+}

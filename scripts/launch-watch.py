@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Summarize existing relay slog text from `fly logs --no-tail`, offline.
 
-Usage: python3 scripts/launch-watch.py [FILE] (stdin when FILE is omitted).
-Counts are log records, not unique users, deliveries or successful payments.
+Usage: python3 scripts/launch-watch.py [--funnel REPORT.json] [FILE].
+Logs come from stdin when FILE is omitted. Funnel counts are durable unique
+accounts; log counts are records, not unique users or successful payments.
 INFO records require the relay's request/trace log level and retained Fly logs.
 """
 import argparse
@@ -105,8 +106,6 @@ def main():
             print(f'{stage}: {totals[stage]} (conversion: {rate})')
         print(f"Checkout completed without Pro (last 24h): {report['checkout_without_pro']}")
         funnel_alert = bool(report['checkout_without_pro'])
-        if not args.file:
-            return 2 if funnel_alert else 0
     if args.file:
         with open(args.file, encoding='utf-8', errors='replace') as stream:
             counts, types = summarize(stream, datetime.now(timezone.utc))

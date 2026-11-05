@@ -246,3 +246,19 @@ The funnel ledger is additive. To roll back the code, leave `funnel_events` and
 `funnel_secret` in place; older binaries ignore them. If removal is required,
 back up the database first, then drop those two tables while the service is
 stopped. Removing the secret prevents correlating new events with old ones.
+
+For local operators, `tunn admin funnel --db PATH --admin-config PATH
+--token-file PATH` prints UTC daily counts; add `--json` to export the report.
+It requires a global operator credential and opens the database read-only.
+Each stage is recorded once per account using a database-specific HMAC hash;
+the ledger contains only the stage, hash and first occurrence time. Failed
+ledger writes do not reject signup, admission, consent or billing requests.
+
+Save that JSON and run `python3 scripts/launch-watch.py --funnel REPORT.json
+LOGFILE` (or pipe saved logs on stdin). For a report alone, redirect stdin from
+`/dev/null`. Conversion percentages compare lifetime stage totals, not cohorts.
+Exit code 2 means a completed checkout in the last 24 hours has no matching
+Pro-active event in that same window, or a billing webhook error appears in the
+last 24 hours of supplied logs. An unmatched payment awaiting ownership review
+also counts toward the alert, using a hashed provider identifier when ownership
+is unknown. Pro history outside the window does not clear the alert.

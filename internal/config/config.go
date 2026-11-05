@@ -20,6 +20,11 @@ const (
 type Config struct {
 	Environment Environment
 
+	// Confirmed public operator facts; empty values remain explicitly unavailable.
+	OperatingName       string
+	MerchantDisplayName string
+	SupportWindow       string
+
 	// Server configuration
 	StatusURL string // Explicit independent status collector origin (optional).
 	Domain    string
@@ -111,6 +116,9 @@ func LoadConfig() (*Config, error) {
 		Environment: env,
 	}
 
+	cfg.OperatingName = os.Getenv("TUNN_OPERATING_NAME")
+	cfg.MerchantDisplayName = os.Getenv("TUNN_MERCHANT_DISPLAY_NAME")
+	cfg.SupportWindow = os.Getenv("TUNN_SUPPORT_WINDOW")
 	cfg.StatusURL = os.Getenv("TUNN_STATUS_URL")
 	if cfg.StatusURL != "" {
 		if _, err := statuspage.Origin(cfg.StatusURL); err != nil {

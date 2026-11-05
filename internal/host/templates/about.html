@@ -1,0 +1,28 @@
+<div class="prose" style="padding-top:40px">
+<h1>About and support</h1>
+<p class="page-subtitle">Who maintains tunn, what the relay can see, and where to get help.</p>
+<section aria-labelledby="operator-title">
+<h2 id="operator-title">Operator facts</h2>
+<dl class="operator-facts">
+<dt>Maintainer</dt><dd>Bryan Ehrlich</dd>
+<dt>Operating name</dt><dd>{{.OperatingName}}</dd>
+<dt>Merchant display name</dt><dd>{{.MerchantDisplayName}}</dd>
+<dt>Staffed support window</dt><dd>{{.SupportWindow}}</dd>
+</dl>
+<p>The merchant display name is provided for comparison with checkout and your receipt. It is not independent verification of a merchant match.</p>
+</section>
+<section aria-labelledby="trust-title">
+<h2 id="trust-title">Trust and availability</h2>
+<p>The relay terminates TLS and can read HTTP traffic. Private tunnels check access at the relay; this is not end-to-end encryption. You can self-host to control the relay.</p>
+<p>Your local app and tunn publisher must stay running and connected. Relay availability alone does not mean your app is reachable. There is no uptime guarantee.</p>
+{{if .StatusUnpublished}}<p>Public checks aren't published yet. Status history is unpublished.</p>{{else}}<p>See <a href="/status">current status</a> for published checks and available history. These checks do not verify every tunnel or app.</p>{{end}}
+<p><a href="https://gitlab.com/ehrlich-b/tunn">Source on GitLab</a> · <a href="https://gitlab.com/ehrlich-b/tunn/-/releases">Releases</a></p>
+</section>
+<section aria-labelledby="help-title">
+<h2 id="help-title">Get help or report abuse</h2>
+<p>Support and billing: <a href="mailto:support@tunn.to">support@tunn.to</a>. Paid but still Free? Contact support before paying again.</p>
+<p>Abuse reports: <a href="mailto:abuse@tunn.to">abuse@tunn.to</a>. Include the tunnel URL and what happened; leave out passwords and tokens.</p>
+<p><a href="/privacy">Privacy</a> · <a href="/terms">Terms and refunds</a></p>
+</section>
+</div>
+<style>.operator-facts{margin:16px 0 24px;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:12px 24px}.operator-facts dt{font-weight:600}.operator-facts dd{margin:0;overflow-wrap:anywhere}@media(max-width:600px){.operator-facts{grid-template-columns:minmax(0,1fr);gap:4px}.operator-facts dd{margin-bottom:12px}}</style>

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync/atomic"
 )
 
 // Authorization holds secrets only in memory. Do not serialize or log it.
@@ -17,6 +18,7 @@ type Authorization struct {
 	URL                                 string
 	discovery                           *Discovery
 	clientID, redirect, verifier, state string
+	exchanged                           atomic.Bool
 }
 
 func randomValue() (string, error) {
@@ -76,7 +78,11 @@ func (a *Authorization) CallbackCode(raw string) (string, error) {
 	if err != nil || len(q["state"]) != 1 || q.Get("state") != a.state || len(q["iss"]) != 1 || q.Get("iss") != a.discovery.Issuer {
 		return "", problem("consent", "state", "OAuth state or issuer mismatch; restart the check and approve only its browser request.")
 	}
-	if q.Get("error") != "" {
+	// Count decoded keys, including empty values: code and error are exclusive.
+	if len(q["code"]) > 1 || len(q["error"]) > 1 || len(q["code"]) != 0 && len(q["error"]) != 0 || len(q["error"]) == 1 && q.Get("error") == "" {
+		return "", problem("consent", "callback", "OAuth callback result is ambiguous or invalid; restart browser consent.")
+	}
+	if len(q["error"]) == 1 {
 		return "", problem("consent", "denied", "Consent was denied or invalid; sign in as owner/allowed email, choose automatic registration and approve this tunnel.")
 	}
 	if len(q["code"]) != 1 || q.Get("code") == "" || len(q.Get("code")) > 4096 {
@@ -88,6 +94,10 @@ func (c *Checker) Exchange(ctx context.Context, a *Authorization, callback strin
 	code, err := a.CallbackCode(callback)
 	if err != nil {
 		return "", err
+	}
+	// Consume before sending: even a failed token request must not be replayed.
+	if !a.exchanged.CompareAndSwap(false, true) {
+		return "", problem("consent", "replay", "OAuth callback was already exchanged; restart browser consent.")
 	}
 	form := url.Values{"grant_type": {"authorization_code"}, "client_id": {a.clientID}, "code": {code}, "redirect_uri": {a.redirect}, "resource": {a.discovery.Resource}, "code_verifier": {a.verifier}}
 	resp, data, err := c.request(ctx, "token", "POST", a.discovery.Token, "application/x-www-form-urlencoded", "", []byte(form.Encode()), nil)
@@ -127,6 +137,7 @@ func (c *Checker) Authenticate(ctx context.Context, d *Discovery, visit func(str
 		return "", err
 	}
 	received := make(chan string, 1)
+	var callbackReceived atomic.Bool
 	server := &http.Server{ReadHeaderTimeout: 5e9, MaxHeaderBytes: 16 * 1024, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -143,12 +154,12 @@ func (c *Checker) Authenticate(ctx context.Context, d *Discovery, visit func(str
 				return
 			}
 		}
-		select {
-		case received <- callback:
-			w.Write([]byte("Return to tunn connector-check for the result.\n"))
-		default:
+		if !callbackReceived.CompareAndSwap(false, true) {
 			http.Error(w, "Callback already received.", 409)
+			return
 		}
+		received <- callback
+		w.Write([]byte("Return to tunn connector-check for the result.\n"))
 	})}
 	defer server.Close()
 	go server.Serve(listener)

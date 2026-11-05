@@ -18,7 +18,7 @@ import (
 )
 
 const operationsUsage = `tunn admin <action> --db PATH --admin-config PATH --token-file PATH
-Actions: status, suspend, resume, billing-bind, billing-status, billing-events, reconcile,
+Actions: funnel, status, suspend, resume, billing-bind, billing-status, billing-events, reconcile,
          report-intake, report-respond, fixture-init, migrate, reconcile-legacy, payment-queue, payment-review
 Account operations: --account UUID --expect-version N --reason TEXT
 Billing bind: --account UUID --provider NAME --customer ID --subscription ID
@@ -114,7 +114,8 @@ func executeOperations(args []string, out io.Writer) error {
 	var dbPath, configPath, tokenPath, account, reason, provider, customer, subscription, input, email, category, endpoint, report, response string
 	var after string
 	var expected int64
-	var apply, applyReviewed bool
+	var apply, applyReviewed, funnelJSON bool
+	fs.BoolVar(&funnelJSON, "json", false, "emit funnel JSON")
 	fs.StringVar(&after, "after", "", "payment queue or billing status cursor")
 	fs.StringVar(&dbPath, "db", "", "explicit local database path")
 	fs.StringVar(&configPath, "admin-config", "", "operator-owned configuration")
@@ -141,6 +142,7 @@ func executeOperations(args []string, out io.Writer) error {
 		return fmt.Errorf("unexpected positional argument")
 	}
 	valid := map[string]bool{"status": true, "suspend": true, "resume": true, "billing-bind": true, "billing-events": true, "reconcile": true, "report-intake": true, "report-respond": true, "fixture-init": true, "migrate": true}
+	valid["funnel"] = true
 	valid["billing-status"] = true
 	valid["reconcile-legacy"] = true
 	valid["payment-queue"], valid["payment-review"] = true, true
@@ -198,7 +200,7 @@ func executeOperations(args []string, out io.Writer) error {
 		return fmt.Errorf("database must be an existing regular file")
 	}
 	dbMode := "rw"
-	if action == "payment-queue" || action == "status" || action == "billing-status" || action == "reconcile" && !apply && !applyReviewed {
+	if action == "funnel" || action == "payment-queue" || action == "status" || action == "billing-status" || action == "reconcile" && !apply && !applyReviewed {
 		dbMode = "ro"
 	}
 	dsn := (&url.URL{Scheme: "file", Path: abs, RawQuery: "mode=" + dbMode}).String()
@@ -214,6 +216,20 @@ func executeOperations(args []string, out io.Writer) error {
 	ops := store.NewOperationsStore(db, nil)
 	var result any
 	switch action {
+	case "funnel":
+		report, reportErr := ops.FunnelReport(ctx, principal)
+		if reportErr != nil {
+			return reportErr
+		}
+		if funnelJSON {
+			return json.NewEncoder(out).Encode(report)
+		}
+		_, _ = fmt.Fprintln(out, "DAY\tSTAGE\tCOUNT")
+		for _, row := range report.Days {
+			_, _ = fmt.Fprintf(out, "%s\t%s\t%d\n", row.Day, row.Stage, row.Count)
+		}
+		_, _ = fmt.Fprintf(out, "Checkout completed without Pro (last 24h): %d\n", report.CheckoutWithoutPro)
+		return nil
 	case "payment-queue":
 		result, err = ops.PaymentReviewQueue(ctx, principal, after)
 	case "payment-review":

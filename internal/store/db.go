@@ -137,6 +137,9 @@ func (c *testDBConnector) Close() error {
 
 func initSchema(db *sql.DB) error {
 	schema := `
+ CREATE TABLE IF NOT EXISTS funnel_secret (id INTEGER PRIMARY KEY CHECK(id=1), salt BLOB NOT NULL);
+ INSERT OR IGNORE INTO funnel_secret(id,salt) VALUES(1,randomblob(32));
+ CREATE TABLE IF NOT EXISTS funnel_events (stage TEXT NOT NULL, account_hash TEXT NOT NULL, occurred_at TEXT NOT NULL, PRIMARY KEY(stage,account_hash));
 	-- Device codes for CLI login flow
 	CREATE TABLE IF NOT EXISTS device_codes (
 		code TEXT PRIMARY KEY,

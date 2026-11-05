@@ -21,6 +21,7 @@ import (
 	"github.com/ehrlich-b/tunn/internal/common"
 	"github.com/ehrlich-b/tunn/internal/mcpauth"
 	"github.com/ehrlich-b/tunn/internal/storage"
+	"github.com/ehrlich-b/tunn/internal/store"
 	internalpb "github.com/ehrlich-b/tunn/pkg/proto/internalv1"
 	meterpb "github.com/ehrlich-b/tunn/pkg/proto/meteringv1"
 	"github.com/golang-jwt/jwt/v4"
@@ -427,6 +428,7 @@ func (p *ProxyServer) handleMCPConsent(w http.ResponseWriter, r *http.Request) {
 		oauthProblem(w, 503, "temporarily_unavailable", "Could not issue authorization code")
 		return
 	}
+	store.RecordFunnel(r.Context(), p.mcpOAuth.db, "mcp_consent", auth.Person)
 	p.redirectMCPResult(w, r, &auth, "code", code)
 }
 

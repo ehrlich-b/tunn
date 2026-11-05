@@ -56,6 +56,9 @@ func projectBillingAccount(ctx context.Context, tx *sql.Tx, id string) error {
 	if _, err = tx.ExecContext(ctx, `DELETE FROM ops_projection_guard WHERE account_id=?`, id); err != nil {
 		return err
 	}
+	if plan == "pro" {
+		RecordFunnel(ctx, tx, "pro_active", id)
+	}
 	if plan == "free" {
 		// Legacy/paid names have no Free claim. Preserve only claims acquired
 		// under Free; upgrading removes that provenance even for old binaries.
@@ -161,6 +164,7 @@ func (s *OperationsStore) PrepareBillingCheckout(ctx context.Context, id, destin
 	if err = tx.Commit(); err != nil {
 		return "", "", err
 	}
+	RecordFunnel(ctx, s.db, "checkout_start", status.AccountID)
 	return reference, destination, nil
 }
 

@@ -128,11 +128,13 @@ func (p *ProxyServer) handleStripeWebhook(w http.ResponseWriter, r *http.Request
 		ProcessBillingEvent(context.Context, store.BillingEvent) (*store.BillingResult, error)
 	})
 	if !ok {
+		common.LogError("billing webhook authority unavailable")
 		http.Error(w, "Billing authority unavailable", http.StatusServiceUnavailable)
 		return
 	}
 	result, err := processor.ProcessBillingEvent(r.Context(), eventMetadata)
 	if err != nil {
+		common.LogError("billing webhook event not committed", "error", err)
 		http.Error(w, "Billing event not committed", http.StatusServiceUnavailable)
 		return
 	}

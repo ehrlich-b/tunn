@@ -278,6 +278,7 @@ func (s *LocalStorage) RegisterTunnel(ctx context.Context, tunnelID, accountID, 
 
 	// Register the tunnel
 	s.activeTunnels[tunnelID] = accountID
+	store.RecordFunnel(ctx, s.db, "tunnel", accountID)
 
 	return &TunnelRegistration{
 		Allowed:      true,

@@ -241,3 +241,8 @@ of failed admissions and conservative crash reservations, and provision paid
 account plans. Team controls can be a separate higher
 tier; the entry-tier target is the pricing input for this metering experiment.
 See [the commercial thesis](COMMERCIAL-THESIS.md).
+
+The funnel ledger is additive. To roll back the code, leave `funnel_events` and
+`funnel_secret` in place; older binaries ignore them. If removal is required,
+back up the database first, then drop those two tables while the service is
+stopped. Removing the secret prevents correlating new events with old ones.

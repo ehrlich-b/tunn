@@ -309,6 +309,9 @@ func (s *OperationsStore) ProcessBillingEvent(ctx context.Context, e BillingEven
 	if err != nil {
 		return nil, err
 	}
+	if e.Type == "checkout.session.completed" && out.AccountID != "" {
+		RecordFunnel(ctx, tx, "checkout_completed", out.AccountID)
+	}
 	if err = tx.Commit(); err != nil {
 		return nil, err
 	}

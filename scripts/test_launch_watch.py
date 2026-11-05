@@ -1,4 +1,6 @@
 import importlib.util
+import json
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 import subprocess
@@ -16,7 +18,7 @@ class WatchTest(unittest.TestCase):
         lines = (HERE / 'testdata/launch-watch.txt').read_text().splitlines()
         counts, types = watch.summarize(lines, datetime(2026, 10, 31, 12, tzinfo=timezone.utc))
         self.assertEqual(dict(types), {'invoice.paid': 1, 'checkout.session.completed': 1})
-        self.assertEqual(dict(counts), {**{v[0]: 1 for v in watch.MESSAGES.values()}, 'registrations': 1, 'malformed': 1})
+        self.assertEqual(dict(counts), {**{v[0]: 1 for v in watch.MESSAGES.values() if v[0] not in ('authority unavailable', 'not committed')}, 'registrations': 1, 'malformed': 1})
         counts, types = watch.summarize(['time=bad level=INFO msg="x"', 'time=2026-10-31T12:00:00Z level=INFO msg="received Stripe webhook"'], datetime(2026, 10, 31, 12, tzinfo=timezone.utc))
         self.assertEqual(counts['malformed'], 2)
         self.assertFalse(types)
@@ -37,6 +39,33 @@ class WatchTest(unittest.TestCase):
         self.assertEqual(dict(counts), {'magic link': 1})
         self.assertFalse(types)
         self.assertEqual(watch.parse_fields(line)['error'], 'SMTP "failure"\nretry')
+
+    def test_webhook_error_exit(self):
+        from datetime import timedelta
+        stamp = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
+        line = f'time={stamp} level=ERROR msg="invalid Stripe signature"\n'
+        cmd = [sys.executable, str(HERE / 'launch-watch.py')]
+        result = subprocess.run(cmd, input=line, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn('invalid signature: 1', result.stdout)
+
+    def test_funnel_alert_and_conversion(self):
+        report = {'days': [{'day': '2026-11-05', 'stage': 'signup', 'count': 2},
+                           {'day': '2026-11-05', 'stage': 'tunnel', 'count': 1}],
+                  'checkout_without_pro': 1}
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8') as fixture:
+            json.dump(report, fixture)
+            fixture.flush()
+            cmd = [sys.executable, str(HERE / 'launch-watch.py'), '--funnel', fixture.name]
+            result = subprocess.run(cmd, text=True, capture_output=True)
+            self.assertEqual(result.returncode, 2)
+            self.assertIn('tunnel: 1 (conversion: 50.0%)', result.stdout)
+            fixture.seek(0)
+            fixture.truncate()
+            report['checkout_without_pro'] = 0
+            json.dump(report, fixture)
+            fixture.flush()
+            self.assertEqual(subprocess.run(cmd, capture_output=True).returncode, 0)
 
     def test_cli_file_and_stdin(self):
         fixture = HERE / 'testdata/launch-watch.txt'

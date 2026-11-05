@@ -131,6 +131,8 @@ func (s *AccountStore) findOrCreateByEmailsTx(tx *sql.Tx, emails []string, verif
 			return nil, err
 		}
 
+		RecordFunnel(context.Background(), tx, "signup", account.ID)
+
 	case 1:
 		// Use existing account
 		account = accounts[0]

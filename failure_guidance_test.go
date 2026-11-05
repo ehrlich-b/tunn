@@ -651,9 +651,18 @@ func TestInventoryRetryQuotesShellCharactersAndKeepsInsecure(t *testing.T) {
 }
 
 func TestRuntimeLoginRequiredReportGuidance(t *testing.T) {
+	t.Setenv("TUNN_CONFIG_DIR", "/tmp/synthetic login")
 	for _, machine := range []bool{false, true} {
 		var out, errout bytes.Buffer
-		if !showHTTPRuntimeLoginRequired(terminal.New(&out, &errout, machine), client.ErrNotLoggedIn) || !strings.Contains(errout.String(), "tunn report") {
+		if !showHTTPRuntimeLoginRequired(terminal.New(&out, &errout, machine), client.ErrNotLoggedIn) {
+			t.Fatal("login ignored")
+		}
+		if machine {
+			e := decodeFailure(t, errout.String())
+			if e.Command != "TUNN_CONFIG_DIR='/tmp/synthetic login' tunn login" {
+				t.Fatal(e)
+			}
+		} else if !strings.Contains(errout.String(), "tunn report") {
 			t.Fatalf("missing runtime report guidance: %s", errout.String())
 		}
 	}

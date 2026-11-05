@@ -59,7 +59,11 @@ func TestMCPGoSDKHostThroughTunnel(t *testing.T) {
 			if tunnel == nil {
 				t.Fatal("publisher did not register")
 			}
+			handlerDone := make(chan struct{}, 1)
 			relay := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if !rewrite {
+					defer func() { handlerDone <- struct{}{} }()
+				}
 				r.Host = "tools.tunn.test"
 				r.Header.Set("X-Forwarded-Host", r.Host)
 				if err := (&ProxyServer{}).proxyHTTPOverGRPC(w, r, tunnel); err != nil {
@@ -80,6 +84,7 @@ func TestMCPGoSDKHostThroughTunnel(t *testing.T) {
 				if resp.StatusCode != 403 {
 					t.Fatalf("status=%d body=%s", resp.StatusCode, b)
 				}
+				<-handlerDone
 				t.Log("public Host reproduces SDK 403")
 				return
 			}

@@ -137,16 +137,22 @@ func StartStdioHandler(parent context.Context, command []string, stderr io.Write
 		cancel()
 		return nil, fmt.Errorf("open MCP command stdin: %w", err)
 	}
-	stdout, err := cmd.StdoutPipe()
+	// Own the pipe so Wait cannot close stdout before the reader drains the
+	// child's final response. StdoutPipe is closed by Wait as the child exits.
+	stdout, stdoutWriter, err := os.Pipe()
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("open MCP command stdout: %w", err)
 	}
+	cmd.Stdout = stdoutWriter
 
 	if err := cmd.Start(); err != nil {
+		_ = stdout.Close()
+		_ = stdoutWriter.Close()
 		cancel()
 		return nil, fmt.Errorf("start MCP command %q: %w", command[0], err)
 	}
+	_ = stdoutWriter.Close()
 
 	allowedTools := make(map[string]bool, len(options.AllowedTools))
 	for _, tool := range options.AllowedTools {
@@ -161,9 +167,10 @@ func StartStdioHandler(parent context.Context, command []string, stderr io.Write
 		done:           make(chan struct{}),
 		requestTimeout: defaultRequestTimeout,
 		allowedTools:   allowedTools,
+		streamContext:  ctx,
 	}
 
-	go b.readChild(stdout)
+	go func() { defer stdout.Close(); b.readChild(stdout) }()
 	go func() {
 		err := cmd.Wait()
 		b.processMu.Lock()

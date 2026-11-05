@@ -909,7 +909,6 @@ func (p *ProxyServer) createHandler() http.Handler {
 	mux.HandleFunc("/account/tunnel-alerts", p.handleTunnelAlertSettings)
 	mux.HandleFunc("/account/inspect", p.handleInspectorPage)
 	mux.HandleFunc("/api/inspector/", p.handleInspectorAPI)
-	mux.HandleFunc("/about", p.handleAbout)
 	mux.HandleFunc("/pricing", p.handlePricing)
 	mux.HandleFunc("/ngrok-alternative", p.handleComparison)
 	mux.HandleFunc("/upgrade", p.handleUpgrade)

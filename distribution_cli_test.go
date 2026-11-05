@@ -24,6 +24,7 @@ func TestDistributionCLICommands(t *testing.T) {
 	blocks := regexp.MustCompile(`(?s)(?:<pre(?:\s[^>]*)?>|<code(?:\s[^>]*)?>)(.*?)(?:</pre>|</code>)`)
 	tags := regexp.MustCompile(`<[^>]*>`)
 	var checked int
+	clientCommands := 0
 	for _, file := range files {
 		data, err := os.ReadFile(file)
 		if err != nil {
@@ -75,8 +76,26 @@ func TestDistributionCLICommands(t *testing.T) {
 				}
 				t.Logf("%s: %s", filepath.Base(file), line)
 				checked++
+				if filepath.Base(file) == "client-previews.html" {
+					clientCommands++
+				}
 			}
 		}
+	}
+	if clientCommands != 2 {
+		t.Fatalf("client preview selected %d CLI commands, want login and named publisher", clientCommands)
+	}
+	installer, err := os.ReadFile("internal/host/templates/client-previews.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(installer), "curl -fsSL https://tunn.to/install.sh | sh") {
+		t.Fatal("missing published installer command")
+	}
+	checkShell := exec.Command("sh", "-n")
+	checkShell.Stdin = strings.NewReader("curl -fsSL https://tunn.to/install.sh | sh")
+	if err := checkShell.Run(); err != nil {
+		t.Fatal(err)
 	}
 	if checked < 10 {
 		t.Fatalf("checked only %d commands", checked)

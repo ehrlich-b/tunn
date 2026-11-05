@@ -48,6 +48,20 @@ def source_check(source, main_ref):
     subprocess.run(['git', 'merge-base', '--is-ancestor', source, main_ref], cwd=REPO, check=True)
 
 
+def client_files(stage, tag):
+    if not re.fullmatch(r'v[0-9]+\.[0-9]+\.[0-9]+', tag):
+        raise ValueError('stable client tag required')
+    feed = json.loads((stage / 'downloads/latest.json').read_text())
+    if feed['tag_name'] != tag:
+        raise ValueError('client feed/tag mismatch')
+    names = ('tunn-linux-amd64', 'tunn-linux-arm64', 'tunn-darwin-amd64',
+             'tunn-darwin-arm64', 'SHA256SUMS', 'checksums.txt')
+    if sorted(a['name'] for a in feed['assets']) != sorted(names):
+        raise ValueError('incomplete client feed inventory')
+    return [stage / 'manifest.json', stage / 'downloads/latest.json',
+            *(stage / 'downloads' / tag / name for name in names)]
+
+
 def validate(m):
     if m['version'] != 1:
         raise ValueError('unsupported manifest')
@@ -74,6 +88,8 @@ def validate(m):
         for item in c['files']:
             verify_file(item)
         stage = Path(c['stage'])
+        if c['files'] != [record(p) for p in client_files(stage, c['tag'])]:
+            raise ValueError('client file inventory changed or incomplete')
         metadata = json.loads((stage / 'manifest.json').read_text())
         if metadata['source_commit'] != m['relay_sha'] or metadata['tag'] != c['tag']:
             raise ValueError('wrong client source/tag')
@@ -95,9 +111,7 @@ def generate(args):
     if args.client_stage:
         stage = args.client_stage.resolve(strict=True)
         metadata = json.loads((stage / 'manifest.json').read_text())
-        files = [stage / 'manifest.json', stage / 'downloads/latest.json']
-        files += [stage / 'downloads' / metadata['tag'] / n for n in
-                  ('tunn-linux-amd64', 'tunn-linux-arm64', 'tunn-darwin-amd64', 'tunn-darwin-arm64', 'SHA256SUMS', 'checksums.txt')]
+        files = client_files(stage, metadata['tag'])
         client = {'stage': str(stage), 'tag': metadata['tag'], 'files': [record(p) for p in files]}
     m = {'version': 1, 'relay_sha': args.source, 'main_ref': args.main_ref,
          'template_sha256': templates(), 'configuration_names': args.config_name,

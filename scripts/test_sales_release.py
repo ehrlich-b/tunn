@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Offline release/operator contract tests with disposable Git and round scripts."""
+import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -20,6 +22,10 @@ class SalesRelease(unittest.TestCase):
         (self.repo / 'scripts/sales-release.py').write_bytes(SCRIPT.read_bytes())
         (self.repo / 'internal/host/templates').mkdir(parents=True)
         (self.repo / 'internal/host/templates/home.html').write_text('Selling')
+        for name in ('go.mod', 'go.sum'):
+            shutil.copyfile(SCRIPT.parents[1] / name, self.repo / name)
+        for name in ('internal/downloads', 'cmd/check-downloads'):
+            shutil.copytree(SCRIPT.parents[1] / name, self.repo / name)
         for cmd in (['git', 'init', '-q'], ['git', 'config', 'user.name', 'Bryan Ehrlich'],
                     ['git', 'config', 'user.email', 'ehrlich.bryan@gmail.com'],
                     ['git', 'add', '.'], ['git', 'commit', '-qm', 'Prepare local fixture.']):
@@ -92,12 +98,79 @@ else: sys.exit(int(os.environ.get('FAIL_APPLY','0')))
 
     def test_missing_and_changed_assets(self):
         asset = self.root / 'asset'; asset.write_text('tiny')
-        import hashlib
         self.change(lambda m: m.update(client={'stage': str(self.root), 'tag': 'v1.0.0', 'files':
                     [{'path': str(asset), 'sha256': hashlib.sha256(b'tiny').hexdigest()}]}))
         asset.write_text('changed')
         self.assertNotEqual(self.operate().returncode, 0)
         self.change(lambda m: m['client']['files'][0].update(path=str(self.root / 'missing-asset')))
+        self.assertNotEqual(self.operate().returncode, 0); self.no_calls()
+
+    def client_stage(self, feed_tag='v1.0.0'):
+        stage = self.root / 'stage'
+        assets = []
+        for tag in set(('v1.0.0', feed_tag)):
+            release = stage / 'downloads' / tag
+            release.mkdir(parents=True)
+            sums = ''
+            for name in ('tunn-linux-amd64', 'tunn-linux-arm64', 'tunn-darwin-amd64', 'tunn-darwin-arm64'):
+                data = (tag + name).encode()
+                (release / name).write_bytes(data)
+                sha = hashlib.sha256(data).hexdigest()
+                sums += f'{sha}  {name}\n'
+                if tag == 'v1.0.0':
+                    assets.append({'name': name, 'sha256': sha, 'size': len(data)})
+            for name in ('SHA256SUMS', 'checksums.txt'):
+                (release / name).write_text(sums)
+        (stage / 'manifest.json').write_text(json.dumps(
+            {'source_commit': self.sha, 'tag': 'v1.0.0', 'assets': assets}))
+        names = [a['name'] for a in assets] + ['SHA256SUMS', 'checksums.txt']
+        (stage / 'downloads/latest.json').write_text(json.dumps({
+            'tag_name': feed_tag, 'draft': False, 'prerelease': False,
+            'assets': [{'name': n, 'browser_download_url': f'https://tunn.to/dl/{feed_tag}/{n}'} for n in names]}))
+        self.manifest.unlink()
+        return stage
+
+    def test_client_feed_tag_mismatch(self):
+        stage = self.client_stage('v2.0.0')
+        self.assertNotEqual(self.generate('--client-stage', stage).returncode, 0)
+        self.assertFalse(self.manifest.exists()); self.no_calls()
+
+    def test_client_feed_assets_pinned(self):
+        stage = self.client_stage()
+        result = self.generate('--client-stage', stage)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.operate().returncode, 0)
+        manifest = json.loads(self.manifest.read_text())
+        expected = {str(p.resolve()) for p in stage.rglob('*') if p.is_file()}
+        self.assertEqual({f['path'] for f in manifest['client']['files']}, expected)
+        for item in manifest['client']['files']:
+            with self.subTest(path=item['path']):
+                path = Path(item['path']); original = path.read_bytes()
+                path.write_bytes(original + b'changed')
+                self.assertNotEqual(self.operate().returncode, 0)
+                path.unlink()
+                self.assertNotEqual(self.operate().returncode, 0)
+                path.write_bytes(original)
+        self.no_calls()
+
+    def test_operator_refuses_repinned_mismatched_feed(self):
+        stage = self.client_stage()
+        result = self.generate('--client-stage', stage)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        feed = stage / 'downloads/latest.json'
+        feed.write_text(feed.read_text().replace('v1.0.0', 'v2.0.0'))
+        def repin(m):
+            for item in m['client']['files']:
+                if item['path'] == str(feed):
+                    item['sha256'] = hashlib.sha256(feed.read_bytes()).hexdigest()
+        self.change(repin)
+        self.assertNotEqual(self.operate().returncode, 0); self.no_calls()
+
+    def test_client_missing_pin_refused(self):
+        stage = self.client_stage()
+        result = self.generate('--client-stage', stage)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.change(lambda m: m['client']['files'].pop())
         self.assertNotEqual(self.operate().returncode, 0); self.no_calls()
 
     def test_failed_check(self):
@@ -119,7 +192,6 @@ else: sys.exit(int(os.environ.get('FAIL_APPLY','0')))
     def test_empty_receipt(self):
         r = json.loads(self.receipt.read_text()); r['selected_tests'] = 0
         self.receipt.write_text(json.dumps(r))
-        import hashlib
         self.change(lambda m: m['receipts'][0].update(sha256=hashlib.sha256(self.receipt.read_bytes()).hexdigest()))
         self.assertNotEqual(self.operate().returncode, 0); self.no_calls()
 

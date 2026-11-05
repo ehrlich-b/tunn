@@ -183,6 +183,40 @@ type inspectionCapture struct {
 	expectedBytes int64
 }
 
+// Newer peers send header fields independently of the legacy map. Capture
+// their names and values through the same metadata sanitization as the map.
+func inspectionHeaders(legacy map[string]string, fields []*pb.HttpHeader) map[string]string {
+	if len(fields) == 0 {
+		return legacy
+	}
+	headers := make(map[string]string, len(fields))
+	for _, field := range fields {
+		if field != nil {
+			headers[http.CanonicalHeaderKey(field.Name)] = field.Value
+		}
+	}
+	return headers
+}
+
+// The inspector's reconstruction format has only one value per header.
+// Refuse replay when the wire representation has repeated fields rather than
+// silently sending a different request to the origin.
+func (c *inspectionCapture) checkHeaderFields(fields []*pb.HttpHeader) {
+	seen := make(map[string]bool, len(fields))
+	for _, field := range fields {
+		if field == nil {
+			c.event.MetadataTruncated = true
+			return
+		}
+		name := http.CanonicalHeaderKey(field.Name)
+		if seen[name] {
+			c.event.MetadataTruncated = true
+			return
+		}
+		seen[name] = true
+	}
+}
+
 func (c *inspectionCapture) Write(data []byte) (int, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

@@ -150,3 +150,10 @@ origin. Repeating a publication with the same binding rotates that key; a
 publication on another relay, provider or account uses a separate file. Existing
 unscoped stored files are not loaded automatically; supply the source secret file
 again after upgrading.
+
+## Local inspector regression evidence
+
+- `TestInspectorCapturesFieldOnlyHeaders` checks metadata and redaction for the field-based wire representation.
+- `TestInspectorRefusesReplayOfRepeatedHeaders` verifies that both request adapters refuse a lossy replay of repeated fields.
+
+A signed loopback CLI journey remains unverified. The inspector cannot yet reproduce repeated header fields in a replay. Its local body capture limit is 64 KiB; larger captures cannot be replayed. Signature headers and query values are redacted and require explicit reconstruction.

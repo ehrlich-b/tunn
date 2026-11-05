@@ -158,3 +158,50 @@ func TestInspectorStartsOnLoopbackWithSessionSecret(t *testing.T) {
 		t.Fatalf("unauthorized viewer status = %d", response.StatusCode)
 	}
 }
+
+func TestInspectorRefusesReplayOfRepeatedHeaders(t *testing.T) {
+	local := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Values("X-Delivery"); len(got) != 2 || got[0] != "one" || got[1] != "two" {
+			t.Errorf("origin headers = %q", got)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer local.Close()
+	for _, streaming := range []bool{false, true} {
+		client := &ServeClient{TargetURL: local.URL}
+		client.Inspector = NewInspectorWithBodyCapture(client, true)
+		fields := []*pb.HttpHeader{{Name: "X-Delivery", Value: "one"}, {Name: "x-delivery", Value: "two"}}
+		legacy := map[string]string{"X-Delivery": "one, two"}
+		if streaming {
+			client.handleStreamingHTTPRequest(context.Background(), &mockEstablishTunnelClient{}, &pb.ConnectionOpen{ConnectionId: "stream", HttpRequest: &pb.HttpRequestHead{Method: "POST", Path: "/", Headers: legacy, HeaderFields: fields}}, strings.NewReader(""))
+		} else {
+			client.handleHttpRequest(&mockEstablishTunnelClient{}, &pb.HttpRequest{ConnectionId: "buffered", Method: "POST", Path: "/", Headers: legacy, HeaderFields: fields})
+		}
+		event := client.Inspector.list()[0]
+		if !event.MetadataTruncated || event.Reconstructable || event.Replayable {
+			t.Fatalf("streaming=%v: unsafe replay state: %+v", streaming, event)
+		}
+		if _, err := client.Inspector.prepare(event.ID); err == nil {
+			t.Fatalf("streaming=%v: prepared a lossy replay", streaming)
+		}
+	}
+}
+
+func TestInspectorCapturesFieldOnlyHeaders(t *testing.T) {
+	local := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) }))
+	defer local.Close()
+	for _, streaming := range []bool{false, true} {
+		client := &ServeClient{TargetURL: local.URL}
+		client.Inspector = NewInspectorWithBodyCapture(client, true)
+		fields := []*pb.HttpHeader{{Name: "Stripe-Signature", Value: "fixture-secret"}}
+		if streaming {
+			client.handleStreamingHTTPRequest(context.Background(), &mockEstablishTunnelClient{}, &pb.ConnectionOpen{ConnectionId: "stream", HttpRequest: &pb.HttpRequestHead{Method: "POST", Path: "/", HeaderFields: fields}}, strings.NewReader(""))
+		} else {
+			client.handleHttpRequest(&mockEstablishTunnelClient{}, &pb.HttpRequest{ConnectionId: "buffered", Method: "POST", Path: "/", HeaderFields: fields})
+		}
+		event := client.Inspector.list()[0]
+		if event.Headers["Stripe-Signature"] != redacted || event.Replayable || !event.Reconstructable {
+			t.Fatalf("streaming=%v: field-only signature metadata: %+v", streaming, event)
+		}
+	}
+}

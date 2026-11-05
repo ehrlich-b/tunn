@@ -26,6 +26,8 @@ def fixture(path):
         con.execute(table['sql'])
         for index in table['indexes']:
             con.execute(index)
+    for trigger in schema['triggers'].values():
+        con.execute(trigger)
     con.execute("INSERT INTO accounts(id,primary_email,created_at) VALUES('secret-account-id','private@example.invalid',1793836800)")
     con.execute("INSERT INTO used_magic_tokens(jti,expires_at) VALUES('secret-token',1793836801)")
     con.commit()
@@ -111,11 +113,13 @@ class VerifierTests(unittest.TestCase):
     def test_table_trigger_index_mismatches(self):
         for sql in ("CREATE TABLE unrelated(value TEXT)",
                     "DROP TABLE account_usage", "DROP INDEX idx_accounts_primary_email",
+                    "DROP TRIGGER delete_endpoint_policy",
+                    "DROP TRIGGER retire_endpoint_policy; CREATE TRIGGER retire_endpoint_policy AFTER DELETE ON web_resources BEGIN SELECT 1; END",
                     "CREATE TRIGGER secret_trigger AFTER INSERT ON accounts BEGIN SELECT 1; END"):
             with self.subTest(sql=sql), tempfile.TemporaryDirectory() as temp:
                 db = Path(temp) / 'fixture.sqlite'
                 fixture(db)
-                con = sqlite3.connect(db); con.execute(sql); con.commit(); con.close()
+                con = sqlite3.connect(db); con.executescript(sql); con.commit(); con.close()
                 with self.assertRaises(v.Rejected) as rejected:
                     v.verify(db)
                 self.assertEqual(rejected.exception.code, v.SCHEMA_MISMATCH)
@@ -236,7 +240,13 @@ class RelayTests(unittest.TestCase):
                     self.assertEqual(boot['readyz_status'], 200)
             con = sqlite3.connect(empty)
             self.assertEqual(v.schema_of(con), json.loads(v.SCHEMA.read_text())['tables'])
+            self.assertEqual(v.triggers_of(con), json.loads(v.SCHEMA.read_text())['triggers'])
             con.close()
+            # Verify a standalone online backup produced from the actual relay.
+            backup = root / 'online.sqlite'
+            with sqlite3.connect(empty) as source, sqlite3.connect(backup) as target:
+                source.backup(target)
+            v.verify(backup)
             db = root / 'fixture.sqlite'
             fixture(db)
             before = db.read_bytes()

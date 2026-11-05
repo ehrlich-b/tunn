@@ -211,6 +211,10 @@ func (c *inspectionCapture) checkHeaderFields(fields []*pb.HttpHeader) {
 			return
 		}
 		name := http.CanonicalHeaderKey(field.Name)
+		if len(name) > 128 || inspectionCredential(name) {
+			c.event.MetadataTruncated = true
+			continue
+		}
 		value := field.Value
 		if !safeInspectionHeader(name) || inspectionCredential(value) {
 			value = redacted

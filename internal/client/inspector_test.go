@@ -218,6 +218,26 @@ func TestInspectorCapturesFieldOnlyHeaders(t *testing.T) {
 	}
 }
 
+func TestInspectorDropsCredentialHeaderNames(t *testing.T) {
+	local := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) }))
+	defer local.Close()
+	for _, streaming := range []bool{false, true} {
+		client := &ServeClient{TargetURL: local.URL}
+		client.Inspector = NewInspector(client)
+		fields := []*pb.HttpHeader{{Name: "Xtunn_ep_reviewsecret", Value: "one"}, {Name: "Xtunn_ep_reviewsecret", Value: "two"}}
+		if streaming {
+			client.handleStreamingHTTPRequest(context.Background(), &mockEstablishTunnelClient{}, &pb.ConnectionOpen{ConnectionId: "stream", HttpRequest: &pb.HttpRequestHead{Method: "POST", Path: "/", HeaderFields: fields}}, strings.NewReader(""))
+		} else {
+			client.handleHttpRequest(&mockEstablishTunnelClient{}, &pb.HttpRequest{ConnectionId: "buffered", Method: "POST", Path: "/", HeaderFields: fields})
+		}
+		event := client.Inspector.list()[0]
+		encoded, err := json.Marshal(event)
+		if err != nil || strings.Contains(strings.ToLower(string(encoded)), "tunn_ep_reviewsecret") || !event.MetadataTruncated || event.Reconstructable || len(client.Inspector.repeated[event.ID]) != 0 {
+			t.Fatalf("streaming=%v: unsafe capture: %s, %v", streaming, encoded, err)
+		}
+	}
+}
+
 func TestInspectorRepeatedHeaderSafeguards(t *testing.T) {
 	for _, values := range [][]string{{"text/plain", "application/json"}, {"tunn_ep_secret", "application/json"}} {
 		inspector := NewInspectorWithBodyCapture(&ServeClient{}, true)

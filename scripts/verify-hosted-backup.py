@@ -48,6 +48,11 @@ def schema_of(con):
     return result
 
 
+def triggers_of(con):
+    return {name: re.sub(r'\s+', ' ', sql).strip() for name, sql in con.execute(
+        "SELECT name, sql FROM sqlite_schema WHERE type='trigger' ORDER BY name")}
+
+
 def rehearsal():
     spec = importlib.util.spec_from_file_location('restore_rehearsal', Path(__file__).with_name('rehearse-hosted-restore.py'))
     module = importlib.util.module_from_spec(spec)
@@ -92,8 +97,8 @@ def verify(path, start_relay=False):
             con.execute('PRAGMA query_only=ON')
             if con.execute('PRAGMA integrity_check').fetchall() != [('ok',)]:
                 raise Rejected(INTEGRITY, 'SQLite integrity check failed')
-            if schema_of(con) != expected['tables'] or con.execute(
-                    "SELECT 1 FROM sqlite_schema WHERE type IN ('view','trigger') LIMIT 1").fetchone():
+            if (schema_of(con) != expected['tables'] or triggers_of(con) != expected['triggers'] or
+                    con.execute("SELECT 1 FROM sqlite_schema WHERE type='view' LIMIT 1").fetchone()):
                 raise Rejected(SCHEMA_MISMATCH, 'database schema differs from the current standalone relay schema')
             con.create_function('utc_timestamp', 2, timestamp)
             tables = {}

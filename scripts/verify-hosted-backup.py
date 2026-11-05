@@ -2,7 +2,7 @@
 """Verify a quiescent standalone SQLite backup without exposing customer rows."""
 import argparse
 from contextlib import closing
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import importlib.util
 import json
 from pathlib import Path
@@ -15,6 +15,16 @@ import tempfile
 
 SCHEMA = Path(__file__).with_name('hosted-backup-schema.json')
 OK, INTEGRITY, SCHEMA_MISMATCH, WAL, INPUT, RELAY = 0, 2, 3, 4, 5, 6
+# Integer timestamps default to Unix seconds. These columns' writers use
+# Unix milliseconds; use column metadata rather than guessing from magnitude.
+MILLISECOND_COLUMNS = {
+    'app_device_invitations': {'expires'},
+    'app_device_leases': {'expires'},
+    'app_devices': {'expires', 'revoked'},
+    'endpoint_policy_buckets': {'expires'},
+    'meter_grants': {'expires'},
+    'sharing_audit': {'decided_at', 'expires'},
+}
 
 
 class Rejected(Exception):
@@ -45,11 +55,13 @@ def rehearsal():
     return module
 
 
-def timestamp(value):
+def timestamp(value, units_per_second=1):
     # Never echo arbitrary TEXT stored in a time column, or ids disguised as dates.
     try:
-        if type(value) is int and 0 <= value <= 253402300799:
-            return datetime.fromtimestamp(value, timezone.utc).isoformat()
+        if type(value) is int and 0 <= value < 253402300800 * units_per_second:
+            seconds, fraction = divmod(value, units_per_second)
+            return (datetime.fromtimestamp(seconds, timezone.utc) + timedelta(
+                microseconds=fraction * (1000000 // units_per_second))).isoformat()
         if isinstance(value, str) and re.fullmatch(r'\d{4}-\d\d-\d\d[T ]\d\d:\d\d:\d\d(?:\.\d{1,9})?(?:Z|[+-]\d\d:\d\d)?', value):
             date = datetime.fromisoformat(value.replace('Z', '+00:00'))
             return date.replace(tzinfo=date.tzinfo or timezone.utc).astimezone(timezone.utc).isoformat()
@@ -83,16 +95,18 @@ def verify(path, start_relay=False):
             if schema_of(con) != expected['tables'] or con.execute(
                     "SELECT 1 FROM sqlite_schema WHERE type IN ('view','trigger') LIMIT 1").fetchone():
                 raise Rejected(SCHEMA_MISMATCH, 'database schema differs from the current standalone relay schema')
-            con.create_function('utc_timestamp', 1, timestamp)
+            con.create_function('utc_timestamp', 2, timestamp)
             tables = {}
             for table, columns in expected['timestamps'].items():
                 newest = {}
                 for column in columns:
+                    units_per_second = 1000 if column in MILLISECOND_COLUMNS.get(table, ()) else 1
                     # Normalize each value before MAX: local times and mixed
                     # SQLite storage classes do not sort by instant. UTC ISO
                     # strings sort chronologically; invalid values become NULL.
                     newest[column] = con.execute(
-                        'SELECT MAX(utc_timestamp(' + quote(column) + ')) FROM ' + quote(table)).fetchone()[0]
+                        'SELECT MAX(utc_timestamp(' + quote(column) + ', ?)) FROM ' + quote(table),
+                        (units_per_second,)).fetchone()[0]
                 tables[table] = {'row_count': con.execute('SELECT COUNT(*) FROM ' + quote(table)).fetchone()[0],
                                  'newest_timestamps': newest}
             receipt = {'tables': tables}

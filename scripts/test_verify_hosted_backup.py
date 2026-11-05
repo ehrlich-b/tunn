@@ -179,6 +179,46 @@ class VerifierTests(unittest.TestCase):
         self.assertNotIn('private', rejected.exception.reason)
         self.assertEqual(self.db.read_bytes(), before)
 
+    def test_millisecond_columns_use_writer_units(self):
+        millis = 1793836800000
+        with sqlite3.connect(self.db) as con:
+            con.execute('INSERT INTO meter_grants(id,owner,endpoint,digest,expires,data) VALUES(?,?,?,?,?,?)',
+                        ('secret-grant', 'secret-account-id', 'endpoint', b'digest', millis, b'{}'))
+            con.execute('INSERT INTO sharing_audit(owner,resource,actor,target,action,decided_at,grant_id,expires,revoked) VALUES(?,?,?,?,?,?,?,?,?)',
+                        ('secret-account-id', 'endpoint', 'actor', 'target', 'grant', millis,
+                         'secret-grant', millis + 1, 0))
+            con.execute('INSERT INTO app_device_invitations(id,digest,account,expires,data) VALUES(?,?,?,?,?)',
+                        ('secret-invite', b'digest', 'secret-account-id', millis, b'{}'))
+            con.execute('INSERT INTO app_device_leases VALUES(?,?,?)',
+                        ('secret-lease', 'secret-device', millis))
+            con.execute('INSERT INTO app_devices(id,digest,account,host,expires,revoked,data) VALUES(?,?,?,?,?,?,?)',
+                        ('secret-device', b'digest', 'secret-account-id', 'host', millis, millis + 1, b'{}'))
+            con.execute('INSERT INTO endpoint_policy_buckets VALUES(?,?,?,?,?,?,?)',
+                        ('endpoint', 'account', 1.0, millis, 1, 1, millis))
+        before = self.db.read_bytes()
+        receipt = json.loads(self.cli(v.OK).stdout)
+        expected = {
+            'meter_grants': {'expires': '2026-11-05T00:00:00+00:00'},
+            'sharing_audit': {'decided_at': '2026-11-05T00:00:00+00:00',
+                              'expires': '2026-11-05T00:00:00.001000+00:00'},
+            'app_device_invitations': {'expires': '2026-11-05T00:00:00+00:00'},
+            'app_device_leases': {'expires': '2026-11-05T00:00:00+00:00'},
+            'app_devices': {'expires': '2026-11-05T00:00:00+00:00',
+                            'revoked': '2026-11-05T00:00:00.001000+00:00'},
+            'endpoint_policy_buckets': {'expires': '2026-11-05T00:00:00+00:00'},
+        }
+        for table, timestamps in expected.items():
+            self.assertEqual(receipt['tables'][table], {
+                'row_count': 1, 'newest_timestamps': timestamps})
+        self.assertEqual(receipt['tables']['accounts']['newest_timestamps'], {
+            'created_at': '2026-11-05T00:00:00+00:00'})
+        self.assertEqual(self.db.read_bytes(), before)
+        # Small integers must use the column's units, too; never infer units by size.
+        self.assertEqual(v.timestamp(1001, 1000), '1970-01-01T00:00:01.001000+00:00')
+        self.assertIsNone(v.timestamp(253402300800000, 1000))
+        self.assertIsNone(v.timestamp('private@example.invalid', 1000))
+        print('writer milliseconds normalized per column; seconds preserved; receipt redacted; source unchanged')
+
 
 class RelayTests(unittest.TestCase):
     def test_fixture_boot_and_current_schema(self):

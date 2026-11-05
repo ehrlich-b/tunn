@@ -18,6 +18,7 @@ import (
 	_ "embed"
 
 	"github.com/ehrlich-b/tunn/internal/inspection"
+	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
 )
 
 const (
@@ -146,6 +147,32 @@ func (i *Inspector) beginConnection(id, protocol, method, path string, headers m
 	i.metrics.ActiveStreams++
 	i.mu.Unlock()
 	return &inspectionCapture{inspector: i, expectedBytes: -1, event: event}
+}
+
+// beginFields follows the wire representation selected by the HTTP decoder.
+// Repeated fields cannot be reconstructed faithfully from the single-value
+// inspection format, so retain sanitized metadata but disable reconstruction.
+func (i *Inspector) beginFields(id, protocol, method, path string, legacy map[string]string, fields []*pb.HttpHeader) *inspectionCapture {
+	if len(fields) == 0 {
+		return i.beginConnection(id, protocol, method, path, legacy)
+	}
+	headers := make(map[string]string)
+	incomplete := len(fields) > 64
+	for _, field := range fields[:min(len(fields), 64)] {
+		if field == nil {
+			incomplete = true
+			continue
+		}
+		key := http.CanonicalHeaderKey(field.Name)
+		if _, exists := headers[key]; exists {
+			incomplete = true
+			continue
+		}
+		headers[key] = field.Value
+	}
+	capture := i.beginConnection(id, protocol, method, path, headers)
+	capture.event.MetadataTruncated = capture.event.MetadataTruncated || incomplete
+	return capture
 }
 
 type inspectionCapture struct {

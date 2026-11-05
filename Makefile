@@ -250,10 +250,12 @@ test-race:
 	go test -p 2 -race -timeout=1200s $(GO_TEST_FLAGS) ./...
 
 # Offline production authorization matrix and lifecycle regressions.
+# The serial SQLite-backed matrices need the full-suite budget under the race
+# detector; keep every principal and route in the same required gate.
 .PHONY: test-auth-contract
 AUTH_TESTS ?= ^TestProdAuth(JWT|Route|Publisher|Endpoint|Grant|Email|MCPOAuth|OAuthState|Tunnel|InternalRPC)
 test-auth-contract:
-	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=180s -run '$(AUTH_TESTS)' ./internal/host
+	go test $(GO_TEST_FLAGS) -race -count=1 -parallel=2 -timeout=600s -run '$(AUTH_TESTS)' ./internal/host
 
 # Real loopback HTTPS; required even when a socket-restricted runner cannot run it.
 .PHONY: test-auth-loopback

@@ -3,6 +3,7 @@ package host
 import (
 	"context"
 	"fmt"
+	"html"
 	"strings"
 	"testing"
 
@@ -52,11 +53,13 @@ func TestAccountOnboarding(t *testing.T) {
 	}{
 		{name: "new account", want: true},
 		{name: "online without traffic", online: true},
-		{name: "transfer without breakdown", bytes: 1024},
-		{name: "requests without breakdown", requests: 1},
-		{name: "traffic after disconnect", bytes: 1024, requests: 1, breakdown: true},
-		{name: "usage unavailable", unavailable: true},
+		{name: "transfer without breakdown", bytes: 1024, want: true},
+		{name: "requests without breakdown", requests: 1, want: true},
+		{name: "traffic after disconnect", bytes: 1024, requests: 1, breakdown: true, want: true},
+		{name: "usage unavailable", unavailable: true, want: true},
 		{name: "relay unavailable", partial: true},
+		{name: "usage and relay unavailable", unavailable: true, partial: true},
+		{name: "exhausted account", bytes: GetQuotaBytes("free")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newWebInspectorFixture(t, 0, 0)
@@ -81,6 +84,14 @@ func TestAccountOnboarding(t *testing.T) {
 			body := page.Body.String()
 			if got := strings.Contains(body, "Start a private tunnel"); got != tc.want {
 				t.Fatalf("onboarding visible = %v, want %v", got, tc.want)
+			}
+			for _, command := range []string{defaultFirstTunnelCommands.Install, defaultFirstTunnelCommands.Run} {
+				value := html.EscapeString(command)
+				for _, fragment := range []string{`data-copy="` + value + `"`, `>` + value + `</code>`} {
+					if got := strings.Contains(body, fragment); got != tc.want {
+						t.Errorf("command %q present = %v, want %v", fragment, got, tc.want)
+					}
+				}
 			}
 			for _, meter := range []string{"This month", ">Transfer<", ">Requests: unlimited (fair use)<", "Tunnels at once", "usage-bar"} {
 				if !strings.Contains(body, meter) {

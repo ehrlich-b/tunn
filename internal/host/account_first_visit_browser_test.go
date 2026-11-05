@@ -22,23 +22,29 @@ func TestAccountFirstVisitBrowser(t *testing.T) {
 	}
 	f := newWebInspectorFixture(t, 0, 0)
 	type snapshot struct {
-		HTML      string          `json:"html"`
-		Listing   json.RawMessage `json:"listing"`
-		Count     int             `json:"count"`
-		Plan      string          `json:"plan"`
-		Exhausted bool            `json:"exhausted"`
+		HTML           string          `json:"html"`
+		Listing        json.RawMessage `json:"listing"`
+		Count          int             `json:"count"`
+		Plan           string          `json:"plan"`
+		UsageAvailable bool            `json:"usageAvailable"`
+		Exhausted      bool            `json:"exhausted"`
 	}
 	snapshots := map[string]snapshot{}
+	baseMeter := f.p.meter
 	for _, tc := range []struct {
-		name, plan string
-		count      int
-		exhausted  bool
+		name, plan  string
+		count       int
+		exhausted   bool
+		priorUsage  bool
+		unavailable bool
 	}{
-		{"empty", "free", 0, false},
-		{"running", "free", 1, false},
-		{"over-limit", "free", 0, true},
-		{"busy", "pro", 8, false},
-		{"plan-limit", "pro", storage.ProTunnelLimit, false},
+		{name: "empty", plan: "free"},
+		{name: "prior-usage", plan: "free", priorUsage: true},
+		{name: "usage-unavailable", plan: "free", unavailable: true},
+		{name: "running", plan: "free", count: 1},
+		{name: "over-limit", plan: "free", exhausted: true},
+		{name: "busy", plan: "pro", count: 8},
+		{name: "plan-limit", plan: "pro", count: storage.ProTunnelLimit},
 	} {
 		if tc.plan != "free" {
 			if err := f.local.UpdatePlan(context.Background(), f.tunnel.AccountID, tc.plan); err != nil {
@@ -46,10 +52,20 @@ func TestAccountFirstVisitBrowser(t *testing.T) {
 			}
 		}
 		usage := &meterpb.Usage{}
+		if tc.priorUsage {
+			usage.TotalBytes, usage.AdmittedRequests = 1024, 1
+		}
 		if tc.exhausted {
 			usage.TotalBytes, usage.AdmittedRequests = GetQuotaBytes(tc.plan)+1, 12500
 		}
-		f.p.meter = onboardingMeter{Backend: f.p.meter, usage: &meterpb.ExportResponse{OwnerUsage: usage}}
+		export := &meterpb.ExportResponse{OwnerUsage: usage}
+		if tc.priorUsage {
+			export.Usage = []*meterpb.Usage{{Endpoint: "previous-tunnel", ResponseBytes: 1024, AdmittedRequests: 1}}
+		}
+		f.p.meter = onboardingMeter{Backend: baseMeter, usage: export}
+		if tc.unavailable {
+			f.p.meter = nil
+		}
 		f.p.tunnelServer.tunnels = map[string]*TunnelConnection{}
 		for i := 0; i < tc.count; i++ {
 			name := fmt.Sprintf("customer-billing-webhook-staging-service-%02d", i+1)
@@ -60,7 +76,7 @@ func TestAccountFirstVisitBrowser(t *testing.T) {
 		if page.Code != 200 || listing.Code != 200 {
 			t.Fatalf("%s: page %d listing %d", tc.name, page.Code, listing.Code)
 		}
-		snapshots[tc.name] = snapshot{page.Body.String(), listing.Body.Bytes(), tc.count, tc.plan, tc.exhausted}
+		snapshots[tc.name] = snapshot{page.Body.String(), listing.Body.Bytes(), tc.count, tc.plan, !tc.unavailable, tc.exhausted}
 	}
 	// Capture real authenticated handlers and serve production assets locally.
 	handler := f.p.createHandler()

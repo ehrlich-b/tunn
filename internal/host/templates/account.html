@@ -114,7 +114,7 @@
   </section>
   <section class="panel meters" aria-labelledby="usage-title"><i class="screw tl"></i><i class="screw tr"></i><i class="screw bl"></i><i class="screw br"></i>
     <div class="meters-top"><h2 class="card-title" id="usage-title">This month</h2><span class="lbl">Resets {{.ResetsOn}} · UTC</span></div>
-    {{if and .UsageAvailable .LiveTunnelsComplete (not .LiveTunnels) (not .Tunnels) (eq .UsageBytes 0) (eq .RequestsUsed 0)}}
+    {{if and .LiveTunnelsComplete (not .LiveTunnels) (not .BytesExhausted)}}
     <div class="empty start-tunnel" id="start-tunnel">
       <h3>Start a private tunnel</h3>
       <label class="lbl" id="account-install-label">1. Install · macOS / Linux</label>

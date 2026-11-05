@@ -27,7 +27,7 @@ const assets = process.argv[3], evidence = path.resolve(process.argv[4]);
   const origin = `http://127.0.0.1:${server.address().port}`;
   const records = [];
   try {
-    for (const name of ['empty', 'running', 'over-limit', 'busy', 'plan-limit']) {
+    for (const name of ['empty', 'prior-usage', 'usage-unavailable', 'running', 'over-limit', 'busy', 'plan-limit']) {
       for (const theme of ['light', 'dark']) for (const width of [390, 1440]) {
         current = snapshots[name];
         const record = name === 'empty' && theme === 'light' && width === 390;
@@ -52,7 +52,8 @@ const assets = process.argv[3], evidence = path.resolve(process.argv[4]);
         assert.match(await page.locator('.gauges').innerText(), /Transfer/);
         assert.match(await page.locator('.gauges').innerText(), /Requests: unlimited \(fair use\)/);
         assert.equal(await page.locator('#monthly-limit').count(), current.exhausted ? 1 : 0);
-        assert.equal(await page.locator('#start-tunnel').count(), name === 'empty' ? 1 : 0);
+        const showCommands = current.count === 0 && !current.exhausted;
+        assert.equal(await page.locator('#start-tunnel').count(), showCommands ? 1 : 0);
         assert.equal(await page.locator('.live-tunnel:visible').count(), Math.min(4, current.count));
         if (current.count > 4) assert.equal(await page.locator('#live-tunnels-more').innerText(), `+${current.count - 4} more`);
         const measurements = await page.evaluate(() => ({viewport:innerWidth, scrollWidth:document.documentElement.scrollWidth}));
@@ -60,9 +61,11 @@ const assets = process.argv[3], evidence = path.resolve(process.argv[4]);
         await page.evaluate(() => scrollTo(0, 0));
         const file = `account-${name}-${width}-${theme}.png`;
         await page.screenshot({path:path.join(evidence, file), fullPage:true, animations:'disabled'});
-        if (name === 'empty') {
+        if (showCommands) {
           assert.equal(await page.locator('#start-tunnel p').count(), 0, 'explanatory paragraphs in empty state');
-          assert.match(await page.locator('.gauges').innerText(), /0 B/);
+          if (name === 'empty') assert.match(await page.locator('.gauges').innerText(), /0 B/);
+          if (name === 'prior-usage') assert.match(await page.locator('.by-tunnel').innerText(), /previous-tunnel/);
+          if (!current.usageAvailable) assert.match(await page.locator('.gauges').innerText(), /--/);
           const codes = await page.locator('#start-tunnel code').allTextContents();
           assert.deepEqual(codes, ['curl -fsSL https://tunn.to/install.sh | sh', 'tunn 3000']);
           for (const [i, button] of (await page.locator('#start-tunnel button').all()).entries()) {

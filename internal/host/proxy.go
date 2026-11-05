@@ -899,7 +899,7 @@ func (p *ProxyServer) createHandler() http.Handler {
 
 	// Account page (requires auth)
 	mux.HandleFunc("/account", p.handleAccount)
-	mux.HandleFunc(accountNamesPath, p.handleAccountNames)
+	mux.HandleFunc("/account/names", p.handleAccountNames)
 	mux.HandleFunc("/api/account/tunnels", p.handleAccountTunnels)
 	mux.HandleFunc("/account/audit", p.handleAudit)
 	mux.HandleFunc("/account/audit.csv", p.handleAudit)

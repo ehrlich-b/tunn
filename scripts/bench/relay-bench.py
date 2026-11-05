@@ -91,16 +91,18 @@ func rbFetch(c *http.Client, base string, size int) rbSample {
  if err!=nil {s.Error=err.Error()}
  return s
 }
-func rbWave(base string,size,concurrency,each int,timeout time.Duration) rbRun {
+func rbWave(base string,size,concurrency,each int,timeout time.Duration,warmConnections bool) rbRun {
  tr:=rbTransport(); defer tr.CloseIdleConnections()
  c:=&http.Client{Transport:tr,Timeout:timeout}
- // Warm the HTTP connection pool before timing, for every path and case.
  var wg sync.WaitGroup
- warm:=make(chan rbSample,concurrency)
- for i:=0;i<concurrency;i++ {wg.Add(1);go func(){defer wg.Done();warm<-rbFetch(c,base,1024)}()}
- wg.Wait();close(warm)
- for s:=range warm {if s.Error!="" {return rbRun{Bytes:size,Concurrency:concurrency,Samples:[]rbSample{s}}}}
- time.Sleep(20*time.Millisecond) // allow terminal relay bookkeeping to finish
+ if warmConnections {
+  // Throughput cases warm the pool; both victim conditions use fresh pools.
+  warm:=make(chan rbSample,concurrency)
+  for i:=0;i<concurrency;i++ {wg.Add(1);go func(){defer wg.Done();warm<-rbFetch(c,base,1024)}()}
+  wg.Wait();close(warm)
+  for s:=range warm {if s.Error!="" {return rbRun{Bytes:size,Concurrency:concurrency,Samples:[]rbSample{s}}}}
+  time.Sleep(20*time.Millisecond) // allow terminal relay bookkeeping to finish
+ }
  ready:=make(chan struct{})
  results:=make(chan rbSample,concurrency*each)
  for i:=0;i<concurrency;i++ {wg.Add(1);go func(){
@@ -186,7 +188,7 @@ func TestRelayBenchDriver(t *testing.T) {
  }))
  defer origin.Close()
  if os.Getenv("RB_BROKEN")=="1" {
-  run:=rbWave(origin.URL,1024,1,1,2*time.Second);run.Path="broken-origin";rbAssert(t,run);t.Fatal("broken origin was accepted")
+  run:=rbWave(origin.URL,1024,1,1,2*time.Second,true);run.Path="broken-origin";rbAssert(t,run);t.Fatal("broken origin was accepted")
  }
  tunn,stopTunn:=rbTunn(t,origin.URL);defer stopTunn()
  frp,stopFrp:=rbFrp(t,origin.URL);defer stopFrp()
@@ -204,7 +206,7 @@ func TestRelayBenchDriver(t *testing.T) {
     name:=names[(round+offset)%3];each:=1
     if parallel==1 {each=100;if size>1024 {each=10}} else if size==1024 {each=2}
     t.Logf("round=%d path=%s bytes=%d concurrency=%d",round+1,name,size,parallel)
-    run:=rbWave(bases[name],size,parallel,each,120*time.Second)
+    run:=rbWave(bases[name],size,parallel,each,120*time.Second,true)
     run.Path=name;run.Round=round+1;run.Kind="throughput"
     rbAssert(t,run);runs=append(runs,run);emit()
    }
@@ -214,7 +216,7 @@ func TestRelayBenchDriver(t *testing.T) {
  // completing that transfer at 10,000 B/s would take about 2.9 hours.
  for _,name:=range []string{"tunn","frp"} {for round:=1;round<=5;round++ {
   base:=bases[name]
-  baseline:=rbWave(base,1024,99,1,3*time.Second)
+  baseline:=rbWave(base,1024,99,1,3*time.Second,false)
   baseline.Path=name;baseline.Round=round;baseline.Kind="victim"
   rbAssert(t,baseline);runs=append(runs,baseline)
   u,_:=url.Parse(base)
@@ -238,14 +240,10 @@ func TestRelayBenchDriver(t *testing.T) {
    }}
   }()
   time.Sleep(2*time.Second) // let TCP and relay buffers fill before victim requests
-  // No warm-up here: warm-up can itself be blocked by the slow reader.
-  tr:=rbTransport();c:=&http.Client{Transport:tr,Timeout:3*time.Second}
-  run:=rbRun{Path:name,Bytes:1024,Concurrency:99,Round:round,Slow:true,Kind:"victim"}
-  results:=make(chan rbSample,99);ready:=make(chan struct{});var wg sync.WaitGroup
-  for i:=0;i<99;i++ {wg.Add(1);go func(){defer wg.Done();<-ready;results<-rbFetch(c,base,1024)}()}
-  start:=time.Now();close(ready);wg.Wait();run.Seconds=time.Since(start).Seconds();close(results)
-  for s:=range results {run.Samples=append(run.Samples,s)}
-  close(stop);conn.Close();<-done;tr.CloseIdleConnections()
+  // Match baseline preparation; warming here could block on the slow reader.
+  run:=rbWave(base,1024,99,1,3*time.Second,false)
+  run.Path=name;run.Round=round;run.Slow=true;run.Kind="victim"
+  close(stop);conn.Close();<-done
   run.SlowBytes=slowBytes;run.SlowSeconds=time.Since(slowStart).Seconds()
   run.SlowTargetBPS=10000;run.SlowRequestedBytes=100*1024*1024
   rate:=float64(slowBytes)/run.SlowSeconds
@@ -324,12 +322,14 @@ def report(data, output):
                 added = {q: [metrics(r)[q] - metrics(next(d for d in direct if d["round"] == r["round"]))[q] for r in group] for q in ("p50", "p99")}
                 cells = [str(size), str(concurrency), name, spread([v["p50"] for v in values]), spread([v["p99"] for v in values]), spread(added["p50"]), spread(added["p99"]), spread([v["MB/s"] for v in values])]
                 lines.append("| " + " | ".join(cells) + " |")
-    lines += ["", "## Slow reader", "", "One separate socket requests 100 MiB on the same publisher tunnel and reads 1,000 bytes every 100 ms (10 KB/s = 10,000 B/s), with a 16 KiB socket receive buffer. Achieved rate must be within 5% of 10,000 B/s or the run fails. After two seconds, 99 concurrent victims request 1 KiB each. The slow transfer is cancelled after the victim wave; completing it would exceed the runtime budget. Each victim has a three-second deadline; a timed-out p99 is reported as a lower bound, and errors remain in raw data. Baseline waves run on the same tunnel immediately before each observation. The slow socket plus 99 victims stays within the existing 100-connection tunnel limit.", "", "| Path | Slow reader | Victim p99 ms median [min, max] | Timed out / 495 |", "|---|---|---:|---:|"]
+    lines += ["", "## Slow reader", "", "One separate socket requests 100 MiB on the same publisher tunnel and reads 1,000 bytes every 100 ms (10 KB/s = 10,000 B/s), with a 16 KiB socket receive buffer. Achieved rate must be within 5% of 10,000 B/s or the run fails. After two seconds, 99 concurrent victims request 1 KiB each. The slow transfer is cancelled after the victim wave; completing it would exceed the runtime budget. Each victim has a three-second deadline; a timed-out p99 is reported as a lower bound, and errors remain in raw data. Baseline waves run on the same tunnel immediately before each observation. Both baseline and slow-reader victim waves use fresh connection pools without warm-up, so connection setup is included identically in both conditions. The slow socket plus 99 victims stays within the existing 100-connection tunnel limit.", "", "| Path | Slow reader | Victim p99 ms median [min, max] | Timed out / 495 |", "|---|---|---:|---:|"]
     for name in ("tunn", "frp"):
         for slow in (False, True):
             group = [r for r in rows if r["kind"] == "victim" and r["path"] == name and r["slow"] == slow]
             errors = sum(bool(s.get("error")) for r in group for s in r["samples"])
-            censored = any(sum(bool(s.get("error")) for s in r["samples"]) > 1 for r in group)
+            # The nearest-rank percentile is censored when its rank falls in
+            # the timed-out tail (one timeout suffices for 99 samples at p99).
+            censored = any(quantile([bool(s.get("error")) for s in r["samples"]], .99) for r in group)
             lines.append(f"| {name} | {slow} | {'≥ ' if censored else ''}{spread([metrics(r)['p99'] for r in group])} | {errors} |")
     lines += ["", "## Method and limits", "",
               "The generated Go overlay runs the existing relay HTTP/gRPC data path and the real ServeClient, with TLS on the publisher link. HTTP ingress and origin use HTTP/1.1 on literal loopback; tunn's minimal ingress calls proxyHTTPOverGRPC directly, excluding public routing, authentication, quotas and TLS ingress. The fixture disables the per-tunnel bandwidth token bucket before measurement to isolate transport overhead; production limits are unchanged. frp uses its public binary release, TCP proxy mode, tcpMux=true and TLS enabled on the publisher link; compression is off. All paths share the same Go origin and load generator. This measures relay transport overhead on this machine, not complete product ingress or remote-network behavior.", "",

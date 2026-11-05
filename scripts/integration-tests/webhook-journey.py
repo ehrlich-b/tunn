@@ -194,6 +194,9 @@ class Journey:
         self.origin = ThreadingHTTPServer(("127.0.0.1", 3000), Origin)
         threading.Thread(target=self.origin.serve_forever, daemon=True).start()
         self.start("relay", "-mode=host")
+        # Account tables appear before later startup migrations finish. Wait for
+        # the HTTPS listener before opening a second database writer to seed.
+        self.wait(lambda: self.request("/ready"), "relay HTTPS listener before database seed")
         def seed():
             with sqlite3.connect(self.work / "relay.db") as db:
                 if not db.execute("SELECT 1 FROM sqlite_master WHERE name='account_emails'").fetchone():

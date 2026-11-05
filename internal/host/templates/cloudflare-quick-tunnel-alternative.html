@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>tunn vs Cloudflare Quick Tunnels: MCP and phone access | tunn</title>
+<meta name="description" content="Compare tunn and Cloudflare Quick Tunnels for phone access and MCP: access controls, setup, transport and verification, checked 2026-11-05.">
+<link rel="canonical" href="https://tunn.to/cloudflare-quick-tunnel-alternative">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="tunn">
+<meta property="og:title" content="tunn vs Cloudflare Quick Tunnels">
+<meta property="og:description" content="A dated comparison for MCP and phone access.">
+<meta property="og:url" content="https://tunn.to/cloudflare-quick-tunnel-alternative">
+<link rel="stylesheet" href="/guides.css">
+</head>
+<body>
+<!--site-header:none-->
+<main id="main" class="guide-content vendor-comparison">
+<p class="lbl">Comparison · checked <time datetime="2026-11-05">2026-11-05</time></p>
+<h1>tunn vs Cloudflare Quick Tunnels</h1>
+<p class="lead">Choosing a tunnel for a phone browser or an MCP client? Start with who needs access, then check transport compatibility.</p>
+<table class="vendor-table">
+<caption>Phone and MCP access: eight things to check</caption>
+<thead><tr><th scope="col">Your question</th><th scope="col">tunn</th><th scope="col">Cloudflare Quick Tunnels</th></tr></thead>
+<tbody>
+<tr><th scope="row">Default access to a local web app</th><td><span class="comparison-label">tunn</span>Owner-only unless you opt into public access. <a class="fact-source" href="https://tunn.to/agents/AGENTS.md">tunn guide · accessed 2026-11-05</a></td><td><span class="comparison-label">Cloudflare Quick Tunnels</span>Public by default; no Cloudflare account or domain needed. <a class="fact-source" href="https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/">Cloudflare docs · accessed 2026-11-05</a></td></tr>
+<tr><th scope="row">Named visitors opening from a phone</th><td><span class="comparison-label">tunn</span>Allow account emails; visitors sign in in their browser. <a class="fact-source" href="https://tunn.to/agents/AGENTS.md">tunn guide · accessed 2026-11-05</a></td><td><span class="comparison-label">Cloudflare Quick Tunnels</span>Optional <code>--allowed-mail</code> uses an email PIN in a browser; visitors need no Cloudflare account. <a class="fact-source" href="https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/">Cloudflare docs · accessed 2026-11-05</a></td></tr>
+<tr><th scope="row">MCP transport and hosted AI clients</th><td><span class="comparison-label">tunn</span>HTTP or stdio upstreams. Hosted clients are not yet verified; check your client before relying on it. <a class="fact-source" href="https://tunn.to/mcp-to-claude">tunn MCP guide · accessed 2026-11-05</a></td><td><span class="comparison-label">Cloudflare Quick Tunnels</span>No SSE; email authentication excludes non-interactive clients. Evaluate your MCP transport and authentication needs. <a class="fact-source" href="https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/">Cloudflare docs · accessed 2026-11-05</a></td></tr>
+<tr><th scope="row">Endpoint hostname</th><td><span class="comparison-label">tunn</span>Use the printed HTTPS URL; request a name with <code>--name</code>. <a class="fact-source" href="https://tunn.to/agents/AGENTS.md">tunn guide · accessed 2026-11-05</a></td><td><span class="comparison-label">Cloudflare Quick Tunnels</span>Temporary <code>trycloudflare.com</code> hostname changes on each creation. <a class="fact-source" href="https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/">Cloudflare docs · accessed 2026-11-05</a></td></tr>
+<tr><th scope="row">Publisher setup</th><td><span class="comparison-label">tunn</span>Install tunn and sign in before publishing. <a class="fact-source" href="https://tunn.to/agents/AGENTS.md">tunn guide · accessed 2026-11-05</a></td><td><span class="comparison-label">Cloudflare Quick Tunnels</span>Run <code>cloudflared</code> with a local HTTP server. <a class="fact-source" href="https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/">Cloudflare docs · accessed 2026-11-05</a></td></tr>
+<tr><th scope="row">Streaming and app compatibility</th><td><span class="comparison-label">tunn</span>WebSocket forwarding is supported; phone reloads and live updates still need app-specific testing. <a class="fact-source" href="https://tunn.to/agents/AGENTS.md">tunn guide · accessed 2026-11-05</a></td><td><span class="comparison-label">Cloudflare Quick Tunnels</span>Server-Sent Events are unsupported. <a class="fact-source" href="https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/">Cloudflare docs · accessed 2026-11-05</a></td></tr>
+<tr><th scope="row">Concurrent requests and transfer</th><td><span class="comparison-label">tunn</span>Free: {{.FreeTunnels}} concurrent tunnels, {{.FreeBytesShort}} transfer. See current plan details. <a class="fact-source" href="https://tunn.to/pricing">tunn pricing · accessed 2026-11-05</a></td><td><span class="comparison-label">Cloudflare Quick Tunnels</span>200 in-flight requests; additional requests receive 429. <a class="fact-source" href="https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/">Cloudflare docs · accessed 2026-11-05</a></td></tr>
+<tr><th scope="row">Ending or changing access</th><td><span class="comparison-label">tunn</span>Stop the publisher to end access. Remove web invitations in Share access; MCP allowlist changes require a restart. <a class="fact-source" href="https://tunn.to/agents/AGENTS.md">tunn guide · accessed 2026-11-05</a></td><td><span class="comparison-label">Cloudflare Quick Tunnels</span>Stopping the process ends access. Restart to change allowed emails. Intended for testing and development; no uptime guarantee. <a class="fact-source" href="https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/">Cloudflare docs · accessed 2026-11-05</a></td></tr>
+</tbody>
+</table>
+<section aria-labelledby="try-tunn"><h2 id="try-tunn">Try your workflow</h2>
+<p>Start your local server, then choose a command. <a class="fact-source" href="https://tunn.to/agents/AGENTS.md">tunn guide · accessed 2026-11-05</a></p>
+<div class="comparison-workflow"><h3>Open your own local app</h3><pre><code data-comparison-command="phone">tunn 3000</code></pre><p class="fine"><a class="fact-source" href="https://tunn.to/agents/AGENTS.md">tunn guide · accessed 2026-11-05</a></p></div>
+<div class="comparison-workflow"><h3>Invite a named visitor</h3><pre><code data-comparison-command="share">tunn 3000 --allow=alex@example.com</code></pre><p class="fine"><a class="fact-source" href="https://tunn.to/agents/AGENTS.md">tunn guide · accessed 2026-11-05</a></p></div>
+<div class="comparison-workflow"><h3>Publish an HTTP MCP server</h3><pre><code data-comparison-command="mcp">tunn mcp --name work-tools --allow=alex@example.com http://127.0.0.1:3000/mcp</code></pre><p class="fine"><a class="fact-source" href="https://tunn.to/agents/AGENTS.md">tunn guide · accessed 2026-11-05</a></p></div>
+
+<p class="note">For MCP, verify authentication, tools and a harmless call in your intended client. Hosted clients are not yet verified. <a class="fact-source" href="https://tunn.to/mcp-to-claude">tunn MCP guide · accessed 2026-11-05</a></p>
+<p>On a phone, test sign-in, reloads and live updates over mobile data before relying on your app. <a class="fact-source" href="https://tunn.to/agents/AGENTS.md">tunn guide · accessed 2026-11-05</a></p>
+</section>
+<aside class="related-guides" aria-label="More comparisons"><h2>More comparisons</h2><a href="/ngrok-alternative">tunn vs ngrok</a><a href="/cloudflare-quick-tunnel-alternative">Cloudflare Quick Tunnels</a><a href="/tailscale-funnel-alternative">Tailscale Funnel</a><a href="/mcp-to-claude">MCP setup</a></aside>
+</main>
+<!--site-footer-->
+</body>
+</html>

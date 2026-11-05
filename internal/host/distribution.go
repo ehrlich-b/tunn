@@ -22,6 +22,12 @@ var localMCPMobileHTML string
 //go:embed templates/claude-connector-bearer-token.html
 var claudeConnectorBearerHTML string
 
+//go:embed templates/cloudflare-quick-tunnel-alternative.html
+var cloudflareQuickTunnelAlternativeHTML string
+
+//go:embed templates/tailscale-funnel-alternative.html
+var tailscaleFunnelAlternativeHTML string
+
 //go:embed templates/mcp-to-claude.html
 var mcpToClaudeHTML string
 
@@ -76,6 +82,10 @@ func (p *ProxyServer) serveDistributionPage(w http.ResponseWriter, r *http.Reque
 		body = withSiteChrome(localMCPMobileHTML)
 	case "/claude-connector-bearer-token":
 		body = withSiteChrome(claudeConnectorBearerHTML)
+	case "/cloudflare-quick-tunnel-alternative":
+		body = cloudflareQuickTunnelAlternativeHTML
+	case "/tailscale-funnel-alternative":
+		body = tailscaleFunnelAlternativeHTML
 	case "/mcp-to-claude":
 		body = withSiteChrome(mcpToClaudeHTML)
 	case "/share-dev-server-oauth":
@@ -109,7 +119,7 @@ func (p *ProxyServer) serveDistributionPage(w http.ResponseWriter, r *http.Reque
 		w.WriteHeader(http.StatusOK)
 		return true
 	}
-	if r.URL.Path == "/ngrok-alternative" || r.URL.Path == "/client-previews" {
+	if r.URL.Path == "/ngrok-alternative" || r.URL.Path == "/client-previews" || r.URL.Path == "/cloudflare-quick-tunnel-alternative" || r.URL.Path == "/tailscale-funnel-alternative" {
 		p.renderRevenuePage(w, body)
 	} else {
 		_, _ = fmt.Fprint(w, body)
@@ -128,6 +138,8 @@ const distributionSitemap = `<?xml version="1.0" encoding="UTF-8"?>
   <url><loc>https://tunn.to/docs</loc></url>
   <url><loc>https://tunn.to/about</loc></url>
   <url><loc>https://tunn.to/ngrok-alternative</loc></url>
+  <url><loc>https://tunn.to/cloudflare-quick-tunnel-alternative</loc></url>
+  <url><loc>https://tunn.to/tailscale-funnel-alternative</loc></url>
   <url><loc>https://tunn.to/mcp-to-claude</loc></url>
   <url><loc>https://tunn.to/share-dev-server-oauth</loc></url>
   <url><loc>https://tunn.to/privacy</loc></url>

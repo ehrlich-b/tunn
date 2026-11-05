@@ -921,6 +921,8 @@ func (p *ProxyServer) createHandler() http.Handler {
 	mux.HandleFunc("/about", p.handleAbout)
 	mux.HandleFunc("/pricing", p.handlePricing)
 	mux.HandleFunc("/ngrok-alternative", p.handleComparison)
+	mux.HandleFunc("/cloudflare-quick-tunnel-alternative", p.handleComparison)
+	mux.HandleFunc("/tailscale-funnel-alternative", p.handleComparison)
 	mux.HandleFunc("/upgrade", p.handleUpgrade)
 	mux.HandleFunc("/api/billing/status", p.handleBillingStatus)
 	mux.HandleFunc("/docs", p.handleDocs)

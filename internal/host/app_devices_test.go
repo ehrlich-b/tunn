@@ -15,7 +15,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -71,16 +70,12 @@ func newAppDeviceFixtureWithClock(t *testing.T, clock func() time.Time) *appDevi
 	p.tunnelServer.tunnels[tunnel.TunnelID] = tunnel
 	// Cancellation may retire a SQLite connection. A file-backed fixture
 	// preserves account authority across reconnects, as the relay does.
-	db, err := store.OpenLocal(filepath.Join(t.TempDir(), "app-authority.sqlite"))
+	db, err := store.InitForTest()
 	if err != nil {
 		t.Fatal(err)
 	}
 	db.SetMaxOpenConns(1)
 	t.Cleanup(func() { db.Close() })
-	// Retain the existing synthetic-billing guard in this disposable DB.
-	if _, err = db.Exec(`CREATE TABLE ops_fixture(id INTEGER PRIMARY KEY,value TEXT); INSERT INTO ops_fixture VALUES(1,'disposable-local')`); err != nil {
-		t.Fatal(err)
-	}
 	if _, err = db.Exec(`INSERT INTO accounts(id,primary_email,plan,created_at) VALUES(?,?,'pro',1);`, tunnel.AccountID, appDeviceTestEmail); err != nil {
 		t.Fatal(err)
 	}
@@ -237,6 +232,29 @@ func TestAppDeviceEnrollmentRejectsFutureIssuedSession(t *testing.T) {
 	now = now.Add(time.Second)
 	if w := f.form(t, "/api/app-devices/invitations", nil, nil); w.Code != http.StatusCreated {
 		t.Fatalf("current session status=%d, want 201", w.Code)
+	}
+}
+
+// The disposable authority must survive connection replacement without putting
+// durable disk syncs on the enrollment handler's bounded request path.
+func TestAppDeviceEnrollmentAuthorityReconnect(t *testing.T) {
+	f := newAppDeviceFixture(t)
+	f.db.SetMaxIdleConns(0)
+	var synchronous int
+	if err := f.db.QueryRow("PRAGMA synchronous").Scan(&synchronous); err != nil || synchronous != 0 {
+		t.Fatalf("fixture synchronous=%d, err=%v", synchronous, err)
+	}
+	invitation := f.invite(t, nil)
+	verifier, err := randomOAuthValue("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim := f.claim(t, invitation, verifier)
+	if w := f.approve(t, claim, nil); w.Code != http.StatusOK {
+		t.Fatalf("approval after reconnect=%d", w.Code)
+	}
+	if w := f.redeem(t, claim, verifier, true); w.Code != http.StatusCreated {
+		t.Fatalf("redeem after reconnect=%d", w.Code)
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/synctest"
@@ -369,6 +370,50 @@ func TestBridgeTimesOut(t *testing.T) {
 			t.Fatalf("uncorrelated or incorrect timeout error: %s", response.Body)
 		}
 	})
+}
+
+func TestBridgeClosesInheritedStdoutOnCancellation(t *testing.T) {
+	// The descendant holds stdout after its parent exits. Keep it alive until
+	// cleanup so EOF cannot hide a reader that cancellation failed to stop.
+	for _, cancelParent := range []bool{false, true} {
+		t.Run(fmt.Sprintf("parent-cancel-%t", cancelParent), func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			var pid bytes.Buffer
+			bridge, err := StartStdioHandler(ctx, []string{"sh", "-c", "sleep 30 2>/dev/null & echo $! >&2"}, &pid, Options{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-bridge.Done():
+			case <-time.After(5 * time.Second):
+				t.Fatal("child did not exit")
+			}
+			childPID, err := strconv.Atoi(strings.TrimSpace(pid.String()))
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				if process, err := os.FindProcess(childPID); err == nil {
+					_ = process.Kill()
+				}
+			})
+			if cancelParent {
+				cancel()
+			} else {
+				closeCtx, stop := context.WithTimeout(context.Background(), time.Second)
+				defer stop()
+				if err := bridge.Close(closeCtx); err != nil {
+					t.Fatal(err)
+				}
+			}
+			select {
+			case <-bridge.readerDone:
+			case <-time.After(time.Second):
+				t.Fatal("stdout reader did not stop")
+			}
+		})
+	}
 }
 
 func TestBridgeReportsChildExit(t *testing.T) {

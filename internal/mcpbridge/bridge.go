@@ -46,6 +46,7 @@ type Bridge struct {
 	httpClosing  bool
 	outputs      chan childOutput
 	done         chan struct{}
+	readerDone   chan struct{}
 	processMu    sync.Mutex
 	processErr   error
 
@@ -165,12 +166,19 @@ func StartStdioHandler(parent context.Context, command []string, stderr io.Write
 		stdin:          stdin,
 		outputs:        make(chan childOutput, 16),
 		done:           make(chan struct{}),
+		readerDone:     make(chan struct{}),
 		requestTimeout: defaultRequestTimeout,
 		allowedTools:   allowedTools,
 		streamContext:  ctx,
 	}
 
-	go func() { defer stdout.Close(); b.readChild(stdout) }()
+	stopClosing := context.AfterFunc(ctx, func() { _ = stdout.Close() })
+	go func() {
+		defer close(b.readerDone)
+		defer stdout.Close()
+		defer stopClosing()
+		b.readChild(stdout)
+	}()
 	go func() {
 		err := cmd.Wait()
 		b.processMu.Lock()

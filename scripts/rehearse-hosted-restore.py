@@ -12,6 +12,95 @@ import sqlite3
 import struct
 import tempfile
 import time
+import socket
+import ssl
+import subprocess
+import urllib.error
+import urllib.request
+import zipfile
+from contextlib import contextmanager
+
+
+REPO = Path(__file__).resolve().parents[1]
+
+
+def build_relay(root):
+    """Build committed HEAD, without local edits or installing anything."""
+    binary = root / 'tunn'
+    archive = root / 'head.zip'
+    with archive.open('wb') as output:
+        subprocess.run(['git', 'archive', '--format=zip', 'HEAD'], cwd=REPO,
+                       check=True, stdout=output, stderr=subprocess.DEVNULL, timeout=30)
+    source = root / 'source'
+    with zipfile.ZipFile(archive) as snapshot:
+        snapshot.extractall(source)
+    env = dict(os.environ, GOWORK='off')
+    subprocess.run(['go', 'build', '-p', '2', '-o', str(binary), '.'], cwd=source, env=env,
+                   check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                   timeout=600)
+    return binary
+
+
+@contextmanager
+def loopback_relay(binary, database, root):
+    """Run an isolated login relay; callers must supply a disposable database.
+
+    No dotenv, inherited provider configuration, discovery, ACME, SMTP or OIDC.
+    Output stays private because startup diagnostics can contain database values.
+    """
+    root.mkdir(mode=0o700)
+    cert, key = root / 'cert.pem', root / 'key.pem'
+    subprocess.run(['openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes',
+                    '-keyout', str(key), '-out', str(cert), '-days', '1',
+                    '-subj', '/CN=localhost'], check=True, timeout=30,
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # Reserve different ports until both numbers have been selected.
+    with socket.socket() as public, socket.socket() as internal:
+        public.bind(('127.0.0.1', 0))
+        internal.bind(('127.0.0.1', 0))
+        addr = '127.0.0.1:' + str(public.getsockname()[1])
+        internal_addr = '127.0.0.1:' + str(internal.getsockname()[1])
+    env = {k: v for k, v in os.environ.items() if k in ('PATH', 'SYSTEMROOT', 'TMPDIR')}
+    env.update({'TUNN_ENV': 'dev', 'TUNN_DOMAIN': 'localhost',
+                'TUNN_LOGIN_NODE': 'true', 'TUNN_DB_PATH': str(database),
+                'TUNN_HTTP2_ADDR': addr, 'TUNN_HTTP3_ADDR': addr, 'TUNN_HTTP3': 'off',
+                'TUNN_INTERNAL_GRPC_PORT': internal_addr, 'TUNN_PUBLIC_ADDR': addr,
+                'TUNN_SERVER_ADDR': addr, 'TUNN_MOCK_OIDC_ADDR': '',
+                'TUNN_CERT_FILE': str(cert), 'TUNN_KEY_FILE': str(key)})
+    # Ignore proxy variables and redirects, even on a configured operator Mac.
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *args, **kwargs):
+            return None
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect(),
+                                         urllib.request.HTTPSHandler(context=context))
+    process = subprocess.Popen([str(binary), '-mode=host', '-verbosity=none'], cwd=root,
+                               env=env, stdin=subprocess.DEVNULL,
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            if process.poll() is not None:
+                raise ValueError('relay exited before readiness')
+            try:
+                with opener.open('https://' + addr + '/readyz', timeout=1) as response:
+                    if response.status == 200 and response.read(16) == b'ok':
+                        break
+            except (OSError, urllib.error.URLError):
+                pass
+            time.sleep(0.05)
+        else:
+            raise ValueError('relay readiness timed out')
+        yield {'readyz_status': 200, 'bind': '127.0.0.1'}
+    finally:
+        process.terminate()
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
 
 
 MAX_INPUT_BYTES = 64 * 1024 * 1024

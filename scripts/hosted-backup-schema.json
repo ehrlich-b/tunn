@@ -1,0 +1,399 @@
+{
+  "tables": {
+    "account_emails": {
+      "indexes": [
+        "CREATE INDEX idx_account_emails_account_id ON account_emails(account_id)"
+      ],
+      "sql": "CREATE TABLE account_emails ( account_id TEXT NOT NULL, email TEXT PRIMARY KEY, verified_via TEXT NOT NULL, added_at INTEGER NOT NULL, FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE )"
+    },
+    "account_merges": {
+      "indexes": [
+        "CREATE INDEX idx_account_merges_account_id ON account_merges(account_id)"
+      ],
+      "sql": "CREATE TABLE account_merges ( old_id TEXT PRIMARY KEY, account_id TEXT NOT NULL, FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE )"
+    },
+    "account_provider_identities": {
+      "indexes": [],
+      "sql": "CREATE TABLE account_provider_identities ( issuer TEXT NOT NULL, subject TEXT NOT NULL, account_id TEXT NOT NULL, email TEXT NOT NULL, PRIMARY KEY(issuer,subject), FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE)"
+    },
+    "account_usage": {
+      "indexes": [],
+      "sql": "CREATE TABLE account_usage ( account_id TEXT NOT NULL, month TEXT NOT NULL, bytes_used INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (account_id, month), FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE )"
+    },
+    "accounts": {
+      "indexes": [
+        "CREATE INDEX idx_accounts_primary_email ON accounts(primary_email)"
+      ],
+      "sql": "CREATE TABLE accounts ( id TEXT PRIMARY KEY, primary_email TEXT NOT NULL, plan TEXT NOT NULL DEFAULT 'free', created_at INTEGER NOT NULL )"
+    },
+    "app_device_invitations": {
+      "indexes": [
+        "CREATE INDEX app_device_invitations_account ON app_device_invitations(account,expires)"
+      ],
+      "sql": "CREATE TABLE app_device_invitations ( id TEXT PRIMARY KEY, digest BLOB UNIQUE NOT NULL, account TEXT NOT NULL, expires INTEGER NOT NULL, claim TEXT UNIQUE, challenge TEXT NOT NULL DEFAULT '', phrase TEXT NOT NULL DEFAULT '', approved INTEGER NOT NULL DEFAULT 0, consumed INTEGER NOT NULL DEFAULT 0, failures INTEGER NOT NULL DEFAULT 0, polled INTEGER NOT NULL DEFAULT 0, data BLOB NOT NULL)"
+    },
+    "app_device_leases": {
+      "indexes": [
+        "CREATE INDEX app_device_leases_device ON app_device_leases(device,expires)"
+      ],
+      "sql": "CREATE TABLE app_device_leases (id TEXT PRIMARY KEY, device TEXT NOT NULL, expires INTEGER NOT NULL)"
+    },
+    "app_device_rates": {
+      "indexes": [],
+      "sql": "CREATE TABLE app_device_rates (key TEXT PRIMARY KEY, minute INTEGER NOT NULL, count INTEGER NOT NULL)"
+    },
+    "app_devices": {
+      "indexes": [
+        "CREATE INDEX app_devices_scope ON app_devices(account,host)"
+      ],
+      "sql": "CREATE TABLE app_devices ( id TEXT PRIMARY KEY, digest BLOB UNIQUE NOT NULL, account TEXT NOT NULL, host TEXT NOT NULL, expires INTEGER NOT NULL, revoked INTEGER NOT NULL DEFAULT 0, data BLOB NOT NULL)"
+    },
+    "browser_session_epochs": {
+      "indexes": [],
+      "sql": "CREATE TABLE browser_session_epochs ( account_id TEXT PRIMARY KEY, epoch TEXT NOT NULL)"
+    },
+    "device_codes": {
+      "indexes": [
+        "CREATE INDEX idx_device_codes_expires_at ON device_codes(expires_at)",
+        "CREATE INDEX idx_device_codes_user_code ON device_codes(user_code)"
+      ],
+      "sql": "CREATE TABLE device_codes ( code TEXT PRIMARY KEY, user_code TEXT UNIQUE NOT NULL, expires_at INTEGER NOT NULL, authorized INTEGER NOT NULL DEFAULT 0, email TEXT , purpose TEXT NOT NULL DEFAULT 'publisher', account_id TEXT NOT NULL DEFAULT '')"
+    },
+    "durable_device_used": {
+      "indexes": [
+        "CREATE UNIQUE INDEX durable_device_requests ON durable_device_used(device,request)"
+      ],
+      "sql": "CREATE TABLE durable_device_used ( digest BLOB PRIMARY KEY, device TEXT NOT NULL, request TEXT NOT NULL, used INTEGER NOT NULL, replacement BLOB NOT NULL)"
+    },
+    "durable_devices": {
+      "indexes": [
+        "CREATE INDEX durable_devices_account ON durable_devices(account_id)",
+        "CREATE INDEX durable_devices_email ON durable_devices(email)"
+      ],
+      "sql": "CREATE TABLE durable_devices ( id TEXT PRIMARY KEY, email TEXT NOT NULL, name TEXT NOT NULL, digest BLOB NOT NULL UNIQUE, created INTEGER NOT NULL, last_used INTEGER NOT NULL, revoked INTEGER NOT NULL DEFAULT 0, purpose TEXT NOT NULL DEFAULT 'publisher', account_id TEXT NOT NULL DEFAULT '')"
+    },
+    "endpoint_policies": {
+      "indexes": [],
+      "sql": "CREATE TABLE endpoint_policies ( resource TEXT PRIMARY KEY, data BLOB NOT NULL)"
+    },
+    "endpoint_policy_buckets": {
+      "indexes": [
+        "CREATE INDEX endpoint_policy_buckets_expiry ON endpoint_policy_buckets(expires)"
+      ],
+      "sql": "CREATE TABLE endpoint_policy_buckets ( resource TEXT NOT NULL, bucket TEXT NOT NULL, tokens REAL NOT NULL, updated INTEGER NOT NULL, rate INTEGER NOT NULL, burst INTEGER NOT NULL, expires INTEGER NOT NULL, PRIMARY KEY(resource,bucket))"
+    },
+    "free_reservation_claims": {
+      "indexes": [],
+      "sql": "CREATE TABLE free_reservation_claims(subdomain TEXT PRIMARY KEY REFERENCES reserved_subdomains(subdomain) ON DELETE CASCADE)"
+    },
+    "ip_policies": {
+      "indexes": [],
+      "sql": "CREATE TABLE ip_policies ( owner TEXT NOT NULL, endpoint TEXT NOT NULL, data BLOB NOT NULL, PRIMARY KEY(owner,endpoint))"
+    },
+    "mcp_oauth_access": {
+      "indexes": [],
+      "sql": "CREATE TABLE mcp_oauth_access (grant_id TEXT PRIMARY KEY, authorization TEXT NOT NULL, family INTEGER NOT NULL)"
+    },
+    "mcp_oauth_authorizations": {
+      "indexes": [
+        "CREATE INDEX mcp_oauth_authorization_owner ON mcp_oauth_authorizations(owner,endpoint,client)"
+      ],
+      "sql": "CREATE TABLE mcp_oauth_authorizations ( id TEXT PRIMARY KEY, owner TEXT NOT NULL, person TEXT NOT NULL, email TEXT NOT NULL, endpoint TEXT NOT NULL, client TEXT NOT NULL, resource TEXT NOT NULL, generation TEXT NOT NULL, expires INTEGER NOT NULL, approved INTEGER NOT NULL DEFAULT 0)"
+    },
+    "mcp_oauth_clients": {
+      "indexes": [],
+      "sql": "CREATE TABLE mcp_oauth_clients ( id TEXT PRIMARY KEY, data BLOB NOT NULL)"
+    },
+    "mcp_oauth_codes": {
+      "indexes": [],
+      "sql": "CREATE TABLE mcp_oauth_codes ( digest BLOB PRIMARY KEY, owner TEXT NOT NULL, endpoint TEXT NOT NULL, client TEXT NOT NULL, expires INTEGER NOT NULL, data BLOB NOT NULL)"
+    },
+    "mcp_oauth_consents": {
+      "indexes": [],
+      "sql": "CREATE TABLE mcp_oauth_consents ( id TEXT PRIMARY KEY, owner TEXT NOT NULL, endpoint TEXT NOT NULL, client TEXT NOT NULL, expires INTEGER NOT NULL)"
+    },
+    "mcp_oauth_refresh_families": {
+      "indexes": [
+        "CREATE INDEX mcp_oauth_refresh_expiry ON mcp_oauth_refresh_families(expires)"
+      ],
+      "sql": "CREATE TABLE mcp_oauth_refresh_families ( id INTEGER PRIMARY KEY AUTOINCREMENT, owner TEXT NOT NULL, person TEXT NOT NULL, client TEXT NOT NULL, resource TEXT NOT NULL, generation TEXT NOT NULL CHECK(length(generation)=36), expires INTEGER NOT NULL)"
+    },
+    "mcp_oauth_refresh_tokens": {
+      "indexes": [],
+      "sql": "CREATE TABLE mcp_oauth_refresh_tokens ( family INTEGER NOT NULL, digest BLOB NOT NULL CHECK(length(digest)=32), used INTEGER NOT NULL DEFAULT 0 CHECK(used IN (0,1)), PRIMARY KEY(family,digest), FOREIGN KEY(family) REFERENCES mcp_oauth_refresh_families(id) ON DELETE CASCADE)"
+    },
+    "mcp_oauth_sessions": {
+      "indexes": [],
+      "sql": "CREATE TABLE mcp_oauth_sessions (family INTEGER PRIMARY KEY, authorization TEXT NOT NULL)"
+    },
+    "meter_audit_retention": {
+      "indexes": [],
+      "sql": "CREATE TABLE meter_audit_retention ( owner TEXT PRIMARY KEY, days INTEGER NOT NULL CHECK(days IN (7,30,90)))"
+    },
+    "meter_events": {
+      "indexes": [
+        "CREATE INDEX meter_events_audit ON meter_events(owner,CASE WHEN json_valid(CAST(data AS TEXT)) THEN json_extract(CAST(data AS TEXT),'$.started_at') END DESC,id DESC)",
+        "CREATE INDEX meter_events_audit_retention ON meter_events(owner,finished,CASE WHEN json_valid(CAST(data AS TEXT)) THEN json_extract(CAST(data AS TEXT),'$.started_at') END)",
+        "CREATE INDEX meter_events_export ON meter_events(owner,endpoint,month)"
+      ],
+      "sql": "CREATE TABLE meter_events ( id TEXT PRIMARY KEY, owner TEXT NOT NULL, endpoint TEXT NOT NULL, month TEXT NOT NULL, finished INTEGER NOT NULL, data BLOB NOT NULL)"
+    },
+    "meter_grants": {
+      "indexes": [
+        "CREATE INDEX meter_grants_owner_endpoint ON meter_grants(owner,endpoint)"
+      ],
+      "sql": "CREATE TABLE meter_grants ( id TEXT PRIMARY KEY, owner TEXT NOT NULL, endpoint TEXT NOT NULL, digest BLOB UNIQUE NOT NULL, expires INTEGER NOT NULL, data BLOB NOT NULL, rate_minute INTEGER NOT NULL DEFAULT 0, rate_count INTEGER NOT NULL DEFAULT 0)"
+    },
+    "meter_migrations": {
+      "indexes": [],
+      "sql": "CREATE TABLE meter_migrations (name TEXT PRIMARY KEY)"
+    },
+    "meter_usage": {
+      "indexes": [],
+      "sql": "CREATE TABLE meter_usage ( owner TEXT NOT NULL, endpoint TEXT NOT NULL, caller TEXT NOT NULL, month TEXT NOT NULL, requests INTEGER NOT NULL DEFAULT 0, admitted INTEGER NOT NULL DEFAULT 0, request_bytes INTEGER NOT NULL DEFAULT 0, response_bytes INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(owner,endpoint,caller,month))"
+    },
+    "ops_account_audit": {
+      "indexes": [
+        "CREATE INDEX ops_audit_account ON ops_account_audit(account_id,version)"
+      ],
+      "sql": "CREATE TABLE ops_account_audit ( id TEXT PRIMARY KEY, account_id TEXT NOT NULL, original_account_id TEXT NOT NULL, version INTEGER NOT NULL, previous_state TEXT NOT NULL, state TEXT NOT NULL, reason TEXT NOT NULL, actor TEXT NOT NULL, changed_at TEXT NOT NULL )"
+    },
+    "ops_account_state": {
+      "indexes": [],
+      "sql": "CREATE TABLE ops_account_state ( account_id TEXT PRIMARY KEY REFERENCES accounts(id), state TEXT NOT NULL CHECK(state IN ('active','suspended')), version INTEGER NOT NULL CHECK(version > 0), reason TEXT NOT NULL, actor TEXT NOT NULL, changed_at TEXT NOT NULL )"
+    },
+    "ops_billing_events": {
+      "indexes": [],
+      "sql": "CREATE TABLE ops_billing_events ( provider TEXT NOT NULL, event_id TEXT NOT NULL, digest TEXT NOT NULL, event_type TEXT NOT NULL, subscription_id TEXT NOT NULL, customer_id TEXT NOT NULL, account_id TEXT NOT NULL, revision INTEGER NOT NULL, plan TEXT NOT NULL, outcome TEXT NOT NULL, received_at TEXT NOT NULL, actor TEXT NOT NULL DEFAULT '', reconciled_by TEXT NOT NULL DEFAULT '', PRIMARY KEY(provider,event_id) )"
+    },
+    "ops_billing_mappings": {
+      "indexes": [
+        "CREATE INDEX ops_billing_account ON ops_billing_mappings(account_id)"
+      ],
+      "sql": "CREATE TABLE ops_billing_mappings ( provider TEXT NOT NULL, subscription_id TEXT NOT NULL, customer_id TEXT NOT NULL, account_id TEXT NOT NULL REFERENCES accounts(id), version INTEGER NOT NULL DEFAULT 0, revision INTEGER NOT NULL DEFAULT 0, plan TEXT NOT NULL DEFAULT '', PRIMARY KEY(provider,subscription_id), UNIQUE(provider,customer_id) )"
+    },
+    "ops_billing_merged_purchases": {
+      "indexes": [],
+      "sql": "CREATE TABLE ops_billing_merged_purchases(provider TEXT NOT NULL,subscription_id TEXT NOT NULL,PRIMARY KEY(provider,subscription_id))"
+    },
+    "ops_billing_states": {
+      "indexes": [],
+      "sql": "CREATE TABLE ops_billing_states ( provider TEXT NOT NULL, subscription_id TEXT NOT NULL, plan TEXT NOT NULL CHECK(plan IN ('free','pro')), revision INTEGER NOT NULL, provider_read_at INTEGER NOT NULL, digest TEXT NOT NULL, PRIMARY KEY(provider,subscription_id), FOREIGN KEY(provider,subscription_id) REFERENCES ops_billing_mappings(provider,subscription_id), CHECK(revision > 0 OR provider_read_at > 0) )"
+    },
+    "ops_checkout_destinations": {
+      "indexes": [],
+      "sql": "CREATE TABLE ops_checkout_destinations ( reference TEXT PRIMARY KEY REFERENCES ops_checkout_intents(reference), destination TEXT NOT NULL, expires_at TEXT NOT NULL )"
+    },
+    "ops_checkout_intents": {
+      "indexes": [
+        "CREATE INDEX ops_checkout_account ON ops_checkout_intents(account_id)"
+      ],
+      "sql": "CREATE TABLE ops_checkout_intents ( reference TEXT PRIMARY KEY, account_id TEXT NOT NULL REFERENCES accounts(id), created_at TEXT NOT NULL )"
+    },
+    "ops_checkout_payments": {
+      "indexes": [
+        "CREATE INDEX ops_checkout_payment_account ON ops_checkout_payments(account_id,provider,subscription_id)",
+        "CREATE INDEX ops_checkout_payment_reference ON ops_checkout_payments(reference)",
+        "CREATE UNIQUE INDEX ops_checkout_session ON ops_checkout_payments(provider,session_id) WHERE session_id!=''"
+      ],
+      "sql": "CREATE TABLE ops_checkout_payments ( provider TEXT NOT NULL,subscription_id TEXT NOT NULL,customer_id TEXT NOT NULL, reference TEXT REFERENCES ops_checkout_intents(reference),outcome TEXT NOT NULL,event_id TEXT NOT NULL, account_id TEXT NOT NULL DEFAULT '',session_id TEXT NOT NULL DEFAULT '',completed_at INTEGER NOT NULL DEFAULT 0, advisory_reference TEXT NOT NULL DEFAULT '',version INTEGER NOT NULL DEFAULT 0,resolution TEXT NOT NULL DEFAULT '',approval_version INTEGER NOT NULL DEFAULT -1,approved_at INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(provider,subscription_id))"
+    },
+    "ops_legacy_entitlement_audit": {
+      "indexes": [],
+      "sql": "CREATE TABLE ops_legacy_entitlement_audit ( id TEXT PRIMARY KEY, original_account_id TEXT NOT NULL, account_id TEXT NOT NULL, previous_plan TEXT NOT NULL, plan TEXT NOT NULL, version INTEGER NOT NULL, reason TEXT NOT NULL, actor TEXT NOT NULL, changed_at TEXT NOT NULL )"
+    },
+    "ops_legacy_entitlements": {
+      "indexes": [
+        "CREATE INDEX ops_legacy_account ON ops_legacy_entitlements(account_id)"
+      ],
+      "sql": "CREATE TABLE ops_legacy_entitlements ( original_account_id TEXT PRIMARY KEY, account_id TEXT NOT NULL REFERENCES accounts(id), plan TEXT NOT NULL CHECK(plan IN ('pro','free')), version INTEGER NOT NULL DEFAULT 0 )"
+    },
+    "ops_payment_review_audit": {
+      "indexes": [],
+      "sql": "CREATE TABLE ops_payment_review_audit ( id TEXT PRIMARY KEY,provider TEXT NOT NULL,subscription_id TEXT NOT NULL,account_id TEXT NOT NULL, version INTEGER NOT NULL,action TEXT NOT NULL,reason TEXT NOT NULL,actor TEXT NOT NULL, evidence_sha256 TEXT NOT NULL,provider_read_at TEXT NOT NULL,refund_id TEXT NOT NULL,cancellation_id TEXT NOT NULL,changed_at TEXT NOT NULL,decision_json TEXT NOT NULL DEFAULT '')"
+    },
+    "ops_projection_guard": {
+      "indexes": [],
+      "sql": "CREATE TABLE ops_projection_guard(account_id TEXT PRIMARY KEY)"
+    },
+    "ops_reports": {
+      "indexes": [
+        "CREATE INDEX ops_reports_account ON ops_reports(account_id)"
+      ],
+      "sql": "CREATE TABLE ops_reports ( id TEXT PRIMARY KEY, account_id TEXT NOT NULL, category TEXT NOT NULL, endpoint TEXT NOT NULL, state TEXT NOT NULL, version INTEGER NOT NULL, created_at TEXT NOT NULL, changed_at TEXT NOT NULL, actor TEXT NOT NULL )"
+    },
+    "ops_rollback_audit": {
+      "indexes": [],
+      "sql": "CREATE TABLE ops_rollback_audit(id TEXT PRIMARY KEY,account_id TEXT NOT NULL,original_account_id TEXT NOT NULL,action TEXT NOT NULL,reason TEXT NOT NULL,changed_at TEXT NOT NULL)"
+    },
+    "ops_rollback_revocations": {
+      "indexes": [],
+      "sql": "CREATE TABLE ops_rollback_revocations(account_id TEXT PRIMARY KEY REFERENCES accounts(id),changed_at TEXT NOT NULL)"
+    },
+    "ops_rollback_subscription_holds": {
+      "indexes": [],
+      "sql": "CREATE TABLE ops_rollback_subscription_holds(provider TEXT NOT NULL,subscription_id TEXT NOT NULL,PRIMARY KEY(provider,subscription_id))"
+    },
+    "reserved_subdomains": {
+      "indexes": [
+        "CREATE INDEX idx_reserved_subdomains_account_id ON reserved_subdomains(account_id)"
+      ],
+      "sql": "CREATE TABLE reserved_subdomains ( subdomain TEXT PRIMARY KEY, account_id TEXT NOT NULL, created_at INTEGER NOT NULL, FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE )"
+    },
+    "sharing_audit": {
+      "indexes": [
+        "CREATE INDEX sharing_audit_owner ON sharing_audit(owner,sequence)"
+      ],
+      "sql": "CREATE TABLE sharing_audit ( sequence INTEGER PRIMARY KEY AUTOINCREMENT, owner TEXT NOT NULL, resource TEXT NOT NULL, actor TEXT NOT NULL, target TEXT NOT NULL, action TEXT NOT NULL, decided_at INTEGER NOT NULL, grant_id TEXT NOT NULL, expires INTEGER NOT NULL, revoked INTEGER NOT NULL)"
+    },
+    "sharing_mutation_rate": {
+      "indexes": [],
+      "sql": "CREATE TABLE sharing_mutation_rate (owner TEXT PRIMARY KEY, minute INTEGER NOT NULL, count INTEGER NOT NULL)"
+    },
+    "tunnel_alert_settings": {
+      "indexes": [],
+      "sql": "CREATE TABLE tunnel_alert_settings ( account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE, enabled INTEGER NOT NULL DEFAULT 0, threshold_seconds INTEGER NOT NULL DEFAULT 600 CHECK(threshold_seconds BETWEEN 1 AND 604800), on_graceful_stop INTEGER NOT NULL DEFAULT 0 )"
+    },
+    "tunnel_availability": {
+      "indexes": [],
+      "sql": "CREATE TABLE tunnel_availability ( tunnel TEXT PRIMARY KEY REFERENCES reserved_subdomains(subdomain) ON DELETE CASCADE, owner TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, session TEXT NOT NULL, online INTEGER NOT NULL, seen_at INTEGER NOT NULL, offline_since INTEGER NOT NULL DEFAULT 0, graceful INTEGER NOT NULL DEFAULT 0, last_error TEXT NOT NULL DEFAULT '', down_sent INTEGER NOT NULL DEFAULT 0, last_email INTEGER NOT NULL DEFAULT 0 )"
+    },
+    "used_magic_tokens": {
+      "indexes": [
+        "CREATE INDEX idx_used_magic_tokens_expires_at ON used_magic_tokens(expires_at)"
+      ],
+      "sql": "CREATE TABLE used_magic_tokens ( jti TEXT PRIMARY KEY, expires_at INTEGER NOT NULL )"
+    },
+    "web_resources": {
+      "indexes": [
+        "CREATE INDEX web_resources_owner ON web_resources(owner)"
+      ],
+      "sql": "CREATE TABLE web_resources ( endpoint TEXT PRIMARY KEY, owner TEXT NOT NULL, id TEXT UNIQUE NOT NULL, mode TEXT NOT NULL)"
+    }
+  },
+  "timestamps": {
+    "account_emails": [
+      "added_at"
+    ],
+    "account_merges": [],
+    "account_provider_identities": [],
+    "account_usage": [],
+    "accounts": [
+      "created_at"
+    ],
+    "app_device_invitations": [
+      "expires"
+    ],
+    "app_device_leases": [
+      "expires"
+    ],
+    "app_device_rates": [],
+    "app_devices": [
+      "expires",
+      "revoked"
+    ],
+    "browser_session_epochs": [],
+    "device_codes": [
+      "expires_at"
+    ],
+    "durable_device_used": [
+      "used"
+    ],
+    "durable_devices": [
+      "created",
+      "last_used",
+      "revoked"
+    ],
+    "endpoint_policies": [],
+    "endpoint_policy_buckets": [
+      "expires"
+    ],
+    "free_reservation_claims": [],
+    "ip_policies": [],
+    "mcp_oauth_access": [],
+    "mcp_oauth_authorizations": [
+      "expires"
+    ],
+    "mcp_oauth_clients": [],
+    "mcp_oauth_codes": [
+      "expires"
+    ],
+    "mcp_oauth_consents": [
+      "expires"
+    ],
+    "mcp_oauth_refresh_families": [
+      "expires"
+    ],
+    "mcp_oauth_refresh_tokens": [],
+    "mcp_oauth_sessions": [],
+    "meter_audit_retention": [],
+    "meter_events": [],
+    "meter_grants": [
+      "expires"
+    ],
+    "meter_migrations": [],
+    "meter_usage": [],
+    "ops_account_audit": [
+      "changed_at"
+    ],
+    "ops_account_state": [
+      "changed_at"
+    ],
+    "ops_billing_events": [
+      "received_at"
+    ],
+    "ops_billing_mappings": [],
+    "ops_billing_merged_purchases": [],
+    "ops_billing_states": [
+      "provider_read_at"
+    ],
+    "ops_checkout_destinations": [
+      "expires_at"
+    ],
+    "ops_checkout_intents": [
+      "created_at"
+    ],
+    "ops_checkout_payments": [
+      "completed_at",
+      "approved_at"
+    ],
+    "ops_legacy_entitlement_audit": [
+      "changed_at"
+    ],
+    "ops_legacy_entitlements": [],
+    "ops_payment_review_audit": [
+      "provider_read_at",
+      "changed_at"
+    ],
+    "ops_projection_guard": [],
+    "ops_reports": [
+      "created_at",
+      "changed_at"
+    ],
+    "ops_rollback_audit": [
+      "changed_at"
+    ],
+    "ops_rollback_revocations": [
+      "changed_at"
+    ],
+    "ops_rollback_subscription_holds": [],
+    "reserved_subdomains": [
+      "created_at"
+    ],
+    "sharing_audit": [
+      "decided_at",
+      "expires"
+    ],
+    "sharing_mutation_rate": [],
+    "tunnel_alert_settings": [],
+    "tunnel_availability": [
+      "seen_at",
+      "offline_since",
+      "last_email"
+    ],
+    "used_magic_tokens": [
+      "expires_at"
+    ],
+    "web_resources": []
+  }
+}

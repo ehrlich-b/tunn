@@ -68,6 +68,8 @@ type rbRun struct {
  Samples []rbSample `json:"samples"`
  SlowBytes int64 `json:"slow_bytes,omitempty"`
  SlowSeconds float64 `json:"slow_seconds,omitempty"`
+ SlowTargetBPS int `json:"slow_target_bps,omitempty"`
+ SlowRequestedBytes int `json:"slow_requested_bytes,omitempty"`
 }
 
 func rbTransport() *http.Transport {
@@ -92,7 +94,7 @@ func rbFetch(c *http.Client, base string, size int) rbSample {
 func rbWave(base string,size,concurrency,each int,timeout time.Duration) rbRun {
  tr:=rbTransport(); defer tr.CloseIdleConnections()
  c:=&http.Client{Transport:tr,Timeout:timeout}
- // Establish all connections before timing, for every path and case.
+ // Warm the HTTP connection pool before timing, for every path and case.
  var wg sync.WaitGroup
  warm:=make(chan rbSample,concurrency)
  for i:=0;i<concurrency;i++ {wg.Add(1);go func(){defer wg.Done();warm<-rbFetch(c,base,1024)}()}
@@ -217,7 +219,7 @@ func TestRelayBenchDriver(t *testing.T) {
   rbAssert(t,baseline);runs=append(runs,baseline)
   u,_:=url.Parse(base)
   conn,e:=net.Dial("tcp",u.Host);if e!=nil {t.Fatal(e)}
-  if tcp,ok:=conn.(*net.TCPConn);ok {if e=tcp.SetReadBuffer(1024);e!=nil {t.Fatal(e)}}
+  if tcp,ok:=conn.(*net.TCPConn);ok {if e=tcp.SetReadBuffer(16*1024);e!=nil {t.Fatal(e)}}
   _ = conn.SetDeadline(time.Now().Add(15*time.Second))
   _,e=fmt.Fprintf(conn,"GET /?size=104857600 HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n",u.Host)
   if e!=nil {conn.Close();t.Fatal(e)}
@@ -245,7 +247,9 @@ func TestRelayBenchDriver(t *testing.T) {
   for s:=range results {run.Samples=append(run.Samples,s)}
   close(stop);conn.Close();<-done;tr.CloseIdleConnections()
   run.SlowBytes=slowBytes;run.SlowSeconds=time.Since(slowStart).Seconds()
-  if slowBytes<10000 {t.Fatalf("slow reader made insufficient progress: %d",slowBytes)}
+  run.SlowTargetBPS=10000;run.SlowRequestedBytes=100*1024*1024
+  rate:=float64(slowBytes)/run.SlowSeconds
+  if rate<9500 || rate>10500 {t.Fatalf("slow reader missed 10 KB/s target: %.1f B/s",rate)}
   // Deadline errors are observations (right-censored latencies), never successes.
   for _,s:=range run.Samples {if s.Error!="" {
    // Other failures indicate a bad harness or broken response, rather than HOL.
@@ -320,7 +324,7 @@ def report(data, output):
                 added = {q: [metrics(r)[q] - metrics(next(d for d in direct if d["round"] == r["round"]))[q] for r in group] for q in ("p50", "p99")}
                 cells = [str(size), str(concurrency), name, spread([v["p50"] for v in values]), spread([v["p99"] for v in values]), spread(added["p50"]), spread(added["p99"]), spread([v["MB/s"] for v in values])]
                 lines.append("| " + " | ".join(cells) + " |")
-    lines += ["", "## Slow reader", "", "One separate socket requests 100 MiB on the same publisher tunnel and reads 1,000 bytes every 100 ms (10 KB/s = 10,000 B/s), with a 1 KiB socket receive buffer. After two seconds, 99 concurrent victims request 1 KiB each. The slow transfer is cancelled after the victim wave; completing it would exceed the runtime budget. Each victim has a three-second deadline; a timed-out p99 is reported as a lower bound, and errors remain in raw data. Baseline waves run on the same tunnel immediately before each observation. The slow socket plus 99 victims stays within the existing 100-connection tunnel limit.", "", "| Path | Slow reader | Victim p99 ms median [min, max] | Timed out / 495 |", "|---|---|---:|---:|"]
+    lines += ["", "## Slow reader", "", "One separate socket requests 100 MiB on the same publisher tunnel and reads 1,000 bytes every 100 ms (10 KB/s = 10,000 B/s), with a 16 KiB socket receive buffer. Achieved rate must be within 5% of 10,000 B/s or the run fails. After two seconds, 99 concurrent victims request 1 KiB each. The slow transfer is cancelled after the victim wave; completing it would exceed the runtime budget. Each victim has a three-second deadline; a timed-out p99 is reported as a lower bound, and errors remain in raw data. Baseline waves run on the same tunnel immediately before each observation. The slow socket plus 99 victims stays within the existing 100-connection tunnel limit.", "", "| Path | Slow reader | Victim p99 ms median [min, max] | Timed out / 495 |", "|---|---|---:|---:|"]
     for name in ("tunn", "frp"):
         for slow in (False, True):
             group = [r for r in rows if r["kind"] == "victim" and r["path"] == name and r["slow"] == slow]

@@ -67,6 +67,8 @@ func (s *OperationsStore) FunnelReport(ctx context.Context, principal AdminPrinc
 	if err != nil {
 		return nil, err
 	}
-	err = s.db.QueryRowContext(ctx, `SELECT count(*) FROM funnel_events c WHERE c.stage='checkout_completed' AND c.occurred_at >= ? AND c.occurred_at <= ? AND NOT EXISTS (SELECT 1 FROM funnel_events p WHERE p.stage='pro_active' AND p.account_hash=c.account_hash AND p.occurred_at <= ?)`, time.Now().UTC().Add(-24*time.Hour).Format(time.RFC3339Nano), time.Now().UTC().Format(time.RFC3339Nano), time.Now().UTC().Format(time.RFC3339Nano)).Scan(&out.CheckoutWithoutPro)
+	now := time.Now().UTC()
+	lower, upper := now.Add(-24*time.Hour).Format(time.RFC3339Nano), now.Format(time.RFC3339Nano)
+	err = s.db.QueryRowContext(ctx, `SELECT count(*) FROM funnel_events c WHERE c.stage='checkout_completed' AND c.occurred_at >= ? AND c.occurred_at <= ? AND NOT EXISTS (SELECT 1 FROM funnel_events p WHERE p.stage='pro_active' AND p.account_hash=c.account_hash AND p.occurred_at >= ? AND p.occurred_at <= ?)`, lower, upper, lower, upper).Scan(&out.CheckoutWithoutPro)
 	return out, err
 }

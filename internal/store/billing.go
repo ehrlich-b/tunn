@@ -309,8 +309,13 @@ func (s *OperationsStore) ProcessBillingEvent(ctx context.Context, e BillingEven
 	if err != nil {
 		return nil, err
 	}
-	if e.Type == "checkout.session.completed" && out.AccountID != "" {
-		RecordFunnel(ctx, tx, "checkout_completed", out.AccountID)
+	if e.Provider == "stripe" && e.Type == "checkout.session.completed" && e.Supported {
+		identity := out.AccountID
+		if identity == "" {
+			// Unbound payments still require an alert; namespace the provider ID.
+			identity = "unbound-checkout:" + e.Provider + ":" + e.SubscriptionID
+		}
+		RecordFunnel(ctx, tx, "checkout_completed", identity)
 	}
 	if err = tx.Commit(); err != nil {
 		return nil, err

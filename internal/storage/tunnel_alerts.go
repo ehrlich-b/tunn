@@ -45,6 +45,7 @@ func (s *LocalStorage) TunnelAlert(ctx context.Context, r *pb.TunnelAlertRequest
 		if err != nil || active.ID != owner {
 			return nil, fmt.Errorf("publisher is not registered")
 		}
+		store.RecordFunnel(ctx, s.db, "tunnel", owner)
 	}
 	session, err := alerts.Session(ctx, r.Tunnel)
 	if err != nil {

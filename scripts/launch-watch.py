@@ -91,6 +91,7 @@ def main():
     parser.add_argument('file', nargs='?', help='saved Fly log output (default: stdin)')
     parser.add_argument('--funnel', help='JSON output of tunn admin funnel --json')
     args = parser.parse_args()
+    funnel_alert = False
     if args.funnel:
         with open(args.funnel, encoding='utf-8') as stream:
             report = json.load(stream)
@@ -103,7 +104,9 @@ def main():
             rate = f'{100 * totals[stage] / prev:.1f}%' if prev else 'n/a'
             print(f'{stage}: {totals[stage]} (conversion: {rate})')
         print(f"Checkout completed without Pro (last 24h): {report['checkout_without_pro']}")
-        return 2 if report['checkout_without_pro'] else 0
+        funnel_alert = bool(report['checkout_without_pro'])
+        if not args.file:
+            return 2 if funnel_alert else 0
     if args.file:
         with open(args.file, encoding='utf-8', errors='replace') as stream:
             counts, types = summarize(stream, datetime.now(timezone.utc))
@@ -124,7 +127,7 @@ def main():
     print(f'Tunnel registrations (including reconnects): {counts["registrations"]} [internal/host/grpc_server.go:840]')
     print('Pro activations and activation errors, signups, first tunnel registrations, MCP consents: unavailable (not logged as such).')
     print(f'Malformed lines (all input, irrespective of time): {counts["malformed"]}')
-    return 2 if any(counts[label] for label, _ in list(MESSAGES.values())[:8]) else 0
+    return 2 if funnel_alert or any(counts[label] for label, _ in list(MESSAGES.values())[:8]) else 0
 
 
 if __name__ == '__main__':

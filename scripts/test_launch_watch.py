@@ -67,6 +67,19 @@ class WatchTest(unittest.TestCase):
             fixture.flush()
             self.assertEqual(subprocess.run(cmd, capture_output=True).returncode, 0)
 
+    def test_funnel_with_webhook_error(self):
+        report = {'days': [], 'checkout_without_pro': 0}
+        stamp = datetime.now(timezone.utc).isoformat()
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8') as funnel, \
+             tempfile.NamedTemporaryFile(mode='w', encoding='utf-8') as logs:
+            json.dump(report, funnel)
+            funnel.flush()
+            logs.write(f'time={stamp} level=ERROR msg="invalid Stripe signature"\n')
+            logs.flush()
+            result = subprocess.run([sys.executable, str(HERE / 'launch-watch.py'), '--funnel', funnel.name, logs.name], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 2)
+            self.assertIn('invalid signature: 1', result.stdout)
+
     def test_cli_file_and_stdin(self):
         fixture = HERE / 'testdata/launch-watch.txt'
         cmd = [sys.executable, str(HERE / 'launch-watch.py')]

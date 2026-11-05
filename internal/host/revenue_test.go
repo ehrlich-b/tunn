@@ -30,7 +30,7 @@ func revenueRequest(t *testing.T, p *ProxyServer, path string, auth bool) *httpt
 	t.Helper()
 	r := httptest.NewRequest("GET", "https://tunn.to"+path, nil)
 	if auth {
-		r.AddCookie(&http.Cookie{Name: "tunn_auth", Value: relayJWT(t, p, "owner+demo@example.com")})
+		r.AddCookie(&http.Cookie{Name: authCookieName, Value: relayJWT(t, p, "owner+demo@example.com")})
 	}
 	w := httptest.NewRecorder()
 	p.createHandler().ServeHTTP(w, r)
@@ -153,7 +153,7 @@ func TestRevenueRoutesProtectPlatformHostAndTunnelOwnership(t *testing.T) {
 	p, _, _ := revenueFixture(t)
 	for _, path := range []string{"/upgrade", "/api/billing/status"} {
 		r := httptest.NewRequest("GET", "https://foreign.example"+path, nil)
-		r.AddCookie(&http.Cookie{Name: "tunn_auth", Value: relayJWT(t, p, "owner+demo@example.com")})
+		r.AddCookie(&http.Cookie{Name: authCookieName, Value: relayJWT(t, p, "owner+demo@example.com")})
 		w := httptest.NewRecorder()
 		p.createHandler().ServeHTTP(w, r)
 		if w.Code != 403 && w.Code != 404 {

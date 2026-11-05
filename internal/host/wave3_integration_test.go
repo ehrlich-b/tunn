@@ -137,7 +137,7 @@ func TestIntegrationMCPOAuthStripsCredentialsBeforePublisherInspection(t *testin
 	r.Header.Set("Tunn-Authorization", "Bearer "+token)
 	r.Header.Add("Authorization", "Bearer "+token)
 	r.Header.Add("Authorization", "Bearer "+applicationToken)
-	r.AddCookie(&http.Cookie{Name: "tunn_auth", Value: createTestJWT("owner@example.com", f.p.config.JWTSecret)})
+	r.AddCookie(&http.Cookie{Name: authCookieName, Value: createTestJWT("owner@example.com", f.p.config.JWTSecret)})
 	w := httptest.NewRecorder()
 	f.p.createHandler().ServeHTTP(w, r)
 	if w.Code != 200 || f.forwarded != 1 {

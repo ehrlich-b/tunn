@@ -79,7 +79,7 @@ func TestRevokedBrowserSessionMatchesSignedOut(t *testing.T) {
 							if stale.Code != none.Code || stale.Body.String() != none.Body.String() || stale.Header().Get("Location") != none.Header().Get("Location") || stale.Header().Get("Content-Type") != none.Header().Get("Content-Type") {
 								t.Fatalf("stale (%d %s %q) != signed out (%d %s %q)", stale.Code, stale.Header().Get("Location"), stale.Body, none.Code, none.Header().Get("Location"), none.Body)
 							}
-							requireSessionCleared(t, stale, authCookieName, "tunn.test")
+							requireSessionCleared(t, stale, authCookieName, "")
 						})
 					}
 				}
@@ -123,7 +123,7 @@ func TestBrowserSessionLookupFailuresRemainUnavailable(t *testing.T) {
 				w := httptest.NewRecorder()
 				handler.ServeHTTP(w, r)
 				if failure.name == "missing-account" {
-					requireSessionCleared(t, w, authCookieName, "tunn.test")
+					requireSessionCleared(t, w, authCookieName, "")
 					if w.Code != 302 && w.Code != 401 {
 						t.Fatalf("missing account: %d %s", w.Code, w.Body)
 					}
@@ -196,7 +196,7 @@ func TestRevokedAppSessionRestartsSignIn(t *testing.T) {
 	if stale.Code != signedOut.Code || stale.Body.String() != signedOut.Body.String() || stale.Header().Get("Location") != signedOut.Header().Get("Location") {
 		t.Fatalf("stale platform SSO differs from signed out: %d %s", stale.Code, stale.Body)
 	}
-	requireSessionCleared(t, stale, authCookieName, "tunn.test")
+	requireSessionCleared(t, stale, authCookieName, "")
 	fresh := appSessionCookie(t, p, appOwnerEmail, "github", true, "")
 	if w := call(login, fresh); w.Code != 302 || !strings.Contains(w.Header().Get("Location"), appCallback) {
 		t.Fatalf("fresh SSO: %d %s", w.Code, w.Body)

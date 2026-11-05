@@ -27,7 +27,7 @@ const (
 	githubEmailsURL    = "https://api.github.com/user/emails"
 
 	// JWT auth cookie name - survives server restarts
-	authCookieName = "tunn_auth"
+	authCookieName = "__Host-tunn_auth"
 	// JWT auth cookie lifetime (7 days)
 	authCookieLifetime = 7 * 24 * time.Hour
 )
@@ -41,7 +41,7 @@ func (p *ProxyServer) sessionTime() time.Time {
 
 // setAuthCookie creates and sets a signed JWT auth cookie
 func (p *ProxyServer) setAuthCookie(w http.ResponseWriter, r *http.Request, email string) error {
-	domain, err := p.platformSessionDomain(r)
+	_, err := p.platformSessionDomain(r)
 	if err != nil {
 		return err
 	}
@@ -67,7 +67,6 @@ func (p *ProxyServer) setAuthCookie(w http.ResponseWriter, r *http.Request, emai
 		Name:     authCookieName,
 		Value:    tokenString,
 		Path:     "/",
-		Domain:   domain,
 		MaxAge:   int(authCookieLifetime.Seconds()),
 		HttpOnly: true,
 		Secure:   true,
@@ -84,7 +83,7 @@ func (p *ProxyServer) getAuthFromCookie(r *http.Request) (string, bool) {
 		if !ok {
 			return "", false
 		}
-		email, err := accountIdentityEmail(claims)
+		email, err := browserIdentityEmail(claims)
 		return email, err == nil
 	}
 	if !p.visitorJWTConfigured() {
@@ -114,6 +113,9 @@ func (p *ProxyServer) getAuthFromCookie(r *http.Request) (string, bool) {
 	if !claims.VerifyExpiresAt(now, false) || !claims.VerifyIssuedAt(now, false) || !claims.VerifyNotBefore(now, false) {
 		return "", false
 	}
+	if aud, scoped := claims["aud"].(string); scoped && aud != "" && (p.isPlatformHost(r.Host) || aud != requestHostname(r.Host)) {
+		return "", false
+	}
 	if claims["type"] == "org_session" {
 		if token.Method.Alg() != "HS256" {
 			return "", false
@@ -125,7 +127,13 @@ func (p *ProxyServer) getAuthFromCookie(r *http.Request) (string, bool) {
 		return "", false
 	}
 
-	email, err := accountIdentityEmail(claims)
+	if aud, _ := claims["aud"].(string); aud != "" {
+		account, err := p.sessionAccount(r, claims)
+		if err != nil || account == nil || account.OperationalState != "active" {
+			return "", false
+		}
+	}
+	email, err := browserIdentityEmail(claims)
 	if err != nil {
 		return "", false
 	}
@@ -135,7 +143,7 @@ func (p *ProxyServer) getAuthFromCookie(r *http.Request) (string, bool) {
 
 // clearAuthCookie removes the JWT auth cookie
 func (p *ProxyServer) clearAuthCookie(w http.ResponseWriter, r *http.Request) {
-	domain, err := p.platformSessionDomain(r)
+	_, err := p.platformSessionDomain(r)
 	if err != nil {
 		return
 	}
@@ -143,7 +151,6 @@ func (p *ProxyServer) clearAuthCookie(w http.ResponseWriter, r *http.Request) {
 		Name:     authCookieName,
 		Value:    "",
 		Path:     "/",
-		Domain:   domain,
 		MaxAge:   -1,
 		HttpOnly: true,
 		Secure:   true,

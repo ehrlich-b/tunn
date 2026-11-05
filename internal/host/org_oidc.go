@@ -462,7 +462,7 @@ type orgSession struct {
 }
 
 func (p *ProxyServer) setOrgAuthCookie(w http.ResponseWriter, r *http.Request, org config.OIDCOrg, subject, email string, groups []string, upstreamExpiry time.Time) error {
-	domain, err := p.platformSessionDomain(r)
+	_, err := p.platformSessionDomain(r)
 	if err != nil {
 		return err
 	}
@@ -479,7 +479,7 @@ func (p *ProxyServer) setOrgAuthCookie(w http.ResponseWriter, r *http.Request, o
 	if err != nil || len(value) > 3800 {
 		return fmt.Errorf("organization session unavailable")
 	}
-	http.SetCookie(w, &http.Cookie{Name: authCookieName, Value: value, Path: "/", Domain: domain, Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: int(expires.Sub(now).Seconds())})
+	http.SetCookie(w, &http.Cookie{Name: authCookieName, Value: value, Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: int(expires.Sub(now).Seconds())})
 	return nil
 }
 
@@ -529,6 +529,9 @@ func (p *ProxyServer) getOrgSession(r *http.Request) (*orgSession, bool) {
 	}
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok {
+		return nil, false
+	}
+	if aud, scoped := claims["aud"].(string); scoped && aud != "" && (p.isPlatformHost(r.Host) || aud != requestHostname(r.Host)) {
 		return nil, false
 	}
 	return p.orgSessionClaims(claims)

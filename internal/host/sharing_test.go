@@ -59,7 +59,7 @@ func webOpen(t *testing.T, p *ProxyServer, email string) *httptest.ResponseRecor
 func TestWebSharingPrivateDefaultLiveAdmissionAndAudit(t *testing.T) {
 	p, tunnel, ledger, _ := webSharingFixture(t)
 	owner := relayJWT(t, p, "owner@example.com")
-	if w := webOpen(t, p, ""); w.Code != 302 || !strings.Contains(w.Header().Get("Location"), "/auth/login") {
+	if w := webOpen(t, p, ""); w.Code != 302 || !strings.Contains(w.Header().Get("Location"), "/auth/domain?request=") {
 		t.Fatal(w)
 	}
 	if w := webOpen(t, p, "owner@example.com"); w.Code != 200 {

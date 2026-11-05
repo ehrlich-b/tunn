@@ -72,7 +72,7 @@ func TestReviewOAuthStateRedirectAndCookieScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := w.Result().Cookies()[0]
-	if !c.HttpOnly || !c.Secure || c.Domain != "tunn.test" || c.SameSite != http.SameSiteLaxMode {
+	if !c.HttpOnly || !c.Secure || c.Domain != "" || c.SameSite != http.SameSiteLaxMode {
 		t.Fatal(c)
 	}
 	if got := stripPlatformCookies("tunn_auth=secret; __Host-tunn_oauth=state; app=ok"); got != "app=ok" {

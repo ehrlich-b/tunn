@@ -62,7 +62,7 @@ func TestAccountOperationsAllIngressAdmissions(t *testing.T) {
 					tunnel.AllowedEmails = nil
 					switch route {
 					case "cookie-http":
-						r.AddCookie(&http.Cookie{Name: "tunn_auth", Value: relayJWT(t, p, acc.PrimaryEmail)})
+						r.AddCookie(&http.Cookie{Name: authCookieName, Value: relayJWT(t, p, acc.PrimaryEmail)})
 					case "jwt-http":
 						r.Header.Set("Tunn-Authorization", "Bearer "+relayJWT(t, p, acc.PrimaryEmail))
 					case "endpoint-token-http":

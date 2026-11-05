@@ -37,6 +37,13 @@ func identityEmail(claims jwt.MapClaims) (string, error) {
 // accountIdentityEmail validates the signed account binding. Emails cannot be
 // removed, so existing sessions need no live mailbox lookup on relay requests.
 func accountIdentityEmail(claims jwt.MapClaims) (string, error) {
+	if aud, _ := claims["aud"].(string); aud != "" {
+		return "", fmt.Errorf("browser session is scoped to a tunnel")
+	}
+	return browserIdentityEmail(claims)
+}
+
+func browserIdentityEmail(claims jwt.MapClaims) (string, error) {
 	email, err := identityEmail(claims)
 	if err != nil {
 		return "", err

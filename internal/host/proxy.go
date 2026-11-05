@@ -973,8 +973,12 @@ func (p *ProxyServer) createHandler() http.Handler {
 			appAuthenticationError(w, 401)
 			return
 		}
-		// Publishers own every path on their tunnel origin. Serving platform
-		// forms there would let their scripts read session-bound CSRF tokens.
+		// Publisher origins never serve platform forms: their scripts could read
+		// session-bound CSRF tokens. Only the nonce-bound SSO callback is reserved.
+		if p.builtinTunnelHost(r.Host) && r.URL.Path == appCallback {
+			p.handleTunnelCallback(w, r)
+			return
+		}
 		if p.customerHost(r.Host) && r.URL.Path == appCallback {
 			p.handleDomainCallback(w, r)
 			return

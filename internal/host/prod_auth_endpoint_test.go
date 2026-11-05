@@ -45,8 +45,13 @@ func TestProdAuthPublisherOriginsOwnEveryRoute(t *testing.T) {
 					if want == 200 && route.method != http.MethodHead && w.Body.String() != `{"jsonrpc":"2.0","id":1,"result":{}}` {
 						t.Fatalf("publisher path received a platform response: %s", w.Body)
 					}
-					if strings.Contains(w.Body.String(), "csrf_token") || len(w.Result().Cookies()) > 0 {
+					if strings.Contains(w.Body.String(), "csrf_token") {
 						t.Fatal("publisher origin exposed platform session state")
+					}
+					for _, cookie := range w.Result().Cookies() {
+						if principal != "anonymous" || cookie.Name != appNonceCookie || cookie.Domain != "" || !cookie.HttpOnly || !cookie.Secure || cookie.Path != "/" {
+							t.Fatal("publisher origin received a cookie other than its host-only SSO nonce", cookie)
+						}
 					}
 				})
 			}

@@ -175,7 +175,7 @@ func TestReviewOrgSetupAndBrowserNamespace(t *testing.T) {
 		t.Fatal("request modified organization configuration")
 	}
 	w := f.finish(httptest.NewRequest("GET", "https://api.tunn.test/auth/org/company", nil))
-	if w.Code != 302 || !strings.HasPrefix(w.Header().Get("Location"), "https://tunn.test/auth/login?") {
+	if w.Code != 302 || !strings.HasPrefix(w.Header().Get("Location"), "https://tunn.test/auth/domain?request=") {
 		t.Fatal("application route bypassed normal platform sign-in", w.Code, w.Header().Get("Location"))
 	}
 	for _, cookie := range w.Result().Cookies() {

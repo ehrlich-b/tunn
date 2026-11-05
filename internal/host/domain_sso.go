@@ -24,6 +24,9 @@ const appSessionIdle = 24 * time.Hour
 const appSessionRenewAfter = 10 * time.Minute
 
 func (p *ProxyServer) signedSession(w http.ResponseWriter, claims jwt.MapClaims, name, domain string, lifetime time.Duration) error {
+	if name == authCookieName {
+		domain = "" // __Host cookies cannot carry a Domain attribute.
+	}
 	// Provider logins snapshot the live epoch. App callbacks must preserve the
 	// handoff epoch, so a concurrent logout cannot mint a fresh app session.
 	if _, carried := claims["session_epoch"]; !carried && validAccountClaims(claims) {
@@ -139,6 +142,9 @@ func (p *ProxyServer) accountSession(r *http.Request) (jwt.MapClaims, bool) {
 	}
 	claims, ok := p.parseDomainToken(cookie.Value, "session")
 	if !ok || !validAccountClaims(claims) {
+		return nil, false
+	}
+	if name == authCookieName && claims["aud"] != nil && claims["aud"] != "" {
 		return nil, false
 	}
 	if name == appCookie && (claims["aud"] != requestHostname(r.Host) || appAuthIAT(claims) <= 0 || p.currentTime().Unix() >= appAuthIAT(claims)+int64(authCookieLifetime/time.Second)) {
@@ -257,6 +263,9 @@ func (p *ProxyServer) startDomainSSO(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "https://"+p.loginAuthority()+"/auth/domain?request="+url.QueryEscape(raw), 302)
 }
 func (p *ProxyServer) handleDomainLogin(w http.ResponseWriter, r *http.Request) {
+	if p.handleTunnelLogin(w, r) {
+		return
+	}
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	claims, ok := p.parseDomainToken(r.URL.Query().Get("request"), "domain_login_request")

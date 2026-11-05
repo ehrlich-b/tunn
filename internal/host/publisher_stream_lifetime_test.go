@@ -387,7 +387,7 @@ func TestPublisherStreamPreflightDenialsKeepAuthAndAudit(t *testing.T) {
 			w := httptest.NewRecorder()
 			a.proxyToNode(w, r, f.relay.Listener.Addr().String(), f.tunnel.TunnelID)
 			if bearer == "" {
-				if w.Code != 302 || !strings.HasPrefix(w.Header().Get("Location"), "https://tunn.test/auth/login?") {
+				if w.Code != 302 || !strings.HasPrefix(w.Header().Get("Location"), "https://tunn.test/auth/domain?request=") {
 					t.Fatal("browser sign-in response", w.Code)
 				}
 			} else {

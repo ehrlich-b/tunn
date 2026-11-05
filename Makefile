@@ -786,3 +786,7 @@ test-install-to-offer:
 .PHONY: test-pay-journey
 test-pay-journey:
 	nice -n 10 python3 scripts/integration-tests/pay-journey.py
+# Real loopback relay/browser attacks and a test-only vulnerable-cookie control.
+.PHONY: test-cross-tenant
+test-cross-tenant:
+	PLAYWRIGHT_BROWSERS_PATH=/work/cache/ms-playwright TUNN_CROSS_TENANT_PYTHON=$${TUNN_CROSS_TENANT_PYTHON:-python3} go test -p 2 -count=1 -v -timeout=180s -run '^TestCrossTenant' ./internal/host

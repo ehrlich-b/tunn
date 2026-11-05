@@ -428,15 +428,8 @@ func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunne
 				return nil
 			}
 
-			// Build full return URL including the tunnel subdomain
-			returnTo := fmt.Sprintf("https://%s%s", r.Host, r.URL.RequestURI())
-			loginURL := fmt.Sprintf("https://%s/auth/login?return_to=%s&tunnel=%s",
-				p.loginAuthority(), url.QueryEscape(returnTo), url.QueryEscape(tunnelID))
-
-			common.LogInfo("unauthenticated tunnel access, redirecting to login",
-				"tunnel_id", tunnelID,
-				"request_id", session.event.RequestId)
-			http.Redirect(w, r, loginURL, http.StatusFound)
+			// Exchange the platform session for a host-only, audience-bound session.
+			p.startDomainSSO(w, r)
 			return nil
 		}
 

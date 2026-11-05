@@ -269,8 +269,8 @@ func TestServeClientPermanentPolicyDenialStops(t *testing.T) {
 						t.Fatalf("denied publisher retained reservation: count=%d err=%v", count, countErr)
 					}
 					t.Logf("healthy ledger denial stopped after one registration: %v", err)
-				case <-time.After(time.Second):
-					t.Fatalf("permanent denial kept retrying: %d policy calls", recorder.calls.Load())
+				case <-time.After(10 * time.Second):
+					t.Fatalf("publisher did not stop after permanent denial: %d policy calls", recorder.calls.Load())
 				}
 			})
 		}

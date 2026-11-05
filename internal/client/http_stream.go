@@ -476,7 +476,7 @@ func (s *ServeClient) handleStreamingHTTPRequest(ctx context.Context, sender mes
 			capture.finishReason(status, responseBytes, reason)
 		}()
 	}
-	request, err := http.NewRequestWithContext(ctx, head.Method, s.targetURL(head.Path), body)
+	request, err := s.newOriginRequest(ctx, head.Method, head.Path, body)
 	if err != nil {
 		sendConnectionRejection(sender, open.ConnectionId, "failed to create local HTTP request")
 		return

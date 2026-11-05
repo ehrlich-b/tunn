@@ -448,7 +448,7 @@ func (i *Inspector) replay(ctx context.Context, id uint64, input inspectionRepla
 	capture.complete()
 	status, received, reason := 0, int64(0), "target_error"
 	finish := func() InspectionEvent { return capture.finishReason(status, received, reason) }
-	request, err := http.NewRequestWithContext(ctx, original.Method, i.target.targetURL(path), strings.NewReader(string(body)))
+	request, err := i.target.newOriginRequest(ctx, original.Method, path, strings.NewReader(string(body)))
 	if err != nil {
 		return finish(), errors.New("failed to construct replay request")
 	}

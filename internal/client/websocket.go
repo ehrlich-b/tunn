@@ -110,7 +110,7 @@ func (s *ServeClient) handleWebSocket(ctx context.Context, sender messageSender,
 		sendConnectionRejection(sender, id, err.Error())
 		return
 	}
-	request, err := http.NewRequestWithContext(ctx, head.Method, s.targetURL(head.Path), nil)
+	request, err := s.newOriginRequest(ctx, head.Method, head.Path, nil)
 	if err != nil {
 		sendConnectionRejection(sender, id, "invalid local WebSocket target")
 		return

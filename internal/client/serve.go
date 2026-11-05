@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"runtime"
 	"runtime/debug"
 	"strings"
@@ -757,10 +758,8 @@ func (s *ServeClient) handleHTTPRequestContext(ctx context.Context, sender messa
 
 	// Build the target URL. Protocol adapters can expose one stable public path
 	// while forwarding to a differently named local endpoint.
-	targetURL := s.targetURL(httpReq.Path)
-
 	// Create HTTP request
-	req, err := http.NewRequestWithContext(ctx, httpReq.Method, targetURL, bytes.NewReader(httpReq.Body))
+	req, err := s.newOriginRequest(ctx, httpReq.Method, httpReq.Path, bytes.NewReader(httpReq.Body))
 	if err != nil {
 		s.log(slog.LevelError, "failed to create http request", "connection_id", httpReq.ConnectionId)
 		s.sendErrorResponse(sender, httpReq.ConnectionId, http.StatusBadGateway, "Failed to create request")
@@ -884,6 +883,19 @@ func (s *ServeClient) handleHTTPRequestContext(ctx context.Context, sender messa
 		"body_size", len(body))
 }
 
+// newOriginRequest validates escapes without decoding the request target, so
+// malformed query escapes cannot bypass net/http's path validation.
+func (s *ServeClient) newOriginRequest(ctx context.Context, method, requestURI string, body io.Reader) (*http.Request, error) {
+	if _, err := url.QueryUnescape(requestURI); err != nil {
+		return nil, err
+	}
+	target := s.targetURL(requestURI)
+	if _, err := url.QueryUnescape(target); err != nil {
+		return nil, err
+	}
+	return http.NewRequestWithContext(ctx, method, target, body)
+}
+
 func (s *ServeClient) targetURL(requestPath string) string {
 	if s.PublicPath != "" && s.UpstreamPath != "" {
 		requestPath = rewritePublicPath(requestPath, s.PublicPath, s.UpstreamPath, s.UpstreamRawQuery)
@@ -908,7 +920,7 @@ func rewritePublicPath(requestURI, publicPath, upstreamPath, upstreamRawQuery st
 	if found && rawQuery != "" {
 		queries = append(queries, rawQuery)
 	}
-	if len(queries) > 0 {
+	if len(queries) > 0 || found {
 		return path + "?" + strings.Join(queries, "&")
 	}
 	return path

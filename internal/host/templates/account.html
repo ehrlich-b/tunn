@@ -68,8 +68,11 @@
 .empty b{display:block;color:var(--ink);font-weight:600;margin-bottom:6px}
 .empty code{color:var(--ink)}
 .start-tunnel{padding:0 0 18px;margin-bottom:18px;border-bottom:1px solid var(--plate-lo)}
-.start-tunnel h3{margin:14px 0 8px}
-.start-tunnel p{margin:10px 0 0}
+.start-tunnel h3{margin:0 0 12px;font:600 16px/1.3 var(--sans)}
+.start-tunnel label{display:block;margin:12px 0 6px}
+.start-tunnel .cmd{gap:8px}
+.start-tunnel .cmd .kbd{white-space:normal;overflow-wrap:anywhere;font-size:13px}
+.who .plan-badge{flex-shrink:0}
 .tools{display:grid;gap:12px}
 .acct .card{padding:18px 20px}
 .acct .card p{font:400 14px/1.55 var(--sans);color:var(--ink2);margin-bottom:10px}
@@ -85,7 +88,7 @@
 <a class="skip-link" href="#main">Skip to content</a><header class="site-header"><div class="container"><a class="logo" href="/" aria-label="tunn home"><span class="logo-mark" aria-hidden="true"></span>tunn</a><nav class="site-nav" aria-label="Account navigation"><a href="/account/inspect">Requests</a><a href="/account/sharing">Sharing</a><a href="/account" aria-current="page">Account</a><a href="/auth/logout">Sign out</a></nav><details class="menu"><summary aria-label="Menu"><i aria-hidden="true"></i>Menu</summary><nav aria-label="Account navigation"><a href="/account/inspect">Requests</a><a href="/account/sharing">Sharing</a><a href="/account" aria-current="page">Account</a><a href="/docs">Docs</a><a href="/auth/logout">Sign out</a></nav></details></div></header>
 <main id="main" class="wrap acct">
   <div class="acct-top"><div><span class="lbl">Signed in</span><h1 style="margin-top:10px">Account</h1></div>
-    <div class="panel who"><span class="led on"></span><span class="mail">{{.Email}}</span><span class="plan-badge {{if eq .Plan "pro"}}plan-pro{{else}}plan-free{{end}}">{{.Plan}}</span></div></div>
+    <div class="panel who"><span class="led on"></span><span class="mail">{{.Email}}</span><span class="plan-badge {{if eq .Plan "pro"}}plan-pro{{else}}plan-free{{end}}">Plan · {{.Plan}}</span></div></div>
   <p><a href="/account/tunnel-alerts">Tunnel email alerts</a></p>
   <div class="acct-grid{{if .BytesExhausted}} exhausted{{end}}">
   {{if .BytesExhausted}}<section class="panel monthly-limit" id="monthly-limit" aria-labelledby="monthly-limit-title">
@@ -106,19 +109,20 @@
     </summary><p class="live-tunnel-details">Client {{if .ClientVersion}}{{.ClientVersion}}{{else}}unknown{{end}} · {{if .ClientHost}}{{.ClientHost}}{{else}}Host unknown{{end}} · {{if .LastRequest}}Last request {{.LastRequestRelative}}{{else}}No recorded requests{{end}}</p></details></li>{{end}}
     </ul>
     <button class="live-tunnels-more" id="live-tunnels-more" type="button" aria-expanded="false" aria-controls="live-tunnel-list"{{if not .LiveTunnelsMore}} hidden{{end}}>+{{.LiveTunnelsMore}} more</button>
-    <p class="empty" id="live-tunnels-empty"{{if or .LiveTunnels (not .LiveTunnelsComplete)}} hidden{{end}}>{{if .BytesExhausted}}No tunnels online.{{else}}Start one with <code>tunn 3000</code> and keep the client running.{{end}}</p>
+    <p class="empty" id="live-tunnels-empty"{{if or .LiveTunnels (not .LiveTunnelsComplete)}} hidden{{end}}>No tunnels online.</p>
     <noscript><style>.live-tunnel[hidden]{display:block!important}#live-tunnels-more{display:none!important}</style><p class="fine">Reload to refresh connections.</p></noscript>
   </section>
   <section class="panel meters" aria-labelledby="usage-title"><i class="screw tl"></i><i class="screw tr"></i><i class="screw bl"></i><i class="screw br"></i>
     <div class="meters-top"><h2 class="card-title" id="usage-title">This month</h2><span class="lbl">Resets {{.ResetsOn}} · UTC</span></div>
     {{if and .UsageAvailable .LiveTunnelsComplete (not .LiveTunnels) (not .Tunnels) (eq .UsageBytes 0) (eq .RequestsUsed 0)}}
     <div class="empty start-tunnel" id="start-tunnel">
-      <b>No traffic yet this month.</b>
       <h3>Start a private tunnel</h3>
-      <p style="margin:0 0 10px">Have your local app running on port 3000. Only you can access this tunnel by default.</p>
-      <div class="glass cmd"><code class="kbd" tabindex="0">tunn 3000</code><button class="btn sm copy" data-copy="tunn 3000" aria-describedby="start-tunnel-copy">Copy</button></div>
-      <div class="copy-status" id="start-tunnel-copy" role="status"></div>
-      <p><a href="/docs#s1">Install and sign in</a> if you haven't already. Keep your app and tunn running, then open the printed HTTPS URL to generate traffic.</p>
+      <label class="lbl" id="account-install-label">1. Install · macOS / Linux</label>
+      <div class="glass cmd"><code class="kbd" tabindex="0" aria-labelledby="account-install-label">{{.FirstTunnelCommands.Install}}</code><button type="button" class="btn sm copy" data-copy="{{.FirstTunnelCommands.Install}}" aria-label="Copy install command" aria-describedby="account-install-copy">Copy</button></div>
+      <div class="copy-status" id="account-install-copy" role="status"></div>
+      <label class="lbl" id="account-run-label">2. Run · Port 3000</label>
+      <div class="glass cmd"><code class="kbd" tabindex="0" aria-labelledby="account-run-label">{{.FirstTunnelCommands.Run}}</code><button type="button" class="btn sm copy" data-copy="{{.FirstTunnelCommands.Run}}" aria-label="Copy run command" aria-describedby="account-run-copy">Copy</button></div>
+      <div class="copy-status" id="account-run-copy" role="status"></div>
     </div>
     {{end}}
     <div class="gauges">

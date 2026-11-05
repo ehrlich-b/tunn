@@ -42,11 +42,15 @@ func TestAccountMonthlyLimit(t *testing.T) {
 					if !strings.Contains(body, "Requests: unlimited (fair use)") {
 						t.Fatal("unlimited requests missing")
 					}
-					if usage >= 100 && strings.Contains(body, "Start one with") {
+					if usage >= 100 && strings.Contains(body, `id="start-tunnel"`) {
 						t.Fatal("encourages starting tunnel while exhausted")
 					}
-					if usage < 100 && !strings.Contains(body, "Start one with") {
-						t.Fatal("missing empty tunnel guidance")
+					empty := `id="live-tunnels-empty"`
+					if count > 0 {
+						empty += ` hidden`
+					}
+					if !strings.Contains(body, empty+`>No tunnels online.</p>`) {
+						t.Fatal("incorrect empty tunnel summary")
 					}
 					if dir := os.Getenv("TUNN_MONTHLY_RENDER_DIR"); dir != "" {
 						if err := os.MkdirAll(dir, 0700); err != nil {
@@ -85,7 +89,7 @@ func TestAccountMonthlyLimitPlanAndBilling(t *testing.T) {
 		f := newWebInspectorFixture(t, 0, 0)
 		f.p.meter = nil
 		body := f.call("GET", "/account", nil, f.cookie, nil).Body.String()
-		if strings.Contains(body, `id="monthly-limit"`) || !strings.Contains(body, "Start one with") {
+		if strings.Contains(body, `id="monthly-limit"`) || !strings.Contains(body, "No tunnels online.") {
 			t.Fatal("unavailable usage must not imply exhaustion")
 		}
 	})

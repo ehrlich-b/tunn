@@ -82,7 +82,7 @@ func TestAccountOnboarding(t *testing.T) {
 			if got := strings.Contains(body, "Start a private tunnel"); got != tc.want {
 				t.Fatalf("onboarding visible = %v, want %v", got, tc.want)
 			}
-			for _, meter := range []string{"This month", ">Transfer<", ">Requests<", "Tunnels at once", "usage-bar"} {
+			for _, meter := range []string{"This month", ">Transfer<", ">Requests: unlimited (fair use)<", "Tunnels at once", "usage-bar"} {
 				if !strings.Contains(body, meter) {
 					t.Errorf("missing usage content %q", meter)
 				}

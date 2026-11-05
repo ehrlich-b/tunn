@@ -44,10 +44,10 @@
  <h2 id="install-title">Start with one port.</h2>
  <p class="fine">macOS · Linux</p>
  <label class="lbl" id="install-label">1. Install</label>
- <div class="glass cmd"><code class="kbd" tabindex="0" aria-labelledby="install-label">curl -fsSL https://tunn.to/install.sh | sh</code><button class="btn sm copy" data-copy="curl -fsSL https://tunn.to/install.sh | sh" aria-describedby="install-copy">Copy</button></div>
+ <div class="glass cmd"><code class="kbd" tabindex="0" aria-labelledby="install-label">{{.FirstTunnelCommands.Install}}</code><button class="btn sm copy" data-copy="{{.FirstTunnelCommands.Install}}" aria-describedby="install-copy">Copy</button></div>
  <div class="copy-status" id="install-copy" role="status"></div>
  <label class="lbl" id="share-label">2. Share your app on port 3000</label>
- <div class="glass cmd"><code class="kbd" tabindex="0" aria-labelledby="share-label">tunn 3000</code><button class="btn sm copy" data-copy="tunn 3000" aria-describedby="share-copy">Copy</button></div>
+ <div class="glass cmd"><code class="kbd" tabindex="0" aria-labelledby="share-label">{{.FirstTunnelCommands.Run}}</code><button class="btn sm copy" data-copy="{{.FirstTunnelCommands.Run}}" aria-describedby="share-copy">Copy</button></div>
  <div class="copy-status" id="share-copy" role="status"></div>
  <p>Have your HTTP app running on port 3000. Sign in when prompted. Open the printed HTTPS link in a browser and sign in with the same email.</p>
  <p class="fine">Keep your app and tunn running. Visitors install nothing.</p>

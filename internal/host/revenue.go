@@ -14,6 +14,7 @@ import (
 )
 
 type revenuePageData struct {
+	FirstTunnelCommands               firstTunnelCommands
 	MonthlyUSD, YearlyUSD             int
 	FreeTunnels, ProTunnels           int
 	FreeRequests, ProRequests         int64
@@ -53,7 +54,7 @@ func (p *ProxyServer) revenueData() revenuePageData {
 		freeBytes = min(freeBytes, p.config.OwnerMonthlyBytes)
 		proBytes = min(proBytes, p.config.OwnerMonthlyBytes)
 	}
-	data := revenuePageData{MonthlyUSD: monthly, YearlyUSD: yearly, FreeTunnels: storage.FreeTunnelLimit, ProTunnels: storage.ProTunnelLimit, FreeRequests: freeRequests, ProRequests: proRequests, FreeBytes: formatBytes(freeBytes), ProBytes: formatBytes(proBytes), FreeReservations: store.FreeReservedSubdomains, Reservations: store.MaxReservedSubdomains, MonthlyAvailable: p.config.BillingEnabled && p.config.StripeWebhookSecret != "" && monthOK, YearlyAvailable: p.config.BillingEnabled && p.config.StripeWebhookSecret != "" && yearOK}
+	data := revenuePageData{FirstTunnelCommands: defaultFirstTunnelCommands, MonthlyUSD: monthly, YearlyUSD: yearly, FreeTunnels: storage.FreeTunnelLimit, ProTunnels: storage.ProTunnelLimit, FreeRequests: freeRequests, ProRequests: proRequests, FreeBytes: formatBytes(freeBytes), ProBytes: formatBytes(proBytes), FreeReservations: store.FreeReservedSubdomains, Reservations: store.MaxReservedSubdomains, MonthlyAvailable: p.config.BillingEnabled && p.config.StripeWebhookSecret != "" && monthOK, YearlyAvailable: p.config.BillingEnabled && p.config.StripeWebhookSecret != "" && yearOK}
 	data.FreeRequestsShort, data.ProRequestsShort = "unlimited (fair use)", "unlimited (fair use)"
 	data.FreeBytesShort, data.ProBytesShort = strings.Replace(data.FreeBytes, ".0 ", " ", 1), strings.Replace(data.ProBytes, ".0 ", " ", 1)
 	return data

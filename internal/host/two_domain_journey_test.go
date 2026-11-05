@@ -212,6 +212,77 @@ func twoDomainTLS(t *testing.T, dir, name string, pool *x509.CertPool) {
 	}
 }
 
+func twoDomainWaitReady(ctx context.Context, client *http.Client, endpoint string) error {
+	ticker := time.NewTicker(20 * time.Millisecond)
+	defer ticker.Stop()
+	var last error
+	for {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+		if err != nil {
+			return err
+		}
+		resp, err := client.Do(req)
+		if err == nil {
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				return nil
+			}
+			last = fmt.Errorf("HTTP %d", resp.StatusCode)
+		} else {
+			last = err
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("daemon readiness: %w (last probe: %v)", ctx.Err(), last)
+		case <-ticker.C:
+		}
+	}
+}
+
+func TestTwoDomainReadinessWait(t *testing.T) {
+	t.Run("startup failures then ready", func(t *testing.T) {
+		attempts, closed := 0, 0
+		client := &http.Client{Transport: securityRoundTripper(func(r *http.Request) (*http.Response, error) {
+			attempts++
+			if attempts == 1 {
+				return nil, errors.New("listener not started")
+			}
+			code := http.StatusServiceUnavailable
+			if attempts == 3 {
+				code = http.StatusOK
+			}
+			return &http.Response{StatusCode: code, Header: make(http.Header), Body: twoDomainReadinessBody{Reader: strings.NewReader(""), closed: &closed}}, nil
+		})}
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		if err := twoDomainWaitReady(ctx, client, "https://tunn.test/readyz"); err != nil {
+			t.Fatal(err)
+		}
+		if attempts != 3 || closed != 2 {
+			t.Fatalf("attempts=%d closed=%d", attempts, closed)
+		}
+	})
+	t.Run("deadline cancels an in-flight probe", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		client := &http.Client{Transport: securityRoundTripper(func(r *http.Request) (*http.Response, error) {
+			cancel()
+			<-r.Context().Done()
+			return nil, r.Context().Err()
+		})}
+		if err := twoDomainWaitReady(ctx, client, "https://tunn.test/readyz"); !errors.Is(err, context.Canceled) || !strings.Contains(err.Error(), "last probe:") {
+			t.Fatalf("readiness cancellation diagnostic: %v", err)
+		}
+	})
+}
+
+type twoDomainReadinessBody struct {
+	io.Reader
+	closed *int
+}
+
+func (b twoDomainReadinessBody) Close() error { *b.closed++; return nil }
+
 func TestTwoDomainLoginJourney(t *testing.T) {
 	dir := t.TempDir()
 	pool := x509.NewCertPool()
@@ -273,30 +344,25 @@ func TestTwoDomainLoginJourney(t *testing.T) {
 	}}
 	defer transport.CloseIdleConnections()
 	management := &http.Client{Transport: transport, Timeout: 3 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	deadline := time.Now().Add(10 * time.Second)
-	lastProbe := "not attempted"
-	for {
+	// Bound startup and in-flight probes, while detecting a premature daemon exit.
+	readyCtx, readyCancel := context.WithTimeout(ctx, 30*time.Second)
+	go func() {
 		select {
 		case <-processDone:
-			data, _ := os.ReadFile(logFile.Name())
-			t.Fatalf("daemon exited before readiness: %v; last probe: %s\n%s", processErr, lastProbe, data)
+			readyCancel()
+		case <-readyCtx.Done():
+		}
+	}()
+	err = twoDomainWaitReady(readyCtx, management, "https://tunn.test/readyz")
+	readyCancel()
+	if err != nil {
+		data, _ := os.ReadFile(logFile.Name())
+		select {
+		case <-processDone:
+			t.Fatalf("daemon exited before readiness: %v; %v\n%s", processErr, err, data)
 		default:
+			t.Fatalf("%v\ndaemon log:\n%s", err, data)
 		}
-		resp, err := management.Get("https://tunn.test/readyz")
-		if err == nil {
-			resp.Body.Close()
-			lastProbe = resp.Status
-			if resp.StatusCode == 200 {
-				break
-			}
-		} else {
-			lastProbe = err.Error()
-		}
-		if time.Now().After(deadline) {
-			data, _ := os.ReadFile(logFile.Name())
-			t.Fatalf("daemon readiness timed out; last probe: %s\n%s", lastProbe, data)
-		}
-		time.Sleep(20 * time.Millisecond)
 	}
 	ownerToken := createTestJWT(twoDomainOwner, cfg.JWTSecret)
 	api := func(method, path, body string, want int) []byte {
@@ -566,7 +632,7 @@ func TestTwoDomainLoginJourney(t *testing.T) {
 	if _, err := io.WriteString(input, "revoke\n"); err != nil {
 		t.Fatal(err)
 	}
-	deadline = time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(5 * time.Second)
 	for {
 		if _, err := os.Stat(filepath.Join(dir, "revoked")); err == nil {
 			break

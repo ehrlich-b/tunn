@@ -756,3 +756,9 @@ test-account-tunnels-browser:
 .PHONY: demo-mcp
 demo-mcp:
 	python3 scripts/demo/mcp-first-call.py
+
+# Loopback-only relay comparison; keep binaries and results outside the checkout.
+BENCH_ARGS ?= --work-dir $(CURDIR)/../relay-bench-work --output $(CURDIR)/../evidence
+.PHONY: bench-relay
+bench-relay:
+	nice -n 10 python3 scripts/bench/relay-bench.py $(BENCH_ARGS)

@@ -65,7 +65,7 @@ func (p *ProxyServer) handleMCPRefresh(w http.ResponseWriter, r *http.Request) {
 	form := r.PostForm
 	client, err := p.mcpOAuth.client(r.Context(), form.Get("client_id"))
 	if err != nil {
-		oauthProblem(w, 400, "invalid_client", "Unknown client")
+		oauthProblem(w, http.StatusUnauthorized, "invalid_client", "Unknown client")
 		return
 	}
 	if !slices.Contains(client.GrantTypes, "refresh_token") || form.Has("scope") && form.Get("scope") != "mcp" {
@@ -118,7 +118,7 @@ func (p *ProxyServer) issueMCPCredentials(w http.ResponseWriter, r *http.Request
 	}
 	client, err := p.mcpOAuth.client(ctx, auth.ClientID)
 	if err != nil {
-		oauthProblem(w, 400, "invalid_client", "Unknown client")
+		oauthProblem(w, http.StatusUnauthorized, "invalid_client", "Unknown client")
 		return
 	}
 	refreshEnabled := slices.Contains(client.GrantTypes, "refresh_token")

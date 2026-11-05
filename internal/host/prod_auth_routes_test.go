@@ -130,7 +130,7 @@ var prodAuthRoutes = []prodAuthRoute{
 	{"POST", "/oauth/register", "/oauth/", `{"redirect_uris":["https://connector.example/cb"]}`, [11]int{201, 201, 201, 201, 201, 201, 201, 201, 201, 201, 201}},
 	{"GET", "/oauth/authorize", "/oauth/", "", [11]int{302, 302, 302, 302, 200, 302, 302, 302, 302, 302, 302}},
 	{"POST", "/oauth/authorize", "/oauth/", "consent", [11]int{401, 401, 401, 401, 302, 403, 401, 401, 401, 401, 401}},
-	{"POST", "/oauth/token", "/oauth/", "grant_type=authorization_code", [11]int{400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400}},
+	{"POST", "/oauth/token", "/oauth/", "grant_type=authorization_code", [11]int{401, 400, 400, 400, 401, 401, 400, 400, 400, 400, 400}},
 	{"GET", "/oauth/unknown", "/oauth/", "", [11]int{404, 404, 404, 404, 404, 404, 404, 404, 404, 404, 404}},
 	{"GET", "/api/hosts", "/api/hosts", "", [11]int{401, 200, 200, 200, 401, 401, 401, 401, 401, 401, 401}},
 	{"POST", "/api/hosts", "/api/hosts", `{"machine":"workstation","tunnels":[{"name":"tools","kind":"mcp"}]}`, [11]int{401, 200, 409, 200, 401, 401, 401, 401, 401, 401, 401}},

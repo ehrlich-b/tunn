@@ -408,8 +408,12 @@ func TestMCPOAuthTokenBindingsAndPKCE(t *testing.T) {
 			form.Set(field, strings.Repeat("b", 43))
 		}
 		w := f.request("POST", c.token, form.Encode(), "application/x-www-form-urlencoded", "", nil)
-		if w.Code != 400 {
-			t.Fatalf("accepted wrong %s: %d %s", field, w.Code, w.Body)
+		want := 400
+		if field == "client_id" {
+			want = 401
+		}
+		if w.Code != want {
+			t.Fatalf("wrong %s: %d %s", field, w.Code, w.Body)
 		}
 	}
 	form := c.tokenForm(code)
@@ -675,6 +679,22 @@ func TestMCPOAuthRegistrationRateLimitRejectsSpoofedForwarding(t *testing.T) {
 		}
 		if w.Code != want {
 			t.Fatalf("registration %d status = %d: %s", i+1, w.Code, w.Body)
+		}
+	}
+}
+
+// A deleted registration must signal clients to register again on either grant.
+func TestMCPOAuthDeletedClientReturnsUnauthorized(t *testing.T) {
+	f := newMCPOAuthFixture(t)
+	c := discoverMCPClient(t, f)
+	code := c.code(t)
+	if _, err := f.p.mcpOAuth.db.Exec(`DELETE FROM mcp_oauth_clients WHERE id=?`, c.clientID); err != nil {
+		t.Fatal(err)
+	}
+	for _, form := range []url.Values{c.tokenForm(code), {"grant_type": {"refresh_token"}, "client_id": {c.clientID}, "refresh_token": {"stale"}, "resource": {c.resource}}} {
+		w := f.request("POST", c.token, form.Encode(), "application/x-www-form-urlencoded", "", nil)
+		if w.Code != http.StatusUnauthorized || !strings.Contains(w.Body.String(), `"invalid_client"`) {
+			t.Fatalf("deleted client: %d %s", w.Code, w.Body)
 		}
 	}
 }

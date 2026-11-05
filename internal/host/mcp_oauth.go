@@ -478,7 +478,7 @@ func (p *ProxyServer) handleMCPToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := p.mcpOAuth.client(r.Context(), form.Get("client_id")); err != nil {
-		oauthProblem(w, 400, "invalid_client", "Unknown client")
+		oauthProblem(w, http.StatusUnauthorized, "invalid_client", "Unknown client")
 		return
 	}
 	verifier := form.Get("code_verifier")

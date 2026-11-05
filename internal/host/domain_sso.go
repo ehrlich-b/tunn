@@ -532,7 +532,7 @@ func (p *ProxyServer) appAssertion(host, accountID, email, provider string) (str
 	if err != nil {
 		return "", err
 	}
-	return ring.Sign("https://"+p.loginAuthority(), host, accountID, email, provider, time.Now())
+	return ring.Sign("https://"+p.loginAuthority(), host, accountID, email, provider, p.currentTime())
 }
 func (p *ProxyServer) handleIdentityJWKS(w http.ResponseWriter, r *http.Request) {
 	if !p.isPlatformHost(r.Host) {

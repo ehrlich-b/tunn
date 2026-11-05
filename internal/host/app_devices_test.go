@@ -15,7 +15,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -45,7 +44,13 @@ type appDeviceFixture struct {
 
 func newAppDeviceFixture(t *testing.T) *appDeviceFixture {
 	t.Helper()
+	return newAppDeviceFixtureWithClock(t, nil)
+}
+
+func newAppDeviceFixtureWithClock(t *testing.T, clock func() time.Time) *appDeviceFixture {
+	t.Helper()
 	p, registry, dns := domainProxyFixture(t)
+	p.now = clock
 	p.config.PublicAddr = "tunn.test"
 	p.config.GitHubClientID = "fixture-id"
 	tunnel, _ := p.tunnelServer.GetTunnel("api")
@@ -65,16 +70,12 @@ func newAppDeviceFixture(t *testing.T) *appDeviceFixture {
 	p.tunnelServer.tunnels[tunnel.TunnelID] = tunnel
 	// Cancellation may retire a SQLite connection. A file-backed fixture
 	// preserves account authority across reconnects, as the relay does.
-	db, err := store.OpenLocal(filepath.Join(t.TempDir(), "app-authority.sqlite"))
+	db, err := store.InitForTest()
 	if err != nil {
 		t.Fatal(err)
 	}
 	db.SetMaxOpenConns(1)
 	t.Cleanup(func() { db.Close() })
-	// Retain the existing synthetic-billing guard in this disposable DB.
-	if _, err = db.Exec(`CREATE TABLE ops_fixture(id INTEGER PRIMARY KEY,value TEXT); INSERT INTO ops_fixture VALUES(1,'disposable-local')`); err != nil {
-		t.Fatal(err)
-	}
 	if _, err = db.Exec(`INSERT INTO accounts(id,primary_email,plan,created_at) VALUES(?,?,'pro',1);`, tunnel.AccountID, appDeviceTestEmail); err != nil {
 		t.Fatal(err)
 	}
@@ -219,8 +220,47 @@ func appDeviceOpen(p *ProxyServer, host, token string, cookie *http.Cookie) *htt
 	return w
 }
 
-func TestAppDeviceEnrollmentAndCredentialMatrix(t *testing.T) {
+// A future-issued browser session must remain invalid if the wall clock moves
+// backwards; fixtures which exercise other behavior use one stable clock.
+func TestAppDeviceEnrollmentRejectsFutureIssuedSession(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	f := newAppDeviceFixtureWithClock(t, func() time.Time { return now })
+	now = now.Add(-time.Second)
+	if w := f.form(t, "/api/app-devices/invitations", nil, nil); w.Code != http.StatusUnauthorized {
+		t.Fatalf("future-issued session status=%d, want 401", w.Code)
+	}
+	now = now.Add(time.Second)
+	if w := f.form(t, "/api/app-devices/invitations", nil, nil); w.Code != http.StatusCreated {
+		t.Fatalf("current session status=%d, want 201", w.Code)
+	}
+}
+
+// The disposable authority must survive connection replacement without putting
+// durable disk syncs on the enrollment handler's bounded request path.
+func TestAppDeviceEnrollmentAuthorityReconnect(t *testing.T) {
 	f := newAppDeviceFixture(t)
+	f.db.SetMaxIdleConns(0)
+	var synchronous int
+	if err := f.db.QueryRow("PRAGMA synchronous").Scan(&synchronous); err != nil || synchronous != 0 {
+		t.Fatalf("fixture synchronous=%d, err=%v", synchronous, err)
+	}
+	invitation := f.invite(t, nil)
+	verifier, err := randomOAuthValue("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim := f.claim(t, invitation, verifier)
+	if w := f.approve(t, claim, nil); w.Code != http.StatusOK {
+		t.Fatalf("approval after reconnect=%d", w.Code)
+	}
+	if w := f.redeem(t, claim, verifier, true); w.Code != http.StatusCreated {
+		t.Fatalf("redeem after reconnect=%d", w.Code)
+	}
+}
+
+func TestAppDeviceEnrollmentAndCredentialMatrix(t *testing.T) {
+	now := time.Now()
+	f := newAppDeviceFixtureWithClock(t, func() time.Time { return now })
 	d, secret := f.enroll(t, nil)
 	if d.Account != f.tunnel.AccountID || d.Host != appDeviceTestHost || d.Resource != f.tunnel.ResourceID || d.Expires-d.Created != appDeviceLifetime.Milliseconds() {
 		t.Fatal("credential scope/lifetime mismatch")
@@ -348,7 +388,8 @@ func TestAppDeviceEnrollmentAndCredentialMatrix(t *testing.T) {
 }
 
 func TestAppDeviceInvitationAttacksAndBothConfirmations(t *testing.T) {
-	f := newAppDeviceFixture(t)
+	now := time.Now()
+	f := newAppDeviceFixtureWithClock(t, func() time.Time { return now })
 	i := f.invite(t, nil)
 	verifier, _ := randomOAuthValue("")
 	claim := f.claim(t, i, verifier)
@@ -363,7 +404,7 @@ func TestAppDeviceInvitationAttacksAndBothConfirmations(t *testing.T) {
 		t.Fatal("other account approved invitation")
 	}
 	if w = f.form(t, "/api/app-devices/claims/"+claim.Claim+"/approve", url.Values{"phrase": {"wrong"}, "confirmed": {"true"}}, nil); w.Code != 403 {
-		t.Fatal("wrong phrase approved")
+		t.Fatalf("wrong phrase status=%d, want 403", w.Code)
 	}
 	if w = f.form(t, "/api/app-devices/claims/"+claim.Claim+"/approve", url.Values{"phrase": {claim.Phrase}}, nil); w.Code != 403 {
 		t.Fatal("missing browser confirmation approved")
@@ -424,7 +465,7 @@ func TestAppDeviceInvitationAttacksAndBothConfirmations(t *testing.T) {
 	w = httptest.NewRecorder()
 	f.p.createHandler().ServeHTTP(w, r)
 	if w.Code != 403 {
-		t.Fatal("CSRF-less invitation accepted")
+		t.Fatalf("CSRF-less invitation status=%d, want 403", w.Code)
 	}
 }
 

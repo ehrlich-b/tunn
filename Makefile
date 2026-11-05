@@ -766,3 +766,7 @@ bench-relay:
 .PHONY: test-mcp-clients
 test-mcp-clients:
 	python3 scripts/integration-tests/mcp-real-clients/run.py
+
+.PHONY: demo-install-to-tool
+demo-install-to-tool:
+	python3 scripts/demo/install-to-tool.py

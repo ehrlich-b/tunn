@@ -127,6 +127,48 @@ class VerifierTests(unittest.TestCase):
         receipt = json.loads(self.cli(v.OK).stdout)
         self.assertIsNone(receipt['tables']['accounts']['newest_timestamps']['created_at'])
 
+    def test_newest_text_timestamp_uses_utc_order(self):
+        cases = (
+            # Text MAX picks the later wall clock, which is the older instant.
+            (('2026-11-05T12:00:00+02:00', '2026-11-05T11:30:00Z'),
+             '2026-11-05T11:30:00+00:00'),
+            # Offsets can move the newest instant onto a different UTC date.
+            (('2026-11-05T23:30:00-02:00', '2026-11-06T00:30:00Z'),
+             '2026-11-06T01:30:00+00:00'),
+            # Space separators, naive UTC and fractional seconds also normalize.
+            (('2026-11-05 12:00:00.500000', '2026-11-05T12:00:00Z',
+              '2026-11-05T12:00:00.050000+00:00'),
+             '2026-11-05T12:00:00.500000+00:00'),
+            # Invalid values must not hide a valid timestamp or leak contents.
+            (('private@example.invalid', '2026-11-05T12:00:00Z',
+              '9999-12-31T23:59:59-23:00'), '2026-11-05T12:00:00+00:00'),
+            (('private@example.invalid', 'not-a-time'), None),
+            ((), None),
+        )
+        for values, expected in cases:
+            with self.subTest(values=values):
+                with sqlite3.connect(self.db) as con:
+                    con.execute('DELETE FROM ops_checkout_intents')
+                    con.executemany('INSERT INTO ops_checkout_intents VALUES(?,?,?)',
+                                    [(str(i), 'secret-account-id', value)
+                                     for i, value in enumerate(values)])
+                before = self.db.read_bytes()
+                receipt = json.loads(self.cli(v.OK).stdout)
+                self.assertEqual(receipt['tables']['ops_checkout_intents'], {
+                    'row_count': len(values), 'newest_timestamps': {'created_at': expected}})
+                self.assertEqual(self.db.read_bytes(), before)
+        print('checked newest TEXT timestamp: UTC offsets, date rollover, fractions, invalid and empty values')
+
+    def test_newest_timestamp_with_mixed_sqlite_storage(self):
+        # SQLite normally sorts TEXT after INTEGER regardless of the instant.
+        with sqlite3.connect(self.db) as con:
+            con.execute("INSERT INTO accounts(id,primary_email,created_at) VALUES(?,?,?)",
+                        ('another-secret-id', 'private@example.invalid', '2026-11-04T23:00:00Z'))
+        receipt = json.loads(self.cli(v.OK).stdout)
+        self.assertEqual(receipt['tables']['accounts'], {
+            'row_count': 2, 'newest_timestamps': {'created_at': '2026-11-05T00:00:00+00:00'}})
+        print('newest mixed INTEGER/TEXT timestamp uses chronological UTC order')
+
     def test_relay_failure_is_distinct(self):
         r = v.rehearsal()
         before = self.db.read_bytes()

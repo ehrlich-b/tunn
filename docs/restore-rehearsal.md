@@ -15,7 +15,9 @@ Extra/missing tables, altered definitions/indexes, views and triggers fail close
 optional SSH, host-mode, custom-domain or organization schemas need a reviewed
 reference for that configuration. This tool does not migrate an old backup to
 make it pass. The receipt contains table row counts and validated newest scalar
-timestamps, normalized to UTC (null for absent/invalid values). It does not print
+timestamps, normalized to UTC before choosing the newest instant, including
+values with different UTC offsets or mixed integer/text storage. Invalid values
+are ignored; a column with no valid timestamps reports null. It does not print
 row contents, identities, tokens, source paths or SQLite error details. Times
 embedded in JSON/BLOB payloads are not extracted.
 

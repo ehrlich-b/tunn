@@ -83,13 +83,16 @@ def verify(path, start_relay=False):
             if schema_of(con) != expected['tables'] or con.execute(
                     "SELECT 1 FROM sqlite_schema WHERE type IN ('view','trigger') LIMIT 1").fetchone():
                 raise Rejected(SCHEMA_MISMATCH, 'database schema differs from the current standalone relay schema')
+            con.create_function('utc_timestamp', 1, timestamp)
             tables = {}
             for table, columns in expected['timestamps'].items():
                 newest = {}
                 for column in columns:
-                    # Report only validated timestamps, normalized to UTC.
-                    value = con.execute('SELECT MAX(' + quote(column) + ') FROM ' + quote(table)).fetchone()[0]
-                    newest[column] = timestamp(value)
+                    # Normalize each value before MAX: local times and mixed
+                    # SQLite storage classes do not sort by instant. UTC ISO
+                    # strings sort chronologically; invalid values become NULL.
+                    newest[column] = con.execute(
+                        'SELECT MAX(utc_timestamp(' + quote(column) + ')) FROM ' + quote(table)).fetchone()[0]
                 tables[table] = {'row_count': con.execute('SELECT COUNT(*) FROM ' + quote(table)).fetchone()[0],
                                  'newest_timestamps': newest}
             receipt = {'tables': tables}

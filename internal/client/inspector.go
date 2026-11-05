@@ -231,6 +231,12 @@ func (c *inspectionCapture) checkHeaderFields(fields []*pb.HttpHeader) {
 			}
 		}
 		if len(values) > 1 {
+			// Credential-bearing multi-value fields remain non-reconstructable.
+			// Their semantics cannot safely be inferred from redacted values.
+			switch name {
+			case "Authorization", "Proxy-Authorization", "Cookie", "Set-Cookie":
+				c.event.MetadataTruncated = true
+			}
 			c.repeated[name] = values
 		}
 	}

@@ -191,7 +191,7 @@ class Journey:
                         "-days", "1", "-subj", "/CN=localhost", "-addext", "subjectAltName=IP:127.0.0.1"],
                        check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.tls = ssl.create_default_context(cafile=str(self.work / "cert.pem"))
-        self.origin = ThreadingHTTPServer(("127.0.0.1", 3000), Origin)
+        self.origin = ThreadingHTTPServer(("127.0.0.1", 0), Origin)
         threading.Thread(target=self.origin.serve_forever, daemon=True).start()
         self.start("relay", "-mode=host")
         # Account tables appear before later startup migrations finish. Wait for
@@ -209,7 +209,7 @@ class Journey:
                            (account, OWNER, "github", now))
                 return True
         self.wait(seed, "relay account schema")
-        self.start("publisher", "3000", "--public", "--inspect", "--inspect-body",
+        self.start("publisher", str(self.origin.server_port), "--public", "--inspect", "--inspect-body",
                    "--id=webhooks", "--secret=" + jwt(), "--json")
         self.wait(lambda: self.request("/ready") == 204, "public publisher route")
         match = re.search(r"Local inspector: (http://127\.0\.0\.1:\d+/#\w+)",

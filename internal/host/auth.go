@@ -472,6 +472,12 @@ document.getElementById('email-form').addEventListener('submit', async (e) => {
 		_, _ = fmt.Fprint(w, `<p>No login methods configured. Contact your administrator.</p>`)
 	}
 
+	if tunnelID != "" {
+		// Fixed local destination: never carry the private return URL or identity.
+		// Use docs until the client-previews route is available.
+		_, _ = fmt.Fprint(w, `<p class="recipient-discovery" style="margin-top:24px;font-size:14px">Building something too? <a href="/docs" rel="noreferrer" referrerpolicy="no-referrer">Share your own local app.</a></p>`)
+	}
+
 	_, _ = fmt.Fprint(w, `</section></div>`)
 	writePageEnd(w)
 }

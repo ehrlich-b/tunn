@@ -282,6 +282,8 @@ func TestR3SharingUpgradeRepairsObsoleteResourceOwner(t *testing.T) {
 
 func TestR3SharingMutationRateFollowsMergedOwner(t *testing.T) {
 	db, s := r3SharingStore(t)
+	clock := time.Now()
+	s.now = func() time.Time { return clock }
 	accounts := store.NewAccountStore(db)
 	s.maxSharingMutations = 4
 	owners := make([]string, 2)

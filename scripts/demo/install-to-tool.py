@@ -35,6 +35,8 @@ def measure(kind, work, downloads, control):
                    TUNN_SERVER_ADDR=f'{fixture.DOMAIN}:{run.port}', SSL_CERT_FILE=str(fixture.ROOT / 'certs/cert.pem'),
                    CURL_CA_BUNDLE=str(fixture.ROOT / 'certs/cert.pem'), NO_PROXY='*',
                    PLAYWRIGHT_BROWSERS_PATH='/work/cache/ms-playwright')
+    if os.environ.get('TUNN_PLAYWRIGHT_MODULE'):
+        run.env['TUNN_PLAYWRIGHT_MODULE'] = os.environ['TUNN_PLAYWRIGHT_MODULE']
     opener = work / 'xdg-open'
     opener.write_text('#!/bin/sh\nexit 0\n')
     opener.chmod(0o755)

@@ -659,7 +659,7 @@ func TestRuntimeLoginRequiredReportGuidance(t *testing.T) {
 		}
 		if machine {
 			e := decodeFailure(t, errout.String())
-			if e.Command != "TUNN_CONFIG_DIR='/tmp/synthetic login' tunn login" {
+			if e.Command != "TUNN_CONFIG_DIR='/tmp/synthetic login' tunn login" || e.NextAction != e.Command || !strings.Contains(e.Detail, "tunn report") {
 				t.Fatal(e)
 			}
 		} else if !strings.Contains(errout.String(), "tunn report") {

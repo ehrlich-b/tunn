@@ -200,7 +200,7 @@ func showHTTPRuntimeLoginRequired(o *terminal.Output, err error) bool {
 		state = "auth_missing"
 	}
 	if o.JSON {
-		o.State(state, "Sign in required", cause, loginCommand(), 0)
+		o.State(state, "Sign in required", cause+". Run tunn report to report a bug.", loginCommand(), 0)
 	} else {
 		o.Diagnostic(client.LoginRequiredMessage() + " Run tunn report to report a bug.")
 	}

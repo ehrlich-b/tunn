@@ -87,14 +87,16 @@ def measure(kind, work, downloads, control):
         run.wait('Connector URL', lambda: 'Connector URL:' in run.logs['publisher'].read_text(), publisher, timeout=30)
         publish = time.monotonic() - mark
         endpoint = re.search(r'Connector URL: (https://\S+)', run.logs['publisher'].read_text()).group(1)
-        checker = start_cli('checker', ['connector-check', '--oauth', '--expect-tools', 'echo', '--call-tool', 'missing' if control == 'tool' else 'echo', '--arguments', '{"message":"hello"}', endpoint])
+        checker = start_cli('checker', ['connector-check', '--oauth', '--expect-tools', 'echo', '--call-tool', 'echo', '--arguments', '{"message":123}' if control == 'tool' else '{"message":"hello"}', endpoint])
         run.wait('consent URL', lambda: bool(re.search(r'https://\S+/oauth/authorize\?\S+', run.logs['checker'].read_text())), checker, timeout=30)
         url = re.search(r'https://\S+/oauth/authorize\?\S+', run.logs['checker'].read_text()).group()
         mark = time.monotonic()
         command(['node', str(ROOT / 'scripts/demo/browser.cjs'), 'consent', url, str(work / 'state.json')], env=run.env)
         consent = time.monotonic() - mark
-        if checker.wait(timeout=30): raise RuntimeError('tool call failed')
+        status = checker.wait(timeout=30)
         output = run.logs['checker'].read_text()
+        if status:
+            raise RuntimeError('tool call failed: ' + output.strip())
         if 'PASS: harmless allowed tool call' not in output: raise RuntimeError('tool call not confirmed')
         return dict(install_seconds=install, login_seconds=login_seconds, publish_seconds=publish,
                     oauth_consent_seconds=consent, first_tool_call_seconds=time.monotonic() - start)

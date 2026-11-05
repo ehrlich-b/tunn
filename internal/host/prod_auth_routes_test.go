@@ -121,6 +121,8 @@ var prodAuthRoutes = []prodAuthRoute{
 	{"POST", "/account/devices", "/account/devices", "csrf", [11]int{302, 302, 302, 302, 404, 404, 302, 302, 302, 302, 302}},
 	{"GET", "/pricing", "/pricing", "", [11]int{200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200}},
 	{"GET", "/ngrok-alternative", "/ngrok-alternative", "", [11]int{200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200}},
+	{"GET", "/cloudflare-quick-tunnel-alternative", "/cloudflare-quick-tunnel-alternative", "", [11]int{200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200}},
+	{"GET", "/tailscale-funnel-alternative", "/tailscale-funnel-alternative", "", [11]int{200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200}},
 	{"GET", "/docs", "/docs", "", [11]int{200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200}},
 	{"GET", "/docs/mcp-to-claude", "/docs/", "", [11]int{200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200}},
 	{"GET", "/docs/status", "/docs/", "", [11]int{200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200}},

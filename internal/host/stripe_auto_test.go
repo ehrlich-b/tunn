@@ -170,12 +170,22 @@ func TestStripeFirstCustomerCheckoutToConsumer(t *testing.T) {
 				if err != nil || checkout.Code != 303 || u.Path != "/"+period+"_fixture" {
 					t.Fatal(checkout.Code, u, err)
 				}
-				now := time.Now().Unix() // The durable intent has already been committed.
-				start, end = now-10, now+duration
 				reference := u.Query().Get("client_reference_id")
 				if reference == "" || reference == owner.ID {
 					t.Fatal("missing opaque intent")
 				}
+				// The completion follows the committed intent, even if the host
+				// wall clock changes between checkout and this fixture event.
+				var created string
+				if err := db.QueryRow(`SELECT created_at FROM ops_checkout_intents WHERE reference=?`, reference).Scan(&created); err != nil {
+					t.Fatal(err)
+				}
+				issued, err := time.Parse(time.RFC3339Nano, created)
+				if err != nil {
+					t.Fatal(err)
+				}
+				now := issued.Unix()
+				start, end = now-10, now+duration
 				send := func(id, typ string, completion bool) store.BillingResult {
 					t.Helper()
 					object := `{"id":"sub_first","customer":"cus_first","status":"active","metadata":{"account_id":"` + other.ID + `"}}`

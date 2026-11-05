@@ -492,3 +492,23 @@ func TestExtractTunnelID(t *testing.T) {
 		})
 	}
 }
+
+func TestAuthCookieUsesSessionClock(t *testing.T) {
+	p := securityProxy(nil)
+	now := time.Now().Truncate(time.Second)
+	p.sessionNow = func() time.Time { return now }
+	cookie := securityCookie(t, p, "owner@example.com")
+	r := httptest.NewRequest(http.MethodGet, "https://tunn.test/", nil)
+	r.AddCookie(cookie)
+	if _, ok := p.getAuthFromCookie(r); !ok {
+		t.Fatal("current session rejected")
+	}
+	now = now.Add(-time.Second)
+	if _, ok := p.getAuthFromCookie(r); ok {
+		t.Fatal("future-issued session accepted")
+	}
+	now = now.Add(time.Second + authCookieLifetime)
+	if _, ok := p.getAuthFromCookie(r); ok {
+		t.Fatal("expired session accepted")
+	}
+}

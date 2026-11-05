@@ -113,7 +113,8 @@ type ProxyServer struct {
 		SendMagicLink(string, string) error
 		Send(string, string, string) error
 	}
-	now func() time.Time
+	now        func() time.Time
+	sessionNow func() time.Time
 
 	// Graceful degradation (non-login nodes)
 	usageBuffer *UsageBuffer

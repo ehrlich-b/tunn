@@ -28,6 +28,7 @@ import (
 	"github.com/ehrlich-b/tunn/internal/store"
 	mp "github.com/ehrlich-b/tunn/pkg/proto/meteringv1"
 	tp "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
+	"github.com/golang-jwt/jwt/v4"
 )
 
 // This helper is a separate login/resource server process with a disk database,
@@ -43,6 +44,13 @@ func TestMCPExchangeProcessHelper(t *testing.T) {
 	f := newMCPOAuthFixtureWithDB(t, db)
 	f.tunnel.AllowedEmails = strings.Split(os.Getenv("TUNN_MCP_EXCHANGE_ALLOW"), ",")
 	prepareMCPAuthorityFixture(t, f)
+	// The subprocess owns JWT's validation clock. Preserve elapsed monotonic
+	// time so a wall-clock adjustment cannot invalidate its fixture session.
+	started := time.Now()
+	sessionClock := func() time.Time { return started.Add(time.Since(started)) }
+	f.p.sessionNow = sessionClock
+	jwt.TimeFunc = sessionClock
+	t.Cleanup(func() { jwt.TimeFunc = time.Now })
 	var seconds atomic.Int64
 	initial, _ := strconv.ParseInt(os.Getenv("TUNN_MCP_EXCHANGE_TIME"), 10, 64)
 	seconds.Store(initial)
@@ -107,7 +115,19 @@ func TestMCPExchangeProcessHelper(t *testing.T) {
 			defer authority.Unlock()
 			switch r.URL.Path {
 			case "/fixture/login":
-				http.SetCookie(w, securityCookie(t, f.p, r.URL.Query().Get("email")))
+				email := r.URL.Query().Get("email")
+				cookie := securityCookie(t, f.p, email)
+				now := sessionClock()
+				if r.URL.Query().Get("future") == "1" {
+					now = now.Add(time.Minute)
+				}
+				claims := jwt.MapClaims{"email": email, "type": "session", "iat": now.Unix(), "exp": now.Add(authCookieLifetime).Unix()}
+				value, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(f.p.getJWTSigningKey())
+				if err != nil {
+					t.Fatal(err)
+				}
+				cookie.Value = value
+				http.SetCookie(w, cookie)
 			case "/fixture/advance":
 				n, _ := strconv.ParseInt(r.URL.Query().Get("seconds"), 10, 64)
 				seconds.Add(n)
@@ -553,6 +573,22 @@ func TestMCPExchangeGrantRevocationAcrossRefresh(t *testing.T) {
 			}
 			t.Log("owner-visible grant survived restart; DELETE and repeated DELETE denied current stdio access and refresh without credentials")
 		})
+	}
+}
+
+func TestMCPExchangeFixtureRejectsFutureSession(t *testing.T) {
+	p := startExchangeProcess(t, filepath.Join(t.TempDir(), "oauth.db"), time.Now().Unix())
+	_, headers, _ := p.request("POST", "tunn.test", "/fixture/login?email=owner%40example.com&future=1", "", "", nil)
+	response := http.Response{Header: headers}
+	cookies := response.Cookies()
+	if len(cookies) != 1 {
+		t.Fatal("missing fixture cookie")
+	}
+	if status, _, _ := p.request("GET", "tunn.test", "/account/mcp", "", "", cookies[0]); status != http.StatusFound {
+		t.Fatalf("future session status=%d, want %d", status, http.StatusFound)
+	}
+	if status, _, _ := p.request("GET", "tunn.test", "/account/mcp", "", "", p.cookie("owner@example.com")); status != http.StatusOK {
+		t.Fatalf("current session status=%d, want %d", status, http.StatusOK)
 	}
 }
 

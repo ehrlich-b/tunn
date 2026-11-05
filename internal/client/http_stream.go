@@ -439,7 +439,8 @@ func (s *ServeClient) handleStreamingHTTPRequest(ctx context.Context, sender mes
 	head := open.HttpRequest
 	var capture *inspectionCapture
 	if s.Inspector != nil {
-		capture = s.Inspector.beginFields(open.ConnectionId, "http", head.Method, head.Path, head.Headers, head.HeaderFields)
+		capture = s.Inspector.beginConnection(open.ConnectionId, "http", head.Method, head.Path, inspectionHeaders(head.Headers, head.HeaderFields))
+		capture.checkHeaderFields(head.HeaderFields)
 		capture.expectLength(head.ContentLength)
 		body = &inspectionReader{reader: body, capture: capture}
 	}

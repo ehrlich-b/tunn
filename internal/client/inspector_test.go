@@ -159,7 +159,7 @@ func TestInspectorStartsOnLoopbackWithSessionSecret(t *testing.T) {
 	}
 }
 
-func TestInspectorRefusesReplayOfRepeatedHeaders(t *testing.T) {
+func TestInspectorReplaysRepeatedHeaders(t *testing.T) {
 	local := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.Header.Values("X-Delivery"); len(got) != 2 || got[0] != "one" || got[1] != "two" {
 			t.Errorf("origin headers = %q", got)
@@ -178,11 +178,23 @@ func TestInspectorRefusesReplayOfRepeatedHeaders(t *testing.T) {
 			client.handleHttpRequest(&mockEstablishTunnelClient{}, &pb.HttpRequest{ConnectionId: "buffered", Method: "POST", Path: "/", Headers: legacy, HeaderFields: fields})
 		}
 		event := client.Inspector.list()[0]
-		if !event.MetadataTruncated || event.Reconstructable || event.Replayable {
+		if event.MetadataTruncated || !event.Reconstructable || event.Replayable {
 			t.Fatalf("streaming=%v: unsafe replay state: %+v", streaming, event)
 		}
-		if _, err := client.Inspector.prepare(event.ID); err == nil {
-			t.Fatalf("streaming=%v: prepared a lossy replay", streaming)
+		if _, err := client.Inspector.Replay(context.Background(), event.ID); err == nil {
+			t.Fatal("redacted repeated fields replayed without reconstruction")
+		}
+		input := InspectionReplayRequest{Headers: map[string]string{"X-Delivery": "two"}, HeaderValues: map[string][]string{"X-Delivery": {"one", "two"}}}
+		result, err := client.Inspector.ReplayWithRequest(context.Background(), event.ID, input)
+		if err != nil || result.Status != 200 || result.ReplayOf != event.ID {
+			t.Fatalf("replay: %+v %v", result, err)
+		}
+		if got := client.Inspector.repeated[result.ID]["X-Delivery"]; len(got) != 2 || got[0] != redacted || got[1] != redacted {
+			t.Fatalf("replay retained raw repeated values: %q", got)
+		}
+		input.HeaderValues["X-Delivery"] = []string{"two"}
+		if _, err := client.Inspector.ReplayWithRequest(context.Background(), event.ID, input); err == nil {
+			t.Fatal("lossy reconstruction accepted")
 		}
 	}
 }
@@ -202,6 +214,43 @@ func TestInspectorCapturesFieldOnlyHeaders(t *testing.T) {
 		event := client.Inspector.list()[0]
 		if event.Headers["Stripe-Signature"] != redacted || event.Replayable || !event.Reconstructable {
 			t.Fatalf("streaming=%v: field-only signature metadata: %+v", streaming, event)
+		}
+	}
+}
+
+func TestInspectorRepeatedHeaderSafeguards(t *testing.T) {
+	for _, values := range [][]string{{"text/plain", "application/json"}, {"tunn_ep_secret", "application/json"}} {
+		inspector := NewInspectorWithBodyCapture(&ServeClient{}, true)
+		capture := inspector.begin("POST", "/", map[string]string{"Accept": values[1]})
+		capture.checkHeaderFields([]*pb.HttpHeader{{Name: "Accept", Value: values[0]}, {Name: "accept", Value: values[1]}})
+		capture.complete()
+		event := capture.finishReason(200, 0, "complete")
+		repeated := inspector.repeated[event.ID]
+		if strings.HasPrefix(values[0], "tunn_ep_") {
+			if event.Headers["Accept"] != redacted || repeated.Get("Accept") != redacted || event.Replayable {
+				t.Fatal("earlier credential value escaped redaction")
+			}
+			continue
+		}
+		result, err := reconstructRepeated(repeated, inspectionReplayInput{})
+		if err != nil || len(result["Accept"]) != 2 || result["Accept"][0] != values[0] {
+			t.Fatalf("safe repeated values lost: %v %v", result, err)
+		}
+		result["Accept"][0] = "changed"
+		if inspector.repeated[event.ID]["Accept"][0] != values[0] {
+			t.Fatal("replay aliases stored fields")
+		}
+		for _, bad := range [][]string{{"changed", values[1]}, {"tunn_ep_secret", values[1]}, {"a\r\nb", values[1]}, {values[0]}} {
+			_, err := reconstructRepeated(repeated, inspectionReplayInput{Headers: map[string]string{"Accept": values[1]}, HeaderValues: map[string][]string{"Accept": bad}})
+			if err == nil {
+				t.Fatalf("accepted invalid values: %q", bad)
+			}
+		}
+		for j := 0; j < inspectEventLimit; j++ {
+			inspector.add(InspectionEvent{})
+		}
+		if len(inspector.repeated) != 0 {
+			t.Fatal("evicted repeated fields retained")
 		}
 	}
 }

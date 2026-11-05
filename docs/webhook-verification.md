@@ -151,9 +151,66 @@ publication on another relay, provider or account uses a separate file. Existing
 unscoped stored files are not loaded automatically; supply the source secret file
 again after upgrading.
 
-## Local inspector regression evidence
+## Verified local webhook journey
 
-- `TestInspectorCapturesFieldOnlyHeaders` checks metadata and redaction for the field-based wire representation.
-- `TestInspectorRefusesReplayOfRepeatedHeaders` verifies that both request adapters refuse a lossy replay of repeated fields.
+Run `make test-webhook-journey` twice. It builds the current CLI and starts a
+TLS relay, publisher and signature-checking origin on loopback only. The
+publisher runs `tunn 3000 --public --inspect --inspect-body` with disposable
+self-hosted authentication. Python 3, Go and OpenSSL are required; nothing is
+installed. Port 3000 must be available.
 
-A signed loopback CLI journey remains unverified. The inspector cannot yet reproduce repeated header fields in a replay. Its local body capture limit is 64 KiB; larger captures cannot be replayed. Signature headers and query values are redacted and require explicit reconstruction.
+These are provider-style signed fixtures, not deliveries from live provider
+accounts. The origin checks the raw received bytes independently of the sender:
+
+| Provider | Signature checked at origin | Freshness |
+| --- | --- | --- |
+| Stripe | `Stripe-Signature`: `t=` and `v1=`, HMAC-SHA256 of timestamp + `.` + raw body | 300 seconds |
+| GitHub | `X-Hub-Signature-256`: `sha256=` + HMAC-SHA256 of raw body | No signed timestamp |
+| Slack | `X-Slack-Signature`: `v0=` + HMAC-SHA256 of `v0:` + timestamp + `:` + raw body | 300 seconds |
+
+The published algorithms are documented by
+[Stripe](https://docs.stripe.com/webhooks/signature),
+[GitHub](https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries)
+and [Slack](https://docs.slack.dev/authentication/verifying-requests-from-slack/).
+
+Every provider passes every row of this matrix:
+
+| Raw body | Delivery | Inspector replay |
+| --- | --- | --- |
+| 1 byte | Signature verifies; handler returns 500 | After fixing handler, identical request verifies and returns 200 |
+| 1 MiB | Signature verifies; returns 200 | Truncated capture refuses preparation; no dispatch |
+| Binary, all byte values | Signature verifies; returns 200 | Identical request verifies; returns 200 |
+| Gzip bytes with Content-Encoding | Signature verifies without decompressing; returns 200 | Identical request verifies; returns 200 |
+| Non-UTF-8 bytes | Signature verifies without decoding; returns 200 | Identical request verifies; returns 200 |
+
+Every matrix request includes two `X-Delivery` fields (one contains a comma),
+a percent-encoded path and query, and repeated query keys. Replay assertions
+compare the complete origin-observed header multimap, raw request URI and body,
+and require the inspector's `replay_of` label. A correctly signed Stripe request
+with a timestamp ten minutes old reaches the origin and receives 401. A modified
+signature is also rejected by the origin.
+
+`--inspect-body` explicitly retains at most 64 KiB. Signature headers, custom
+headers and query values stay redacted and must be reconstructed deliberately.
+For repeated redacted fields the local inspector API accepts `header_values`,
+a map of header names to ordered string arrays, alongside the complete scalar
+`headers` map (each repeated field's scalar is its last value). Arrays must match
+the captured cardinality; captured representation values cannot change. The
+current browser form accepts scalar fields; use the local API or
+`ReplayWithRequest` for repeated custom fields. Each replay requires a fresh
+one-use action from `/api/events/{id}/prepare`, followed by
+`/api/events/{id}/replay` with that action and the reconstructed fields.
+Repeated values remain sanitized in subsequent captures and are evicted with
+their event. Metadata exports retain their existing redaction behavior.
+
+`TestInspectorCapturesFieldOnlyHeaders` retains coverage for both wire adapters.
+`TestInspectorReplaysRepeatedHeaders` covers both adapters, exact repeated-field
+replay, refusal of incomplete reconstruction and redaction after replay.
+`TestInspectorRepeatedHeaderSafeguards` checks ordered safe values, credential
+redaction, malformed replacements, copying and bounded eviction. Existing
+truncation tests continue to refuse incomplete captures.
+
+Set `TUNN_WEBHOOK_EVIDENCE` to an existing directory to retain a unique run's
+process logs and `receipt.json` with body hashes and per-case results. Set
+`TUNN_WEBHOOK_WORK` to choose the temporary build/fixture directory. Payloads and
+signing credentials are disposable fixtures; the receipt retains no raw body.

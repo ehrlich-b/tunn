@@ -62,6 +62,7 @@ type Inspector struct {
 	replayActive bool
 	metrics      InspectionMetrics
 	actions      map[uint64]replayAction
+	repeated     map[uint64]http.Header
 	host, token  string
 }
 
@@ -75,7 +76,7 @@ func NewInspectorWithBodyCapture(target *ServeClient, enabled bool) *Inspector {
 		LocalTLSConfig: target.localTLSConfig(), HTTPTransport: target.HTTPTransport, HTTPTimeout: target.HTTPTimeout,
 		SkipLocalTLSVerify: target.SkipLocalTLSVerify, RequireUpstreamAuth: target.RequireUpstreamAuth,
 	}
-	return &Inspector{target: &config, captureBody: enabled, actions: make(map[uint64]replayAction)}
+	return &Inspector{target: &config, captureBody: enabled, actions: make(map[uint64]replayAction), repeated: make(map[uint64]http.Header)}
 }
 
 func randomInspectorToken() (string, error) {
@@ -181,6 +182,7 @@ type inspectionCapture struct {
 	event         InspectionEvent
 	finished      bool
 	expectedBytes int64
+	repeated      http.Header
 }
 
 // Newer peers send header fields independently of the legacy map. Capture
@@ -198,23 +200,82 @@ func inspectionHeaders(legacy map[string]string, fields []*pb.HttpHeader) map[st
 	return headers
 }
 
-// The inspector's reconstruction format has only one value per header.
-// Refuse replay when the wire representation has repeated fields rather than
-// silently sending a different request to the origin.
+// Keep bounded, sanitized repeated values separately from the scalar display
+// metadata. Custom values remain redacted and must be supplied deliberately.
 func (c *inspectionCapture) checkHeaderFields(fields []*pb.HttpHeader) {
-	seen := make(map[string]bool, len(fields))
+	grouped := make(http.Header)
+	budget := len(c.event.Path)
 	for _, field := range fields {
 		if field == nil {
 			c.event.MetadataTruncated = true
 			return
 		}
 		name := http.CanonicalHeaderKey(field.Name)
-		if seen[name] {
+		value := field.Value
+		if !safeInspectionHeader(name) || inspectionCredential(value) {
+			value = redacted
+		}
+		budget += len(name) + len(value)
+		if len(fields) > 64 || len(name) > 128 || len(value) > 1024 || budget > inspectMetadataLimit {
 			c.event.MetadataTruncated = true
 			return
 		}
-		seen[name] = true
+		grouped.Add(name, strings.Clone(value))
 	}
+	c.repeated = make(http.Header)
+	for name, values := range grouped {
+		for _, value := range values {
+			if value == redacted && c.event.Headers[name] != redacted {
+				c.event.Headers[name] = redacted
+				c.event.RedactedHeaders = append(c.event.RedactedHeaders, name)
+			}
+		}
+		if len(values) > 1 {
+			c.repeated[name] = values
+		}
+	}
+}
+
+// Reconstruct each repeated field with the same credential and representation
+// checks used for scalar headers. Cardinality and order are never flattened.
+func reconstructRepeated(captured http.Header, input inspectionReplayInput) (http.Header, error) {
+	result := captured.Clone()
+	scalar := make(map[string]string, len(input.Headers))
+	for key, value := range input.Headers {
+		scalar[http.CanonicalHeaderKey(key)] = value
+	}
+	seen := make(map[string]bool)
+	for key, values := range input.HeaderValues {
+		name := http.CanonicalHeaderKey(key)
+		expected, ok := captured[name]
+		if !ok || seen[name] || len(values) != len(expected) {
+			return nil, errors.New("invalid repeated header reconstruction")
+		}
+		seen[name] = true
+		for j, value := range values {
+			if strings.Contains(value, redacted) || strings.ContainsAny(value, "\r\n") || inspectionCredential(value) || len(value) > 1024 {
+				return nil, errors.New("invalid repeated header value")
+			}
+			if expected[j] != redacted && value != expected[j] {
+				return nil, errors.New("captured repeated headers cannot change")
+			}
+		}
+		if input.Headers == nil || scalar[name] != values[len(values)-1] {
+			return nil, errors.New("repeated header must match scalar reconstruction")
+		}
+		result[name] = append([]string(nil), values...)
+	}
+	for name, values := range result {
+		for _, value := range values {
+			if value == redacted {
+				return nil, errors.New("reconstruct every redacted repeated header explicitly")
+			}
+		}
+		if input.Headers != nil && scalar[name] != values[len(values)-1] {
+			return nil, errors.New("repeated header must match scalar reconstruction")
+		}
+	}
+	return result, nil
 }
 
 func (c *inspectionCapture) Write(data []byte) (int, error) {
@@ -311,7 +372,7 @@ func (c *inspectionCapture) finishReason(status int, responseBytes int64, reason
 	c.inspector.mu.Lock()
 	c.inspector.metrics.ActiveStreams--
 	c.inspector.mu.Unlock()
-	return c.inspector.add(event)
+	return c.inspector.addWithHeaders(event, c.repeated)
 }
 
 type inspectionReader struct {
@@ -359,6 +420,9 @@ func cloneInspectionEvent(event InspectionEvent, body bool) InspectionEvent {
 	return event
 }
 func (i *Inspector) add(event InspectionEvent) InspectionEvent {
+	return i.addWithHeaders(event, nil)
+}
+func (i *Inspector) addWithHeaders(event InspectionEvent, repeated http.Header) InspectionEvent {
 	i.mu.Lock()
 
 	i.nextID++
@@ -367,11 +431,15 @@ func (i *Inspector) add(event InspectionEvent) InspectionEvent {
 	event = cloneInspectionEvent(event, true)
 	if len(i.events) == inspectEventLimit {
 		delete(i.actions, i.events[0].ID)
+		delete(i.repeated, i.events[0].ID)
 		copy(i.events, i.events[1:])
 		i.events[len(i.events)-1] = event
 		i.metrics.HistoryEvictions++
 	} else {
 		i.events = append(i.events, event)
+	}
+	if len(repeated) > 0 {
+		i.repeated[event.ID] = repeated.Clone()
 	}
 	result := cloneInspectionEvent(event, true)
 	metrics := i.metrics
@@ -437,10 +505,11 @@ func (i *Inspector) prepare(id uint64) (string, error) {
 }
 
 type inspectionReplayInput struct {
-	Action  string            `json:"action"`
-	Path    *string           `json:"path,omitempty"`
-	Headers map[string]string `json:"headers,omitempty"`
-	Body    *[]byte           `json:"body,omitempty"`
+	Action       string              `json:"action"`
+	Path         *string             `json:"path,omitempty"`
+	Headers      map[string]string   `json:"headers,omitempty"`
+	HeaderValues map[string][]string `json:"header_values,omitempty"`
+	Body         *[]byte             `json:"body,omitempty"`
 }
 
 func reconstruction(original InspectionEvent, input inspectionReplayInput) (string, map[string]string, []byte, error) {
@@ -456,6 +525,11 @@ func (i *Inspector) replay(ctx context.Context, id uint64, input inspectionRepla
 	if !found || !original.Reconstructable || input.Action == "" || action.token != input.Action || action.used || action.busy || i.replayActive {
 		i.mu.Unlock()
 		return InspectionEvent{}, errors.New("prepare a new deliberate replay action")
+	}
+	repeated, err := reconstructRepeated(i.repeated[id], input)
+	if err != nil {
+		i.mu.Unlock()
+		return InspectionEvent{}, err
 	}
 	path, headers, body, err := reconstruction(original, input)
 	if err != nil {
@@ -478,6 +552,13 @@ func (i *Inspector) replay(ctx context.Context, id uint64, input inspectionRepla
 	}()
 	capture := i.beginConnection("replay", "http", original.Method, path, headers)
 	capture.event.ReplayOf = id
+	var replayFields []*pb.HttpHeader
+	for key, values := range repeated {
+		for _, value := range values {
+			replayFields = append(replayFields, &pb.HttpHeader{Name: key, Value: value})
+		}
+	}
+	capture.checkHeaderFields(replayFields)
 	_, _ = capture.Write(body)
 	capture.complete()
 	status, received, reason := 0, int64(0), "target_error"
@@ -488,6 +569,9 @@ func (i *Inspector) replay(ctx context.Context, id uint64, input inspectionRepla
 	}
 	for key, value := range headers {
 		request.Header.Set(key, value)
+	}
+	for key, values := range repeated {
+		request.Header[key] = append([]string(nil), values...)
 	}
 	request.Host = request.Header.Get("Host")
 	request.Header.Del("Host")
@@ -642,10 +726,13 @@ func (i *Inspector) Replay(ctx context.Context, id uint64) (InspectionEvent, err
 
 // InspectionReplayRequest supplies unavailable request data deliberately. Body
 // uses JSON's base64 encoding for byte slices, matching the local inspection API.
+// HeaderValues supplies ordered values for repeated redacted fields; Headers
+// still supplies the last value for each field, including repeated fields.
 type InspectionReplayRequest struct {
-	Path    *string           `json:"path,omitempty"`
-	Headers map[string]string `json:"headers,omitempty"`
-	Body    *[]byte           `json:"body,omitempty"`
+	Path         *string             `json:"path,omitempty"`
+	Headers      map[string]string   `json:"headers,omitempty"`
+	HeaderValues map[string][]string `json:"header_values,omitempty"`
+	Body         *[]byte             `json:"body,omitempty"`
 }
 
 // ReplayWithRequest applies the same reconstruction and credential checks as
@@ -655,5 +742,5 @@ func (i *Inspector) ReplayWithRequest(ctx context.Context, id uint64, request In
 	if err != nil {
 		return InspectionEvent{}, err
 	}
-	return i.replay(ctx, id, inspectionReplayInput{Action: action, Path: request.Path, Headers: request.Headers, Body: request.Body})
+	return i.replay(ctx, id, inspectionReplayInput{Action: action, Path: request.Path, Headers: request.Headers, HeaderValues: request.HeaderValues, Body: request.Body})
 }

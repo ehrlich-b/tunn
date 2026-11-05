@@ -772,3 +772,8 @@ test-mcp-clients:
 .PHONY: demo-install-to-tool
 demo-install-to-tool:
 	python3 scripts/demo/install-to-tool.py
+
+# Signed raw-body delivery and deliberate local inspector replay, without providers.
+.PHONY: test-webhook-journey
+test-webhook-journey:
+	python3 scripts/integration-tests/webhook-journey.py

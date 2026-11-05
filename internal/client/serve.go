@@ -739,7 +739,8 @@ func (s *ServeClient) handleHttpRequest(sender messageSender, httpReq *pb.HttpRe
 func (s *ServeClient) handleHTTPRequestContext(ctx context.Context, sender messageSender, httpReq *pb.HttpRequest) {
 	var capture *inspectionCapture
 	if s.Inspector != nil {
-		capture = s.Inspector.beginFields(httpReq.ConnectionId, "http", httpReq.Method, httpReq.Path, httpReq.Headers, httpReq.HeaderFields)
+		capture = s.Inspector.beginConnection(httpReq.ConnectionId, "http", httpReq.Method, httpReq.Path, inspectionHeaders(httpReq.Headers, httpReq.HeaderFields))
+		capture.checkHeaderFields(httpReq.HeaderFields)
 		_, _ = capture.Write(httpReq.Body)
 		capture.complete()
 	}

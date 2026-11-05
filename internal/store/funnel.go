@@ -25,13 +25,43 @@ func RecordFunnel(ctx context.Context, db funnelDB, stage, account string) {
 	default:
 		return
 	}
+	hash := funnelAccountHash(ctx, db, account)
+	if hash == "" {
+		return
+	}
+	_, _ = db.ExecContext(ctx, `INSERT OR IGNORE INTO funnel_events(stage,account_hash,occurred_at) VALUES(?,?,?)`, stage, hash, time.Now().UTC().Format(time.RFC3339Nano))
+}
+
+func funnelAccountHash(ctx context.Context, db funnelDB, account string) string {
 	var salt []byte
 	if db.QueryRowContext(ctx, `SELECT salt FROM funnel_secret WHERE id=1`).Scan(&salt) != nil {
-		return
+		return ""
 	}
 	h := hmac.New(sha256.New, salt)
 	_, _ = h.Write([]byte(account))
-	_, _ = db.ExecContext(ctx, `INSERT OR IGNORE INTO funnel_events(stage,account_hash,occurred_at) VALUES(?,?,?)`, stage, hex.EncodeToString(h.Sum(nil)), time.Now().UTC().Format(time.RFC3339Nano))
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func unboundCheckoutIdentity(provider, subscription string) string {
+	return "unbound-checkout:" + provider + ":" + subscription
+}
+
+// Reconcile best effort inside the ownership transaction, preserving the first
+// checkout time and one event per account. Never discard the unbound event if
+// copying it fails, and never create a new event just because ownership changed.
+func reconcileCheckoutFunnel(ctx context.Context, db funnelDB, provider, subscription, account string) {
+	if account == "" {
+		return
+	}
+	oldHash := funnelAccountHash(ctx, db, unboundCheckoutIdentity(provider, subscription))
+	newHash := funnelAccountHash(ctx, db, account)
+	if oldHash == "" || newHash == "" || oldHash == newHash {
+		return
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO funnel_events(stage,account_hash,occurred_at) SELECT stage,?,occurred_at FROM funnel_events WHERE stage='checkout_completed' AND account_hash=? ON CONFLICT(stage,account_hash) DO UPDATE SET occurred_at=min(funnel_events.occurred_at,excluded.occurred_at)`, newHash, oldHash); err != nil {
+		return
+	}
+	_, _ = db.ExecContext(ctx, `DELETE FROM funnel_events WHERE stage='checkout_completed' AND account_hash=?`, oldHash)
 }
 
 type FunnelDay struct {

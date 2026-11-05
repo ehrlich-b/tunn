@@ -87,7 +87,7 @@ class WatchTest(unittest.TestCase):
             funnel.flush()
             cmd = [sys.executable, str(HERE / 'launch-watch.py'), '--funnel', funnel.name]
             for message in ('invalid Stripe signature', 'billing webhook authority unavailable',
-                            'billing webhook event not committed'):
+                            'billing webhook event not committed', 'billing webhook metadata rejected'):
                 with self.subTest(message=message):
                     line = f'time={stamp} level=ERROR msg="{message}"\n'
                     result = subprocess.run(cmd, input=line, capture_output=True, text=True)

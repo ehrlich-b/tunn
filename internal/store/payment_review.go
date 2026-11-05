@@ -249,6 +249,7 @@ func (s *OperationsStore) ReviewCheckoutPayment(ctx context.Context, p AdminPrin
 	if _, err = tx.ExecContext(ctx, `UPDATE ops_checkout_payments SET account_id=?,version=version+1,resolution=?,approval_version=COALESCE((SELECT version FROM ops_billing_mappings WHERE provider=? AND subscription_id=?),0),approved_at=? WHERE provider=? AND subscription_id=?`, account, resolution, d.Provider, d.SubscriptionID, d.ProviderReadAt.UnixNano(), d.Provider, d.SubscriptionID); err != nil {
 		return err
 	}
+	reconcileCheckoutFunnel(ctx, tx, d.Provider, d.SubscriptionID, account)
 	if d.Action == "approve" {
 		if _, err = tx.ExecContext(ctx, `UPDATE ops_billing_events SET account_id=?,outcome='reconciliation_required',reconciled_by=? WHERE provider=? AND event_id=?`, account, audit, d.Provider, event); err != nil {
 			return err

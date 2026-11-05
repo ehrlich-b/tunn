@@ -113,6 +113,7 @@ func (p *ProxyServer) handleStripeWebhook(w http.ResponseWriter, r *http.Request
 
 	eventMetadata, err := normalizeStripeEvent(event, body)
 	if err != nil {
+		common.LogError("billing webhook metadata rejected")
 		http.Error(w, "Invalid billing metadata", 400)
 		return
 	}

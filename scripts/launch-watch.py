@@ -23,6 +23,7 @@ MESSAGES = {
     'failed to parse Stripe event': ('parse', 'internal/host/stripe.go:107'),
     'billing webhook authority unavailable': ('authority unavailable', 'internal/host/stripe.go'),
     'billing webhook event not committed': ('not committed', 'internal/host/stripe.go'),
+    'billing webhook metadata rejected': ('invalid metadata', 'internal/host/stripe.go'),
     'failed to send magic link email': ('magic link', 'internal/host/magiclink.go:112'),
     'tunnel alert delivery failed': ('tunnel alert', 'internal/host/tunnel_alerts.go:191'),
 }
@@ -118,15 +119,15 @@ def main():
     if not types:
         print('  none observed')
     print('Webhook rejections:')
-    for msg, (label, source) in list(MESSAGES.items())[:8]:
+    for msg, (label, source) in list(MESSAGES.items())[:9]:
         print(f'  {label}: {counts[label]} [{source}]')
     print('Email send failures:')
-    for msg, (label, source) in list(MESSAGES.items())[8:]:
+    for msg, (label, source) in list(MESSAGES.items())[9:]:
         print(f'  {label}: {counts[label]} [{source}]')
     print(f'Tunnel registrations (including reconnects): {counts["registrations"]} [internal/host/grpc_server.go:840]')
     print('Pro activations and activation errors, signups, first tunnel registrations, MCP consents: unavailable (not logged as such).')
     print(f'Malformed lines (all input, irrespective of time): {counts["malformed"]}')
-    return 2 if funnel_alert or any(counts[label] for label, _ in list(MESSAGES.values())[:8]) else 0
+    return 2 if funnel_alert or any(counts[label] for label, _ in list(MESSAGES.values())[:9]) else 0
 
 
 if __name__ == '__main__':

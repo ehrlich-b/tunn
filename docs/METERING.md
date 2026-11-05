@@ -262,3 +262,7 @@ Pro-active event in that same window, or a billing webhook error appears in the
 last 24 hours of supplied logs. An unmatched payment awaiting ownership review
 also counts toward the alert, using a hashed provider identifier when ownership
 is unknown. Pro history outside the window does not clear the alert.
+When ownership is established, the checkout moves to the account's hash while
+preserving its first occurrence time. Ownership review alone does not clear the
+alert; a Pro-active event must also appear inside the window. Rejected webhook
+metadata is logged without the payload and counts as a billing webhook error.

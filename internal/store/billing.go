@@ -93,6 +93,7 @@ func (s *OperationsStore) BindBilling(ctx context.Context, p AdminPrincipal, m B
 		if _, err = tx.ExecContext(ctx, `INSERT INTO ops_payment_review_audit VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, uuid.NewString(), m.Provider, m.SubscriptionID, id, 1, "ownership-claimed", outcome, p.actor, "", "", "", "", s.now().UTC().Format(time.RFC3339Nano), "{}"); err != nil {
 			return err
 		}
+		reconcileCheckoutFunnel(ctx, tx, m.Provider, m.SubscriptionID, id)
 		if err = tx.Commit(); err != nil {
 			return err
 		}
@@ -130,6 +131,7 @@ func (s *OperationsStore) BindBilling(ctx context.Context, p AdminPrincipal, m B
 	if err = projectBillingAccount(ctx, tx, id); err != nil {
 		return err
 	}
+	reconcileCheckoutFunnel(ctx, tx, m.Provider, m.SubscriptionID, id)
 	return tx.Commit()
 }
 func readBillingMapping(ctx context.Context, q operationQuery, provider, sub string) (*BillingMapping, error) {
@@ -313,7 +315,7 @@ func (s *OperationsStore) ProcessBillingEvent(ctx context.Context, e BillingEven
 		identity := out.AccountID
 		if identity == "" {
 			// Unbound payments still require an alert; namespace the provider ID.
-			identity = "unbound-checkout:" + e.Provider + ":" + e.SubscriptionID
+			identity = unboundCheckoutIdentity(e.Provider, e.SubscriptionID)
 		}
 		RecordFunnel(ctx, tx, "checkout_completed", identity)
 	}

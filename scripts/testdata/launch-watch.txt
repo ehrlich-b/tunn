@@ -10,6 +10,7 @@
 2026-10-31T12:00:00Z app[abc] iad [error]time=2026-10-31T12:00:00Z level=ERROR msg="tunnel alert delivery failed" tunnel_id=demo error="SMTP failure"
 2026-10-31T12:00:00Z app[abc] iad [info]time=2026-10-31T12:00:00Z level=INFO msg="tunnel registered" tunnel_id=demo url=https://demo.example.com
 2026-10-30T11:59:59Z app[abc] iad [info]time=2026-10-30T11:59:59Z level=INFO msg="received Stripe webhook" type=old id=evt_old
+2026-10-31T12:00:00Z app[abc] iad [error]time=2026-10-31T12:00:00Z level=ERROR msg="billing webhook metadata rejected"
 bad line
 2026-10-31T12:00:00Z app[abc] iad [info] time=2026-10-31T12:00:00Z level=INFO msg="control"
 time=2026-10-31T12:00:00Z level=INFO msg="control"

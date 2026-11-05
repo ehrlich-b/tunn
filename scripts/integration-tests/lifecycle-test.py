@@ -41,15 +41,17 @@ def free_port():
 
 
 class Lifecycle:
-    def __init__(self, work):
+    def __init__(self, work, binary=None, cert_dir=None):
         self.work = work
+        self.binary = binary or ROOT / "bin/tunn"
+        self.cert_dir = cert_dir or ROOT / "certs"
         self.processes = []
         self.logs = {}
         self.cookies = {}
         self.port, self.oidc_port, self.grpc_port = free_port(), free_port(), free_port()
         self.base = f"https://{DOMAIN}:{self.port}"
         self.endpoint = f"https://{ENDPOINT}.{DOMAIN}:{self.port}/mcp"
-        self.tls = ssl.create_default_context(cafile=str(ROOT / "certs/cert.pem"))
+        self.tls = ssl.create_default_context(cafile=str(self.cert_dir / "cert.pem"))
         self.env = {
             key: value for key, value in os.environ.items()
             if not key.startswith(("TUNN_", "FLY_"))
@@ -76,7 +78,7 @@ class Lifecycle:
         self.logs[name] = logfile
         with logfile.open("ab") as output:
             process = subprocess.Popen(
-                [str(ROOT / "bin/tunn"), *args], cwd=self.work, env=self.env,
+                [str(self.binary), *args], cwd=self.work, env=self.env,
                 stdout=output, stderr=subprocess.STDOUT, start_new_session=True,
             )
         self.processes.append(process)
@@ -147,8 +149,8 @@ class Lifecycle:
 
     def start_relay(self):
         relay = self.start("relay", [
-            "-mode=host", f"-cert={ROOT / 'certs/cert.pem'}",
-            f"-key={ROOT / 'certs/key.pem'}",
+            "-mode=host", f"-cert={self.cert_dir / 'cert.pem'}",
+            f"-key={self.cert_dir / 'key.pem'}",
         ])
 
         def healthy():

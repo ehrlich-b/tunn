@@ -247,11 +247,18 @@ func TestTwoDomainLoginJourney(t *testing.T) {
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
+	processDone := make(chan struct{})
+	var processErr error
+	go func() {
+		processErr = cmd.Wait()
+		close(processDone)
+	}()
 	t.Cleanup(func() {
 		input.Close()
-		if err := cmd.Wait(); err != nil {
+		<-processDone
+		if processErr != nil {
 			data, _ := os.ReadFile(logFile.Name())
-			t.Errorf("daemon process: %v\n%s", err, data)
+			t.Errorf("daemon process: %v\n%s", processErr, data)
 		}
 	})
 	transport := &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}, DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
@@ -267,16 +274,27 @@ func TestTwoDomainLoginJourney(t *testing.T) {
 	defer transport.CloseIdleConnections()
 	management := &http.Client{Transport: transport, Timeout: 3 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	deadline := time.Now().Add(10 * time.Second)
+	lastProbe := "not attempted"
 	for {
+		select {
+		case <-processDone:
+			data, _ := os.ReadFile(logFile.Name())
+			t.Fatalf("daemon exited before readiness: %v; last probe: %s\n%s", processErr, lastProbe, data)
+		default:
+		}
 		resp, err := management.Get("https://tunn.test/readyz")
 		if err == nil {
 			resp.Body.Close()
+			lastProbe = resp.Status
 			if resp.StatusCode == 200 {
 				break
 			}
+		} else {
+			lastProbe = err.Error()
 		}
 		if time.Now().After(deadline) {
-			t.Fatal("daemon readiness timed out")
+			data, _ := os.ReadFile(logFile.Name())
+			t.Fatalf("daemon readiness timed out; last probe: %s\n%s", lastProbe, data)
 		}
 		time.Sleep(20 * time.Millisecond)
 	}

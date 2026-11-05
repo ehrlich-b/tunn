@@ -762,3 +762,7 @@ BENCH_ARGS ?= --work-dir $(CURDIR)/../relay-bench-work --output $(CURDIR)/../evi
 .PHONY: bench-relay
 bench-relay:
 	nice -n 10 python3 scripts/bench/relay-bench.py $(BENCH_ARGS)
+
+.PHONY: test-mcp-clients
+test-mcp-clients:
+	python3 scripts/integration-tests/mcp-real-clients/run.py

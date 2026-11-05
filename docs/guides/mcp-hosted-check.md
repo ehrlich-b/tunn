@@ -24,3 +24,21 @@ These checks require a person and a disposable MCP endpoint with a harmless echo
 4. Open Settings > Apps, disconnect and delete the test app, then disconnect its authorization at tunn `/account/mcp`. Record both removals.
 
 The labels and availability can vary by account and client version; record any difference instead of marking a step passed without doing it.
+
+## Local protocol check and callback reference
+
+Run `make test-mcp-clients` with the scratch SDK and browser paths described in
+[scripts/integration-tests/mcp-real-clients/README.md](../../scripts/integration-tests/mcp-real-clients/README.md).
+It checks official TypeScript and Python SDK OAuth on loopback and writes
+`clients.json` plus consent screenshots outside the checkout. It does not verify
+any of the three hosted clients above.
+
+The scripted replay treats `https://claude.ai/api/mcp/auth_callback` and
+`https://claude.com/api/mcp/auth_callback` as exact registered identifiers. For
+ChatGPT it replays `https://chatgpt.com/connector_platform_oauth_redirect`, the
+stable callback documented in [OpenAI's authentication guide](https://developers.openai.com/plugins/build/auth).
+That guide also documents a connection-specific `/connector/oauth/{callback_id}`
+callback when issuer identification requirements are unmet. For a live check,
+copy the exact redirect shown on the app's management page; do not infer it from
+the synthetic replay. Save the callback shown, the client version and the date
+alongside the manual results, without codes or tokens.

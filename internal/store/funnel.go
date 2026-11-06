@@ -50,18 +50,29 @@ func unboundCheckoutIdentity(provider, subscription string) string {
 // checkout time and one event per account. Never discard the unbound event if
 // copying it fails, and never create a new event just because ownership changed.
 func reconcileCheckoutFunnel(ctx context.Context, db funnelDB, provider, subscription, account string) {
-	if account == "" {
+	moveFunnelIdentity(ctx, db, unboundCheckoutIdentity(provider, subscription), account, true)
+}
+
+// Move only after a successful copy, so a failed best-effort write cannot
+// discard the original events. Reassignment moves checkout only; a verified
+// account merge consolidates every stage.
+func moveFunnelIdentity(ctx context.Context, db funnelDB, oldAccount, newAccount string, checkoutOnly bool) {
+	if oldAccount == "" || newAccount == "" {
 		return
 	}
-	oldHash := funnelAccountHash(ctx, db, unboundCheckoutIdentity(provider, subscription))
-	newHash := funnelAccountHash(ctx, db, account)
+	oldHash := funnelAccountHash(ctx, db, oldAccount)
+	newHash := funnelAccountHash(ctx, db, newAccount)
 	if oldHash == "" || newHash == "" || oldHash == newHash {
 		return
 	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO funnel_events(stage,account_hash,occurred_at) SELECT stage,?,occurred_at FROM funnel_events WHERE stage='checkout_completed' AND account_hash=? ON CONFLICT(stage,account_hash) DO UPDATE SET occurred_at=min(funnel_events.occurred_at,excluded.occurred_at)`, newHash, oldHash); err != nil {
+	filter := ""
+	if checkoutOnly {
+		filter = " AND stage='checkout_completed'"
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO funnel_events(stage,account_hash,occurred_at) SELECT stage,?,occurred_at FROM funnel_events WHERE account_hash=?`+filter+` ON CONFLICT(stage,account_hash) DO UPDATE SET occurred_at=min(funnel_events.occurred_at,excluded.occurred_at)`, newHash, oldHash); err != nil {
 		return
 	}
-	_, _ = db.ExecContext(ctx, `DELETE FROM funnel_events WHERE stage='checkout_completed' AND account_hash=?`, oldHash)
+	_, _ = db.ExecContext(ctx, `DELETE FROM funnel_events WHERE account_hash=?`+filter, oldHash)
 }
 
 type FunnelDay struct {

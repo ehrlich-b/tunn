@@ -250,6 +250,9 @@ func (s *OperationsStore) ReviewCheckoutPayment(ctx context.Context, p AdminPrin
 		return err
 	}
 	reconcileCheckoutFunnel(ctx, tx, d.Provider, d.SubscriptionID, account)
+	if d.ReassignOwnership && owner != account {
+		moveFunnelIdentity(ctx, tx, owner, account, true)
+	}
 	if d.Action == "approve" {
 		if _, err = tx.ExecContext(ctx, `UPDATE ops_billing_events SET account_id=?,outcome='reconciliation_required',reconciled_by=? WHERE provider=? AND event_id=?`, account, audit, d.Provider, event); err != nil {
 			return err

@@ -309,6 +309,7 @@ ON CONFLICT(account_id, machine) DO UPDATE SET last_seen=MAX(host_machines.last_
 		if err := mergeAccountOperations(tx, acc.ID, primary.ID); err != nil {
 			return nil, err
 		}
+		moveFunnelIdentity(context.Background(), tx, acc.ID, primary.ID, false)
 		// Flatten prior merges so every obsolete UUID resolves in one lookup.
 		if _, err := tx.Exec("UPDATE account_merges SET account_id=? WHERE account_id=?", primary.ID, acc.ID); err != nil {
 			return nil, err

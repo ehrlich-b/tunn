@@ -57,6 +57,11 @@ func reconcileCheckoutFunnel(ctx context.Context, db funnelDB, provider, subscri
 // discard the original events. Reassignment moves checkout only; a verified
 // account merge consolidates every stage.
 func moveFunnelIdentity(ctx context.Context, db funnelDB, oldAccount, newAccount string, checkoutOnly bool) {
+	copyFunnelIdentity(ctx, db, oldAccount, newAccount, checkoutOnly, false)
+}
+
+// Retain the original account marker when another checkout still belongs to it.
+func copyFunnelIdentity(ctx context.Context, db funnelDB, oldAccount, newAccount string, checkoutOnly, retainOriginal bool) {
 	if oldAccount == "" || newAccount == "" {
 		return
 	}
@@ -72,7 +77,9 @@ func moveFunnelIdentity(ctx context.Context, db funnelDB, oldAccount, newAccount
 	if _, err := db.ExecContext(ctx, `INSERT INTO funnel_events(stage,account_hash,occurred_at) SELECT stage,?,occurred_at FROM funnel_events WHERE account_hash=?`+filter+` ON CONFLICT(stage,account_hash) DO UPDATE SET occurred_at=min(funnel_events.occurred_at,excluded.occurred_at)`, newHash, oldHash); err != nil {
 		return
 	}
-	_, _ = db.ExecContext(ctx, `DELETE FROM funnel_events WHERE account_hash=?`+filter, oldHash)
+	if !retainOriginal {
+		_, _ = db.ExecContext(ctx, `DELETE FROM funnel_events WHERE account_hash=?`+filter, oldHash)
+	}
 }
 
 type FunnelDay struct {

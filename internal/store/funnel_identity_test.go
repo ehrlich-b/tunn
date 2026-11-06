@@ -159,3 +159,42 @@ func TestFunnelIdentityWriteFailure(t *testing.T) {
 		})
 	}
 }
+
+func TestFunnelReassignmentPreservesOtherCheckout(t *testing.T) {
+	db, ops, a, _ := operationsFixture(t)
+	b, err := NewAccountStore(db).FindOrCreateByEmails([]string{"second@example.invalid"}, "fixture")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	first := identityCheckout(t, ops, a)
+	second := first
+	second.ID, second.CustomerID, second.SubscriptionID, second.SessionID = "evt_other", "cus_other", "sub_other", "cs_other"
+	result, err := ops.ProcessBillingEvent(ctx, second)
+	if err != nil || result.AccountID != a.ID {
+		t.Fatalf("second checkout: %+v %v", result, err)
+	}
+	stamp := time.Now().UTC().Add(-2 * time.Hour).Format(time.RFC3339Nano)
+	if _, err = db.Exec(`UPDATE funnel_events SET occurred_at=? WHERE stage='checkout_completed'`, stamp); err != nil {
+		t.Fatal(err)
+	}
+	decision := paymentDecision(ops, b, first)
+	decision.ReassignOwnership = true
+	if err = ops.ReviewCheckoutPayment(ctx, operationsPrincipal(t, "*"), decision); err != nil {
+		t.Fatal(err)
+	}
+	identityActivate(t, ops, b, first)
+	requirePlan(t, db, a.ID, "free")
+	requirePlan(t, db, b.ID, "pro")
+	for _, account := range []*Account{a, b} {
+		var count int
+		var got string
+		if err = db.QueryRow(`SELECT count(*),min(occurred_at) FROM funnel_events WHERE stage='checkout_completed' AND account_hash=?`, funnelAccountHash(ctx, db, account.ID)).Scan(&count, &got); err != nil || count != 1 || got != stamp {
+			t.Fatalf("account %s: count=%d timestamp=%q want=%q err=%v", account.ID, count, got, stamp, err)
+		}
+	}
+	report, err := ops.FunnelReport(ctx, operationsPrincipal(t, "*"))
+	if err != nil || report.CheckoutWithoutPro != 1 {
+		t.Fatalf("remaining checkout must alert: report=%+v err=%v", report, err)
+	}
+}

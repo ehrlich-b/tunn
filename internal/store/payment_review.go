@@ -251,7 +251,10 @@ func (s *OperationsStore) ReviewCheckoutPayment(ctx context.Context, p AdminPrin
 	}
 	reconcileCheckoutFunnel(ctx, tx, d.Provider, d.SubscriptionID, account)
 	if d.ReassignOwnership && owner != account {
-		moveFunnelIdentity(ctx, tx, owner, account, true)
+		var otherCheckout bool
+		err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM ops_checkout_payments WHERE account_id=?)`, owner).Scan(&otherCheckout)
+		// A failed best-effort lookup must not discard a possibly needed marker.
+		copyFunnelIdentity(ctx, tx, owner, account, true, err != nil || otherCheckout)
 	}
 	if d.Action == "approve" {
 		if _, err = tx.ExecContext(ctx, `UPDATE ops_billing_events SET account_id=?,outcome='reconciliation_required',reconciled_by=? WHERE provider=? AND event_id=?`, account, audit, d.Provider, event); err != nil {

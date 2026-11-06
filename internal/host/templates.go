@@ -16,7 +16,7 @@ var baseCSS string
 //go:embed templates/assets/header.html
 var pageHeader string
 
-const pageFooter = `<footer class="site-footer"><div class="container"><a href="/docs">Docs</a><a href="/pricing">Pricing</a><a href="/status">Status</a><a href="https://gitlab.com/ehrlich-b/tunn">Source</a><span class="spacer"></span><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/report">Report a bug</a><a href="mailto:support@tunn.to">Support</a></div></footer>`
+const pageFooter = `<footer class="site-footer"><div class="container"><a href="/about">About &amp; support</a><a href="/docs">Docs</a><a href="/pricing">Pricing</a><a href="/status">Status</a><a href="https://gitlab.com/ehrlich-b/tunn">Source</a><span class="spacer"></span><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/report">Report a bug</a><a href="mailto:support@tunn.to">Support</a></div></footer>`
 
 // siteHeader returns the shared header with the named section marked current.
 func siteHeader(current string) string {

@@ -10,6 +10,9 @@ import (
 //go:embed templates/ngrok-alternative.html
 var ngrokAlternativeHTML string
 
+//go:embed templates/client-previews.html
+var clientPreviewsHTML string
+
 //go:embed templates/mcp-to-claude.html
 var mcpToClaudeHTML string
 
@@ -54,6 +57,8 @@ func (p *ProxyServer) serveDistributionPage(w http.ResponseWriter, r *http.Reque
 	switch r.URL.Path {
 	case "/llms.txt":
 		contentType, body = "text/plain; charset=utf-8", p.agentKitIndex()
+	case "/client-previews":
+		body = clientPreviewsHTML
 	case "/ngrok-alternative":
 		body = ngrokAlternativeHTML
 	case "/mcp-to-claude":
@@ -89,7 +94,7 @@ func (p *ProxyServer) serveDistributionPage(w http.ResponseWriter, r *http.Reque
 		w.WriteHeader(http.StatusOK)
 		return true
 	}
-	if r.URL.Path == "/ngrok-alternative" {
+	if r.URL.Path == "/ngrok-alternative" || r.URL.Path == "/client-previews" {
 		p.renderRevenuePage(w, body)
 	} else {
 		_, _ = fmt.Fprint(w, body)
@@ -100,6 +105,7 @@ func (p *ProxyServer) serveDistributionPage(w http.ResponseWriter, r *http.Reque
 const distributionSitemap = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url><loc>https://tunn.to/</loc></url>
+  <url><loc>https://tunn.to/client-previews</loc></url>
   <url><loc>https://tunn.to/ngrok-alternative</loc></url>
   <url><loc>https://tunn.to/mcp-to-claude</loc></url>
   <url><loc>https://tunn.to/share-dev-server-oauth</loc></url>

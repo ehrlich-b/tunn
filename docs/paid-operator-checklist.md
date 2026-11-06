@@ -41,3 +41,27 @@ tunn admin reconcile --db "$DB" --admin-config "$ADMIN_CONFIG" --token-file "$TO
 ## Deferred live evidence
 
 All original T-01 cases remain OPEN: current-provider monthly/yearly checkout/ownership/receipt, renewal including failed/delayed payment and outage, duplicate/reordered events and money recovery, cancellation/refund/dispute, returning customer, activation/refund timing and secondary coverage. Observe configuration and the first customer under the owner-approved rollout without gating existing sales on a new receipt. This engineering task makes no real customer/provider/payment calls, uses no credentials, and performs no production writes, deployment or sales-setting changes.
+
+## Public operator facts handoff
+
+`/about` answers who maintains the service and how a buyer can check operator,
+merchant and support facts. These are deploy-time facts, not a new launch gate.
+Bryan remains the maintainer; that does not establish a legal entity or merchant match.
+Before a separately authorized deployment, Bryan can fill the existing service's
+protected environment file with confirmed values:
+
+- [ ] `TUNN_OPERATING_NAME`: use the current confirmed operating name; leave unset until confirmed.
+- [ ] `TUNN_MERCHANT_DISPLAY_NAME`: default source is the current Stripe merchant identity and receipt/statement display, checked by Bryan in the existing account. No identity has been independently verified here; leave unset until checked.
+- [ ] Maintainer: Bryan Ehrlich (already rendered; no legal-operator inference).
+- [ ] `TUNN_SUPPORT_WINDOW`: default source is the actual daily report review window Bryan currently staffs, with timezone and days. Leave unset until confirmed; do not infer round-the-clock coverage or a response deadline.
+
+Unset or whitespace-only facts display “Being confirmed; not currently available.”
+Values render as text, including HTML characters. No report form or mail delivery
+is added; the current support and abuse mail links remain available. Privacy,
+retention and refund terms stay in their existing documents. Current status is
+linked when configured; without a collector, checks and history are explicitly
+unpublished. Existing sales and launch decisions are unchanged.
+
+Prepared local configuration check (does not deploy or contact Stripe):
+`bash scripts/check-operator-facts.sh`. After normal review and merge to main,
+Bryan owns the existing production deployment procedure and environment update.

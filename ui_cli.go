@@ -124,6 +124,7 @@ func localReading(target string) (string, string, string) {
 }
 
 var tunnelLimit = regexp.MustCompile(`tunnel limit reached \(([0-9]+)/([0-9]+)\)`)
+var ineffectiveAllow = regexp.MustCompile(`--allow (\S+) is not in effect for ([a-z0-9-]+)\.`)
 
 // relayOrigin drops credentials, paths and queries before printing a relay URL.
 func relayOrigin(server string) string {
@@ -251,7 +252,7 @@ func relayRefused(err error) bool {
 	// gRPC reports dial failures as status text without the original net error.
 	return status.Code(err) == codes.Unavailable && strings.Contains(strings.ToLower(err.Error()), "connection refused")
 }
-func showTunnelError(o *terminal.Output, err error, server string) {
+func showTunnelError(o *terminal.Output, err error, server string, insecure ...bool) {
 	if code := client.RegistrationCode(err); code == "tunnel_limit" {
 		o.PlanMessage("error", code, err.Error())
 		return
@@ -262,6 +263,16 @@ func showTunnelError(o *terminal.Output, err error, server string) {
 	if client.AuthenticationFailure(err) || status.Code(err) == codes.Unauthenticated {
 		reportState("auth_expired", "Sign in again", "Login expired or rejected", loginCommand(), 0)
 		return
+	}
+	if client.ClassifyFailure(err) == client.FailureRegistration {
+		if match := ineffectiveAllow.FindStringSubmatch(err.Error()); len(match) == 3 {
+			command := "tunn share " + shellURL(match[2]) + " " + shellURL(match[1]) + " --server " + shellURL(strings.TrimPrefix(relayOrigin(server), "https://"))
+			if len(insecure) > 0 && insecure[0] {
+				command += " --insecure"
+			}
+			reportState("error", "Requested access is not in effect", match[1]+" is not allowed. Run this as the owner, then restart the publisher.", command, 0)
+			return
+		}
 	}
 	text := strings.ToLower(err.Error())
 	if status.Code(err) == codes.PermissionDenied {

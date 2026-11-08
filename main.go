@@ -1191,7 +1191,7 @@ func runServe(args []string) {
 		if showHTTPRuntimeLoginRequired(output, runErr) {
 			os.Exit(client.ExitLoginRequired)
 		}
-		showTunnelError(output, runErr, cfg.ServerAddr)
+		showTunnelError(output, runErr, cfg.ServerAddr, cfg.Insecure || *insecure)
 		os.Exit(1)
 	}
 	output.State("stopped", "Tunnel stopped", "", "", 0)

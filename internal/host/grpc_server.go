@@ -704,11 +704,26 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		conn.ExposureMode = mode
 		if s.sharing != nil && accountID != "" {
 			result, err := s.sharing.Sharing(stream.Context(), &meterpb.SharingRequest{Operation: "register", Owner: accountID, Endpoint: tunnelID, Mode: mode, InitialEmails: allowedEmails})
+			ineffective := false
+			if err == nil && result != nil && len(result.Resources) == 1 && mode == "private" {
+				// A reconnect retains the owner's durable decisions. Do not tell
+				// the publisher its requested allow list is effective when it isn't.
+				for _, target := range allowedEmails {
+					if !webExplicitIdentityAllowed(result.Resources[0], []string{target}, []string{target}, creatorEmail, s.currentTime()) {
+						err = fmt.Errorf("--allow %s is not in effect for %s. Use tunn share to grant access", target, tunnelID)
+						ineffective = true
+						break
+					}
+				}
+			}
 			if err != nil || result == nil || len(result.Resources) != 1 {
 				if registeredWithStorage {
 					ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 					defer cancel()
 					_ = s.storage.UnregisterTunnel(ctx, tunnelID)
+				}
+				if ineffective {
+					return rejectTunnelRegistration(stream, err.Error())
 				}
 				return rejectTunnelRegistration(stream, policyRegistrationFailure(err, "Web permission"))
 			}

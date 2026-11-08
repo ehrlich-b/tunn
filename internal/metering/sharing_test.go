@@ -63,8 +63,10 @@ func TestWebSharingDurableGenerationAndExpiry(t *testing.T) {
 	for _, in := range []*pb.SharingRequest{
 		{Operation: "get", Owner: "stranger", Endpoint: "preview"},
 		{Operation: "share", Owner: "stranger", Endpoint: "preview", Email: "evil@example.com", ExpiresAt: time.Now().Add(time.Hour).UnixMilli()},
+		{Operation: "share", Owner: "stranger", Endpoint: "preview", Email: "@example.com", ExpiresAt: time.Now().Add(time.Hour).UnixMilli()},
 		{Operation: "share", Owner: "owner", Endpoint: "preview", Email: "alice@example.com", ExpiresAt: time.Now().Add(-time.Second).UnixMilli()},
-		{Operation: "share", Owner: "owner", Endpoint: "preview", Email: "@example.com", ExpiresAt: time.Now().Add(time.Hour).UnixMilli()},
+		{Operation: "share", Owner: "owner", Endpoint: "preview", Email: "@example.com", ExpiresAt: time.Now().Add(-time.Second).UnixMilli()},
+		{Operation: "share", Owner: "owner", Endpoint: "preview", Email: "@bad domain", ExpiresAt: time.Now().Add(time.Hour).UnixMilli()},
 		{Operation: "share", Owner: "owner", Endpoint: "preview", Email: "Alice <alice@example.com>", ExpiresAt: time.Now().Add(time.Hour).UnixMilli()},
 		{Operation: "register", Owner: "owner", Endpoint: "bad/name", Mode: "private"},
 		{Operation: "register", Owner: "owner", Endpoint: "preview", Mode: "unknown"},

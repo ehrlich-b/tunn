@@ -30,7 +30,7 @@ func parseSharing(command string, args []string) (*sharingOptions, error) {
 	fs.SetOutput(io.Discard)
 	o := new(sharingOptions)
 	fs.StringVar(&o.Server, "server", "", "relay address")
-	fs.DurationVar(&o.Expires, "expires", 0, "expire the person or group's access after a duration")
+	fs.DurationVar(&o.Expires, "expires", 0, "expire the person, domain or group's access after a duration")
 	fs.BoolVar(&o.Insecure, "insecure", false, "skip relay certificate verification")
 	operands, err := cliopts.ParseInterspersed(fs, args)
 	if err != nil {
@@ -41,7 +41,7 @@ func parseSharing(command string, args []string) (*sharingOptions, error) {
 		want = 1
 	}
 	if len(operands) != want || o.Expires < 0 || command != "share" && o.Expires != 0 {
-		return nil, fmt.Errorf("usage: tunn %s <resource>%s [--server HOST]", command, map[bool]string{true: "", false: " <email|group:ORG:GROUP>"}[command == "access"])
+		return nil, fmt.Errorf("usage: tunn %s <resource>%s [--server HOST]", command, map[bool]string{true: "", false: " <email|@domain|group:ORG:GROUP>"}[command == "access"])
 	}
 	o.Endpoint = strings.ToLower(operands[0])
 	if want == 2 {

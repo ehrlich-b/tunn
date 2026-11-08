@@ -216,7 +216,7 @@ func (s *Store) Sharing(ctx context.Context, in *pb.SharingRequest) (*pb.Sharing
 					if r.Mode != "private" {
 						return fmt.Errorf("use a private resource to share with people")
 					}
-					if err = s.sharePerson(ctx, tx, r, normalizeSharingTarget(in.Email), in.ExpiresAt, false); err != nil {
+					if err = s.sharePerson(ctx, tx, r, normalizeSharingTarget(in.Email), in.ExpiresAt, true); err != nil {
 						return err
 					}
 				case "unshare":

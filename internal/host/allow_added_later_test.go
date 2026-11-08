@@ -13,6 +13,15 @@ import (
 )
 
 func TestWebAllowReconnectDurableDecisions(t *testing.T) {
+	for _, tc := range []struct{ name, initial, added, visitor string }{
+		{"email", "a@x", "b@x", "a@x"},
+		{"domain", "@first.example", "@example.com", "a@first.example"},
+	} {
+		t.Run(tc.name, func(t *testing.T) { testWebAllowReconnect(t, tc.initial, tc.added, tc.visitor) })
+	}
+}
+
+func testWebAllowReconnect(t *testing.T, initial, added, visitor string) {
 	f := newMCPOAuthFixture(t)
 	p := f.p
 	ledger := p.meter.(*metering.Store)
@@ -20,7 +29,7 @@ func TestWebAllowReconnectDurableDecisions(t *testing.T) {
 	ctx := context.Background()
 	call := func(op, email string) *mp.WebResource {
 		t.Helper()
-		out, err := ledger.Sharing(ctx, &mp.SharingRequest{Operation: op, Owner: f.tunnel.AccountID, Endpoint: "preview", Mode: "private", Email: email, InitialEmails: []string{"a@x"}, ExpiresAt: time.Now().Add(time.Hour).UnixMilli()})
+		out, err := ledger.Sharing(ctx, &mp.SharingRequest{Operation: op, Owner: f.tunnel.AccountID, Endpoint: "preview", Mode: "private", Email: email, InitialEmails: []string{initial}, ExpiresAt: time.Now().Add(time.Hour).UnixMilli()})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -63,20 +72,20 @@ func TestWebAllowReconnectDurableDecisions(t *testing.T) {
 			t.Fatal("reconnect lost invitation")
 		}
 	}
-	t.Run("added email", func(t *testing.T) { register(t, []string{"a@x", "b@x"}, false, "b@x") })
-	t.Run("no changes", func(t *testing.T) { register(t, []string{"a@x"}, true, "") })
-	t.Run("invited person", func(t *testing.T) { register(t, []string{"a@x", "invited@x"}, true, "") })
-	call("unshare", "a@x")
-	t.Run("revoked stays revoked", func(t *testing.T) { register(t, []string{"a@x"}, false, "a@x") })
-	if webPersonAllowed(call("get", ""), []string{"a@x"}, "owner@example.com", time.Now()) {
+	t.Run("added target", func(t *testing.T) { register(t, []string{initial, added}, false, added) })
+	t.Run("no changes", func(t *testing.T) { register(t, []string{initial}, true, "") })
+	t.Run("invited person", func(t *testing.T) { register(t, []string{initial, "invited@x"}, true, "") })
+	call("unshare", initial)
+	t.Run("revoked stays revoked", func(t *testing.T) { register(t, []string{initial}, false, initial) })
+	if webPersonAllowed(call("get", ""), []string{visitor}, "owner@example.com", time.Now()) {
 		t.Fatal("reinstated revoked person")
 	}
-	call("share", "b@x")
-	t.Run("explicit share repairs added email", func(t *testing.T) { register(t, []string{"b@x"}, true, "") })
+	call("share", strings.ToUpper(added))
+	t.Run("explicit share repairs added target", func(t *testing.T) { register(t, []string{added}, true, "") })
 	t.Run("expired stays expired", func(t *testing.T) {
 		now := time.Now().Add(2 * time.Hour)
 		p.tunnelServer.now = func() time.Time { return now }
 		defer func() { p.tunnelServer.now = nil }()
-		register(t, []string{"b@x"}, false, "b@x")
+		register(t, []string{added}, false, added)
 	})
 }

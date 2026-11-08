@@ -21,6 +21,15 @@ import (
 // This wire probe is overlaid by the external reproduction runner. It starts
 // the actual CLI executable against a loopback TLS relay and HTTP origin.
 func TestAllowAddedLaterCLIProbe(t *testing.T) {
+	for _, tc := range []struct{ name, target, visitor string }{
+		{"email", "b@x", "b@x"},
+		{"domain", "@example.com", "b@example.com"},
+	} {
+		t.Run(tc.name, func(t *testing.T) { probeAllowAddedLater(t, tc.target, tc.visitor) })
+	}
+}
+
+func probeAllowAddedLater(t *testing.T, target, visitor string) {
 	f := newMCPOAuthFixture(t)
 	p := f.p
 	p.tunnelServer.sharing = p.meter.(metering.SharingBackend)
@@ -44,6 +53,7 @@ func TestAllowAddedLaterCLIProbe(t *testing.T) {
 	if binary == "" {
 		t.Fatal("TUNN_ALLOW_BINARY required")
 	}
+	var repairCommand []string
 	start := func(allow string, rejected bool) func() {
 		t.Helper()
 		dir := t.TempDir()
@@ -95,8 +105,13 @@ func TestAllowAddedLaterCLIProbe(t *testing.T) {
 			case err := <-done:
 				stopped = true
 				errs, _ := os.ReadFile(stderrPath)
-				if !rejected || err == nil || !strings.Contains(string(errs), "b@x is not allowed") || !strings.Contains(string(errs), "tunn share preview b@x --server "+relay.Listener.Addr().String()+" --insecure") || strings.Contains(string(out), "allowed") {
+				if !rejected || err == nil || !strings.Contains(string(errs), target+" is not allowed") || !strings.Contains(string(errs), "tunn share preview "+target+" --server "+relay.Listener.Addr().String()+" --insecure") || strings.Contains(string(out), "allowed") {
 					t.Fatalf("unexpected exit %v: stdout=%s stderr=%s", err, out, errs)
+				}
+				for _, line := range strings.Split(string(errs), "\n") {
+					if strings.HasPrefix(line, "tunn share ") {
+						repairCommand = strings.Fields(line)[1:]
+					}
 				}
 				return stop
 			case <-deadline:
@@ -123,23 +138,24 @@ func TestAllowAddedLaterCLIProbe(t *testing.T) {
 	}
 	stop := start("a@x", false)
 	request("a@x", 200)
-	request("b@x", 403)
+	request(visitor, 403)
 	stop()
 	after := os.Getenv("TUNN_ALLOW_EXPECT") == "after"
-	stop = start("a@x,b@x", after)
+	stop = start("a@x,"+target, after)
 	if !after {
-		request("b@x", 403)
+		request(visitor, 403)
 	}
 	stop()
 	if after {
-		share := exec.Command(binary, "share", "preview", "b@x", "--server", relay.Listener.Addr().String(), "--insecure")
+		share := exec.Command(binary, repairCommand...)
 		share.Env = append(os.Environ(), "TUNN_CONFIG_DIR="+configDir)
 		if output, err := share.CombinedOutput(); err != nil {
 			t.Fatalf("printed share command: %v: %s", err, output)
 		}
-		t.Log("printed tunn share command succeeded as the owner")
-		stop = start("a@x,b@x", false)
-		request("b@x", 200)
+		t.Logf("printed tunn share preview %s command succeeded as the owner", target)
+		stop = start("a@x,"+target, false)
+		request(visitor, 200)
+		request("unlisted@other.example", 403)
 		stop()
 		r, err := p.meter.(metering.SharingBackend).Sharing(context.Background(), &mp.SharingRequest{Operation: "get", Owner: f.tunnel.AccountID, Endpoint: "preview"})
 		if err != nil || len(r.Resources[0].People) != 2 {

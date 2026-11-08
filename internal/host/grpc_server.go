@@ -626,6 +626,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 
 	// Register tunnel and check limits (cross-node if available)
 	var registeredWithStorage bool
+	var notice, noticeCode string
 	if s.storage != nil && accountID != "" {
 		// Cross-node: register with login node (includes duplicate and limit checks)
 		reg, err := s.storage.RegisterTunnel(stream.Context(), tunnelID, accountID, s.cfg.Domain)
@@ -633,11 +634,17 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 			common.LogError("failed to register tunnel with login node", "tunnel_id", tunnelID, "error", err)
 			return rejectTunnelRegistration(stream, "Tunnel ownership could not be verified. Please try again later.")
 		} else if !reg.Allowed {
+			reason, code := reg.Reason, ""
+			if reg.Reason == "tunnel limit reached" {
+				reason = tunnelLimitMessage(plan, int(reg.CurrentCount), int(reg.MaxAllowed))
+				code = "tunnel_limit"
+			}
 			respMsg := &pb.TunnelMessage{
 				Message: &pb.TunnelMessage_RegisterResponse{
 					RegisterResponse: &pb.RegisterResponse{
 						Success:      false,
-						ErrorMessage: reg.Reason,
+						ErrorMessage: reason,
+						ErrorCode:    code,
 					},
 				},
 			}
@@ -646,6 +653,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 			return fmt.Errorf("tunnel registration denied: %s", reg.Reason)
 		} else {
 			registeredWithStorage = true
+			notice, noticeCode = reg.Notice, reg.NoticeCode
 			common.LogDebug("tunnel registered with login node", "tunnel_id", tunnelID, "count", reg.CurrentCount, "max", reg.MaxAllowed)
 		}
 	}
@@ -664,7 +672,8 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 				Message: &pb.TunnelMessage_RegisterResponse{
 					RegisterResponse: &pb.RegisterResponse{
 						Success:      false,
-						ErrorMessage: fmt.Sprintf("tunnel limit reached (%d/%d)", currentCount, maxTunnels),
+						ErrorMessage: tunnelLimitMessage(plan, currentCount, maxTunnels),
+						ErrorCode:    "tunnel_limit",
 					},
 				},
 			}
@@ -824,6 +833,8 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		Message: &pb.TunnelMessage_RegisterResponse{
 			RegisterResponse: &pb.RegisterResponse{
 				Success:      true,
+				Notice:       notice,
+				NoticeCode:   noticeCode,
 				PublicUrl:    publicURL,
 				Capabilities: []string{common.CapabilityHTTPStreamV1, common.CapabilityConnectionStreamV1, common.CapabilityWebSocketV1, common.CapabilityHTTPResponseTrailersV1, common.CapabilityHTTPRequestHeadersV1, deviceReauthCapability, "web-sharing-v1", webhook.Capability, common.CapabilityGracefulStopV1, common.CapabilityFailureStopV1},
 			},
@@ -1142,4 +1153,12 @@ func policyRegistrationFailure(err error, authority string) string {
 		return authority + " registration denied: " + status.Convert(err).Message()
 	}
 	return authority + " authority unavailable."
+}
+
+// Keep the refusal readable even for publishers that ignore new protobuf fields.
+func tunnelLimitMessage(plan string, count, limit int) string {
+	if plan == "pro" {
+		return fmt.Sprintf("Pro tunnel limit reached: %d/%d tunnels in use. Stop a running tunnel. https://tunn.to/pricing", count, limit)
+	}
+	return fmt.Sprintf("Free tunnel limit reached: %d/%d tunnels in use. Free allows 5; Pro allows 25 for $5 a month or $48 a year. Stop a running tunnel or upgrade: https://tunn.to/pricing", count, limit)
 }

@@ -229,6 +229,8 @@ message RegisterTunnelResponse {
   string reason = 2;
   int32 current_count = 3;
   int32 max_allowed = 4;
+  string notice = 5;
+  string notice_code = 6;
 }
 
 message UnregisterTunnelRequest {

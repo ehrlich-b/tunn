@@ -269,6 +269,8 @@ func (s *ProxyStorage) RegisterTunnel(ctx context.Context, tunnelID, accountID, 
 		Reason:       resp.Reason,
 		CurrentCount: resp.CurrentCount,
 		MaxAllowed:   resp.MaxAllowed,
+		Notice:       resp.Notice,
+		NoticeCode:   resp.NoticeCode,
 	}, nil
 }
 

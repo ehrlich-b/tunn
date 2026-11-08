@@ -94,6 +94,8 @@ type AccountEmail struct {
 
 // TunnelRegistration is the result of registering a tunnel
 type TunnelRegistration struct {
+	Notice       string
+	NoticeCode   string
 	Allowed      bool
 	Reason       string
 	CurrentCount int32

@@ -218,6 +218,8 @@ func (s *LoginNodeDBServer) RegisterTunnel(ctx context.Context, req *internalv1.
 		Reason:       reg.Reason,
 		CurrentCount: reg.CurrentCount,
 		MaxAllowed:   reg.MaxAllowed,
+		Notice:       reg.Notice,
+		NoticeCode:   reg.NoticeCode,
 	}, nil
 }
 

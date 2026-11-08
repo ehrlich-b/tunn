@@ -72,3 +72,12 @@ func (s *ServeClient) log(level slog.Level, message string, args ...any) {
 	}
 	logger.Log(context.Background(), level, message, args...)
 }
+
+// RegistrationCode returns the relay's stable refusal code, if present.
+func RegistrationCode(err error) string {
+	var permanent *permanentTunnelError
+	if errors.As(err, &permanent) {
+		return permanent.code
+	}
+	return ""
+}

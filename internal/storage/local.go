@@ -263,6 +263,8 @@ func (s *LocalStorage) RegisterTunnel(ctx context.Context, tunnelID, accountID, 
 		}, nil
 	}
 
+	var notice, noticeCode string
+
 	// Auto-claim within each plan allowance on replicas and the login node.
 	// A full reservation allowance still permits an unreserved active name.
 	if !scoped && owner == "" {
@@ -276,11 +278,21 @@ func (s *LocalStorage) RegisterTunnel(ctx context.Context, tunnelID, accountID, 
 		}
 	}
 
+	if !scoped && owner == "" && acc.Plan == "free" {
+		reservations, err := s.accounts.GetReservedSubdomains(accountID)
+		if err == nil && len(reservations) >= store.FreeReservedSubdomains {
+			notice = "This name won't be kept while you're offline. Free keeps 1 name; Pro keeps 10 for $5 a month or $48 a year. https://tunn.to/pricing"
+			noticeCode = "name_not_kept"
+		}
+	}
+
 	// Register the tunnel
 	s.activeTunnels[tunnelID] = accountID
 
 	return &TunnelRegistration{
 		Allowed:      true,
+		Notice:       notice,
+		NoticeCode:   noticeCode,
 		CurrentCount: count + 1,
 		MaxAllowed:   maxAllowed,
 	}, nil

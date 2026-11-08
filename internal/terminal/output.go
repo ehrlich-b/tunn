@@ -21,6 +21,7 @@ import (
 // Durations use milliseconds; traffic counts use bytes.
 type Event struct {
 	Type          string             `json:"type"`
+	Code          string             `json:"code,omitempty"`
 	URL           string             `json:"url,omitempty"`
 	Target        string             `json:"target,omitempty"`
 	Access        string             `json:"access,omitempty"`
@@ -513,4 +514,16 @@ func (o *Output) Reading(text string) {
 	if !o.JSON {
 		o.line(o.Out, Safe(text))
 	}
+}
+
+// PlanMessage preserves relay guidance in both terminal and JSON output.
+func (o *Output) PlanMessage(kind, code, message string) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	message = Safe(message)
+	if o.JSON {
+		o.event(Event{Type: kind, Code: Safe(code), Message: message})
+		return
+	}
+	o.line(o.Err, message)
 }

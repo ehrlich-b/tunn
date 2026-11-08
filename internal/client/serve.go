@@ -52,6 +52,7 @@ type streamSender struct {
 }
 
 type permanentTunnelError struct {
+	code string
 	err  error
 	kind FailureKind
 }
@@ -109,6 +110,7 @@ type ServeClient struct {
 	Logger            *slog.Logger // nil keeps the CLI logger; never changes process logging
 	SafeLogs          bool         // Emit static messages only, without remote errors or private target data
 	OnRegistered      func(publicURL string)
+	OnNotice          func(code, message string)
 
 	// Reconnection settings
 	MaxReconnectDelay time.Duration // Maximum delay between reconnects (default: 30s)
@@ -419,7 +421,7 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 	}
 
 	if !regResp.Success {
-		return &permanentTunnelError{err: fmt.Errorf("registration failed: %s", regResp.ErrorMessage), kind: FailureRegistration}
+		return &permanentTunnelError{err: fmt.Errorf("registration failed: %s", regResp.ErrorMessage), kind: FailureRegistration, code: regResp.ErrorCode}
 	}
 	if webhookConfig != nil && !containsString(regResp.Capabilities, webhook.Capability) {
 		return &permanentTunnelError{err: fmt.Errorf("relay lacks webhook verification; update the relay"), kind: FailureProtocol}
@@ -491,6 +493,13 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 		}()
 	}
 
+	if regResp.Notice != "" {
+		if s.OnNotice != nil {
+			s.OnNotice(regResp.NoticeCode, regResp.Notice)
+		} else if !s.Quiet {
+			fmt.Println(regResp.Notice)
+		}
+	}
 	if s.OnRegistered != nil {
 		s.OnRegistered(regResp.PublicUrl)
 	}

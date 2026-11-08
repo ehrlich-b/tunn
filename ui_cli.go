@@ -252,6 +252,10 @@ func relayRefused(err error) bool {
 	return status.Code(err) == codes.Unavailable && strings.Contains(strings.ToLower(err.Error()), "connection refused")
 }
 func showTunnelError(o *terminal.Output, err error, server string) {
+	if code := client.RegistrationCode(err); code == "tunnel_limit" {
+		o.PlanMessage("error", code, err.Error())
+		return
+	}
 	reportState := func(state, title, detail, command string, delay time.Duration) {
 		o.State(state, title, detail+" Report a bug with tunn report.", command, delay)
 	}
@@ -308,6 +312,7 @@ func attachCLI(ctx context.Context, s *client.ServeClient, o *terminal.Output, v
 	target, _, check := localReading(s.TargetURL)
 	c := &cliSession{out: o, target: target, check: check, serve: s}
 	s.Quiet = true
+	s.OnNotice = func(code, message string) { o.PlanMessage("notice", code, message) }
 	if commonTrace() {
 		s.SafeLogs = true
 	} else {

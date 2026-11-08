@@ -102,6 +102,11 @@ message RegisterResponse {
   string public_url = 3;
   // capabilities contains data-plane features supported by this relay.
   repeated string capabilities = 4;
+  // Stable machine-readable refusal code; error_message remains readable by older clients.
+  string error_code = 5;
+  // Non-fatal admission guidance. A notice never prevents the tunnel from running.
+  string notice = 6;
+  string notice_code = 7;
 }
 
 // ProxyRequest is sent by the server to instruct the client to open a new

@@ -1817,6 +1817,8 @@ type RegisterTunnelResponse struct {
 	Reason        string                 `protobuf:"bytes,2,opt,name=reason,proto3" json:"reason,omitempty"`
 	CurrentCount  int32                  `protobuf:"varint,3,opt,name=current_count,json=currentCount,proto3" json:"current_count,omitempty"`
 	MaxAllowed    int32                  `protobuf:"varint,4,opt,name=max_allowed,json=maxAllowed,proto3" json:"max_allowed,omitempty"`
+	Notice        string                 `protobuf:"bytes,5,opt,name=notice,proto3" json:"notice,omitempty"`
+	NoticeCode    string                 `protobuf:"bytes,6,opt,name=notice_code,json=noticeCode,proto3" json:"notice_code,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1877,6 +1879,20 @@ func (x *RegisterTunnelResponse) GetMaxAllowed() int32 {
 		return x.MaxAllowed
 	}
 	return 0
+}
+
+func (x *RegisterTunnelResponse) GetNotice() string {
+	if x != nil {
+		return x.Notice
+	}
+	return ""
+}
+
+func (x *RegisterTunnelResponse) GetNoticeCode() string {
+	if x != nil {
+		return x.NoticeCode
+	}
+	return ""
 }
 
 type UnregisterTunnelRequest struct {
@@ -3286,13 +3302,16 @@ const file_proto_internal_proto_rawDesc = "" +
 	"\ttunnel_id\x18\x01 \x01(\tR\btunnelId\x12\x1d\n" +
 	"\n" +
 	"account_id\x18\x02 \x01(\tR\taccountId\x12!\n" +
-	"\fnode_address\x18\x03 \x01(\tR\vnodeAddress\"\x90\x01\n" +
+	"\fnode_address\x18\x03 \x01(\tR\vnodeAddress\"\xc9\x01\n" +
 	"\x16RegisterTunnelResponse\x12\x18\n" +
 	"\aallowed\x18\x01 \x01(\bR\aallowed\x12\x16\n" +
 	"\x06reason\x18\x02 \x01(\tR\x06reason\x12#\n" +
 	"\rcurrent_count\x18\x03 \x01(\x05R\fcurrentCount\x12\x1f\n" +
 	"\vmax_allowed\x18\x04 \x01(\x05R\n" +
-	"maxAllowed\"6\n" +
+	"maxAllowed\x12\x16\n" +
+	"\x06notice\x18\x05 \x01(\tR\x06notice\x12\x1f\n" +
+	"\vnotice_code\x18\x06 \x01(\tR\n" +
+	"noticeCode\"6\n" +
 	"\x17UnregisterTunnelRequest\x12\x1b\n" +
 	"\ttunnel_id\x18\x01 \x01(\tR\btunnelId\"\x1a\n" +
 	"\x18UnregisterTunnelResponse\"6\n" +

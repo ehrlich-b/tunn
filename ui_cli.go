@@ -266,10 +266,11 @@ func showTunnelError(o *terminal.Output, err error, server string, insecure ...b
 	}
 	if client.ClassifyFailure(err) == client.FailureRegistration {
 		if match := ineffectiveAllow.FindStringSubmatch(err.Error()); len(match) == 3 {
-			command := "tunn share " + shellURL(match[2]) + " " + shellURL(match[1]) + " --server " + shellURL(strings.TrimPrefix(relayOrigin(server), "https://"))
+			command := "tunn share --server " + shellURL(strings.TrimPrefix(relayOrigin(server), "https://"))
 			if len(insecure) > 0 && insecure[0] {
 				command += " --insecure"
 			}
+			command += " -- " + shellURL(match[2]) + " " + shellURL(match[1])
 			reportState("error", "Requested access is not in effect", match[1]+" is not allowed. Run this as the owner, then restart the publisher.", command, 0)
 			return
 		}

@@ -23,6 +23,7 @@ import (
 func TestAllowAddedLaterCLIProbe(t *testing.T) {
 	for _, tc := range []struct{ name, target, visitor string }{
 		{"email", "b@x", "b@x"},
+		{"hyphen email", "-alex@example.com", "-alex@example.com"},
 		{"domain", "@example.com", "b@example.com"},
 	} {
 		t.Run(tc.name, func(t *testing.T) { probeAllowAddedLater(t, tc.target, tc.visitor) })
@@ -105,7 +106,7 @@ func probeAllowAddedLater(t *testing.T, target, visitor string) {
 			case err := <-done:
 				stopped = true
 				errs, _ := os.ReadFile(stderrPath)
-				if !rejected || err == nil || !strings.Contains(string(errs), target+" is not allowed") || !strings.Contains(string(errs), "tunn share preview "+target+" --server "+relay.Listener.Addr().String()+" --insecure") || strings.Contains(string(out), "allowed") {
+				if !rejected || err == nil || !strings.Contains(string(errs), target+" is not allowed") || !strings.Contains(string(errs), "tunn share --server "+relay.Listener.Addr().String()+" --insecure -- preview "+target) || strings.Contains(string(out), "allowed") {
 					t.Fatalf("unexpected exit %v: stdout=%s stderr=%s", err, out, errs)
 				}
 				for _, line := range strings.Split(string(errs), "\n") {

@@ -281,7 +281,7 @@ func (s *LocalStorage) RegisterTunnel(ctx context.Context, tunnelID, accountID, 
 	if !scoped && owner == "" && acc.Plan == "free" {
 		reservations, err := s.accounts.GetReservedSubdomains(accountID)
 		if err == nil && len(reservations) >= store.FreeReservedSubdomains {
-			notice = "This name won't be kept while you're offline. Free keeps 1 name; Pro keeps 10 for $5 a month or $48 a year. https://tunn.to/pricing"
+			notice = "This name won't be kept while you're offline. Free keeps 1 name; Pro keeps 10 for $5 a month or $48 a year. Upgrade: https://tunn.to/upgrade?period=monthly. Pricing: https://tunn.to/pricing"
 			noticeCode = "name_not_kept"
 		}
 	}

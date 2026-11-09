@@ -157,7 +157,7 @@ func testPlanLimitCLI(t *testing.T, binary string, released bool) {
 					}
 					return
 				}
-				for _, want := range []string{"This name won't be kept while you're offline", "Free keeps 1", "Pro keeps 10", "$5 a month or $48 a year", "https://tunn.to/pricing", "second-project.tunn.to", "Online"} {
+				for _, want := range []string{"This name won't be kept while you're offline", "Free keeps 1", "Pro keeps 10", "$5 a month or $48 a year", "https://tunn.to/upgrade?period=monthly", "https://tunn.to/pricing", "second-project.tunn.to", "Online"} {
 					if !strings.Contains(out, want) {
 						t.Errorf("CLI missing %q", want)
 					}

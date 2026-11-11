@@ -2,6 +2,7 @@ package host
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/ehrlich-b/tunn/internal/common"
 )
@@ -20,6 +21,11 @@ func (p *ProxyServer) captureFunnelSource(w http.ResponseWriter, r *http.Request
 		source = common.NormalizeFunnelSource(cookie.Value)
 	} else {
 		source = common.NormalizeFunnelSource(r.URL.Query().Get("src"))
+		// Background assets and API probes must not claim a browser's first
+		// touch or allocate cookies on disabled authentication routes.
+		if !funnelSourceEntry(r) {
+			return r.WithContext(common.WithFunnelSource(r.Context(), source))
+		}
 		http.SetCookie(w, &http.Cookie{
 			Name: funnelSourceCookie, Value: source, Path: "/",
 			Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode,
@@ -28,4 +34,20 @@ func (p *ProxyServer) captureFunnelSource(w http.ResponseWriter, r *http.Request
 		w.Header().Set("Cache-Control", "private, no-store")
 	}
 	return r.WithContext(common.WithFunnelSource(r.Context(), source))
+}
+
+// Public entry pages remember direct visits too. An explicitly attributed link
+// can enter through another platform route, including an OAuth login start.
+func funnelSourceEntry(r *http.Request) bool {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		return false
+	}
+	if r.URL.Query().Has("src") {
+		return true
+	}
+	switch r.URL.Path {
+	case "/", "/about", "/pricing", "/ngrok-alternative", "/login", "/auth/login", "/upgrade", "/docs", "/agents":
+		return true
+	}
+	return strings.HasPrefix(r.URL.Path, "/docs/") || strings.HasPrefix(r.URL.Path, "/agents/")
 }

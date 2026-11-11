@@ -161,3 +161,29 @@ func TestFunnelSourceOriginIsolation(t *testing.T) {
 		}
 	}
 }
+
+func TestFunnelSourceBackgroundRequests(t *testing.T) {
+	p := newMCPOAuthFixture(t).p
+	handler := p.createHandler()
+	for _, path := range []string{"/health", "/install.sh", "/favicon.ico", "/api/device/token", "/auth/org/disabled", "/auth/google?org=disabled"} {
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, httptest.NewRequest("GET", "https://tunn.test"+path, nil))
+		for _, cookie := range w.Result().Cookies() {
+			if cookie.Name == funnelSourceCookie {
+				t.Fatalf("background or disabled route %s claimed first touch", path)
+			}
+		}
+	}
+	// A direct browser visit must persist, even before a later attributed link.
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, httptest.NewRequest("GET", "https://tunn.test/about", nil))
+	for _, cookie := range w.Result().Cookies() {
+		if cookie.Name == funnelSourceCookie {
+			if cookie.Value != "direct" {
+				t.Fatal(cookie)
+			}
+			return
+		}
+	}
+	t.Fatal("direct entry page did not persist first touch")
+}

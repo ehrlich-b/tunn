@@ -41,11 +41,24 @@ class Fixture(BaseHTTPRequestHandler):
         case = self.server.case
         status, headers = 200, {}
         names = [*BINARIES, "SHA256SUMS", "checksums.txt"]
+        # Match the absolute public URLs emitted by stage-release.py while the
+        # matching download tree is served only by this loopback server.
+        asset_base = "https://tunn.to"
+        if case == "same_origin_assets":
+            asset_base = self.server.base
+        elif case == "relative_assets":
+            asset_base = ""
         feed = {"tag_name": "v9.9.9" if case == "version" else VERSION,
                 "assets": [{"name": name, "browser_download_url":
-                            self.server.base + f"/dl/{VERSION}/{name}"} for name in names]}
+                            asset_base + f"/dl/{VERSION}/{name}"} for name in names]}
         if case == "foreign_asset":
             feed["assets"][0]["browser_download_url"] = "http://outside.invalid/binary"
+        if case == "canonical_wrong_path":
+            feed["assets"][0]["browser_download_url"] = "https://tunn.to/account"
+        if case == "canonical_query":
+            feed["assets"][0]["browser_download_url"] += "?download=1"
+        if case == "canonical_fragment":
+            feed["assets"][0]["browser_download_url"] += "#binary"
         if case == "missing_assets":
             feed["assets"] = []
         if self.path == "/dl/latest.json":
@@ -154,8 +167,15 @@ class LiveOfferTests(unittest.TestCase):
             with self.subTest(check=check):
                 self.run_case(check, (check,))
 
+    def test_download_url_formats(self):
+        for case in ("same_origin_assets", "relative_assets"):
+            with self.subTest(case=case):
+                self.run_case(case)
+
     def test_rejects_missing_proof_and_unsafe_urls(self):
         cases = {"foreign_asset": "checksums", "missing_assets": "checksums",
+                 "canonical_wrong_path": "checksums", "canonical_query": "checksums",
+                 "canonical_fragment": "checksums",
                  "missing_checksum": "checksums", "missing_offer": "pricing",
                  "foreign_offer": "pricing", "bad_redirect": "pricing",
                  "foreign_redirect": "pricing", "checkout_503": "pricing",

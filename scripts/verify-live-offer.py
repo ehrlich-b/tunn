@@ -44,6 +44,17 @@ class Reader:
             raise ValueError("URL leaves BASE_URL origin or contains a fragment")
         return url
 
+    def download_url(self, path):
+        url = urllib.parse.urljoin(self.base, path)
+        parsed = urllib.parse.urlsplit(url)
+        if origin(url) == ("https", "tunn.to", 443):
+            # stage-release.py names the public origin even for a local tree.
+            # Read its download paths from BASE_URL without contacting production.
+            if not parsed.path.startswith("/dl/") or parsed.query or parsed.fragment:
+                raise ValueError("expected a canonical download path without query or fragment")
+            return self.url(parsed.path)
+        return self.url(url)
+
     def request(self, path, method="GET"):
         if method not in ("GET", "HEAD"):
             raise ValueError("only GET and HEAD are allowed")
@@ -118,7 +129,7 @@ def check_checksums(reader, feed):
         name = asset["name"]
         require(isinstance(name, str) and re.fullmatch(r"[A-Za-z0-9_.-]+", name), "invalid asset name")
         require(name not in by_name, "duplicate download asset")
-        by_name[name] = reader.url(asset["browser_download_url"])
+        by_name[name] = reader.download_url(asset["browser_download_url"])
     sums = reader.read(by_name["SHA256SUMS"]).decode("utf-8")
     checksums = {}
     for line in sums.splitlines():

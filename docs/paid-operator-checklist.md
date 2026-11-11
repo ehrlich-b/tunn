@@ -66,3 +66,29 @@ unpublished. Existing sales and launch decisions are unchanged.
 Prepared local configuration check (does not deploy or contact Stripe):
 `bash scripts/check-operator-facts.sh`. After normal review and merge to main,
 Bryan owns the existing production deployment procedure and environment update.
+
+Check the intended billing configuration offline before deployment:
+
+```sh
+bash scripts/check-billing-ready.sh /path/to/protected.env
+# Or, with the intended service environment already loaded:
+bash scripts/check-billing-ready.sh
+```
+
+This requires Python 3 and prints one mode: `checkout closed`, `checkout open
+with manual activation`, or `checkout open with automatic activation`, followed
+by missing or malformed variable names, never values. A file is a complete
+snapshot; ambient variables do not fill its gaps. Use literal `NAME=value`
+assignments, optionally `export`, quotes and comments; shell expansion and
+escapes are rejected and the file is never executed. Unrelated settings are
+ignored. Without a file it reads the current environment.
+
+A closed configuration or intentional manual activation exits 0. Malformed
+supplied settings, or enabled billing without a webhook secret or any checkout
+link, exit 1; treat the mode as descriptive only until these errors are fixed.
+One valid monthly or yearly link opens checkout for that period; the other
+missing link is reported. Missing API credentials or approved Price IDs means
+manual activation. Automatic activation requires both `TUNN_STRIPE_SECRET_KEY`
+and `TUNN_STRIPE_PRO_PRICE_IDS`, in addition to the checkout prerequisites.
+This check validates configuration shapes only: it cannot verify credentials,
+Price ownership, deployed settings, payment, or actual customer activation.

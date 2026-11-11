@@ -39,6 +39,12 @@ func NewStripeAutomation(key string, prices []string, transport http.RoundTrippe
 	return &StripeAutomation{key: key, prices: approved, client: &http.Client{Transport: transport, Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, base: "https://api.stripe.com/v1"}
 }
 
+// Configured reports whether automatic activation has its local prerequisites.
+// It does not verify provider credentials, price ownership or payment evidence.
+func (a *StripeAutomation) Configured() bool {
+	return a.key != "" && len(a.prices) != 0
+}
+
 // Use a fixed API version: the invoice/charge association and subscription
 // billing period used below are the 2024-06-20 resource shapes.
 func (a *StripeAutomation) get(ctx context.Context, path string, out any) ([]byte, error) {
@@ -197,7 +203,7 @@ func (a *StripeAutomation) Process(ctx context.Context, s *OperationsStore, e Bi
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	out, err := s.ProcessBillingEvent(ctx, e)
-	if err != nil || e.Provider != "stripe" || !e.Supported || out.State != "reconciliation_required" || a.key == "" || len(a.prices) == 0 {
+	if err != nil || e.Provider != "stripe" || !e.Supported || out.State != "reconciliation_required" || !a.Configured() {
 		return out, err
 	}
 	switch e.Type {

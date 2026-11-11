@@ -114,6 +114,42 @@ func TestAutoActivationRefundNormalization(t *testing.T) {
 	}
 }
 
+// firstCustomerStripeFixture is shared by the HTTP and browser buyer journeys.
+// Its transport returns evidence in memory and never opens a provider socket.
+type firstCustomerStripeFixture struct {
+	customer, currentPrice, status, invoiceStatus string
+	paid, unknown, refunded, scheduled            bool
+	start, end                                    int64
+	reads                                         int
+}
+
+func newFirstCustomerStripeFixture(price string) *firstCustomerStripeFixture {
+	return &firstCustomerStripeFixture{customer: "cus_first", currentPrice: price, status: "active", invoiceStatus: "paid", paid: true}
+}
+
+func (f *firstCustomerStripeFixture) transport(t *testing.T) autoStripeTransport {
+	return autoStripeTransport(func(r *http.Request) (*http.Response, error) {
+		f.reads++
+		if r.Method != "GET" || r.URL.Host != "api.stripe.com" || r.Header.Get("Stripe-Version") != "2024-06-20" {
+			t.Fatalf("unexpected provider request: %s %s", r.Method, r.URL)
+		}
+		if r.URL.Path == "/v1/charges/ch_first" {
+			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"id":"ch_first","customer":"cus_first","invoice":"in_first"}`)), Header: make(http.Header)}, nil
+		}
+		if r.URL.Path == "/v1/invoices/in_first" {
+			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"customer":"cus_first","subscription":"sub_first"}`)), Header: make(http.Header)}, nil
+		}
+		if r.URL.Path != "/v1/subscriptions/sub_first" {
+			t.Fatalf("unexpected provider path: %s", r.URL.Path)
+		}
+		body := fmt.Sprintf(`{"id":"sub_first","customer":%q,"status":%q,"cancel_at_period_end":%t,"current_period_start":%d,"current_period_end":%d,"items":{"data":[{"price":{"id":%q}}]},"latest_invoice":{"id":"in_first","customer":%q,"subscription":"sub_first","status":%q,"paid":%t,"amount_paid":500,"amount_remaining":0,"charge":{"id":"ch_first","customer":%q,"invoice":"in_first","paid":true,"amount_refunded":%d},"lines":{"data":[{"type":"subscription","subscription":"sub_first","price":{"id":%q},"period":{"start":%d,"end":%d}}]}}}`, f.customer, f.status, f.scheduled, f.start, f.end, f.currentPrice, f.customer, f.invoiceStatus, f.paid, f.customer, map[bool]int{true: 500}[f.refunded], f.currentPrice, f.start, f.end)
+		if f.unknown {
+			body = `{"unexpected":"unknown provider shape"}`
+		}
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+	})
+}
+
 // Exercise the buyer path without pre-binding or supplied reconciliation truth.
 // Every case gets a new on-disk database and an entirely local provider.
 func TestStripeFirstCustomerCheckoutToConsumer(t *testing.T) {
@@ -140,30 +176,8 @@ func TestStripeFirstCustomerCheckoutToConsumer(t *testing.T) {
 					duration = 365 * 24 * 3600
 				}
 				price := "price_" + period
-				customer, currentPrice, status, invoiceStatus := "cus_first", price, "active", "paid"
-				paid, unknown, refunded, scheduled := true, false, false, false
-				var start, end int64
-				reads := 0
-				transport := autoStripeTransport(func(r *http.Request) (*http.Response, error) {
-					reads++
-					if r.Method != "GET" || r.URL.Host != "api.stripe.com" || r.Header.Get("Stripe-Version") != "2024-06-20" {
-						t.Fatalf("unexpected provider request: %s %s", r.Method, r.URL)
-					}
-					if r.URL.Path == "/v1/charges/ch_first" {
-						return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"id":"ch_first","customer":"cus_first","invoice":"in_first"}`)), Header: make(http.Header)}, nil
-					}
-					if r.URL.Path == "/v1/invoices/in_first" {
-						return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"customer":"cus_first","subscription":"sub_first"}`)), Header: make(http.Header)}, nil
-					}
-					if r.URL.Path != "/v1/subscriptions/sub_first" {
-						t.Fatalf("unexpected provider path: %s", r.URL.Path)
-					}
-					body := fmt.Sprintf(`{"id":"sub_first","customer":%q,"status":%q,"cancel_at_period_end":%t,"current_period_start":%d,"current_period_end":%d,"items":{"data":[{"price":{"id":%q}}]},"latest_invoice":{"id":"in_first","customer":%q,"subscription":"sub_first","status":%q,"paid":%t,"amount_paid":500,"amount_remaining":0,"charge":{"id":"ch_first","customer":%q,"invoice":"in_first","paid":true,"amount_refunded":%d},"lines":{"data":[{"type":"subscription","subscription":"sub_first","price":{"id":%q},"period":{"start":%d,"end":%d}}]}}}`, customer, status, scheduled, start, end, currentPrice, customer, invoiceStatus, paid, customer, map[bool]int{true: 500}[refunded], currentPrice, start, end)
-					if unknown {
-						body = `{"unexpected":"unknown provider shape"}`
-					}
-					return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
-				})
+				provider := newFirstCustomerStripeFixture(price)
+				transport := provider.transport(t)
 				p.storage = autoStripeStorage{local, store.NewStripeAutomation("sk_test_fixture", []string{price}, transport)}
 				checkout := revenueRequest(t, p, "/upgrade?period="+period, true)
 				u, err := url.Parse(checkout.Header().Get("Location"))
@@ -185,7 +199,7 @@ func TestStripeFirstCustomerCheckoutToConsumer(t *testing.T) {
 					t.Fatal(err)
 				}
 				now := issued.Unix()
-				start, end = now-10, now+duration
+				provider.start, provider.end = now-10, now+duration
 				send := func(id, typ string, completion bool) store.BillingResult {
 					t.Helper()
 					object := `{"id":"sub_first","customer":"cus_first","status":"active","metadata":{"account_id":"` + other.ID + `"}}`
@@ -239,15 +253,15 @@ func TestStripeFirstCustomerCheckoutToConsumer(t *testing.T) {
 				check("free", 0, 0)
 				switch scenario {
 				case "wrong_customer":
-					customer = "cus_other"
+					provider.customer = "cus_other"
 				case "wrong_price":
-					currentPrice = "price_unknown"
+					provider.currentPrice = "price_unknown"
 				case "unpaid":
-					paid = false
+					provider.paid = false
 				case "failed_invoice":
-					invoiceStatus = "open"
+					provider.invoiceStatus = "open"
 				case "unknown_response":
-					unknown = true
+					provider.unknown = true
 				}
 				first := send("evt_checkout", "checkout.session.completed", true)
 				negative := scenario != "paid" && scenario != "refund" && scenario != "cancellation"
@@ -257,16 +271,16 @@ func TestStripeFirstCustomerCheckoutToConsumer(t *testing.T) {
 					}
 					check("free", 0, 0)
 					// A delayed invoice/provider recovery retries the SAME durable receipt.
-					customer, currentPrice, paid, invoiceStatus, unknown = "cus_first", price, true, "paid", false
+					provider.customer, provider.currentPrice, provider.paid, provider.invoiceStatus, provider.unknown = "cus_first", price, true, "paid", false
 					first = send("evt_checkout", "checkout.session.completed", true)
 				}
 				if first.State != "reconciled" || first.AccountID != owner.ID {
 					t.Fatal(first)
 				}
 				check("pro", 1, 1)
-				before := reads
-				if replay := send("evt_checkout", "checkout.session.completed", true); !replay.Duplicate || reads != before {
-					t.Fatal("duplicate re-read or lost deduplication", replay, reads, before)
+				before := provider.reads
+				if replay := send("evt_checkout", "checkout.session.completed", true); !replay.Duplicate || provider.reads != before {
+					t.Fatal("duplicate re-read or lost deduplication", replay, provider.reads, before)
 				}
 				assertReceipt := func(id, outcome, account string) {
 					t.Helper()
@@ -276,19 +290,19 @@ func TestStripeFirstCustomerCheckoutToConsumer(t *testing.T) {
 						t.Fatal(id, gotOutcome, gotAccount, sub, cust, err)
 					}
 				}
-				paid = false
-				before = reads
+				provider.paid = false
+				before = provider.reads
 				pending := send("evt_delayed_renewal", "invoice.paid", false)
-				if pending.State != "reconciliation_required" || reads != before+1 {
-					t.Fatal(pending, reads, before)
+				if pending.State != "reconciliation_required" || provider.reads != before+1 {
+					t.Fatal(pending, provider.reads, before)
 				}
 				assertReceipt("evt_delayed_renewal", "reconciliation_required", owner.ID)
 				check("pro", 1, 1) // Ambiguous payment preserves the prior entitlement.
-				paid = true
-				before = reads
+				provider.paid = true
+				before = provider.reads
 				recovered := send("evt_delayed_renewal", "invoice.paid", false)
-				if recovered.State != "reconciled" || recovered.AccountID != owner.ID || reads != before+1 {
-					t.Fatal(recovered, reads, before)
+				if recovered.State != "reconciled" || recovered.AccountID != owner.ID || provider.reads != before+1 {
+					t.Fatal(recovered, provider.reads, before)
 				}
 				assertReceipt("evt_delayed_renewal", "reconciled", owner.ID)
 				var oldDigest, newDigest, statePlan string
@@ -296,25 +310,25 @@ func TestStripeFirstCustomerCheckoutToConsumer(t *testing.T) {
 					t.Fatal(err)
 				}
 				// A new paid renewal period commits a new state without another grant.
-				start, end = now-1, now+duration+3600
-				before = reads
+				provider.start, provider.end = now-1, now+duration+3600
+				before = provider.reads
 				renewed := send("evt_renewal", "invoice.paid", false)
-				if renewed.State != "reconciled" || renewed.AccountID != owner.ID || reads != before+1 {
-					t.Fatal(renewed, reads, before)
+				if renewed.State != "reconciled" || renewed.AccountID != owner.ID || provider.reads != before+1 {
+					t.Fatal(renewed, provider.reads, before)
 				}
 				assertReceipt("evt_renewal", "reconciled", owner.ID)
 				if err := db.QueryRow(`SELECT digest,plan FROM ops_billing_states WHERE provider='stripe' AND subscription_id='sub_first'`).Scan(&newDigest, &statePlan); err != nil || newDigest == oldDigest || statePlan != "pro" {
 					t.Fatal(oldDigest, newDigest, statePlan, err)
 				}
 				check("pro", 1, 1)
-				scheduled = true
+				provider.scheduled = true
 				send("evt_scheduled", "customer.subscription.updated", false)
 				check("pro", 1, 1)
 				if scenario == "refund" || scenario == "cancellation" {
 					if scenario == "refund" {
-						refunded = true
+						provider.refunded = true
 					} else {
-						status = "canceled"
+						provider.status = "canceled"
 					}
 					typ := "customer.subscription.deleted"
 					if scenario == "refund" {

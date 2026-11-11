@@ -782,3 +782,7 @@ test-webhook-journey:
 .PHONY: test-install-to-offer
 test-install-to-offer:
 	nice -n 10 python3 scripts/integration-tests/install-to-offer.py
+# Headless pricing-to-Pro checkout; local email delivery and payment evidence only.
+.PHONY: test-pay-journey
+test-pay-journey:
+	nice -n 10 python3 scripts/integration-tests/pay-journey.py

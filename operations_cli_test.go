@@ -327,4 +327,51 @@ func TestFunnelSourceCLIReadOnlyAndScope(t *testing.T) {
 	if _, err := call("funnel", "--json"); !errors.Is(err, store.ErrDenied) {
 		t.Fatalf("scoped operator read global funnel: %v", err)
 	}
+	t.Run("pre-migration snapshot", func(t *testing.T) {
+		writeConfig([]string{"*"})
+		db, err := sql.Open("sqlite", path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Reconstruct the historical schema with the same fixture events.
+		_, err = db.Exec(`ALTER TABLE funnel_events RENAME TO funnel_events_with_source;
+			CREATE TABLE funnel_events(stage TEXT NOT NULL,account_hash TEXT NOT NULL,occurred_at TEXT NOT NULL,PRIMARY KEY(stage,account_hash));
+			INSERT INTO funnel_events SELECT stage,account_hash,occurred_at FROM funnel_events_with_source;
+			DROP TABLE funnel_events_with_source;`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = db.Close(); err != nil {
+			t.Fatal(err)
+		}
+		before, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, err := call("funnel", "--json")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var report store.FunnelReport
+		if err = json.Unmarshal(data, &report); err != nil {
+			t.Fatal(err)
+		}
+		want := []store.FunnelSourceDay{{Day: "2026-10-23", Source: "other", Count: 4}, {Day: "2026-10-24", Source: "other", Count: 5}}
+		if !reflect.DeepEqual(report.SignupSources, want) || !reflect.DeepEqual(report.Days, []store.FunnelDay{{Day: "2026-10-23", Stage: "signup", Count: 4}, {Day: "2026-10-24", Stage: "signup", Count: 5}}) {
+			t.Fatalf("legacy report=%+v", report)
+		}
+		data, err = call("funnel")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, row := range want {
+			if !strings.Contains(string(data), fmt.Sprintf("%s\t%s\t%d\n", row.Day, row.Source, row.Count)) {
+				t.Fatalf("missing historical source row %+v: %s", row, data)
+			}
+		}
+		after, err := os.ReadFile(path)
+		if err != nil || !bytes.Equal(before, after) {
+			t.Fatalf("read changed historical database: %v", err)
+		}
+	})
 }

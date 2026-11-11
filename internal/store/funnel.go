@@ -124,7 +124,17 @@ func (s *OperationsStore) FunnelReport(ctx context.Context, principal AdminPrinc
 	if err != nil {
 		return nil, err
 	}
-	rows, err = s.db.QueryContext(ctx, `SELECT substr(occurred_at,1,10),source,count(*) FROM funnel_events WHERE stage='signup' GROUP BY 1,2 ORDER BY 1,2`)
+	// Operations opens snapshots read-only, including ones predating the source
+	// migration. Report unknown historical attribution without modifying them.
+	var hasSource bool
+	if err = s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM pragma_table_info('funnel_events') WHERE name='source')`).Scan(&hasSource); err != nil {
+		return nil, err
+	}
+	sourceColumn := "'other'"
+	if hasSource {
+		sourceColumn = "source"
+	}
+	rows, err = s.db.QueryContext(ctx, `SELECT substr(occurred_at,1,10),`+sourceColumn+`,count(*) FROM funnel_events WHERE stage='signup' GROUP BY 1,2 ORDER BY 1,2`)
 	if err != nil {
 		return nil, err
 	}

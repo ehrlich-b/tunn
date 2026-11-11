@@ -42,6 +42,9 @@ def walk(stage, baseline, work_parent, log):
     for name in ("TMPDIR", "GOTMPDIR", "GOCACHE"):
         value = Path(env[name]).resolve()
         assert REPO.parent not in value.parents and value != REPO.parent, name
+    # Resolve the module cache before the empty HOME hides Go's user settings.
+    # The relay fixture must keep using the prepared cache for offline runs.
+    env.update(json.loads(run(["go", "env", "-json", "GOMODCACHE"], env)))
     # This is the unchanged installer from the selected main baseline.
     main_installer = subprocess.check_output(["git", "show", "c877489c:install.sh"], cwd=REPO)
     assert main_installer == (REPO / "install.sh").read_bytes()

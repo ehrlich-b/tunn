@@ -32,7 +32,7 @@ type StripeAutomation struct {
 func NewStripeAutomation(key string, prices []string, transport http.RoundTripper) *StripeAutomation {
 	approved := make(map[string]bool)
 	for _, price := range prices {
-		if boundedText(price, 128) && strings.HasPrefix(price, "price_") {
+		if boundedText(price, 128) && strings.HasPrefix(price, "price_") && len(price) > len("price_") {
 			approved[price] = true
 		}
 	}

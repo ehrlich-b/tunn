@@ -25,6 +25,7 @@ func TestBillingReadyFixtures(t *testing.T) {
 		{"http-url", "checkout closed", true, []string{"TUNN_STRIPE_CHECKOUT_URL_MONTHLY: malformed"}},
 		{"wrong-origin", "checkout closed", true, []string{"TUNN_STRIPE_CHECKOUT_URL_MONTHLY: malformed"}},
 		{"bad-price", "checkout open with manual activation", true, []string{"TUNN_STRIPE_PRO_PRICE_IDS: malformed"}},
+		{"prefix-only-price", "checkout open with manual activation", true, []string{"TUNN_STRIPE_PRO_PRICE_IDS: malformed"}},
 		{"no-webhook", "checkout closed", true, []string{"TUNN_STRIPE_WEBHOOK_SECRET: required"}},
 		{"no-url", "checkout closed", true, []string{"TUNN_STRIPE_CHECKOUT_URL_MONTHLY: at least one", "TUNN_STRIPE_CHECKOUT_URL_YEARLY: at least one"}},
 		{"bad-boolean", "checkout closed", true, []string{"TUNN_BILLING_ENABLED: malformed"}},

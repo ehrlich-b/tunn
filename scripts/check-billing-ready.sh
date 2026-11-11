@@ -85,10 +85,11 @@ prices = [p.strip() for p in values[PRICES].split(',') if p.strip()]
 approved = [p for p in prices if re.fullmatch(r'price_[A-Za-z0-9]+', p) and len(p) <= 128]
 if values[PRICES] and (not prices or len(approved) != len(prices)):
     errors.append(f'{PRICES}: malformed; expected comma-separated Price IDs with the required prefix and a nonempty ASCII alphanumeric identifier, at most 128 bytes each')
-for name, prefix in ((WEBHOOK, 'whsec_'), (KEY, 'sk_')):
-    if values[name] and (not values[name].startswith(prefix) or len(values[name]) <= len(prefix)
-                         or any(c.isspace() for c in values[name])):
-        errors.append(f'{name}: malformed; expected {prefix} credential')
+for name, pattern, description in (
+        (WEBHOOK, r'whsec_[A-Za-z0-9]+', 'webhook signing secret'),
+        (KEY, r'sk_(?:test|live)_[A-Za-z0-9]+', 'test or live secret API key')):
+    if values[name] and not re.fullmatch(pattern, values[name]):
+        errors.append(f'{name}: malformed; expected {description} with a nonempty ASCII alphanumeric token')
 
 if values[BILLING] == 'true':
     if not values[WEBHOOK]:

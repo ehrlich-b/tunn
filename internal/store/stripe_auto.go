@@ -11,7 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"strings"
+	"regexp"
 	"sync"
 	"time"
 
@@ -29,10 +29,14 @@ type StripeAutomation struct {
 	base   string
 }
 
+// Price IDs have a price_ prefix followed by ASCII letters and digits. Keep this
+// shape and bound in sync with scripts/check-billing-ready.sh.
+var stripePriceIDPattern = regexp.MustCompile(`^price_[A-Za-z0-9]+$`)
+
 func NewStripeAutomation(key string, prices []string, transport http.RoundTripper) *StripeAutomation {
 	approved := make(map[string]bool)
 	for _, price := range prices {
-		if boundedText(price, 128) && strings.HasPrefix(price, "price_") && len(price) > len("price_") {
+		if len(price) <= 128 && stripePriceIDPattern.MatchString(price) {
 			approved[price] = true
 		}
 	}

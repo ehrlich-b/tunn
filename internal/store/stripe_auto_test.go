@@ -12,6 +12,39 @@ import (
 	"time"
 )
 
+func TestStripeAutomationPriceIDs(t *testing.T) {
+	for _, tc := range []struct {
+		name, price string
+		valid       bool
+	}{
+		{"alphanumeric", "price_1AbC09", true},
+		{"maximum-length", "price_" + strings.Repeat("a", 122), true},
+		{"too-long", "price_" + strings.Repeat("a", 123), false},
+		{"missing", "", false},
+		{"wrong-prefix", "prod_1AbC09", false},
+		{"prefix-only", "price_", false},
+		{"punctuation", "price_!!!", false},
+		{"underscore", "price_fixture_month", false},
+		{"space", "price_a b", false},
+		{"newline", "price_a\n", false},
+		{"unicode", "price_é123", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			auto := NewStripeAutomation("sk_fixture", []string{tc.price}, nil)
+			if auto.Configured() != tc.valid || auto.prices[tc.price] != tc.valid {
+				t.Fatalf("configured = %v, want %v", auto.Configured(), tc.valid)
+			}
+		})
+	}
+	auto := NewStripeAutomation("sk_fixture", []string{"price_!!!", "price_1AbC09"}, nil)
+	if !auto.Configured() || len(auto.prices) != 1 || !auto.prices["price_1AbC09"] {
+		t.Fatal("only valid approved IDs may enable automation")
+	}
+	if NewStripeAutomation("", []string{"price_1AbC09"}, nil).Configured() {
+		t.Fatal("an API key is still required")
+	}
+}
+
 type autoStripeFixture struct {
 	t          *testing.T
 	db         *sql.DB

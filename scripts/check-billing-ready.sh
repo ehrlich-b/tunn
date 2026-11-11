@@ -80,12 +80,11 @@ for name in URLS:
         errors.append(f'{name}: malformed; expected https://buy.stripe.com/<payment-link> without credentials or fragment')
 
 # Config trims comma-separated entries and the server filters them with
-# boundedText(price, 128) and a nonempty price_ identifier before enabling automation.
+# an ASCII alphanumeric price_ identifier of at most 128 bytes before enabling automation.
 prices = [p.strip() for p in values[PRICES].split(',') if p.strip()]
-approved = [p for p in prices if p.startswith('price_') and len(p) > len('price_') and len(p.encode()) <= 128
-            and not any(c in p for c in '\x00\r\n')]
+approved = [p for p in prices if re.fullmatch(r'price_[A-Za-z0-9]+', p) and len(p) <= 128]
 if values[PRICES] and (not prices or len(approved) != len(prices)):
-    errors.append(f'{PRICES}: malformed; expected comma-separated Price IDs with the required prefix and a nonempty identifier, at most 128 bytes each')
+    errors.append(f'{PRICES}: malformed; expected comma-separated Price IDs with the required prefix and a nonempty ASCII alphanumeric identifier, at most 128 bytes each')
 for name, prefix in ((WEBHOOK, 'whsec_'), (KEY, 'sk_')):
     if values[name] and (not values[name].startswith(prefix) or len(values[name]) <= len(prefix)
                          or any(c.isspace() for c in values[name])):

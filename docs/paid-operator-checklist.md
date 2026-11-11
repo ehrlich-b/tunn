@@ -90,5 +90,7 @@ One valid monthly or yearly link opens checkout for that period; the other
 missing link is reported. Missing API credentials or approved Price IDs means
 manual activation. Automatic activation requires both `TUNN_STRIPE_SECRET_KEY`
 and `TUNN_STRIPE_PRO_PRICE_IDS`, in addition to the checkout prerequisites.
+Each approved Price ID must match `price_[A-Za-z0-9]+` and be at most 128
+bytes; punctuation, internal whitespace and non-ASCII identifiers are malformed.
 This check validates configuration shapes only: it cannot verify credentials,
 Price ownership, deployed settings, payment, or actual customer activation.

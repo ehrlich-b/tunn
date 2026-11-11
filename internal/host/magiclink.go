@@ -87,7 +87,7 @@ func (p *ProxyServer) handleMagicLinkRequest(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Generate magic link JWT (5 minute expiry)
-	token, err := p.generateMagicLinkTokenForReturnTo(email, p.sanitizeReturnTo(r.URL.Query().Get("return_to")))
+	token, err := p.generateMailboxTokenWithSource(email, p.sanitizeReturnTo(r.URL.Query().Get("return_to")), "", common.FunnelSource(r.Context()))
 	if err != nil {
 		common.LogError("failed to generate magic link token", "error", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -148,6 +148,16 @@ func (p *ProxyServer) handleMagicLinkVerify(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "Account authority unavailable", 503)
 		return
 	}
+	// The email link can open on another configured platform host or browser.
+	// Transfer only the signed source token, keeping attribution cookies host-only.
+	verified, parseErr := jwt.Parse(tokenString, func(*jwt.Token) (any, error) { return p.getJWTSigningKey(), nil }, jwt.WithValidMethods([]string{"HS256"}))
+	if parseErr == nil && verified.Valid {
+		if claims, ok := verified.Claims.(jwt.MapClaims); ok {
+			if source, ok := claims["source"].(string); ok {
+				r = r.WithContext(common.WithFunnelSource(r.Context(), source))
+			}
+		}
+	}
 	account, err := p.storage.FindOrCreateByEmails(r.Context(), []string{email}, "magic_link")
 	if err != nil {
 		http.Error(w, "Account authority unavailable", 503)
@@ -169,8 +179,7 @@ func (p *ProxyServer) handleMagicLinkVerify(w http.ResponseWriter, r *http.Reque
 	}
 
 	// Redirect to account page
-	verified, err := jwt.Parse(tokenString, func(*jwt.Token) (any, error) { return p.getJWTSigningKey(), nil }, jwt.WithValidMethods([]string{"HS256"}))
-	if err == nil && verified.Valid {
+	if parseErr == nil && verified.Valid {
 		if claims, ok := verified.Claims.(jwt.MapClaims); ok {
 			if returnTo, ok := claims["return_to"].(string); ok && returnTo != "" && returnTo != "/" {
 				http.Redirect(w, r, p.sanitizeReturnTo(returnTo), http.StatusFound)
@@ -192,6 +201,10 @@ func (p *ProxyServer) generateMagicLinkTokenForReturnTo(email, returnTo string) 
 
 // generateMailboxToken shares signing, expiry and replay IDs with login links.
 func (p *ProxyServer) generateMailboxToken(email, returnTo, accountID string) (string, error) {
+	return p.generateMailboxTokenWithSource(email, returnTo, accountID, "")
+}
+
+func (p *ProxyServer) generateMailboxTokenWithSource(email, returnTo, accountID, source string) (string, error) {
 	// Generate unique token ID to prevent replay attacks
 	jtiBytes := make([]byte, 16)
 	if _, err := rand.Read(jtiBytes); err != nil {
@@ -212,6 +225,9 @@ func (p *ProxyServer) generateMailboxToken(email, returnTo, accountID string) (s
 	}
 	if returnTo != "" {
 		claims["return_to"] = p.sanitizeReturnTo(returnTo)
+	}
+	if source != "" && accountID == "" {
+		claims["source"] = common.NormalizeFunnelSource(source)
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)

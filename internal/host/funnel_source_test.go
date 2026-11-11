@@ -3,7 +3,9 @@ package host
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
 	"strings"
@@ -186,4 +188,66 @@ func TestFunnelSourceBackgroundRequests(t *testing.T) {
 		}
 	}
 	t.Fatal("direct entry page did not persist first touch")
+}
+
+func TestFunnelSourcePlatformHosts(t *testing.T) {
+	for _, remote := range []bool{false, true} {
+		for _, source := range []string{"alt", "direct", "other"} {
+			t.Run(fmt.Sprintf("replica=%t/%s", remote, source), func(t *testing.T) {
+				f := newMCPOAuthFixture(t)
+				p := f.p
+				p.config.PublicAddr = "login.test"
+				if remote {
+					p.storage = securityReplicaStorage(t, p.storage.(*storage.LocalStorage))
+				}
+				p.emailSender = new(accountsMailCapture)
+				handler := p.createHandler()
+				jar, err := cookiejar.New(nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				landing, _ := url.Parse("https://tunn.test/docs?src=" + source)
+				first := httptest.NewRecorder()
+				handler.ServeHTTP(first, httptest.NewRequest("GET", landing.String(), nil))
+				jar.SetCookies(landing, first.Result().Cookies())
+				signup := httptest.NewRequest("POST", "https://tunn.test/auth/magic", strings.NewReader(`{"email":"cross-host@example.invalid"}`))
+				signup.Header.Set("Origin", "https://tunn.test")
+				for _, cookie := range jar.Cookies(signup.URL) {
+					signup.AddCookie(cookie)
+				}
+				w := httptest.NewRecorder()
+				handler.ServeHTTP(w, signup)
+				if w.Code != http.StatusOK {
+					t.Fatalf("request: %d %s", w.Code, w.Body)
+				}
+				verify := httptest.NewRequest("GET", p.emailSender.(*accountsMailCapture).link, nil)
+				if verify.URL.Host != "login.test" {
+					t.Fatal(verify.URL)
+				}
+				if len(jar.Cookies(verify.URL)) != 0 {
+					t.Fatal("apex cookie leaked to public host")
+				}
+				// A later source on the destination must not replace the source signed at request time.
+				if source != "alt" {
+					verify.AddCookie(&http.Cookie{Name: funnelSourceCookie, Value: "saashub"})
+				}
+				w = httptest.NewRecorder()
+				handler.ServeHTTP(w, verify)
+				if w.Code != http.StatusFound {
+					t.Fatalf("verify: %d %s", w.Code, w.Body)
+				}
+				var count int
+				if err := f.p.mcpOAuth.db.QueryRow(`SELECT count(*) FROM funnel_events WHERE stage='signup' AND source=?`, source).Scan(&count); err != nil {
+					t.Fatal(err)
+				}
+				want := 1
+				if source == "direct" {
+					want++
+				} // The fixture's owner is direct.
+				if count != want {
+					t.Fatalf("signups from %s=%d want=%d", source, count, want)
+				}
+			})
+		}
+	}
 }

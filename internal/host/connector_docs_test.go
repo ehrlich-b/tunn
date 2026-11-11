@@ -12,6 +12,7 @@ import (
 )
 
 func TestConnectorGuideRoutes(t *testing.T) {
+	t.Setenv("TUNN_MCP_VERIFIED", "")
 	cfg := &config.Config{Domain: "tunn.to", StatusURL: "http://127.0.0.1:8091"}
 	p := &ProxyServer{Domain: cfg.Domain, config: cfg, tunnelServer: NewTunnelServer(cfg, nil, nil, nil)}
 	handler := p.createHandler()
@@ -52,7 +53,7 @@ func TestConnectorGuideRoutes(t *testing.T) {
 
 func TestMCPToClaudeVerified(t *testing.T) {
 	const experimental = "Experimental: connections to Claude.ai and ChatGPT have not yet been verified end to end."
-	const account = " You need an account that supports custom MCP connectors.</p>"
+	const account = "You need an account that supports custom MCP connectors."
 	longClients := []string{
 		"Claude.ai web on macOS with a personal account 2026-11-12",
 		"Claude iOS on iPhone with a personal account 2026-11-12",
@@ -63,16 +64,24 @@ func TestMCPToClaudeVerified(t *testing.T) {
 		"ChatGPT iOS on iPhone with a personal account 2026-11-12",
 		"ChatGPT Android on a Pixel with a personal account 2026-11-12",
 	}
-	for _, tc := range []struct{ name, value string }{
-		{"unset", ""},
-		{"whitespace", " \t\n\r\u2003"},
-		{"one", "Claude.ai web 2026-11-12"},
-		{"multiple", "Claude.ai web 2026-11-12; Claude iOS 2026-11-12"},
-		{"escaped", `<script>alert("client")</script> & <img src=x onerror=alert(1)> {{.MCPVerified}}`},
-		{"long", strings.Join(longClients, "; ")},
+	for _, tc := range []struct {
+		name, value string
+		clients     []string
+		more        int
+	}{
+		{"unset", "", nil, 0},
+		{"whitespace", " \t\n\r\u2003", nil, 0},
+		{"one", longClients[0], longClients[:1], 0},
+		{"multiple", strings.Join(longClients[:2], "; "), longClients[:2], 0},
+		{"limit", strings.Join(longClients[:4], "; "), longClients[:4], 0},
+		{"empty_entries", " ; " + longClients[0] + "; ; ", longClients[:1], 0},
+		{"separators", "; ;", []string{"; ;"}, 0},
+		{"escaped", `<script>alert("client")</script> & <img src=x onerror=alert(1)> {{.MCPVerified}}`, []string{`<script>alert("client")</script> & <img src=x onerror=alert(1)> {{.MCPVerified}}`}, 0},
+		{"long", strings.Join(longClients, "; "), longClients[:4], 4},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			cfg := &config.Config{Domain: "tunn.to", MCPVerified: tc.value}
+			t.Setenv("TUNN_MCP_VERIFIED", tc.value)
+			cfg := &config.Config{Domain: "tunn.to"}
 			p := &ProxyServer{Domain: cfg.Domain, config: cfg, tunnelServer: NewTunnelServer(cfg, nil, nil, nil)}
 			handler := p.createHandler()
 			for _, path := range []string{"/mcp-to-claude", "/docs/mcp-to-claude"} {
@@ -83,12 +92,36 @@ func TestMCPToClaudeVerified(t *testing.T) {
 				}
 				body := w.Body.String()
 				value := strings.TrimSpace(tc.value)
-				want := experimental
-				if value != "" {
-					want = "Verified with: " + html.EscapeString(value) + "."
+				if !strings.Contains(body, account) {
+					t.Errorf("%s: missing account requirement", path)
 				}
-				if !strings.Contains(body, `<p class="note">`+want+account) {
-					t.Errorf("%s: missing exact escaped note %q", path, want)
+				if value == "" {
+					if !strings.Contains(body, `<p class="note">`+experimental+" "+account+"</p>") {
+						t.Errorf("%s: original Experimental note changed", path)
+					}
+				} else {
+					start := strings.Index(body, `<div class="note mcp-verification">`)
+					if start < 0 {
+						t.Fatalf("%s: missing verification note", path)
+					}
+					note := strings.SplitN(body[start:], "</div>", 2)[0]
+					if !strings.Contains(note, "Verified with:") || strings.Count(note, "<li ") != len(tc.clients) {
+						t.Errorf("%s: wrong visible clients: %s", path, note)
+					}
+					for _, client := range tc.clients {
+						if !strings.Contains(note, html.EscapeString(client)) {
+							t.Errorf("%s: missing escaped client %q", path, client)
+						}
+					}
+					if strings.Contains(note, "+4 more") != (tc.more == 4) || strings.Contains(note, "+0 more") {
+						t.Errorf("%s: wrong overflow count: %s", path, note)
+					}
+					if tc.more > 0 && strings.Contains(note, longClients[4]) {
+						t.Errorf("%s: hidden client rendered", path)
+					}
+					if strings.Contains(note, "<script>") || strings.Contains(note, "<img ") {
+						t.Errorf("%s: unescaped client HTML", path)
+					}
 				}
 				if value == "" && strings.Contains(body, "Verified with:") || value != "" && strings.Contains(body, experimental) {
 					t.Errorf("%s: wrong verification state", path)
@@ -100,5 +133,14 @@ func TestMCPToClaudeVerified(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestMCPToClaudeVerifiedOtherTemplates(t *testing.T) {
+	t.Setenv("TUNN_MCP_VERIFIED", "")
+	before := withSiteChrome(shareDevServerOAuthHTML)
+	t.Setenv("TUNN_MCP_VERIFIED", "Example <client> 2026-11-12")
+	if got := withSiteChrome(shareDevServerOAuthHTML); got != before {
+		t.Fatal("verification fact changed another guide")
 	}
 }

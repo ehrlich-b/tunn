@@ -4,8 +4,11 @@ import (
 	_ "embed"
 	"fmt"
 	"html"
+	"html/template"
 	"io"
 	"strings"
+
+	"github.com/ehrlich-b/tunn/internal/config"
 )
 
 // baseCSS contains the shared CSS styles for all tunn pages (matches homepage)
@@ -28,10 +31,51 @@ func siteHeader(current string) string {
 
 // withSiteChrome fills the header and footer markers in full-page templates.
 func withSiteChrome(page string) string {
+	page = withMCPVerification(page)
 	for _, current := range []string{"home", "docs", "pricing", "ngrok", "signin", "status", "none"} {
 		page = strings.ReplaceAll(page, "<!--site-header:"+current+"-->", siteHeader(current))
 	}
 	return withPageHead(strings.ReplaceAll(page, "<!--site-footer-->", pageFooter))
+}
+
+// withMCPVerification fills only the MCP guide's fact fragment. Both static guide
+// routes already use this template layer, so their handlers need no special case.
+func withMCPVerification(page string) string {
+	before, rest, found := strings.Cut(page, "<!--mcp-verification-->")
+	if !found {
+		return page
+	}
+	fragment, after, found := strings.Cut(rest, "<!--/mcp-verification-->")
+	if !found {
+		return page
+	}
+	var data struct {
+		Clients []string
+		More    int
+	}
+	value := strings.TrimSpace(config.MCPVerifiedFromEnv())
+	if value != "" {
+		for _, client := range strings.Split(value, ";") {
+			if client = strings.TrimSpace(client); client != "" {
+				data.Clients = append(data.Clients, client)
+			}
+		}
+		if len(data.Clients) == 0 {
+			data.Clients = []string{value}
+		}
+		const visibleClients = 4
+		if len(data.Clients) > visibleClients {
+			data.More = len(data.Clients) - visibleClients
+			data.Clients = data.Clients[:visibleClients]
+		}
+	}
+	var note strings.Builder
+	tmpl := template.Must(template.New("mcp-verification").Parse(fragment))
+	if err := tmpl.Execute(&note, data); err != nil {
+		// The fragment and data shape are bundled together; failures are programming errors.
+		panic(err)
+	}
+	return before + note.String() + after
 }
 
 // iconHead is shared by every server-rendered document.

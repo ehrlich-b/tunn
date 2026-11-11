@@ -3,10 +3,8 @@ package host
 import (
 	_ "embed"
 	"fmt"
-	"html/template"
 	"net/http"
 	"strconv"
-	"strings"
 )
 
 //go:embed templates/ngrok-alternative.html
@@ -17,18 +15,6 @@ var clientPreviewsHTML string
 
 //go:embed templates/mcp-to-claude.html
 var mcpToClaudeHTML string
-
-var mcpToClaudeTemplate = template.Must(template.New("mcp-to-claude").Parse(withSiteChrome(mcpToClaudeHTML)))
-
-func (p *ProxyServer) renderMCPToClaude(w http.ResponseWriter) {
-	var verified string
-	if p.config != nil {
-		verified = strings.TrimSpace(p.config.MCPVerified)
-	}
-	if err := mcpToClaudeTemplate.Execute(w, struct{ MCPVerified string }{verified}); err != nil {
-		http.Error(w, "Page unavailable", http.StatusInternalServerError)
-	}
-}
 
 //go:embed templates/share-dev-server-oauth.html
 var shareDevServerOAuthHTML string
@@ -110,8 +96,6 @@ func (p *ProxyServer) serveDistributionPage(w http.ResponseWriter, r *http.Reque
 	}
 	if r.URL.Path == "/ngrok-alternative" || r.URL.Path == "/client-previews" {
 		p.renderRevenuePage(w, body)
-	} else if r.URL.Path == "/mcp-to-claude" {
-		p.renderMCPToClaude(w)
 	} else {
 		_, _ = fmt.Fprint(w, body)
 	}

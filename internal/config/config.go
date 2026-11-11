@@ -109,6 +109,12 @@ type Config struct {
 	DomainKeySecret      string // base64-encoded AES-256 key; login node only
 }
 
+// MCPVerifiedFromEnv supplies the deployment fact to configuration and static page templates.
+// It does not infer verification from protocol checks or other settings.
+func MCPVerifiedFromEnv() string {
+	return os.Getenv("TUNN_MCP_VERIFIED")
+}
+
 // LoadConfig loads configuration based on environment
 func LoadConfig() (*Config, error) {
 	env := getEnvironment()
@@ -120,7 +126,7 @@ func LoadConfig() (*Config, error) {
 	cfg.OperatingName = os.Getenv("TUNN_OPERATING_NAME")
 	cfg.MerchantDisplayName = os.Getenv("TUNN_MERCHANT_DISPLAY_NAME")
 	cfg.SupportWindow = os.Getenv("TUNN_SUPPORT_WINDOW")
-	cfg.MCPVerified = os.Getenv("TUNN_MCP_VERIFIED")
+	cfg.MCPVerified = MCPVerifiedFromEnv()
 	cfg.StatusURL = os.Getenv("TUNN_STATUS_URL")
 	if cfg.StatusURL != "" {
 		if _, err := statuspage.Origin(cfg.StatusURL); err != nil {

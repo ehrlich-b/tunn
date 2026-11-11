@@ -54,8 +54,9 @@ protected environment file with confirmed values:
 - [ ] `TUNN_MERCHANT_DISPLAY_NAME`: default source is the current Stripe merchant identity and receipt/statement display, checked by Bryan in the existing account. No identity has been independently verified here; leave unset until checked.
 - [ ] Maintainer: Bryan Ehrlich (already rendered; no legal-operator inference).
 - [ ] `TUNN_SUPPORT_WINDOW`: default source is the actual daily report review window Bryan currently staffs, with timezone and days. Leave unset until confirmed; do not infer round-the-clock coverage or a response deadline.
+- [ ] `TUNN_MCP_VERIFIED`: list only AI clients and dates Bryan has verified end to end, for example `Claude.ai web 2026-11-12; Claude iOS 2026-11-12`. `/mcp-to-claude` and `/docs/mcp-to-claude` show these as escaped text after “Verified with:”. Leave unset or whitespace-only to keep the Experimental statement; a protocol check alone does not verify an AI client.
 
-Unset or whitespace-only facts display “Being confirmed; not currently available.”
+Unset or whitespace-only `/about` facts display “Being confirmed; not currently available.”
 Values render as text, including HTML characters. No report form or mail delivery
 is added; the current support and abuse mail links remain available. Privacy,
 retention and refund terms stay in their existing documents. Current status is

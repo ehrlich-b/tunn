@@ -24,6 +24,7 @@ type Config struct {
 	OperatingName       string
 	MerchantDisplayName string
 	SupportWindow       string
+	MCPVerified         string // Confirmed AI clients and verification dates; blank stays experimental.
 
 	// Server configuration
 	StatusURL string // Explicit independent status collector origin (optional).
@@ -119,6 +120,7 @@ func LoadConfig() (*Config, error) {
 	cfg.OperatingName = os.Getenv("TUNN_OPERATING_NAME")
 	cfg.MerchantDisplayName = os.Getenv("TUNN_MERCHANT_DISPLAY_NAME")
 	cfg.SupportWindow = os.Getenv("TUNN_SUPPORT_WINDOW")
+	cfg.MCPVerified = os.Getenv("TUNN_MCP_VERIFIED")
 	cfg.StatusURL = os.Getenv("TUNN_STATUS_URL")
 	if cfg.StatusURL != "" {
 		if _, err := statuspage.Origin(cfg.StatusURL); err != nil {

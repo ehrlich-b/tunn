@@ -19,7 +19,7 @@
 <main id="main" class="guide-content" tabindex="-1"><h1>Connect MCP to Claude.ai and ChatGPT</h1>
 <p class="lead">Publish a private endpoint, check its OAuth flow, then connect your tools.</p>
 <p><a href="/docs#s1">Install tunn</a> and Python 3. Save the <a href="/dl/examples/mcp/echo.py">echo example</a> as echo.py in your working directory; it returns your message without file or network access.</p>
-<p class="note">Experimental: connections to Claude.ai and ChatGPT have not yet been verified end to end. You need an account that supports custom MCP connectors.</p>
+<p class="note">{{if .MCPVerified}}Verified with: {{.MCPVerified}}.{{else}}Experimental: connections to Claude.ai and ChatGPT have not yet been verified end to end.{{end}} You need an account that supports custom MCP connectors.</p>
 <h2>1. Publish</h2>
 <div class="mcp-commands">
 <div class="glass cmd shell-command"><code class="kbd" tabindex="0" role="region" aria-label="Login command"><span class="arg">tunn</span> <span class="arg">login</span></code><button class="btn sm copy" data-copy="tunn login" aria-describedby="mcp-login-copy">Copy</button></div>

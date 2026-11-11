@@ -106,7 +106,7 @@ func (p *ProxyServer) handleDocs(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if r.URL.Path == "/docs/mcp-to-claude" {
 		if r.Method != http.MethodHead {
-			_, _ = fmt.Fprint(w, withSiteChrome(mcpToClaudeHTML))
+			p.renderMCPToClaude(w)
 		}
 		return
 	} else if r.URL.Path == "/docs/webhook-verification" {

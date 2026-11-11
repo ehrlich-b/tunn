@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Walk both Pro offers through real HTTPS handlers and an in-memory provider.
 
-Needs Node, Playwright and its cached Chromium. Set TUNN_PLAYWRIGHT_MODULE to an
-existing Playwright module if it is not on Node's module path. No auto-install,
-provider credentials, interactive sign-in or hosted service is used.
+Needs Node, Playwright and its cached Chromium. Playwright is resolved from Node's
+module path, then existing /work/cache project dependencies. An explicit
+TUNN_PLAYWRIGHT_MODULE overrides discovery. No auto-install, provider credentials,
+interactive sign-in or hosted service is used.
 
 TUNN_PAY_JOURNEY_EVIDENCE defaults to ../evidence (outside the checkout).
 PLAYWRIGHT_BROWSERS_PATH defaults to /work/cache/ms-playwright.

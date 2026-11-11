@@ -2,7 +2,30 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const {chromium} = require(process.env.TUNN_PLAYWRIGHT_MODULE || 'playwright');
+function loadPlaywright() {
+  if (process.env.TUNN_PLAYWRIGHT_MODULE) return require(process.env.TUNN_PLAYWRIGHT_MODULE);
+  let installed;
+  try {
+    installed = require.resolve('playwright');
+  } catch (error) {
+    if (error.code !== 'MODULE_NOT_FOUND') throw error;
+  }
+  if (installed) return require(installed);
+  // Reuse shared dependencies without installing anything or scanning projects.
+  const cache = '/work/cache';
+  if (fs.existsSync(cache)) {
+    const candidates = [path.join(cache, 'node_modules/playwright')];
+    for (const entry of fs.readdirSync(cache).sort()) {
+      candidates.push(path.join(cache, entry, 'node_modules/playwright'),
+        path.join(cache, entry, 'web/node_modules/playwright'));
+    }
+    for (const candidate of candidates) {
+      if (fs.existsSync(path.join(candidate, 'package.json'))) return require(candidate);
+    }
+  }
+  throw new Error('Playwright is required: install it locally or set TUNN_PLAYWRIGHT_MODULE to an existing module.');
+}
+const {chromium} = loadPlaywright();
 const input = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 const {apex, period, width, email, output} = input;
 const run = `${period}-${width}`;

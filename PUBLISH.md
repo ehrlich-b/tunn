@@ -1,83 +1,35 @@
-# Sales release handoff
+# Publish tunn v0.1.6 and qualify round r18
 
-Bryan: review and land product changes on main before selecting a release. This
-checkout is preparation, not a deployment receipt. The actual private round-script
-path is unavailable and its interface is UNVERIFIED. Supply its real executable
-path explicitly; no private machine path is inferred. Do not apply until its
-interface below has been confirmed locally. No Windows or herder preset is needed.
+These are operator steps. Local preparation does not publish the client or
+change the relay. Keep the existing v0.1.5 assets for rollback.
 
-From the clean selected landed commit, retain outside the checkout:
-
-- The prior immutable relay image (`registry/name@sha256:…`), prior feed JSON and
-  its tag, observed by the operator. Keep the old image and immutable assets.
-- Actual focused test receipts, JSON objects with `source` (full selected SHA),
-  `command`, `selected_tests` (>0) and `exit_code` (0), plus original execution
-  logs. Receipts are operator attestations, not signatures or automatic proof.
-- Configuration **names only**, for example `TUNN_DOWNLOAD_DIR`. Never supply
-  environment files or secret values to these tools.
-
-```sh
-python3 -B scripts/sales-release.py generate \
-  --source "$(git rev-parse HEAD)" --main-ref refs/remotes/origin/main \
-  --previous-image "$PRIOR_IMMUTABLE_IMAGE" --previous-tag "$PRIOR_TAG" \
-  --previous-feed "$PRIOR_FEED_JSON" --config-name TUNN_DOWNLOAD_DIR \
-  --receipt "$FRAGMENT_RECEIPT_JSON" --output "$NEW_MANIFEST_JSON"
-```
-
-Relay-only copy changes reuse the existing CLI feed/assets; omit `--client-stage`.
-The prior feed digest must remain unchanged in this case. For an optional new
-CLI, use [release staging and reproducibility](docs/release-qualification.md) first:
-`stage-release.py` followed by `check-release-contract.py` for the selected source.
-Pass `--client-stage "$VERIFIED_STAGE"` to capture the stage manifest, four assets,
-checksum aliases and feed. The mirror validator runs locally. This generator
-neither builds a new CLI nor copies anything into `downloads/`. Existing
-[deploy integration](docs/download-mirror.md) still requires a valid download tree
-at `make fly-deploy` and `REQUIRE_DOWNLOADS=1` in production. Publication of a new
-CLI remains a separate approved operator action; retain the previous feed/tree.
-
-Ready dry-run command (the required argument is the **actual** executable path):
-
-```sh
-python3 -B scripts/sales-release.py operate --round-script "${ROUND_SCRIPT:?set actual existing round-script path}" --manifest "${NEW_MANIFEST_JSON:?set selected manifest path}"
-```
-
-It validates local files and prints ordered commands with zero round-script calls.
-After review, Bryan alone may repeat this command with `--operator-apply`.
-The existing script must support this explicit interface, or be adapted and
-reviewed by Bryan before use:
-
-1. `ROUND_SCRIPT --check --manifest ABSOLUTE_JSON` is read-only, exits nonzero on
-   failure and prints **only** JSON with `previous_image` and
-   `previous_feed_sha256`. It must verify the current hosted image/feed against
-   the prior state and the deployment inputs against the selected manifest.
-2. `ROUND_SCRIPT --apply --manifest ABSOLUTE_JSON` deploys that exact relay SHA
-   and optional staged client; it must recheck prior state immediately before
-   mutating, retain rollback inputs and fail on drift. For relay-only releases it
-   must preserve the feed and assets. Local checks run again after check mode.
-3. `ROUND_SCRIPT --rollback --manifest ABSOLUTE_JSON` restores the recorded prior
-   image and feed atomically, retaining all immutable versioned assets. The
-   wrapper prints this command; it never invokes rollback automatically.
-
-Do not log secret-bearing stdout/stderr. The wrapper suppresses check output and
-verifies its two metadata fields before invoking apply. Pin and review the local
-round script and protect all manifest/input files from concurrent writers; this
-wrapper is an operator guard, not a sandbox for an untrusted executable.
-
-After deployment, retain timestamped read-only results, observed source/image
-and feed SHA256, not just this checklist. These checks are **UNVERIFIED** here:
-
-```sh
-scripts/smoke-prod.sh https://tunn.to
-curl --disable --fail --silent --show-error https://tunn.to/ -o "$HOMEPAGE_RECEIPT"
-curl --disable --fail --silent --show-error https://tunn.to/dl/latest.json -o "$FEED_RECEIPT"
-curl --disable --fail --silent --show-error https://tunn.to/pricing -o "$PRICING_RECEIPT"
-curl --disable --fail --silent --show-error https://tunn.to/status -o "$STATUS_RECEIPT"
-sha256sum "$FEED_RECEIPT"
-```
-
-Compare homepage copy and pricing to the selected source without changing plans,
-prices or limits. Compare the feed to the new staged digest, or recorded prior
-digest for relay-only. Status must render and health/ready checks must pass;
-unknown monitoring remains unknown. On mismatch, Bryan runs the printed rollback
-command, confirms prior image/feed and repeats the read-only checks. A successful
-local test or checklist does not establish hosted deployment success.
+1. From the directory containing `release-stage/`, check all four binaries
+   against the staged SHA256SUMS. From the source repository verify the tagged
+   source bundle with `git bundle verify ../release-stage/tunn-v0.1.6.bundle`.
+2. Copy the immutable version directory and the prepared feed to the mirror:
+   ```sh
+   scp -r release-stage/downloads/v0.1.6 forge:/work/lanes/release-mirror/tunn/downloads/
+   scp release-stage/downloads/latest.v0.1.6.json forge:/work/lanes/release-mirror/tunn/downloads/
+   ```
+3. On forge, before selecting the new feed, verify the copied version directory:
+   ```sh
+   cd /work/lanes/release-mirror/tunn/downloads/v0.1.6
+   sha256sum --check SHA256SUMS
+   cmp SHA256SUMS checksums.txt
+   ```
+   Compare all four hashes with the prepared manifest. Preserve the current
+   `downloads/latest.json` as the rollback feed, then atomically select the
+   copied `latest.v0.1.6.json` as `downloads/latest.json`.
+4. Round r18 must use this mirror as its download input, run the download-tree
+   validator before publication, and preserve the current relay configuration.
+   Publish the immutable v0.1.6 assets before switching the public latest feed.
+5. Round r18 must verify `downloads/v0.1.6/SHA256SUMS` against all four published
+   binaries, confirm `checksums.txt` is identical, and confirm `latest.json`
+   says `v0.1.6` with the four binary URLs and both checksum URLs.
+   From an empty HOME, run the public installer and confirm `tunn version`
+   prints `tunn v0.1.6`. With a Free account already keeping one name, start a
+   second name: it must run and show the Pro $5 notice and monthly checkout link.
+   Record the published feed, hashes, installed version and notice transcript.
+6. If any published check fails, restore the saved latest feed, verify a fresh
+   installation selects its prior version, and retain both version directories.
+   No price, plan, limit or legal-copy changes are part of this publication.

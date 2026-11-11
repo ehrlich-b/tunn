@@ -29,6 +29,17 @@ func TestPlanLimitCLI(t *testing.T) {
 	testPlanLimitCLI(t, "", false)
 }
 
+func TestPlanLimitInstalledCLI(t *testing.T) {
+	binary := os.Getenv("TUNN_INSTALLED_CLI")
+	if binary == "" {
+		t.Skip("set TUNN_INSTALLED_CLI to the installed v0.1.6 binary")
+	}
+	if out, err := exec.Command(binary, "version").CombinedOutput(); err != nil || string(out) != "tunn v0.1.6\n" {
+		t.Fatalf("installed version: %v: %s", err, out)
+	}
+	testPlanLimitCLI(t, binary, false)
+}
+
 func TestPlanLimitReleasedCLI(t *testing.T) {
 	binary := os.Getenv("TUNN_RELEASE_CLI")
 	if binary == "" {
@@ -147,8 +158,10 @@ func testPlanLimitCLI(t *testing.T, binary string, released bool) {
 					t.Errorf("second tunnel refused: %v", err)
 				}
 				if released {
-					if strings.Contains(out, "https://tunn.to/pricing") {
-						t.Error("v0.1.5 unexpectedly displays the notice; revisit compatibility claim")
+					for _, notice := range []string{"This name won't be kept", "Pro keeps 10", "$5", "https://tunn.to/upgrade?period=monthly", "https://tunn.to/pricing"} {
+						if strings.Contains(out, notice) {
+							t.Errorf("v0.1.5 unexpectedly displays %q; revisit compatibility claim", notice)
+						}
 					}
 					for _, want := range []string{"second-project.tunn.to", "Online"} {
 						if !strings.Contains(out, want) {

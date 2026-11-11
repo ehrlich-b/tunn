@@ -777,3 +777,8 @@ demo-install-to-tool:
 .PHONY: test-webhook-journey
 test-webhook-journey:
 	python3 scripts/integration-tests/webhook-journey.py
+
+# Checkout-built installer, Free named previews and local checkout redirect.
+.PHONY: test-install-to-offer
+test-install-to-offer:
+	nice -n 10 python3 scripts/integration-tests/install-to-offer.py

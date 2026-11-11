@@ -81,6 +81,16 @@ class Reader:
 
 
 class Page(HTMLParser):
+    # Inline markup does not add whitespace within a rendered word. Block
+    # boundaries and explicit line breaks do separate the surrounding text.
+    SEPARATORS = frozenset((
+        "address", "article", "aside", "blockquote", "br", "caption", "dd",
+        "details", "div", "dl", "dt", "fieldset", "figcaption", "figure",
+        "footer", "form", "h1", "h2", "h3", "h4", "h5", "h6", "header",
+        "hr", "li", "main", "nav", "ol", "p", "pre", "section", "summary",
+        "table", "tbody", "td", "tfoot", "th", "thead", "tr", "ul",
+    ))
+
     def __init__(self, body):
         super().__init__(convert_charrefs=True)
         self.parts = []
@@ -88,21 +98,25 @@ class Page(HTMLParser):
         self.link = None
         self.ignored = 0
         self.feed(body.decode("utf-8"))
-        self.text = " ".join(" ".join(self.parts).split())
+        self.text = " ".join("".join(self.parts).split())
         if not self.text:
             raise ValueError("empty page")
 
     def handle_starttag(self, tag, attrs):
         if tag in ("script", "style"):
             self.ignored += 1
+        if tag in self.SEPARATORS:
+            self.handle_data(" ")
         if tag == "a" and not self.ignored:
             self.link = [dict(attrs).get("href", ""), []]
 
     def handle_endtag(self, tag):
         if tag in ("script", "style"):
             self.ignored = max(0, self.ignored - 1)
+        if tag in self.SEPARATORS:
+            self.handle_data(" ")
         if tag == "a" and self.link is not None:
-            self.links.append((self.link[0], " ".join(" ".join(self.link[1]).split())))
+            self.links.append((self.link[0], " ".join("".join(self.link[1]).split())))
             self.link = None
 
     def handle_data(self, data):

@@ -75,6 +75,10 @@ class Fixture(BaseHTTPRequestHandler):
             body = b'<h1>Pro</h1><a href="/upgrade?period=monthly">Go <b>Pro</b> monthly</a>'
             if case == "pricing":
                 body += b"<p>Checkout is not available yet. Free tunnels still work.</p>"
+            if case == "pricing_inline":
+                body += b"<p>Checkout is not avail<em>able</em> yet.</p>"
+            if case == "offer_inline":
+                body = body.replace(b"<b>Pro</b>", b"Pr<b>o</b>")
             if case == "missing_offer":
                 body = b"<h1>Pro</h1>"
             if case == "foreign_offer":
@@ -92,12 +96,16 @@ class Fixture(BaseHTTPRequestHandler):
             body = b"<h1>Operator facts</h1><dd>Confirmed operator</dd>"
             if case == "about":
                 body += b"<dd>Being <em>confirmed</em></dd>"
+            if case == "about_inline":
+                body += b"<dd>Being con<em>firmed</em></dd>"
             if case == "about_404":
                 status = 404
         elif self.path == "/mcp-to-claude":
             body = b"<h1>Connect MCP</h1>"
             if case == "mcp":
                 body += b"<p>Experimental: connections to Claude.ai and ChatGPT have not yet been verified end to end.</p>"
+            if case == "mcp_inline":
+                body += b"<p>Experimental: connections have not yet been ver<strong>ified</strong> end to end.</p>"
             if case == "foreign_page_redirect":
                 status, headers["Location"] = 302, "http://outside.invalid/mcp"
         else:
@@ -171,6 +179,28 @@ class LiveOfferTests(unittest.TestCase):
         for case in ("same_origin_assets", "relative_assets"):
             with self.subTest(case=case):
                 self.run_case(case)
+
+    def test_inline_markup_cannot_hide_forbidden_text(self):
+        for check in ("pricing", "about", "mcp"):
+            with self.subTest(check=check):
+                self.run_case(check + "_inline", (check,))
+
+    def test_inline_offer_label(self):
+        self.run_case("offer_inline")
+
+    def test_visible_text_boundaries(self):
+        for markup in (
+                "Being con<em>firmed</em>",
+                "Being con<!-- comment -->firmed",
+                "Being con&#102;irmed",
+                "<div>Being</div><div>confirmed</div>",
+                "Being<br>confirmed",
+                "<dl><dt>Being</dt><dd>confirmed</dd></dl>"):
+            with self.subTest(markup=markup):
+                self.assertEqual(verify.Page(markup.encode()).text, "Being confirmed")
+        self.assertEqual(verify.Page(
+            b"Being<script>ignored</script> con<style>ignored</style>firmed").text,
+            "Being confirmed")
 
     def test_rejects_missing_proof_and_unsafe_urls(self):
         cases = {"foreign_asset": "checksums", "missing_assets": "checksums",

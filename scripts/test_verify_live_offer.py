@@ -44,13 +44,25 @@ class Fixture(BaseHTTPRequestHandler):
         # Match the absolute public URLs emitted by stage-release.py while the
         # matching download tree is served only by this loopback server.
         asset_base = "https://tunn.to"
-        if case == "same_origin_assets":
+        if case in ("same_origin_assets", "stale_same_origin_assets"):
             asset_base = self.server.base
-        elif case == "relative_assets":
+        elif case in ("relative_assets", "stale_relative_assets"):
             asset_base = ""
-        feed = {"tag_name": "v9.9.9" if case == "version" else VERSION,
+        tag = "v9.9.9" if case == "version" else VERSION
+        feed = {"tag_name": tag,
                 "assets": [{"name": name, "browser_download_url":
-                            asset_base + f"/dl/{VERSION}/{name}"} for name in names]}
+                            asset_base + f"/dl/{tag}/{name}"} for name in names]}
+        if case in ("stale_assets", "stale_same_origin_assets", "stale_relative_assets"):
+            for asset in feed["assets"]:
+                asset["browser_download_url"] = asset_base + f"/dl/v0.0.1/{asset['name']}"
+        if case in ("stale_manifest", "stale_binary"):
+            asset = next(asset for asset in feed["assets"] if asset["name"] ==
+                         ("SHA256SUMS" if case == "stale_manifest" else next(iter(BINARIES))))
+            asset["browser_download_url"] = asset_base + f"/dl/v0.0.1/{asset['name']}"
+        if case == "swapped_binary_paths":
+            first, second = feed["assets"][:2]
+            first["browser_download_url"], second["browser_download_url"] = (
+                second["browser_download_url"], first["browser_download_url"])
         if case == "foreign_asset":
             feed["assets"][0]["browser_download_url"] = "http://outside.invalid/binary"
         if case == "canonical_wrong_path":
@@ -63,12 +75,13 @@ class Fixture(BaseHTTPRequestHandler):
             feed["assets"] = []
         if self.path == "/dl/latest.json":
             body = json.dumps(feed).encode()
-        elif self.path in (f"/dl/{VERSION}/SHA256SUMS", f"/dl/{VERSION}/checksums.txt"):
+        elif self.path in tuple(f"/dl/{release}/{name}" for release in (tag, "v0.0.1")
+                                for name in ("SHA256SUMS", "checksums.txt")):
             body = "".join(f"{hashlib.sha256(data).hexdigest()}  {name}\n"
                            for name, data in BINARIES.items()).encode()
             if case == "missing_checksum":
                 body = body.splitlines(keepends=True)[0]
-        elif self.path.startswith(f"/dl/{VERSION}/") and self.path.rsplit("/", 1)[-1] in BINARIES:
+        elif self.path.startswith((f"/dl/{tag}/", "/dl/v0.0.1/")) and self.path.rsplit("/", 1)[-1] in BINARIES:
             name = self.path.rsplit("/", 1)[-1]
             body = b"corrupt" if case == "checksums" and name == next(iter(BINARIES)) else BINARIES[name]
         elif self.path == "/pricing":
@@ -179,6 +192,15 @@ class LiveOfferTests(unittest.TestCase):
         for case in ("same_origin_assets", "relative_assets"):
             with self.subTest(case=case):
                 self.run_case(case)
+
+    def test_downloads_match_feed_release_and_asset_names(self):
+        for case in ("stale_assets", "stale_same_origin_assets", "stale_relative_assets",
+                     "stale_manifest", "stale_binary", "swapped_binary_paths"):
+            with self.subTest(case=case):
+                self.run_case(case, ("checksums",))
+                # Reject inconsistent metadata before reading even a valid old release.
+                self.assertFalse(any(path.startswith("/dl/") and path != "/dl/latest.json"
+                                     for _, _, path in self.server.requests))
 
     def test_inline_markup_cannot_hide_forbidden_text(self):
         for check in ("pricing", "about", "mcp"):

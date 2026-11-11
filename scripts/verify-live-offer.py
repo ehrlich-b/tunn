@@ -136,6 +136,9 @@ def check_version(feed, expected):
 
 
 def check_checksums(reader, feed):
+    tag = feed["tag_name"]
+    require(isinstance(tag, str) and re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", tag),
+            "invalid release tag")
     assets = feed["assets"]
     require(isinstance(assets, list) and bool(assets), "no download assets")
     by_name = {}
@@ -143,7 +146,12 @@ def check_checksums(reader, feed):
         name = asset["name"]
         require(isinstance(name, str) and re.fullmatch(r"[A-Za-z0-9_.-]+", name), "invalid asset name")
         require(name not in by_name, "duplicate download asset")
-        by_name[name] = reader.download_url(asset["browser_download_url"])
+        url = reader.download_url(asset["browser_download_url"])
+        # The installer constructs these paths from tag_name, not the asset URLs.
+        # Verify the same release and filename before reading any downloads.
+        require(url == reader.url(f"/dl/{tag}/{name}"),
+                f"download URL does not match release {tag} and asset {name}")
+        by_name[name] = url
     sums = reader.read(by_name["SHA256SUMS"]).decode("utf-8")
     checksums = {}
     for line in sums.splitlines():

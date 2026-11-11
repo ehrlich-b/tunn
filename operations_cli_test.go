@@ -8,8 +8,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -229,7 +231,7 @@ func TestReviewedBillingCLIOnNonFixtureDatabase(t *testing.T) {
 	}
 }
 
-func TestFunnelCLIReadOnlyAndScope(t *testing.T) {
+func TestFunnelSourceCLIReadOnlyAndScope(t *testing.T) {
 	dir := t.TempDir()
 	path, configPath, tokenPath := filepath.Join(dir, "funnel.db"), filepath.Join(dir, "admins.json"), filepath.Join(dir, "token")
 	token := "funnel-operator-token-0123456789abcdef"
@@ -257,6 +259,37 @@ func TestFunnelCLIReadOnlyAndScope(t *testing.T) {
 	if _, err := call("fixture-init", "--email", "funnel@example.invalid"); err != nil {
 		t.Fatal(err)
 	}
+	fixture, err := os.ReadFile("testdata/funnel_sources.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want []store.FunnelSourceDay
+	if err = json.Unmarshal(fixture, &want); err != nil {
+		t.Fatal(err)
+	}
+	db, err := store.OpenLocal(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Reuse the fixture-init signup for the first expected event.
+	if _, err = db.Exec(`UPDATE funnel_events SET occurred_at=?,source=? WHERE stage='signup'`, want[0].Day+"T12:00:00Z", want[0].Source); err != nil {
+		t.Fatal(err)
+	}
+	for i, row := range want {
+		start := 0
+		if i == 0 {
+			start = 1
+		}
+		for j := start; j < row.Count; j++ {
+			hash := sha256.Sum256([]byte(fmt.Sprintf("fixture-%d-%d", i, j)))
+			if _, err = db.Exec(`INSERT INTO funnel_events(stage,account_hash,occurred_at,source) VALUES('signup',?,?,?)`, hex.EncodeToString(hash[:]), row.Day+"T12:00:00Z", row.Source); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if err = db.Close(); err != nil {
+		t.Fatal(err)
+	}
 	before, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -270,12 +303,20 @@ func TestFunnelCLIReadOnlyAndScope(t *testing.T) {
 		if err := json.Unmarshal(data, &report); err != nil {
 			t.Fatal(err)
 		}
-		if len(report.Days) != 1 || report.Days[0].Stage != "signup" || report.Days[0].Count != 1 || report.CheckoutWithoutPro != 0 {
+		if !reflect.DeepEqual(report.SignupSources, want) || !reflect.DeepEqual(report.Days, []store.FunnelDay{{Day: "2026-10-23", Stage: "signup", Count: 4}, {Day: "2026-10-24", Stage: "signup", Count: 5}}) || report.CheckoutWithoutPro != 0 {
 			t.Fatalf("report=%+v", report)
 		}
 		data, err = call("funnel")
-		if err != nil || !strings.Contains(string(data), "DAY\tSTAGE\tCOUNT") || !strings.Contains(string(data), "\tsignup\t1") || strings.Contains(string(data), "funnel@example.invalid") {
+		if err != nil || !strings.Contains(string(data), "DAY\tSTAGE\tCOUNT") || !strings.Contains(string(data), "\tsignup\t4") || strings.Contains(string(data), "funnel@example.invalid") {
 			t.Fatalf("table=%s err=%v", data, err)
+		}
+		if !strings.Contains(string(data), "DAY\tSIGNUP SOURCE\tCOUNT") {
+			t.Fatal("missing signup source table", string(data))
+		}
+		for _, row := range want {
+			if !strings.Contains(string(data), fmt.Sprintf("%s\t%s\t%d\n", row.Day, row.Source, row.Count)) {
+				t.Fatalf("missing source row %+v: %s", row, data)
+			}
 		}
 	}
 	after, err := os.ReadFile(path)

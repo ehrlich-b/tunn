@@ -174,6 +174,7 @@ func (s *LoginNodeDBServer) GetAccountByEmail(ctx context.Context, req *internal
 
 // FindOrCreateByEmails finds or creates an account, handling merges
 func (s *LoginNodeDBServer) FindOrCreateByEmails(ctx context.Context, req *internalv1.FindOrCreateByEmailsRequest) (*internalv1.AccountResponse, error) {
+	ctx = storage.IncomingFunnelSource(ctx)
 	var account *storage.Account
 	var err error
 	if req.VerifiedVia == "google" || req.GoogleSubject != "" {

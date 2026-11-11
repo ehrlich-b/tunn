@@ -998,6 +998,7 @@ func (p *ProxyServer) createHandler() http.Handler {
 		if p.statusUnconfigured() && !strings.HasPrefix(r.URL.Path, "/dl/") {
 			w = &statusLinksHiddenWriter{ResponseWriter: w}
 		}
+		r = p.captureFunnelSource(w, r)
 		mux.ServeHTTP(w, r)
 	})
 }

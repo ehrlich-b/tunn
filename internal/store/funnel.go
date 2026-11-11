@@ -7,6 +7,8 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"time"
+
+	"github.com/ehrlich-b/tunn/internal/common"
 )
 
 // funnelDB is implemented by both a database and an existing transaction.
@@ -29,7 +31,7 @@ func RecordFunnel(ctx context.Context, db funnelDB, stage, account string) {
 	if hash == "" {
 		return
 	}
-	_, _ = db.ExecContext(ctx, `INSERT OR IGNORE INTO funnel_events(stage,account_hash,occurred_at) VALUES(?,?,?)`, stage, hash, time.Now().UTC().Format(time.RFC3339Nano))
+	_, _ = db.ExecContext(ctx, `INSERT OR IGNORE INTO funnel_events(stage,account_hash,occurred_at,source) VALUES(?,?,?,?)`, stage, hash, time.Now().UTC().Format(time.RFC3339Nano), common.FunnelSource(ctx))
 }
 
 func funnelAccountHash(ctx context.Context, db funnelDB, account string) string {
@@ -74,7 +76,7 @@ func copyFunnelIdentity(ctx context.Context, db funnelDB, oldAccount, newAccount
 	if checkoutOnly {
 		filter = " AND stage='checkout_completed'"
 	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO funnel_events(stage,account_hash,occurred_at) SELECT stage,?,occurred_at FROM funnel_events WHERE account_hash=?`+filter+` ON CONFLICT(stage,account_hash) DO UPDATE SET occurred_at=min(funnel_events.occurred_at,excluded.occurred_at)`, newHash, oldHash); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO funnel_events(stage,account_hash,occurred_at,source) SELECT stage,?,occurred_at,source FROM funnel_events WHERE account_hash=?`+filter+` ON CONFLICT(stage,account_hash) DO UPDATE SET occurred_at=min(funnel_events.occurred_at,excluded.occurred_at)`, newHash, oldHash); err != nil {
 		return
 	}
 	if !retainOriginal {
@@ -87,9 +89,16 @@ type FunnelDay struct {
 	Stage string `json:"stage"`
 	Count int    `json:"count"`
 }
+type FunnelSourceDay struct {
+	Day    string `json:"day"`
+	Source string `json:"source"`
+	Count  int    `json:"count"`
+}
+
 type FunnelReport struct {
-	Days               []FunnelDay `json:"days"`
-	CheckoutWithoutPro int         `json:"checkout_without_pro"`
+	SignupSources      []FunnelSourceDay `json:"signup_sources"`
+	Days               []FunnelDay       `json:"days"`
+	CheckoutWithoutPro int               `json:"checkout_without_pro"`
 }
 
 // FunnelReport is an aggregate across accounts and therefore requires global access.
@@ -97,7 +106,7 @@ func (s *OperationsStore) FunnelReport(ctx context.Context, principal AdminPrinc
 	if err := principal.authorize("*"); err != nil {
 		return nil, err
 	}
-	out := &FunnelReport{Days: []FunnelDay{}}
+	out := &FunnelReport{Days: []FunnelDay{}, SignupSources: []FunnelSourceDay{}}
 	rows, err := s.db.QueryContext(ctx, `SELECT substr(occurred_at,1,10),stage,count(*) FROM funnel_events GROUP BY 1,2 ORDER BY 1,2`)
 	if err != nil {
 		return nil, err
@@ -115,8 +124,40 @@ func (s *OperationsStore) FunnelReport(ctx context.Context, principal AdminPrinc
 	if err != nil {
 		return nil, err
 	}
+	rows, err = s.db.QueryContext(ctx, `SELECT substr(occurred_at,1,10),source,count(*) FROM funnel_events WHERE stage='signup' GROUP BY 1,2 ORDER BY 1,2`)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var d FunnelSourceDay
+		if err = rows.Scan(&d.Day, &d.Source, &d.Count); err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		out.SignupSources = append(out.SignupSources, d)
+	}
+	err = rows.Err()
+	_ = rows.Close()
+	if err != nil {
+		return nil, err
+	}
+
 	now := time.Now().UTC()
 	lower, upper := now.Add(-24*time.Hour).Format(time.RFC3339Nano), now.Format(time.RFC3339Nano)
 	err = s.db.QueryRowContext(ctx, `SELECT count(*) FROM funnel_events c WHERE c.stage='checkout_completed' AND c.occurred_at >= ? AND c.occurred_at <= ? AND NOT EXISTS (SELECT 1 FROM funnel_events p WHERE p.stage='pro_active' AND p.account_hash=c.account_hash AND p.occurred_at >= ? AND p.occurred_at <= ?)`, lower, upper, lower, upper).Scan(&out.CheckoutWithoutPro)
 	return out, err
+}
+
+// migrateFunnelSource is additive and leaves existing events intact. Historical
+// events have no known channel and are grouped as other.
+func migrateFunnelSource(db *sql.DB) error {
+	var installed bool
+	if err := db.QueryRow(`SELECT EXISTS(SELECT 1 FROM pragma_table_info('funnel_events') WHERE name='source')`).Scan(&installed); err != nil {
+		return err
+	}
+	if installed {
+		return nil
+	}
+	_, err := db.Exec(`ALTER TABLE funnel_events ADD COLUMN source TEXT NOT NULL DEFAULT 'other' CHECK(source IN ('alt','saashub','docs','thread','direct','other'))`)
+	return err
 }

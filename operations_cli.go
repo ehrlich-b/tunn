@@ -228,6 +228,10 @@ func executeOperations(args []string, out io.Writer) error {
 		for _, row := range report.Days {
 			_, _ = fmt.Fprintf(out, "%s\t%s\t%d\n", row.Day, row.Stage, row.Count)
 		}
+		_, _ = fmt.Fprintln(out, "DAY\tSIGNUP SOURCE\tCOUNT")
+		for _, row := range report.SignupSources {
+			_, _ = fmt.Fprintf(out, "%s\t%s\t%d\n", row.Day, row.Source, row.Count)
+		}
 		_, _ = fmt.Fprintf(out, "Checkout completed without Pro (last 24h): %d\n", report.CheckoutWithoutPro)
 		return nil
 	case "payment-queue":

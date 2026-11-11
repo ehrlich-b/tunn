@@ -188,7 +188,7 @@ func (s *ProxyStorage) FindOrCreateByEmails(ctx context.Context, emails []string
 	if client == nil {
 		return nil, ErrNotAvailable
 	}
-	resp, err := client.FindOrCreateByEmails(ctx, &internalv1.FindOrCreateByEmailsRequest{
+	resp, err := client.FindOrCreateByEmails(outgoingFunnelSource(ctx), &internalv1.FindOrCreateByEmailsRequest{
 		Emails:      emails,
 		VerifiedVia: verifiedVia,
 	})
@@ -438,7 +438,7 @@ func (s *ProxyStorage) FindOrCreateGoogleIdentity(ctx context.Context, subject, 
 	if client == nil {
 		return nil, ErrNotAvailable
 	}
-	resp, err := client.FindOrCreateByEmails(ctx, &internalv1.FindOrCreateByEmailsRequest{Emails: []string{email}, VerifiedVia: "google", GoogleSubject: subject, GoogleHostedDomain: hostedDomain, GoogleEmailVerified: verified})
+	resp, err := client.FindOrCreateByEmails(outgoingFunnelSource(ctx), &internalv1.FindOrCreateByEmailsRequest{Emails: []string{email}, VerifiedVia: "google", GoogleSubject: subject, GoogleHostedDomain: hostedDomain, GoogleEmailVerified: verified})
 	if err != nil {
 		return nil, err
 	}

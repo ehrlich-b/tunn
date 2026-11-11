@@ -45,6 +45,10 @@ func NewAccountStore(db *sql.DB) *AccountStore {
 // FindOrCreateByEmails finds an existing account containing any of the emails,
 // or creates a new account. Handles account merging when emails span multiple accounts.
 func (s *AccountStore) FindOrCreateByEmails(emails []string, verifiedVia string) (*Account, error) {
+	return s.FindOrCreateByEmailsContext(context.Background(), emails, verifiedVia)
+}
+
+func (s *AccountStore) FindOrCreateByEmailsContext(ctx context.Context, emails []string, verifiedVia string) (*Account, error) {
 	if len(emails) == 0 {
 		return nil, sql.ErrNoRows
 	}
@@ -56,13 +60,13 @@ func (s *AccountStore) FindOrCreateByEmails(emails []string, verifiedVia string)
 	// Keep lookup, creation, merges and alias attachment in one transaction.
 	// A concurrent login must not return an account whose email insert lost to
 	// another login, and a failed alias write must roll back the whole bucket.
-	tx, err := s.db.Begin()
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	account, err := s.findOrCreateByEmailsTx(tx, emails, verifiedVia)
+	account, err := s.findOrCreateByEmailsTx(ctx, tx, emails, verifiedVia)
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +78,7 @@ func (s *AccountStore) FindOrCreateByEmails(emails []string, verifiedVia string)
 }
 
 // findOrCreateByEmailsTx lets provider binding and email attachment commit together.
-func (s *AccountStore) findOrCreateByEmailsTx(tx *sql.Tx, emails []string, verifiedVia string) (*Account, error) {
+func (s *AccountStore) findOrCreateByEmailsTx(ctx context.Context, tx *sql.Tx, emails []string, verifiedVia string) (*Account, error) {
 
 	// Find all accounts that own any of these emails
 	placeholders := make([]string, len(emails))
@@ -131,7 +135,7 @@ func (s *AccountStore) findOrCreateByEmailsTx(tx *sql.Tx, emails []string, verif
 			return nil, err
 		}
 
-		RecordFunnel(context.Background(), tx, "signup", account.ID)
+		RecordFunnel(ctx, tx, "signup", account.ID)
 
 	case 1:
 		// Use existing account

@@ -42,7 +42,7 @@ func (s *AccountStore) FindOrCreateGoogleIdentity(ctx context.Context, subject, 
 			return nil, fmt.Errorf("Google subject account mismatch")
 		}
 	}
-	account, err := s.findOrCreateByEmailsTx(tx, []string{email}, "google")
+	account, err := s.findOrCreateByEmailsTx(ctx, tx, []string{email}, "google")
 	if err != nil {
 		return nil, err
 	}

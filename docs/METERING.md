@@ -251,8 +251,11 @@ For local operators, `tunn admin funnel --db PATH --admin-config PATH
 --token-file PATH` prints UTC daily counts; add `--json` to export the report.
 It requires a global operator credential and opens the database read-only.
 Each stage is recorded once per account using a database-specific HMAC hash;
-the ledger contains only the stage, hash and first occurrence time. Failed
+the ledger contains the stage, hash, first occurrence time and signup source. Failed
 ledger writes do not reject signup, admission, consent or billing requests.
+Signup attribution keeps only an allow-listed first-touch token (`alt`, `saashub`, `docs`, `thread`, `direct`, or `other`) in a secure first-party cookie for 30 days and in `funnel_events`, never a full URL, referrer, IP address or email.
+The report also groups daily signups by source; historical events without a
+captured channel appear as `other`.
 
 Save that JSON and run `python3 scripts/launch-watch.py --funnel REPORT.json
 LOGFILE` (or pipe saved logs on stdin). For a report alone, redirect stdin from

@@ -1,0 +1,9 @@
+[
+  {"day":"2026-10-23","source":"alt","count":2},
+  {"day":"2026-10-23","source":"direct","count":1},
+  {"day":"2026-10-23","source":"docs","count":1},
+  {"day":"2026-10-24","source":"docs","count":2},
+  {"day":"2026-10-24","source":"other","count":1},
+  {"day":"2026-10-24","source":"saashub","count":1},
+  {"day":"2026-10-24","source":"thread","count":1}
+]

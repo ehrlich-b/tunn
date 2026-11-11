@@ -173,7 +173,7 @@ func (s *LocalStorage) GetAccountByEmail(ctx context.Context, email string) (*Ac
 
 // FindOrCreateByEmails finds or creates an account, handling merges.
 func (s *LocalStorage) FindOrCreateByEmails(ctx context.Context, emails []string, verifiedVia string) (*Account, error) {
-	acc, err := s.accounts.FindOrCreateByEmails(emails, verifiedVia)
+	acc, err := s.accounts.FindOrCreateByEmailsContext(ctx, emails, verifiedVia)
 	if err != nil {
 		return nil, err
 	}

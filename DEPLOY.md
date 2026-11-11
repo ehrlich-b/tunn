@@ -47,3 +47,7 @@ that checkout in place while the job is installed. The daily job runs
 The job is validated and installed atomically with mode 0600; a failed render
 leaves the previous definition in place, and installation replaces any symlink
 at the destination without changing its target.
+
+## Read back the public checkpoint
+
+Run `python3 scripts/verify-live-offer.py BASE_URL --expect-version vX.Y.Z` to check the release, checksums, monthly offer, operator facts and MCP verification notice. The offer check reads the signed-out checkout redirect without following it; it does not verify authenticated payment or sign in.

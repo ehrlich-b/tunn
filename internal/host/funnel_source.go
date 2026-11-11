@@ -11,7 +11,8 @@ const funnelSourceCookie = "__Host-tunn_source"
 // Capture only on platform origins, after customer tunnel routing. A host-only
 // cookie cannot be read or planted by a publisher on a sibling tunnel origin.
 func (p *ProxyServer) captureFunnelSource(w http.ResponseWriter, r *http.Request) *http.Request {
-	if !p.isPlatformHost(r.Host) {
+	// Download-only mirrors have no login configuration or signup flow.
+	if p.config == nil || !p.isPlatformHost(r.Host) {
 		return r
 	}
 	source := ""

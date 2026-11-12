@@ -4,7 +4,8 @@
 Needs Node, npm's cached playwright@1.64.1 and its cached Chromium. Reuses a
 Playwright module on Node's module path, or prepares the pinned test dependency
 offline in .scratch/pay-journey/node, following the integration clients' scratch
-convention. TUNN_PLAYWRIGHT_MODULE can override resolution. No downloads, global
+convention. Select an existing npm cache with standard npm_config_cache when
+the default cache is empty. TUNN_PLAYWRIGHT_MODULE can override resolution. No downloads, global
 installs, provider credentials, interactive sign-in or hosted service are used.
 
 TUNN_PAY_JOURNEY_EVIDENCE defaults to ../evidence (outside the checkout).

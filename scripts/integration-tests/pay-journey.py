@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Walk both Pro offers through real HTTPS handlers and an in-memory provider.
 
-Needs Node, Playwright and its cached Chromium. Playwright is resolved from Node's
-module path, then existing /work/cache project dependencies. An explicit
-TUNN_PLAYWRIGHT_MODULE overrides discovery. No auto-install, provider credentials,
-interactive sign-in or hosted service is used.
+Needs Node, npm's cached playwright@1.64.1 and its cached Chromium. Reuses a
+Playwright module on Node's module path, or prepares the pinned test dependency
+offline in .scratch/pay-journey/node, following the integration clients' scratch
+convention. TUNN_PLAYWRIGHT_MODULE can override resolution. No downloads, global
+installs, provider credentials, interactive sign-in or hosted service are used.
 
 TUNN_PAY_JOURNEY_EVIDENCE defaults to ../evidence (outside the checkout).
 PLAYWRIGHT_BROWSERS_PATH defaults to /work/cache/ms-playwright.
@@ -60,6 +61,26 @@ def verify(report_path):
     print('PASS: four complete journeys, 24 correctly sized screenshots and four signed webhook receipts')
 
 
+def playwright_module():
+    """Use standard Node resolution, then npm's configured offline cache."""
+    override = os.environ.get('TUNN_PLAYWRIGHT_MODULE')
+    if override:
+        return override
+    resolved = subprocess.run(['node', '-p', "require.resolve('playwright')"],
+                              cwd=ROOT, text=True, capture_output=True)
+    if resolved.returncode == 0:
+        return resolved.stdout.strip()
+    # Like mcp-real-clients, keep test dependencies separate from product SDKs.
+    prefix = ROOT / '.scratch/pay-journey/node'
+    module = prefix / 'node_modules/playwright'
+    package = module / 'package.json'
+    if not package.is_file() or json.loads(package.read_text())['version'] != '1.64.1':
+        subprocess.run(['npm', '--prefix', str(prefix), 'install', '--offline',
+                        '--ignore-scripts', '--no-audit', '--no-fund', '--no-save',
+                        '--no-package-lock', 'playwright@1.64.1'], cwd=ROOT, check=True)
+    return str(module)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--verify', type=Path, help='verify a previously generated report')
@@ -71,7 +92,8 @@ def main():
     if output == ROOT or ROOT in output.parents:
         raise SystemExit('Evidence must be outside the checkout')
     output.mkdir(parents=True, exist_ok=True)
-    env = dict(os.environ, TUNN_PAY_JOURNEY='1', TUNN_PAY_JOURNEY_EVIDENCE=str(output),
+    env = dict(os.environ, TUNN_PLAYWRIGHT_MODULE=playwright_module(),
+               TUNN_PAY_JOURNEY='1', TUNN_PAY_JOURNEY_EVIDENCE=str(output),
                PLAYWRIGHT_BROWSERS_PATH=os.environ.get('PLAYWRIGHT_BROWSERS_PATH', '/work/cache/ms-playwright'))
     command = ['go', 'test', '-p', '2', '-count=1', '-timeout=300s', '-v',
                '-run', '^TestPayJourneyBrowser$', './internal/host']

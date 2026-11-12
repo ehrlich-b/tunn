@@ -173,7 +173,7 @@ func (p *ProxyServer) handleGoogleCallback(w http.ResponseWriter, r *http.Reques
 		p.writeAuthError(w, r, "Google identity cannot be linked; sign in with a fresh email link", 403, "Sign in again to start a new Google login.")
 		return
 	}
-	if err = p.signedSession(w, jwt.MapClaims{"account_id": account.ID, "email": email, "sub": identity.Sub, "provider": "google", "email_verified": true, "google_authoritative": true, "issuer": common.GoogleIssuer}, authCookieName, "."+p.config.Domain, authCookieLifetime); err != nil {
+	if err = p.signedPlatformSession(w, r, jwt.MapClaims{"account_id": account.ID, "email": email, "sub": identity.Sub, "provider": "google", "email_verified": true, "google_authoritative": true, "issuer": common.GoogleIssuer}); err != nil {
 		p.writeAuthError(w, r, "Login unavailable", 500, "Sign in again to start a new Google login.")
 		return
 	}

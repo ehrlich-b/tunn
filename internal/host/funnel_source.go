@@ -18,7 +18,7 @@ const funnelSourceLifetime = 30 * 24 * time.Hour
 // subsequent signup on PublicAddr uses that cookie even when the apex is on a
 // different domain. No cookies, session claims or handoff tokens cross origins.
 func (p *ProxyServer) canonicalFunnelEntry(w http.ResponseWriter, r *http.Request) bool {
-	if p.config == nil || !p.isPlatformHost(r.Host) || !funnelSourceEntry(r) || httpsAuthority(r.Host) == httpsAuthority(p.loginAuthority()) {
+	if p.config == nil || !p.isPlatformHost(r.Host) || !p.funnelSourceEntry(r) || httpsAuthority(r.Host) == httpsAuthority(p.loginAuthority()) {
 		return false
 	}
 	// Existing authenticated account actions stay on their current origin.
@@ -66,7 +66,7 @@ func (p *ProxyServer) captureFunnelSource(w http.ResponseWriter, r *http.Request
 		source = "direct"
 		// Background assets and API probes must not claim a browser's first
 		// touch or allocate cookies on disabled authentication routes.
-		if !funnelSourceEntry(r) {
+		if !p.funnelSourceEntry(r) {
 			return r.WithContext(common.WithFunnelSource(r.Context(), source))
 		}
 		source = common.NormalizeFunnelSource(r.URL.Query().Get("src"))
@@ -87,18 +87,35 @@ func (p *ProxyServer) captureFunnelSource(w http.ResponseWriter, r *http.Request
 	return r.WithContext(common.WithFunnelSource(r.Context(), source))
 }
 
-// Public entry pages remember direct visits too. An explicitly attributed link
-// can enter through another platform route, including an OAuth login start.
+// funnelSourceEntry is the browser-entry policy, independent of query strings.
+// Only public reading/navigation pages and enabled login starts establish first
+// touch. Callbacks, account actions, assets, probes, downloads and APIs never do.
+// The inventory test checks this table against the actual platform routes.
 func funnelSourceEntry(r *http.Request) bool {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		return false
 	}
-	if r.URL.Query().Has("src") {
-		return true
-	}
 	switch r.URL.Path {
-	case "/", "/about", "/privacy", "/terms", "/pricing", "/ngrok-alternative", "/login", "/auth/login", "/upgrade", "/docs", "/agents":
+	case "/", "/about", "/privacy", "/terms", "/pricing", "/ngrok-alternative", "/login", "/auth/login", "/upgrade", "/docs", "/agents", "/status", "/report", "/client-previews", "/mcp-to-claude", "/share-dev-server-oauth":
 		return true
 	}
 	return strings.HasPrefix(r.URL.Path, "/docs/") || strings.HasPrefix(r.URL.Path, "/agents/")
+}
+
+// Enabled OAuth starts can be the first browser navigation. Configuration is
+// checked before either canonicalization or capture, including with ?src=.
+func (p *ProxyServer) funnelSourceEntry(r *http.Request) bool {
+	if funnelSourceEntry(r) {
+		return true
+	}
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		return false
+	}
+	switch r.URL.Path {
+	case "/auth/google":
+		return r.URL.Query().Get("org") == "" && p.config.GoogleClientID != "" && p.config.GoogleClientSecret != ""
+	case "/auth/github":
+		return p.config.GitHubClientID != ""
+	}
+	return false
 }

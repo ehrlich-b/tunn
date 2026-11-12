@@ -216,16 +216,16 @@ func (p *ProxyServer) clearBrowserSessionCookie(w http.ResponseWriter, r *http.R
 	if p.customerHost(r.Host) {
 		http.SetCookie(w, &http.Cookie{Name: appCookie, Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: -1})
 	} else {
-		p.clearAuthCookie(w)
+		p.clearAuthCookie(w, r)
 	}
 }
 
-func (p *ProxyServer) setAccountCookie(w http.ResponseWriter, account *storage.Account, email, provider string) error {
+func (p *ProxyServer) setAccountCookie(w http.ResponseWriter, r *http.Request, account *storage.Account, email, provider string) error {
 	if account == nil || account.ID == "" || !validGoogleEmail(email) {
 		return fmt.Errorf("verified account required")
 	}
 	claims := jwt.MapClaims{"account_id": account.ID, "email": strings.ToLower(email), "provider": provider, "email_verified": true}
-	return p.signedSession(w, claims, authCookieName, "."+p.config.Domain, authCookieLifetime)
+	return p.signedPlatformSession(w, r, claims)
 }
 func (p *ProxyServer) parseDomainToken(raw, kind string) (jwt.MapClaims, bool) {
 	if !p.visitorJWTConfigured() {

@@ -40,7 +40,11 @@ func (p *ProxyServer) sessionTime() time.Time {
 }
 
 // setAuthCookie creates and sets a signed JWT auth cookie
-func (p *ProxyServer) setAuthCookie(w http.ResponseWriter, email string) error {
+func (p *ProxyServer) setAuthCookie(w http.ResponseWriter, r *http.Request, email string) error {
+	domain, err := p.platformSessionDomain(r)
+	if err != nil {
+		return err
+	}
 	email = common.NormalizeEmail(email)
 	// Use one clock reading for both timestamps.
 	now := p.sessionTime()
@@ -63,7 +67,7 @@ func (p *ProxyServer) setAuthCookie(w http.ResponseWriter, email string) error {
 		Name:     authCookieName,
 		Value:    tokenString,
 		Path:     "/",
-		Domain:   "." + p.config.Domain,
+		Domain:   domain,
 		MaxAge:   int(authCookieLifetime.Seconds()),
 		HttpOnly: true,
 		Secure:   true,
@@ -130,12 +134,16 @@ func (p *ProxyServer) getAuthFromCookie(r *http.Request) (string, bool) {
 }
 
 // clearAuthCookie removes the JWT auth cookie
-func (p *ProxyServer) clearAuthCookie(w http.ResponseWriter) {
+func (p *ProxyServer) clearAuthCookie(w http.ResponseWriter, r *http.Request) {
+	domain, err := p.platformSessionDomain(r)
+	if err != nil {
+		return
+	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     authCookieName,
 		Value:    "",
 		Path:     "/",
-		Domain:   "." + p.config.Domain,
+		Domain:   domain,
 		MaxAge:   -1,
 		HttpOnly: true,
 		Secure:   true,
@@ -573,7 +581,7 @@ func (p *ProxyServer) handleCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Account authority unavailable", 503)
 		return
 	}
-	if err := p.setAccountCookie(w, account, primaryEmail, "github"); err != nil {
+	if err := p.setAccountCookie(w, r, account, primaryEmail, "github"); err != nil {
 		http.Error(w, "Failed to complete login", 500)
 		return
 	}
@@ -755,7 +763,7 @@ func (p *ProxyServer) handleMockCallback(w http.ResponseWriter, r *http.Request)
 	email := "dev@example.com"
 
 	// Set JWT auth cookie
-	if err := p.setAuthCookie(w, email); err != nil {
+	if err := p.setAuthCookie(w, r, email); err != nil {
 		common.LogError("failed to set auth cookie", "error", err)
 		http.Error(w, "Failed to complete login", http.StatusInternalServerError)
 		return
@@ -982,7 +990,7 @@ func (p *ProxyServer) handleLogout(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	p.clearAuthCookie(w)
+	p.clearAuthCookie(w, r)
 	http.Redirect(w, r, "/", http.StatusFound)
 }
 

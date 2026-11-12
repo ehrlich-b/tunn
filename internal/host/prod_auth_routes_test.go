@@ -360,7 +360,7 @@ func TestProdAuthRoutePrincipalMatrix(t *testing.T) {
 							t.Fatal(err)
 						}
 						login := httptest.NewRecorder()
-						if err := f.p.setAccountCookie(login, account, "owner@example.com", "github"); err != nil {
+						if err := f.p.setAccountCookie(login, httptest.NewRequest("GET", "https://"+f.p.loginAuthority()+"/", nil), account, "owner@example.com", "github"); err != nil {
 							t.Fatal(err)
 						}
 						cookie := login.Result().Cookies()[0]

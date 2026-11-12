@@ -151,7 +151,7 @@ func (p *ProxyServer) handleAccountEmails(w http.ResponseWriter, r *http.Request
 			// record mailbox proof rather than attributing a new email to Google/GitHub.
 			// Preserve the authenticated epoch and sign-in time across this reissue.
 			// Only a new provider sign-in may snapshot the current live epoch.
-			err = p.signedSession(w, jwt.MapClaims{"session_epoch": browserSessionEpoch(claims), "auth_iat": appAuthIAT(claims), "account_id": updated.ID, "email": updated.PrimaryEmail, "provider": "magic_link", "email_verified": true}, authCookieName, "."+p.config.Domain, authCookieLifetime)
+			err = p.signedPlatformSession(w, r, jwt.MapClaims{"session_epoch": browserSessionEpoch(claims), "auth_iat": appAuthIAT(claims), "account_id": updated.ID, "email": updated.PrimaryEmail, "provider": "magic_link", "email_verified": true})
 		}
 	}
 	if err != nil {

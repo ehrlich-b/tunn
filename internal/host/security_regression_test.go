@@ -81,7 +81,7 @@ func securityReplicaStorage(t *testing.T, local *storage.LocalStorage) *storage.
 func securityCookie(t *testing.T, p *ProxyServer, email string) *http.Cookie {
 	t.Helper()
 	w := httptest.NewRecorder()
-	if err := p.setAuthCookie(w, email); err != nil {
+	if err := p.setAuthCookie(w, httptest.NewRequest("GET", "https://"+p.loginAuthority()+"/", nil), email); err != nil {
 		t.Fatal(err)
 	}
 	return w.Result().Cookies()[0]

@@ -351,7 +351,7 @@ func (p *ProxyServer) finishOrgOIDC(ctx context.Context, w http.ResponseWriter, 
 		http.Error(w, "Organization account unavailable", 403)
 		return
 	}
-	if err = p.setOrgAuthCookie(w, org, idToken.Subject, email, groups, idToken.Expiry); err != nil {
+	if err = p.setOrgAuthCookie(w, r, org, idToken.Subject, email, groups, idToken.Expiry); err != nil {
 		http.Error(w, "Login unavailable", 500)
 		return
 	}
@@ -461,7 +461,11 @@ type orgSession struct {
 	Expires                     int64
 }
 
-func (p *ProxyServer) setOrgAuthCookie(w http.ResponseWriter, org config.OIDCOrg, subject, email string, groups []string, upstreamExpiry time.Time) error {
+func (p *ProxyServer) setOrgAuthCookie(w http.ResponseWriter, r *http.Request, org config.OIDCOrg, subject, email string, groups []string, upstreamExpiry time.Time) error {
+	domain, err := p.platformSessionDomain(r)
+	if err != nil {
+		return err
+	}
 	now := p.currentTime()
 	expires := now.Add(orgSessionLifetime)
 	if upstreamExpiry.Before(expires) {
@@ -475,7 +479,7 @@ func (p *ProxyServer) setOrgAuthCookie(w http.ResponseWriter, org config.OIDCOrg
 	if err != nil || len(value) > 3800 {
 		return fmt.Errorf("organization session unavailable")
 	}
-	http.SetCookie(w, &http.Cookie{Name: authCookieName, Value: value, Path: "/", Domain: "." + p.config.Domain, Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: int(expires.Sub(now).Seconds())})
+	http.SetCookie(w, &http.Cookie{Name: authCookieName, Value: value, Path: "/", Domain: domain, Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: int(expires.Sub(now).Seconds())})
 	return nil
 }
 

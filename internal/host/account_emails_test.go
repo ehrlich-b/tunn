@@ -24,7 +24,7 @@ func emailSession(t *testing.T, p *ProxyServer, email string) *http.Cookie {
 		t.Fatal(a, err)
 	}
 	w := httptest.NewRecorder()
-	if err = p.setAccountCookie(w, a, email, "magic_link"); err != nil {
+	if err = p.setAccountCookie(w, httptest.NewRequest("GET", "https://"+p.loginAuthority()+"/", nil), a, email, "magic_link"); err != nil {
 		t.Fatal(err)
 	}
 	return assertAccountsSessionCookie(t, p, w, email)

@@ -89,7 +89,7 @@ func (f *webInspectorFixture) accountCookie(t *testing.T, email string) *http.Co
 		t.Fatal(err)
 	}
 	w := httptest.NewRecorder()
-	if err = f.p.setAccountCookie(w, account, email, "github"); err != nil {
+	if err = f.p.setAccountCookie(w, httptest.NewRequest("GET", "https://"+f.p.loginAuthority()+"/", nil), account, email, "github"); err != nil {
 		t.Fatal(err)
 	}
 	return w.Result().Cookies()[0]

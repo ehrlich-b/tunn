@@ -256,7 +256,7 @@ func TestReviewMixedCaseOwnerCanListAndRevokeDevice(t *testing.T) {
 	// The GitHub callback passes the verified primary email to setAuthCookie
 	// before account storage normalizes the address. Exercise that same path.
 	session := httptest.NewRecorder()
-	if err := p.setAuthCookie(session, "Owner@Example.COM"); err != nil {
+	if err := p.setAuthCookie(session, httptest.NewRequest("GET", "https://"+p.loginAuthority()+"/", nil), "Owner@Example.COM"); err != nil {
 		t.Fatal(err)
 	}
 	cookie := session.Result().Cookies()[0]

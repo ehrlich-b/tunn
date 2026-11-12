@@ -68,7 +68,7 @@ func TestReviewOAuthStateRedirectAndCookieScope(t *testing.T) {
 		}
 	}
 	w := httptest.NewRecorder()
-	if err := p.setAuthCookie(w, "owner@example.com"); err != nil {
+	if err := p.setAuthCookie(w, httptest.NewRequest("GET", "https://"+p.loginAuthority()+"/", nil), "owner@example.com"); err != nil {
 		t.Fatal(err)
 	}
 	c := w.Result().Cookies()[0]

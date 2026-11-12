@@ -163,7 +163,7 @@ func (p *ProxyServer) handleMagicLinkVerify(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "Account authority unavailable", 503)
 		return
 	}
-	if err := p.setAccountCookie(w, account, email, "magic_link"); err != nil {
+	if err := p.setAccountCookie(w, r, account, email, "magic_link"); err != nil {
 		http.Error(w, "Failed to complete login", 500)
 		return
 	}

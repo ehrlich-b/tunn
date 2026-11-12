@@ -30,6 +30,9 @@ func httpsAuthority(authority string) string {
 }
 
 func (p *ProxyServer) isPlatformHost(host string) bool {
+	if p.config == nil || extractTunnelID(requestHostname(host), requestHostname(p.config.Domain)) != "" {
+		return false
+	}
 	authority := httpsAuthority(host)
 	if authority == "" {
 		return false

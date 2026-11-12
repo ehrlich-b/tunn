@@ -53,7 +53,7 @@ func TestR3BrowserCacheCannotBypassRevocation(t *testing.T) {
 	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/review/login":
-			_ = p.setAuthCookie(w, r.URL.Query().Get("email"))
+			_ = p.setAuthCookie(w, httptest.NewRequest("GET", "https://"+p.loginAuthority()+"/", nil), r.URL.Query().Get("email"))
 			fmt.Fprint(w, "session fixture")
 		case "/review/revoke":
 			_, err := ledger.Sharing(r.Context(), &mp.SharingRequest{Operation: "unshare", Owner: tunnel.AccountID, Endpoint: "api", Email: "alice@example.com"})

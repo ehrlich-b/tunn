@@ -311,7 +311,7 @@ func startWebSocketStack(t *testing.T, configure func(*client.ServeClient)) *web
 func (s *webSocketStack) cookie(t *testing.T, email string) string {
 	t.Helper()
 	recorder := httptest.NewRecorder()
-	if err := s.proxy.setAuthCookie(recorder, email); err != nil {
+	if err := s.proxy.setAuthCookie(recorder, httptest.NewRequest("GET", "https://"+s.proxy.loginAuthority()+"/", nil), email); err != nil {
 		t.Fatal(err)
 	}
 	cookie := recorder.Result().Cookies()[0]

@@ -532,7 +532,7 @@ func (p *ProxyServer) handleSSHKeyLink(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "SSH link already used or key belongs to another identity", http.StatusBadRequest)
 		return
 	}
-	if err = p.setAuthCookie(w, email); err != nil {
+	if err = p.setAuthCookie(w, r, email); err != nil {
 		http.Error(w, "Could not complete login", http.StatusInternalServerError)
 		return
 	}

@@ -26,9 +26,10 @@ func funnelBrowser(t *testing.T, p *ProxyServer) *http.Client {
 	// httptest's trusted fixture certificate names example.com. The dialer
 	// below pins every logical browser origin to that one TLS server.
 	transport.TLSClientConfig.ServerName = "example.com"
+	transport.Proxy = nil
 	transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
 		host, _, err := net.SplitHostPort(addr)
-		if err != nil || (host != "tunn.test" && host != "login.test" && host != "untrusted.invalid") {
+		if err != nil || (host != "tunn.test" && host != "login.test" && host != "tools.tunn.test" && host != "untrusted.invalid") {
 			t.Errorf("unexpected browser destination %q", addr)
 			return nil, net.InvalidAddrError(addr)
 		}
@@ -87,9 +88,13 @@ func funnelSignup(t *testing.T, client *http.Client, p *ProxyServer, host string
 	}
 	io.Copy(io.Discard, response.Body)
 	response.Body.Close()
-	if response.StatusCode != http.StatusFound {
-		t.Fatalf("verify: %d", response.StatusCode)
+	if response.StatusCode != http.StatusFound || response.Header.Get("Location") != "/account" {
+		t.Fatalf("verify: %d location=%q", response.StatusCode, response.Header.Get("Location"))
 	}
+	assertFunnelSessionCookie(t, p, host, response, false)
+	// Follow the real verification redirect, then independently reload twice.
+	funnelVisit(t, client, "https://"+host+response.Header.Get("Location"))
+	assertFunnelAccount(t, client, p, host, "browser@example.invalid")
 }
 
 func TestFunnelSourceCrossHostInitiation(t *testing.T) {
@@ -128,7 +133,7 @@ func TestFunnelSourceBrowserFirstTouch(t *testing.T) {
 }
 
 func TestFunnelSourcePolicyFirstTouch(t *testing.T) {
-	for _, path := range []string{"/privacy", "/terms"} {
+	for _, path := range funnelBrowserEntries {
 		for _, public := range []string{"tunn.test", "login.test"} {
 			t.Run(path+"/"+public, func(t *testing.T) {
 				f := newMCPOAuthFixture(t)
@@ -307,6 +312,11 @@ func TestFunnelSourceBrowserOriginAndMagicControls(t *testing.T) {
 		response.Body.Close()
 		if response.StatusCode != want {
 			t.Fatalf("verify attempt %d: %d want %d", i, response.StatusCode, want)
+		}
+		if i == 0 {
+			assertFunnelSessionCookie(t, f.p, "tunn.test", response, false)
+			funnelVisit(t, browser, "https://tunn.test"+response.Header.Get("Location"))
+			assertFunnelAccount(t, browser, f.p, "tunn.test", "browser@example.invalid")
 		}
 	}
 	if err := f.p.mcpOAuth.db.QueryRow(`SELECT count(*) FROM funnel_events WHERE stage='signup' AND source='alt'`).Scan(&count); err != nil || count != 1 {

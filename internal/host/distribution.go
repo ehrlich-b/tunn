@@ -13,6 +13,15 @@ var ngrokAlternativeHTML string
 //go:embed templates/client-previews.html
 var clientPreviewsHTML string
 
+//go:embed templates/mcp-connector-url-must-start-with-https.html
+var mcpConnectorHTTPSHTML string
+
+//go:embed templates/local-mcp-server-claude-mobile.html
+var localMCPMobileHTML string
+
+//go:embed templates/claude-connector-bearer-token.html
+var claudeConnectorBearerHTML string
+
 //go:embed templates/mcp-to-claude.html
 var mcpToClaudeHTML string
 
@@ -61,6 +70,12 @@ func (p *ProxyServer) serveDistributionPage(w http.ResponseWriter, r *http.Reque
 		body = clientPreviewsHTML
 	case "/ngrok-alternative":
 		body = ngrokAlternativeHTML
+	case "/mcp-connector-url-must-start-with-https":
+		body = withSiteChrome(mcpConnectorHTTPSHTML)
+	case "/local-mcp-server-claude-mobile":
+		body = withSiteChrome(localMCPMobileHTML)
+	case "/claude-connector-bearer-token":
+		body = withSiteChrome(claudeConnectorBearerHTML)
 	case "/mcp-to-claude":
 		body = withSiteChrome(mcpToClaudeHTML)
 	case "/share-dev-server-oauth":
@@ -106,6 +121,12 @@ const distributionSitemap = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url><loc>https://tunn.to/</loc></url>
   <url><loc>https://tunn.to/client-previews</loc></url>
+  <url><loc>https://tunn.to/mcp-connector-url-must-start-with-https</loc></url>
+  <url><loc>https://tunn.to/local-mcp-server-claude-mobile</loc></url>
+  <url><loc>https://tunn.to/claude-connector-bearer-token</loc></url>
+  <url><loc>https://tunn.to/pricing</loc></url>
+  <url><loc>https://tunn.to/docs</loc></url>
+  <url><loc>https://tunn.to/about</loc></url>
   <url><loc>https://tunn.to/ngrok-alternative</loc></url>
   <url><loc>https://tunn.to/mcp-to-claude</loc></url>
   <url><loc>https://tunn.to/share-dev-server-oauth</loc></url>

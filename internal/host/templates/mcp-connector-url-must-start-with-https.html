@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Why does the Claude connector say “URL must start with https://”? | tunn</title>
+<meta name="description" content="A local MCP connector needs a public HTTPS URL. Compare connection routes and publish a local server with tunn.">
+<link rel="canonical" href="https://tunn.to/mcp-connector-url-must-start-with-https">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="tunn">
+<meta property="og:title" content="Why does the Claude connector say “URL must start with https://”?">
+<meta property="og:description" content="A local MCP connector needs a public HTTPS URL. Compare connection routes and publish a local server with tunn.">
+<meta property="og:url" content="https://tunn.to/mcp-connector-url-must-start-with-https">
+<link rel="stylesheet" href="/guides.css">
+<script defer src="/assets/ui.js"></script>
+</head>
+<body class="guide">
+<!--site-header:docs-->
+<main id="main" class="guide-content" tabindex="-1">
+<h1>Why does the Claude connector say “URL must start with https://”?</h1>
+<p class="lead">claude.ai needs a public HTTPS connector URL because connector requests come from Anthropic’s servers. A localhost address is not that public endpoint.</p>
+<p>Connection routes include tunn, Cloudflare Tunnel, ngrok, hosting the server, and Anthropic’s MCP tunnels research preview. The choice depends on the endpoint and authentication setup.</p>
+<h2>A public address for the local server</h2>
+<p>The connector receives the public HTTPS URL, including the MCP path, rather than the local HTTP address. With tunn, the publisher copies the exact printed <strong>Connector URL</strong>, including <code>/mcp</code>.</p>
+<p>Source: <a href="https://claude.com/docs/connectors/building/testing">Connector testing documentation</a>, accessed October 29, 2026.</p>
+<h2>Publish with tunn</h2>
+<p>The <a href="/docs#s1">installation guide</a> covers tunn setup. This example needs Python 3 and the <a href="/dl/examples/mcp/echo.py">echo example</a> saved as <code>echo.py</code> in the working directory.</p>
+<pre class="shell-command" tabindex="0" aria-label="Login command"><code>tunn login</code></pre>
+<pre class="shell-command" tabindex="0" aria-label="Publish command"><code>tunn mcp --tools echo -- python3 ./echo.py</code></pre>
+<p>The publisher copies the printed Connector URL, including <code>/mcp</code>. MCP endpoints are private by default.</p>
+<!--mcp-verification--><!--/mcp-verification-->
+<h2>Local process and relay limits</h2>
+<p>The local MCP server and tunn process must keep running. Stdio calls must finish under 25 seconds and are serialized. TLS ends at the relay; the relay can read traffic.</p>
+<p>The <a href="/mcp-to-claude">MCP connector walkthrough</a> covers setup and verification. <a href="/pricing">Pricing and plan limits</a> apply to the account.</p>
+<nav class="related-guides" aria-label="Related questions"><h2>Related questions</h2>
+<a href="/mcp-connector-url-must-start-with-https">HTTPS connector URL</a>
+<a href="/local-mcp-server-claude-mobile">Local MCP on a phone</a>
+<a href="/claude-connector-bearer-token">API key headers and OAuth</a>
+</nav>
+</main>
+<!--site-footer-->
+</body>
+</html>

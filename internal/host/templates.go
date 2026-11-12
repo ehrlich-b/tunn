@@ -47,8 +47,8 @@ func mcpVerificationNote() template.HTML {
 	return template.HTML(withMCPVerification("<!--mcp-verification-->" + fragment + "<!--/mcp-verification-->"))
 }
 
-// withMCPVerification fills the MCP guide's fact fragment. Both static guide
-// routes already use this template layer, so their handlers need no special case.
+// withMCPVerification renders the shared client verification fact for MCP guides.
+// An empty fragment reuses the canonical guide's copy and template.
 func withMCPVerification(page string) string {
 	before, rest, found := strings.Cut(page, "<!--mcp-verification-->")
 	if !found {
@@ -57,6 +57,10 @@ func withMCPVerification(page string) string {
 	fragment, after, found := strings.Cut(rest, "<!--/mcp-verification-->")
 	if !found {
 		return page
+	}
+	if fragment == "" {
+		_, canonical, _ := strings.Cut(mcpToClaudeHTML, "<!--mcp-verification-->")
+		fragment, _, _ = strings.Cut(canonical, "<!--/mcp-verification-->")
 	}
 	var data struct {
 		Clients []string

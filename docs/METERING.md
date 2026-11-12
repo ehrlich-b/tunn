@@ -257,6 +257,17 @@ Signup attribution keeps only an allow-listed first-touch token (`alt`, `saashub
 The report also groups daily signups by source; historical events without a
 captured channel appear as `other`.
 
+Public entry pages on the configured apex navigate to the configured public
+HTTPS login authority before capturing attribution, so signup starts with the
+same host-only, signed source cookie even when those hosts have unrelated names.
+Both origins must serve the platform with valid HTTPS; a public address inside
+the publisher tunnel namespace is unsupported and entry navigation fails closed.
+Clients that skip entry navigation, and unsigned cookies from older versions
+left only on the apex, cannot carry attribution across hosts; those old cookies
+are ignored and the next entry establishes the first source for the new cookie.
+Only the signed source bound into the single-use email login link reaches signup
+when the link opens on another configured platform origin or browser.
+
 Save that JSON and run `python3 scripts/launch-watch.py --funnel REPORT.json
 LOGFILE` (or pipe saved logs on stdin). For a report alone, redirect stdin from
 `/dev/null`. Conversion percentages compare lifetime stage totals, not cohorts.

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
 	"strings"
@@ -54,7 +53,10 @@ func TestFunnelSourceSignup(t *testing.T) {
 					if cookie == nil {
 						t.Fatal("landing visit did not capture source")
 					}
-					if cookie.Value != tc.want || !cookie.Secure || !cookie.HttpOnly || cookie.Domain != "" || cookie.Path != "/" || cookie.SameSite != http.SameSiteLaxMode || cookie.MaxAge != 30*24*60*60 {
+					cookieRequest := httptest.NewRequest("GET", target, nil)
+					cookieRequest.AddCookie(cookie)
+					captured, valid := p.browserFunnelSource(cookieRequest)
+					if !valid || captured != tc.want || !cookie.Secure || !cookie.HttpOnly || cookie.Domain != "" || cookie.Path != "/" || cookie.SameSite != http.SameSiteLaxMode || cookie.MaxAge != 30*24*60*60 {
 						t.Fatalf("unsafe or incorrect source cookie: %+v", cookie)
 					}
 					later := httptest.NewRequest("GET", "https://tunn.test/login?src=saashub", nil)
@@ -181,7 +183,9 @@ func TestFunnelSourceBackgroundRequests(t *testing.T) {
 	handler.ServeHTTP(w, httptest.NewRequest("GET", "https://tunn.test/about", nil))
 	for _, cookie := range w.Result().Cookies() {
 		if cookie.Name == funnelSourceCookie {
-			if cookie.Value != "direct" {
+			check := httptest.NewRequest("GET", "https://tunn.test/about", nil)
+			check.AddCookie(cookie)
+			if source, valid := p.browserFunnelSource(check); !valid || source != "direct" {
 				t.Fatal(cookie)
 			}
 			return
@@ -201,41 +205,18 @@ func TestFunnelSourcePlatformHosts(t *testing.T) {
 					p.storage = securityReplicaStorage(t, p.storage.(*storage.LocalStorage))
 				}
 				p.emailSender = new(accountsMailCapture)
-				handler := p.createHandler()
-				jar, err := cookiejar.New(nil)
-				if err != nil {
-					t.Fatal(err)
+				browser := funnelBrowser(t, p)
+				landing := funnelVisit(t, browser, "https://tunn.test/docs?src="+source)
+				if landing.Request.URL.Host != "login.test" {
+					t.Fatalf("entry did not navigate to the login origin: %s", landing.Request.URL)
 				}
-				landing, _ := url.Parse("https://tunn.test/docs?src=" + source)
-				first := httptest.NewRecorder()
-				handler.ServeHTTP(first, httptest.NewRequest("GET", landing.String(), nil))
-				jar.SetCookies(landing, first.Result().Cookies())
-				signup := httptest.NewRequest("POST", "https://tunn.test/auth/magic", strings.NewReader(`{"email":"cross-host@example.invalid"}`))
-				signup.Header.Set("Origin", "https://tunn.test")
-				for _, cookie := range jar.Cookies(signup.URL) {
-					signup.AddCookie(cookie)
+				// The source cookie is stored only at the public login origin.
+				apex, _ := url.Parse("https://tunn.test/")
+				if len(browser.Jar.Cookies(apex)) != 0 {
+					t.Fatal("public cookie leaked to apex")
 				}
-				w := httptest.NewRecorder()
-				handler.ServeHTTP(w, signup)
-				if w.Code != http.StatusOK {
-					t.Fatalf("request: %d %s", w.Code, w.Body)
-				}
-				verify := httptest.NewRequest("GET", p.emailSender.(*accountsMailCapture).link, nil)
-				if verify.URL.Host != "login.test" {
-					t.Fatal(verify.URL)
-				}
-				if len(jar.Cookies(verify.URL)) != 0 {
-					t.Fatal("apex cookie leaked to public host")
-				}
-				// A later source on the destination must not replace the source signed at request time.
-				if source != "alt" {
-					verify.AddCookie(&http.Cookie{Name: funnelSourceCookie, Value: "saashub"})
-				}
-				w = httptest.NewRecorder()
-				handler.ServeHTTP(w, verify)
-				if w.Code != http.StatusFound {
-					t.Fatalf("verify: %d %s", w.Code, w.Body)
-				}
+				funnelVisit(t, browser, "https://login.test/auth/login?src=saashub")
+				funnelSignup(t, browser, p, "login.test")
 				var count int
 				if err := f.p.mcpOAuth.db.QueryRow(`SELECT count(*) FROM funnel_events WHERE stage='signup' AND source=?`, source).Scan(&count); err != nil {
 					t.Fatal(err)

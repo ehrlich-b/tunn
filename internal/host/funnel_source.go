@@ -97,7 +97,7 @@ func funnelSourceEntry(r *http.Request) bool {
 		return true
 	}
 	switch r.URL.Path {
-	case "/", "/about", "/pricing", "/ngrok-alternative", "/login", "/auth/login", "/upgrade", "/docs", "/agents":
+	case "/", "/about", "/privacy", "/terms", "/pricing", "/ngrok-alternative", "/login", "/auth/login", "/upgrade", "/docs", "/agents":
 		return true
 	}
 	return strings.HasPrefix(r.URL.Path, "/docs/") || strings.HasPrefix(r.URL.Path, "/agents/")

@@ -127,6 +127,31 @@ func TestFunnelSourceBrowserFirstTouch(t *testing.T) {
 	}
 }
 
+func TestFunnelSourcePolicyFirstTouch(t *testing.T) {
+	for _, path := range []string{"/privacy", "/terms"} {
+		for _, public := range []string{"tunn.test", "login.test"} {
+			t.Run(path+"/"+public, func(t *testing.T) {
+				f := newMCPOAuthFixture(t)
+				f.p.config.PublicAddr = public
+				f.p.emailSender = new(accountsMailCapture)
+				browser := funnelBrowser(t, f.p)
+				funnelVisit(t, browser, "https://tunn.test"+path)
+				funnelVisit(t, browser, "https://tunn.test/docs?src=alt")
+				funnelVisit(t, browser, "https://"+public+"/auth/login?src=saashub")
+				funnelSignup(t, browser, f.p, public)
+				var count int
+				if err := f.p.mcpOAuth.db.QueryRow(`SELECT count(*) FROM funnel_events WHERE stage='signup' AND source='direct'`).Scan(&count); err != nil {
+					t.Fatal(err)
+				}
+				// The fixture's owner and the new buyer must both be direct.
+				if count != 2 {
+					t.Fatalf("later source overwrote direct first visit: direct signups=%d want=2", count)
+				}
+			})
+		}
+	}
+}
+
 // Change a signed payload while retaining its signature, as an untrusted client
 // could. The JWT parser is used only to locate the payload, not to validate it.
 func tamperFunnelClaim(t *testing.T, raw, key string, value any) string {

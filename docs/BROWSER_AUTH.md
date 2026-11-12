@@ -3,8 +3,7 @@
 First touch is established on GET or HEAD navigation to `/`, `/about`, `/privacy`,
 `/terms`, `/pricing`, `/ngrok-alternative`, `/client-previews`, `/mcp-to-claude`,
 `/share-dev-server-oauth`, `/docs` and `/docs/*`, `/agents` and `/agents/*`,
-`/status`, `/report`, `/login`, `/auth/login`, and `/upgrade`. Enabled Google and
-GitHub login starts also qualify. Organization login routes do not qualify.
+`/status`, `/report`, `/login`, `/auth/login`, and `/upgrade`. Configured provider initiation routes also qualify. Organization login routes do not qualify.
 This policy is independent of query parameters: `src` never turns an asset,
 health/readiness probe, JSON status request, download/installer, API, webhook,
 verification callback, disabled auth route, or account action into an entry.

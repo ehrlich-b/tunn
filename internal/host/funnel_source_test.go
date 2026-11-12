@@ -85,6 +85,22 @@ func TestFunnelSourceSignup(t *testing.T) {
 					if w.Code != 302 {
 						t.Fatalf("verify: %d %s", w.Code, w.Body)
 					}
+					// Verification must establish a usable account session, including
+					// when durable authority is reached through a replica.
+					verifiedCookies := w.Result().Cookies()
+					for i := 0; i < 2; i++ {
+						accountRequest := httptest.NewRequest("GET", "https://tunn.test/account", nil)
+						for _, c := range verifiedCookies {
+							accountRequest.AddCookie(c)
+						}
+						accountResponse := httptest.NewRecorder()
+						handler.ServeHTTP(accountResponse, accountRequest)
+						claims, valid := p.accountSession(accountRequest)
+						buyer, lookupErr := p.storage.GetAccountByEmail(context.Background(), "buyer@example.invalid")
+						if accountResponse.Code != http.StatusOK || !strings.Contains(accountResponse.Body.String(), "buyer@example.invalid") || !valid || claims["email"] != "buyer@example.invalid" || buyer == nil || lookupErr != nil || claims["account_id"] != buyer.ID {
+							t.Fatalf("account reload %d: status=%d verified=%t buyer=%+v err=%v", i, accountResponse.Code, valid, buyer, lookupErr)
+						}
+					}
 					// Repeat account lookup with a different source; signup must be immutable.
 					if _, err := p.storage.FindOrCreateByEmails(common.WithFunnelSource(context.Background(), "saashub"), []string{"buyer@example.invalid"}, "fixture"); err != nil {
 						t.Fatal(err)

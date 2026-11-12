@@ -6,6 +6,13 @@ change the relay. Keep the existing v0.1.5 assets for rollback.
 1. From the directory containing `release-stage/`, check all four binaries
    against the staged SHA256SUMS. From the source repository verify the tagged
    source bundle with `git bundle verify ../release-stage/tunn-v0.1.6.bundle`.
+   Keep the complete handoff together: `release-stage/`, `fixtures/v0.1.5/`,
+   `qualifiers/`, and `readiness-plan.json`. The offline acceptance replay needs
+   the baseline binary and checker as well as the release artifacts.
+   Before transfer, from the source repository run:
+   ```sh
+   python3 scripts/check-release-contract.py "$(realpath ..)/release-stage" "$(git rev-parse HEAD)"
+   ```
 2. Copy the immutable version directory and the prepared feed to the mirror:
    ```sh
    scp -r release-stage/downloads/v0.1.6 forge:/work/lanes/release-mirror/tunn/downloads/

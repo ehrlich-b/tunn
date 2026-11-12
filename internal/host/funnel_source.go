@@ -21,6 +21,12 @@ func (p *ProxyServer) canonicalFunnelEntry(w http.ResponseWriter, r *http.Reques
 	if p.config == nil || !p.isPlatformHost(r.Host) || !funnelSourceEntry(r) || httpsAuthority(r.Host) == httpsAuthority(p.loginAuthority()) {
 		return false
 	}
+	// Existing authenticated account actions stay on their current origin.
+	// They already have a signup event and must retain their session and CSRF
+	// bindings (for example, checkout can start on either platform host).
+	if p.isAuthenticated(r) {
+		return false
+	}
 	// A configured public address in the publisher namespace is routed as a
 	// tunnel, not a platform origin. Do not send browser attribution there.
 	if httpsAuthority(p.loginAuthority()) == "" || extractTunnelID(requestHostname(p.loginAuthority()), p.Domain) != "" {

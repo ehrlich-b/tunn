@@ -257,9 +257,10 @@ Signup attribution keeps only an allow-listed first-touch token (`alt`, `saashub
 The report also groups daily signups by source; historical events without a
 captured channel appear as `other`.
 
-Public entry pages on the configured apex navigate to the configured public
-HTTPS login authority before capturing attribution, so signup starts with the
+Signed-out public entry pages on the configured apex navigate to the configured
+public HTTPS login authority before capturing attribution, so signup starts with the
 same host-only, signed source cookie even when those hosts have unrelated names.
+Authenticated account actions stay on their current origin.
 Both origins must serve the platform with valid HTTPS; a public address inside
 the publisher tunnel namespace is unsupported and entry navigation fails closed.
 Clients that skip entry navigation, and unsigned cookies from older versions

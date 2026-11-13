@@ -41,6 +41,14 @@ func (p *ProxyServer) agentKitIndex() string {
 	out.WriteString("| Plan | Price | Concurrent tunnels | Monthly transfer | Requests | Reserved names |\n| --- | --- | --- | --- | --- | --- |\n")
 	fmt.Fprintf(&out, "| Free | $0 | %d | %s | %s | %d |\n", d.FreeTunnels, d.FreeBytesShort, d.FreeRequestsShort, d.FreeReservations)
 	fmt.Fprintf(&out, "| Pro | $%d/month or $%d/year | %d | %s | %s | %d |\n\n", d.MonthlyUSD, d.YearlyUSD, d.ProTunnels, d.ProBytesShort, d.ProRequestsShort, d.Reservations)
+	monthly, yearly := "closed", "closed"
+	if d.MonthlyAvailable {
+		monthly = "available"
+	}
+	if d.YearlyAvailable {
+		yearly = "available"
+	}
+	fmt.Fprintf(&out, "Pro checkout: monthly %s; yearly %s.\n\n", monthly, yearly)
 	out.WriteString("## For coding agents\n\n")
 	for _, page := range agentKitPages {
 		fmt.Fprintf(&out, "- [%s](https://tunn.to%s): %s\n", page.title, page.path, page.description)

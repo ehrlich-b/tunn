@@ -93,7 +93,7 @@ func TestSearchMetadata(t *testing.T) {
 
 func TestSearchPricesAndLLMs(t *testing.T) {
 	for _, prices := range [][2]int{{7, 70}, {13, 125}} {
-		for _, availability := range []string{"both", "monthly", "yearly", "disabled", "unsigned", "unsafe"} {
+		for _, availability := range []string{"both", "monthly", "yearly", "disabled", "missing-authority", "unsafe", "automatic"} {
 			t.Run(fmt.Sprintf("%d-%d/%s", prices[0], prices[1], availability), func(t *testing.T) {
 				cfg := &config.Config{Domain: "tunn.to", ProMonthlyUSD: prices[0], ProYearlyUSD: prices[1], BillingEnabled: true, StripeWebhookSecret: "test-secret", StripeCheckoutURLMonthly: "https://buy.stripe.com/month", StripeCheckoutURLYearly: "https://buy.stripe.com/year"}
 				// Exercise the same configured transfer cap in the HTML and plain-text tables.
@@ -107,13 +107,19 @@ func TestSearchPricesAndLLMs(t *testing.T) {
 					cfg.StripeCheckoutURLMonthly = ""
 				case "disabled":
 					cfg.BillingEnabled = false
-				case "unsigned":
+				case "missing-authority":
 					cfg.StripeWebhookSecret = ""
+				case "automatic":
+					cfg.StripeSecretKey = "sk_test_fixtureautomatic"
+					cfg.StripeProPriceIDs = []string{"price_fixtureMonth123", "price_fixtureYear456"}
 				case "unsafe":
 					cfg.StripeCheckoutURLMonthly = "https://example.com/month"
 					cfg.StripeCheckoutURLYearly = "https://example.com/year"
 				}
 				handler := agentKitHandler(cfg)
+				assertAgentKitCheckoutAvailability(t, handler,
+					availability == "both" || availability == "monthly" || availability == "automatic",
+					availability == "both" || availability == "yearly" || availability == "automatic")
 				body, doc := searchPage(t, handler, "/pricing")
 				scripts := searchNodes(doc, func(n *html.Node) bool { return n.Data == "script" && searchAttr(n, "type") == "application/ld+json" })
 				if len(scripts) != 1 {
@@ -151,10 +157,10 @@ func TestSearchPricesAndLLMs(t *testing.T) {
 					t.Fatal("configured prices not rendered")
 				}
 				expected := map[string]int{"Free": 0}
-				if availability == "both" || availability == "monthly" {
+				if availability == "both" || availability == "monthly" || availability == "automatic" {
 					expected["Pro monthly"] = renderedMonthly
 				}
-				if availability == "both" || availability == "yearly" {
+				if availability == "both" || availability == "yearly" || availability == "automatic" {
 					expected["Pro yearly"] = renderedYearly
 				}
 				if len(app.Offers) != len(expected) {

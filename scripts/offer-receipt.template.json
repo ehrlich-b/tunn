@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "evidence_kind": "OPERATOR_OBSERVATION",
+  "observed_at": "",
+  "source_head": "",
+  "version": "",
+  "client_sha256": "",
+  "public_report_sha256": "",
+  "authenticated": {
+    "account_plan": "",
+    "second_name_offer": null,
+    "period": "",
+    "amount_minor": null,
+    "currency": "",
+    "provenance": {
+      "source": "private_window_and_client",
+      "redacted_evidence_sha256": ""
+    },
+    "merchant": {
+      "confirmed": null,
+      "display_name": "",
+      "provenance": {
+        "source": "existing_merchant_dashboard",
+        "redacted_evidence_sha256": ""
+      }
+    }
+  },
+  "signature": ""
+}

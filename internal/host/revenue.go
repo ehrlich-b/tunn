@@ -77,7 +77,7 @@ func (p *ProxyServer) handlePricing(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	writePageStartAt(w, "tunn - Pricing", "pricing")
+	writeSearchPageStart(w, "tunn - Pricing", "pricing", "/pricing", "Compare tunn Free and Pro plans for private HTTPS tunnels, MCP sharing, transfer and retained names.")
 	p.renderRevenuePage(w, pricingHTML)
 	writePageEnd(w)
 }
@@ -116,7 +116,7 @@ func (p *ProxyServer) handleDocs(w http.ResponseWriter, r *http.Request) {
 		writePageStart(w, "tunn - IP restrictions")
 		_, _ = fmt.Fprint(w, ipRestrictionsHTML)
 	} else {
-		writePageStartAt(w, "tunn - Quickstart", "docs")
+		writeSearchPageStart(w, "tunn - Quickstart", "docs", "/docs", "Install tunn on macOS or Linux, sign in and give your local app or MCP server a private HTTPS URL.")
 		_, _ = fmt.Fprint(w, docsHTML)
 	}
 	writePageEnd(w)

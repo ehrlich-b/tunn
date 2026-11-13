@@ -33,7 +33,7 @@ func (p *ProxyServer) handleAbout(w http.ResponseWriter, r *http.Request) {
 	if p.config != nil {
 		operating, merchant, window = p.config.OperatingName, p.config.MerchantDisplayName, p.config.SupportWindow
 	}
-	writePageStart(w, "tunn - About and support")
+	writeSearchPageStart(w, "tunn - About and support", "", "/about", "Learn who maintains tunn, what the relay can see, and how to contact support or report abuse.")
 	_ = aboutTemplate.Execute(w, struct {
 		OperatingName, MerchantDisplayName, SupportWindow string
 		StatusUnpublished                                 bool

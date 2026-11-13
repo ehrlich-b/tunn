@@ -127,8 +127,8 @@ func TestAgentKitIndexUsesPricingSources(t *testing.T) {
 		body := w.Body.String()
 		d := (&ProxyServer{config: cfg}).revenueData()
 		for _, want := range []string{
-			fmt.Sprintf("Free: %d concurrent tunnels, Requests: unlimited (fair use), %s monthly metered transfer, %d reserved name.", d.FreeTunnels, d.FreeBytes, d.FreeReservations),
-			fmt.Sprintf("Pro: $%d/month or $%d/year; %d concurrent tunnels, Requests: unlimited (fair use), %s monthly metered transfer, %d reserved names.", d.MonthlyUSD, d.YearlyUSD, d.ProTunnels, d.ProBytes, d.Reservations),
+			fmt.Sprintf("| Free | $0 | %d | %s | unlimited (fair use) | %d |", d.FreeTunnels, d.FreeBytesShort, d.FreeReservations),
+			fmt.Sprintf("| Pro | $%d/month or $%d/year | %d | %s | unlimited (fair use) | %d |", d.MonthlyUSD, d.YearlyUSD, d.ProTunnels, d.ProBytesShort, d.Reservations),
 		} {
 			if !strings.Contains(body, want) {
 				t.Errorf("index disagrees with pricing data: missing %q", want)

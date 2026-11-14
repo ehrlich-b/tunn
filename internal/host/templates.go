@@ -38,7 +38,16 @@ func withSiteChrome(page string) string {
 	return withPageHead(strings.ReplaceAll(page, "<!--site-footer-->", pageFooter))
 }
 
-// withMCPVerification fills only the MCP guide's fact fragment. Both static guide
+// mcpVerificationNote reuses the guide's fact fragment for the homepage. Return
+// the escaped result during template execution so client names are never parsed
+// as revenue template expressions.
+func mcpVerificationNote() template.HTML {
+	_, rest, _ := strings.Cut(mcpToClaudeHTML, "<!--mcp-verification-->")
+	fragment, _, _ := strings.Cut(rest, "<!--/mcp-verification-->")
+	return template.HTML(withMCPVerification("<!--mcp-verification-->" + fragment + "<!--/mcp-verification-->"))
+}
+
+// withMCPVerification fills the MCP guide's fact fragment. Both static guide
 // routes already use this template layer, so their handlers need no special case.
 func withMCPVerification(page string) string {
 	before, rest, found := strings.Cut(page, "<!--mcp-verification-->")

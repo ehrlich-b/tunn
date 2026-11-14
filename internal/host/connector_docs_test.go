@@ -77,6 +77,7 @@ func TestMCPToClaudeVerified(t *testing.T) {
 		{"empty_entries", " ; " + longClients[0] + "; ; ", longClients[:1], 0},
 		{"separators", "; ;", []string{"; ;"}, 0},
 		{"escaped", `<script>alert("client")</script> & <img src=x onerror=alert(1)> {{.MCPVerified}}`, []string{`<script>alert("client")</script> & <img src=x onerror=alert(1)> {{.MCPVerified}}`}, 0},
+		{"template_expression", `Example client {{.MonthlyUSD}}`, []string{`Example client {{.MonthlyUSD}}`}, 0},
 		{"long", strings.Join(longClients, "; "), longClients[:4], 4},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -84,7 +85,7 @@ func TestMCPToClaudeVerified(t *testing.T) {
 			cfg := &config.Config{Domain: "tunn.to"}
 			p := &ProxyServer{Domain: cfg.Domain, config: cfg, tunnelServer: NewTunnelServer(cfg, nil, nil, nil)}
 			handler := p.createHandler()
-			for _, path := range []string{"/mcp-to-claude", "/docs/mcp-to-claude"} {
+			for _, path := range []string{"/", "/mcp-to-claude", "/docs/mcp-to-claude"} {
 				w := httptest.NewRecorder()
 				handler.ServeHTTP(w, httptest.NewRequest("GET", "https://tunn.to"+path, nil))
 				if w.Code != 200 {
@@ -128,6 +129,11 @@ func TestMCPToClaudeVerified(t *testing.T) {
 				}
 				if dir := os.Getenv("TUNN_MCP_PREVIEW_DIR"); dir != "" && path == "/mcp-to-claude" {
 					if err := os.WriteFile(filepath.Join(dir, tc.name+".html"), []byte(body), 0600); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if dir := os.Getenv("TUNN_MCP_PREVIEW_DIR"); dir != "" && path == "/" {
+					if err := os.WriteFile(filepath.Join(dir, "homepage-"+tc.name+".html"), []byte(body), 0600); err != nil {
 						t.Fatal(err)
 					}
 				}

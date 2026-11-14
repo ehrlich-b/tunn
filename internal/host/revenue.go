@@ -60,7 +60,9 @@ func (p *ProxyServer) revenueData() revenuePageData {
 }
 
 func (p *ProxyServer) renderRevenuePage(w http.ResponseWriter, content string) {
-	tmpl, err := template.New("revenue").Parse(withSiteChrome(content))
+	tmpl, err := template.New("revenue").Funcs(template.FuncMap{
+		"mcpVerification": mcpVerificationNote,
+	}).Parse(withSiteChrome(content))
 	if err != nil {
 		http.Error(w, "Page unavailable", 500)
 		return

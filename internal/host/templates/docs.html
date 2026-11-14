@@ -30,7 +30,7 @@
 <p>Replace <code>alex@example.com</code> with your invitee's email.</p>
 <div class="glass cmd shell-command"><code class="kbd" tabindex="0"><span class="arg">tunn</span> <span class="arg">3000</span> <span class="arg f">--allow=alex@example.com</span></code><button class="btn sm copy" data-copy="tunn 3000 --allow=alex@example.com" aria-describedby="setup-share-copy">Copy</button></div>
 <div class="copy-status" id="setup-share-copy" role="status"></div>
-<p style="margin-top:12px">Send them the printed HTTPS URL. They sign in to a personal account with the allowed email, using Google or an email link where offered by the relay. Everyone else gets a 403 at the edge, before anything reaches your app.</p>
+<p style="margin-top:12px">Send them the printed HTTPS URL. They sign in to a personal account with the allowed email, using Google or an email link where offered by the relay. Browsers without a session go to sign-in. A signed-in account with a disallowed email gets a 403 at the edge, before anything reaches your app.</p>
 <h3>Other ways to share</h3>
 <pre class="glass term"><span class="c"># only you</span>
 tunn 3000

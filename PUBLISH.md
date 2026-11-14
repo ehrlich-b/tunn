@@ -6,6 +6,17 @@ path is unavailable and its interface is UNVERIFIED. Supply its real executable
 path explicitly; no private machine path is inferred. Do not apply until its
 interface below has been confirmed locally. No Windows or herder preset is needed.
 
+For a relay-only documentation release, first obtain independent source approval
+and land the selected source through the existing Desk integration route. That
+route's actual land/deploy command and implementation are **UNVERIFIED** here,
+as are the real round-script path and interface. The forge owner must supply a
+hash-bound capture of the actual Desk project JSON, source and command route,
+and the operator's prior immutable image/feed/tag receipts. Desk comparison,
+`INSTALL.json` and one-click deployment remain blocked until those inputs exist.
+Source preparation can finish before them; this handoff creates no ready
+publishing control and makes no live-update claim. Do not bundle a new CLI
+release with this copy change.
+
 From the clean selected landed commit, retain outside the checkout:
 
 - The prior immutable relay image (`registry/name@sha256:…`), prior feed JSON and

@@ -1,31 +1,33 @@
 # tunn
 
-Give local MCP tools and webhook handlers a public HTTPS URL.
+Give a local HTTP app or MCP server an HTTPS URL. Private to its owner by default.
 
 ```bash
 tunn login
-tunn http 8080                      # Public webhook/dev endpoint
+tunn http 8080 --public             # Public webhook/dev endpoint
 tunn mcp -- ./my-mcp-server         # Private MCP endpoint with OAuth consent
 ```
 
 Copy the printed `/mcp` URL to your cloud client's connector settings. Keep your
-local process running. [Connect to Claude.ai and ChatGPT](https://tunn.to/mcp-to-claude),
+app or MCP server and the publisher running. See
+[MCP setup and experimental hosted-client compatibility](https://tunn.to/mcp-to-claude),
 [compare with ngrok](https://tunn.to/ngrok-alternative), or see
 [pricing](https://tunn.to/pricing). Hosted pages describe this release after the
 operator deploys it; the local guides work from this checkout now.
 
-Free: 5 concurrent tunnels, 1,000,000 admissions and 10 GB metered transfer per UTC
-month across your account, plus 1 reserved name. Pro: $5/month or $48/year, 25 tunnels,
-10,000,000 admissions, 500 GB and 10 reserved names. No automatic overage charges.
-Checkout opens only after billing acceptance; launch activation is reviewed by
-an operator. Existing subscriptions are not repriced by this change.
+Free: 5 concurrent tunnels and 10 GB metered transfer per UTC month across your
+account, plus 1 reserved name. Pro: $5/month or $48/year, 25 tunnels, 500 GB and
+10 reserved names. Requests are unlimited (fair use). No automatic overage charges.
+Checkout availability and payment activation depend on the billing authority;
+see [pricing](https://tunn.to/pricing) for the current activation details.
+Existing subscriptions are not repriced by this change.
 
 Current prices and deployment caps appear on [pricing](https://tunn.to/pricing); use `tunn usage` for your account totals.
 
 Share a local app privately with `tunn 8080 --allow=alice@example.com`. Visitors
 sign in to a personal account with the allowed email, using Google or an email
-link where offered by the relay. For webhook callbacks, keep the endpoint
-public and validate the sender's signatures in your application.
+link where offered by the relay. For webhook callbacks, use `tunn 8080 --public`
+and validate the sender's signatures in your application.
 The [SSH API](docs/ssh-api.md) also supports OpenSSH publication and forwarding.
 
 Relays can also offer [company sign-in and group sharing](docs/org-sso.md)
@@ -117,7 +119,7 @@ use the same private files and digest-only registration as MCP. Rotation
 revokes the old token, normally within one second, and disconnects WebSockets
 opened with it; existing cookie-authenticated sockets remain connected. Token
 access is off unless `--bearer` is passed. An ordinary tunnel without `--allow`
-is still public.
+is private to its owner. Add `--public` for anyone with the URL to connect.
 
 For applications that authenticate through HTTP headers,
 `--require-upstream-auth` rejects HTTP and WebSocket requests that lack an
@@ -382,8 +384,9 @@ not change ownership or supply a replacement license.
 
 ### Account cutoffs and custom domains
 
-All account traffic shares hard monthly request and byte allowances across HTTP,
-WebSockets, TCP CONNECT and MCP. See [metering](docs/METERING.md) for the counting
+All account traffic shares hard monthly transfer allowances across HTTP,
+WebSockets, TCP CONNECT and MCP. Requests are unlimited (fair use); operator
+abuse limits still apply. See [metering](docs/METERING.md) for the counting
 contract and owner usage view. Pro accounts can attach customer DNS names with
 automatic HTTPS:
 

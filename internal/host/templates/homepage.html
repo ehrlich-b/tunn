@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>tunn · Share anything securely.</title>
-<meta name="description" content="Give your local app an HTTPS link. Private by default. Share access by email, from an agent UI to an MCP server.">
+<title>tunn · Give a local HTTP app an HTTPS URL.</title>
+<meta name="description" content="A command-line publisher and relay for your local HTTP app. Private by default. Share access by email. TLS ends at the relay.">
 <link rel="canonical" href="https://tunn.to/">
-<meta property="og:title" content="Share anything securely.">
+<meta property="og:title" content="Give a local HTTP app an HTTPS URL.">
 <meta property="og:description" content="Give your local app an HTTPS link. Private by default. Share access by email.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://tunn.to/">
@@ -22,18 +22,22 @@
 <div class="wrap">
 <header class="home-lead">
  <p class="lbl">From localhost to an HTTPS link</p>
- <h1>Share anything<br>securely.</h1>
- <p class="sub">Your app stays on your machine. tunn gives it a link.<br class="desktop-break"> Private by default. Share access by email.</p>
+ <h1>Give a local HTTP app<br>an HTTPS URL.</h1>
+ <p class="sub">tunn is a command-line publisher and a relay. It forwards visits to an HTTPS URL to an app running on your machine.</p>
 </header>
+<section class="home-notes" aria-labelledby="how-title">
+ <h2 id="how-title" class="lbl">How it works</h2>
+ <p>The publisher keeps an outbound connection to the relay. A visitor connects to the relay, which forwards the request to your local app. Keep both your app and the publisher running and connected.</p>
+ <p>TLS ends at the tunn relay, which can read traffic. New tunnels are private to their owner. Allow other verified email addresses or choose public access.</p>
+</section>
 <div class="home-start">
 <section aria-labelledby="uses-title">
  <h2 id="uses-title" class="lbl">Share from your machine</h2>
  <ol class="home-uses">
-  <li><span>Your agent’s UI on your phone</span><p>OpenClaw, Claude Code or a local agent dashboard.</p></li>
+  <li><span>A local browser UI on your phone</span><p>Open your local dashboard in a browser.</p></li>
   <li><span>A client preview</span><p>Your local website, ready for Alex to review.</p></li>
   <li><span>Webhooks to localhost</span><p>A payment event sent to your app on port 3000.</p></li>
   <li><span>An internal tool</span><p>A dashboard for two colleagues, Alex and Sam.</p></li>
-  <li><span>An MCP server</span><p>Your local tools, connected to your AI client.</p></li>
  </ol>
 </section>
 <section class="home-install panel" id="install" aria-labelledby="install-title">
@@ -45,7 +49,7 @@
  <label class="lbl" id="share-label">2. Share your app on port 3000</label>
  <div class="glass cmd"><code class="kbd" tabindex="0" aria-labelledby="share-label">tunn 3000</code><button class="btn sm copy" data-copy="tunn 3000" aria-describedby="share-copy">Copy</button></div>
  <div class="copy-status" id="share-copy" role="status"></div>
- <p>Sign in when prompted. Open the printed HTTPS link on your phone and sign in with the same email.</p>
+ <p>Have your HTTP app running on port 3000. Sign in when prompted. Open the printed HTTPS link in a browser and sign in with the same email.</p>
  <p class="fine">Keep your app and tunn running. Visitors install nothing.</p>
  <a class="home-agent" href="/agents">Are you an agent?</a>
 </section>
@@ -53,12 +57,18 @@
 <section class="section home-access" aria-labelledby="access-title">
  <div><h2 id="access-title">Choose who can open it.</h2><p>Only you can open a new tunnel. Add someone’s email to share it.</p></div>
  <div><div class="glass cmd"><code class="kbd" tabindex="0">tunn 3000 --allow=alex@example.com,sam@example.com</code><button class="btn sm copy" data-copy="tunn 3000 --allow=alex@example.com,sam@example.com" aria-describedby="allow-copy">Copy</button></div><div class="copy-status" id="allow-copy" role="status"></div>
- <p class="fine">Alex and Sam sign in to personal accounts with the listed emails. Manage or revoke access in <a href="/account/sharing">Share access</a>.</p></div>
+ <p class="fine">Alex and Sam sign in to personal accounts with the listed emails. Browsers without a session go to sign-in; signed-in people outside the allow list are denied before a request reaches your app. Manage or revoke access in <a href="/account/sharing">Share access</a>.</p></div>
 </section>
 <aside class="home-notes" aria-label="Sharing details">
  <p>Public webhooks: <code>tunn 3000 --public</code> lets anyone with the URL connect. <a href="/docs/webhook-verification">Verify signatures in your app</a>.</p>
- <p>TLS ends at the tunn relay, which can read traffic. <a href="/agents">Security and app setup</a>.</p>
+ <p><a href="/agents">Security and app setup</a>.</p>
 </aside>
+<section class="home-notes" aria-labelledby="mcp-title">
+ <h2 id="mcp-title">Connect local MCP tools</h2>
+ <p>Publish a stdio child process or an existing Streamable HTTP MCP server. Start with the <a href="/mcp-to-claude">echo walkthrough and connector check</a>.</p>
+ {{mcpVerification}}
+ <p>The stdio bridge serializes calls through one child shared across clients. Keep local work below 25 seconds.</p>
+</section>
 <section class="section home-more" aria-labelledby="plans-title">
  <div><h2 id="plans-title">Start free.</h2>
  <p>Free includes {{.FreeTunnels}} tunnels and {{.FreeBytesShort}} a month. Requests: {{.FreeRequestsShort}}.</p>

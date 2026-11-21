@@ -111,7 +111,24 @@ func writePageStart(w io.Writer, title string) {
 }
 
 func writePageStartAt(w io.Writer, title, current string) {
-	_, _ = fmt.Fprintf(w, `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#FFFFFF"><title>%s</title><style>%s</style>%s</head><body>`, title, baseCSS, iconHead)
+	writePageStartWithHead(w, title, current, "")
+}
+
+// writeSearchPageStart adds discovery metadata to the shared page head.
+func writeSearchPageStart(w io.Writer, title, current, path, description string) {
+	canonical := "https://tunn.to" + path
+	head := fmt.Sprintf(`<meta name="description" content="%s">
+<link rel="canonical" href="%s">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="tunn">
+<meta property="og:title" content="%s">
+<meta property="og:description" content="%s">
+<meta property="og:url" content="%s">`, html.EscapeString(description), html.EscapeString(canonical), html.EscapeString(title), html.EscapeString(description), html.EscapeString(canonical))
+	writePageStartWithHead(w, title, current, head)
+}
+
+func writePageStartWithHead(w io.Writer, title, current, head string) {
+	_, _ = fmt.Fprintf(w, `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#FFFFFF"><title>%s</title><style>%s</style>%s%s</head><body>`, title, baseCSS, iconHead, head)
 	_, _ = fmt.Fprint(w, siteHeader(current), `<main id="main" class="page-container">`)
 }
 

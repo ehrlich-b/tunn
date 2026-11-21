@@ -1,3 +1,18 @@
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@type": "SoftwareApplication",
+ "name": "tunn",
+ "url": "https://tunn.to/",
+ "applicationCategory": "DeveloperApplication",
+ "operatingSystem": "macOS, Linux",
+ "offers": [
+  {"@type": "Offer", "name": "Free", "price": 0, "priceCurrency": "USD", "url": "https://tunn.to/docs"}{{if .MonthlyAvailable}},
+  {"@type": "Offer", "name": "Pro monthly", "price": {{.MonthlyUSD}}, "priceCurrency": "USD", "url": "https://tunn.to/upgrade?period=monthly", "priceSpecification": {"@type": "UnitPriceSpecification", "price": {{.MonthlyUSD}}, "priceCurrency": "USD", "billingDuration": "P1M"}}{{end}}{{if .YearlyAvailable}},
+  {"@type": "Offer", "name": "Pro yearly", "price": {{.YearlyUSD}}, "priceCurrency": "USD", "url": "https://tunn.to/upgrade?period=yearly", "priceSpecification": {"@type": "UnitPriceSpecification", "price": {{.YearlyUSD}}, "priceCurrency": "USD", "billingDuration": "P1Y"}}{{end}}
+ ]
+}
+</script>
 <div class="pricing-entry">
 <header class="pricing-heading">
  <span class="lbl">Pricing</span>

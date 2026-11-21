@@ -47,6 +47,7 @@ func TestBillingReadyServerAgreement(t *testing.T) {
 			// used by Process, without a database or a provider/network request.
 			p := &ProxyServer{config: cfg}
 			data := p.revenueData()
+			assertAgentKitCheckoutAvailability(t, agentKitHandler(cfg), data.MonthlyAvailable, data.YearlyAvailable)
 			auto := store.NewStripeAutomation(cfg.StripeSecretKey, cfg.StripeProPriceIDs, nil)
 			want := "checkout closed"
 			if data.MonthlyAvailable || data.YearlyAvailable {

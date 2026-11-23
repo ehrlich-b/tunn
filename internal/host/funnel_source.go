@@ -96,7 +96,7 @@ func funnelSourceEntry(r *http.Request) bool {
 		return false
 	}
 	switch r.URL.Path {
-	case "/", "/about", "/privacy", "/terms", "/pricing", "/ngrok-alternative", "/login", "/auth/login", "/upgrade", "/docs", "/agents", "/status", "/report", "/client-previews", "/mcp-to-claude", "/share-dev-server-oauth":
+	case "/", "/about", "/privacy", "/terms", "/pricing", "/ngrok-alternative", "/login", "/auth/login", "/upgrade", "/docs", "/agents", "/status", "/report", "/client-previews", "/mcp-to-claude", "/share-dev-server-oauth", "/mcp-connector-url-must-start-with-https", "/local-mcp-server-claude-mobile", "/claude-connector-bearer-token":
 		return true
 	}
 	return strings.HasPrefix(r.URL.Path, "/docs/") || strings.HasPrefix(r.URL.Path, "/agents/")

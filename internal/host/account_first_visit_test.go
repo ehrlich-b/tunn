@@ -37,7 +37,7 @@ func TestAccountFirstVisitCommands(t *testing.T) {
 		{"account", accountHTML, account},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			tmpl := template.Must(template.New(tc.name).Funcs(template.FuncMap{"assetURL": webAssetURL}).Parse(tc.source))
+			tmpl := template.Must(template.New(tc.name).Funcs(template.FuncMap{"assetURL": webAssetURL, "mcpVerification": mcpVerificationNote}).Parse(tc.source))
 			var out bytes.Buffer
 			if err := tmpl.Execute(&out, tc.data); err != nil {
 				t.Fatal(err)

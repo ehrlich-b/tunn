@@ -14,6 +14,7 @@ var funnelBrowserEntries = []string{
 	"/docs", "/docs/", "/docs/status", "/docs/docker", "/docs/mcp-to-claude",
 	"/docs/webhook-verification", "/docs/ip-restrictions",
 	"/client-previews", "/mcp-to-claude", "/share-dev-server-oauth",
+	"/mcp-connector-url-must-start-with-https", "/local-mcp-server-claude-mobile", "/claude-connector-bearer-token",
 	"/agents", "/agents/SKILLS.md", "/agents/prompt.md", "/agents/skill/SKILL.md", "/status", "/report", "/login", "/auth/login", "/upgrade",
 }
 

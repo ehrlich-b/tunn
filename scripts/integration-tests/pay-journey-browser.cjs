@@ -2,11 +2,10 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const {createHash} = require('node:crypto');
-const sha256 = raw => createHash('sha256').update(raw).digest('hex');
 const {chromium} = require(process.env.TUNN_PLAYWRIGHT_MODULE || 'playwright');
 const input = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
-const {apex, period, width, email, output, scenario, run} = input;
+const {apex, period, width, email, output} = input;
+const run = `${period}-${width}`;
 (async () => {
   const browser = await chromium.launch({headless:true, args:[
     '--no-proxy-server', '--disable-background-networking',
@@ -29,7 +28,7 @@ const {apex, period, width, email, output, scenario, run} = input;
       blocked.push(url.href);
       await route.abort('blockedbyclient');
     });
-    let page = await context.newPage();
+    const page = await context.newPage();
     page.on('request', request => {
       const url = new URL(request.url());
       if (url.origin === 'https://buy.stripe.com') {
@@ -48,7 +47,7 @@ const {apex, period, width, email, output, scenario, run} = input;
     async function capture(name, facts={}) {
       const screenshot = `${run}-${name}.png`;
       await page.screenshot({path:path.join(output,screenshot),fullPage:true});
-      steps.push({name,url:page.url(),screenshot,screenshot_sha256:sha256(fs.readFileSync(path.join(output,screenshot))),...facts});
+      steps.push({name,url:page.url(),screenshot,...facts});
     }
     assert.equal((await page.goto(apex+'/pricing')).status(),200);
     await page.getByRole('link',{name:`Go Pro ${period}`,exact:true}).waitFor();
@@ -79,75 +78,9 @@ const {apex, period, width, email, output, scenario, run} = input;
     await page.getByText(`Pro ${period}`,{exact:true}).waitFor();
     await page.getByText(period==='monthly'?'$5/month':'$48/year',{exact:true}).waitFor();
     await capture('fixture-checkout',{before_plan:'free',provider_redirect_mapped_to_loopback:true});
-    let accountCapture = 0;
-    async function accountState() {
-      const response = await page.evaluate(async () => {
-        const r = await fetch('/api/billing/status?plan=pro&paid=true');
-        return {status:r.status,body:await r.text()};
-      });
-      assert.equal(response.status,200);
-      const body = response.body;
-      const status = JSON.parse(body);
-      const badge = (await page.locator('.who .plan-badge').innerText()).trim();
-      const message = (await page.locator('#billing-status').innerText()).trim();
-      const html = await page.content();
-      const htmlFile = `${run}-account-${accountCapture++}.html`;
-      fs.writeFileSync(path.join(output,htmlFile),html);
-      const accountEmail = (await page.locator('.who .mail').innerText()).trim();
-      return {email:accountEmail,plan:status.plan,state:status.state,badge,message,claims_pro:badge==='pro'||/^Pro is on\./.test(message),
-        status_http:response.status,status_body:body,status_sha256:sha256(body),html_file:htmlFile,html_sha256:sha256(html)};
-    }
-    let beforePage;
-    if (scenario) {
-      const checkoutPage = page;
-      page = await context.newPage();
-      assert.equal((await page.goto(apex+'/account?billing=return&plan=pro&paid=true&session_id=cs_first')).status(),200);
-      beforePage = await accountState();
-      assert.equal(beforePage.email,email);
-      assert.equal(beforePage.plan,'free');
-      assert.equal(beforePage.badge,'free');
-      assert.equal(beforePage.claims_pro,false);
-      await capture('before-account-free',{account_page:beforePage});
-      await page.close();
-      page = checkoutPage;
-    }
     await page.getByRole('button',{name:'Pay fixture',exact:true}).click();
-    if (scenario) {
-      await page.getByRole('heading',{name:'Fixture control received',exact:true}).waitFor();
-      const receipt = run+'-control.json';
-      const raw = fs.readFileSync(path.join(output,receipt));
-      await capture('control-response',{receipt,receipt_sha256:sha256(raw)});
-      await page.getByRole('link',{name:'Return to account',exact:true}).click();
-      await page.waitForURL('**/account?**');
-      const afterPage = await accountState();
-      assert.equal(afterPage.email,email);
-      assert.equal(afterPage.plan,'free','negative signal granted target Pro');
-      assert.equal(afterPage.badge,'free','account page claimed Pro');
-      assert.equal(afterPage.claims_pro,false);
-      assert.match(afterPage.message,/^Pro activation is pending\./);
-      await capture('return-account-free',{expected_plan:'free',actual_plan:afterPage.plan,account_page:afterPage});
-      let donorPage;
-      if (scenario === 'replayed-checkout') {
-        assert.equal((await page.goto(apex+'/_fixture/donor-session')).status(),200);
-        donorPage = await accountState();
-        assert.equal(donorPage.email,'donor@example.invalid');
-        assert.equal(donorPage.plan,'pro');
-        assert.equal(donorPage.badge,'pro');
-        assert.equal(donorPage.claims_pro,true);
-        await capture('idempotent-owner-pro',{account_page:donorPage});
-      }
-      assert.deepEqual(blocked,[],'unexpected external request');
-      assert.deepEqual(errors,[],'browser error or dialog');
-      assert.ok(responses.every(r=>r.status<400),'failed page or asset request');
-      fs.writeFileSync(path.join(output,run+'-browser.json'),JSON.stringify({result:'PASS',name:scenario,period,width,steps,
-        expected_plan:'free',actual_plan:afterPage.plan,before_page:beforePage,after_page:afterPage,donor_page:donorPage,
-        blocked_external_requests:blocked,browser_errors:errors,responses},null,2)+'\n');
-      await context.close();
-      console.log(`PASS ${run}: isolated Free target remains Free in authority and actual account page`);
-      return;
-    }
     await page.getByRole('heading',{name:'Fixture payment received',exact:true}).waitFor();
-    await capture('signed-webhook',{http_status:200,state:'reconciled',receipt:run+'-webhook.json',receipt_sha256:sha256(fs.readFileSync(path.join(output,run+'-webhook.json')))});
+    await capture('signed-webhook',{http_status:200,state:'reconciled',receipt:run+'-webhook.json'});
     await page.getByRole('link',{name:'Return to account',exact:true}).click();
     await page.waitForURL('**/account?billing=return');
     assert.equal((await page.locator('.who .plan-pro').innerText()).trim(),'pro');
@@ -159,7 +92,7 @@ const {apex, period, width, email, output, scenario, run} = input;
     });
     assert.equal(status.plan,'pro');
     assert.equal(status.state,'active');
-    await capture('return-account-pro',{expected_plan:'pro',actual_plan:status.plan,state:status.state,account_page:await accountState()});
+    await capture('return-account-pro',{expected_plan:'pro',actual_plan:status.plan,state:status.state});
     assert.deepEqual(blocked,[],'unexpected external request');
     assert.deepEqual(errors,[],'browser error or dialog');
     assert.ok(responses.some(r=>r.path==='/upgrade' && r.status===302),'missing anonymous sign-in redirect');

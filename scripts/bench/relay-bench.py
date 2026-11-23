@@ -6,16 +6,20 @@ The Go driver is compiled through an overlay: the checkout is never modified.
 --self-test-broken-origin deliberately returns nonzero on a truncated 1 KiB body.
 """
 import argparse
+import gzip
 import hashlib
 import json
 import os
 from pathlib import Path
 import platform
+import shlex
 import statistics
 import subprocess
 import sys
 import tarfile
 import time
+import shutil
+import threading
 import urllib.request
 
 FRP_VERSION = "0.72.0"
@@ -337,12 +341,250 @@ def report(data, output):
     (output / "BENCH.md").write_text("\n".join(lines) + "\n")
 
 
+def capacity_report(data, output):
+    lines = ["# Single-relay capacity", "", "Measured on loopback with a separate relay, publisher/origin process, and open-loop visitor process. All services bind to 127.0.0.1. TLS is enabled on ingress and publisher gRPC. Tiny self-tests validate HTTP correctness and report timing spikes as warnings; full measurements enforce the timing thresholds below. The relay is pinned with taskset; GOMEMLIMIT is a soft Go runtime target, not a VM memory cap. A parent watchdog stops the relay if sampled RSS exceeds the stated memory budget; it cannot reproduce a kernel OOM kill. No production service is contacted.", "",
+             f"Shape: {data['cpus']} CPU(s), GOMEMLIMIT={data['gomemlimit']}, RSS budget {data['rss_budget_mib']} MiB. Body: {data['body_bytes']} bytes, distributed round-robin over {data['traffic_tunnels']} tunnels; each traffic step offers arrivals for {data['step_seconds']} seconds. Idle stages settle for three seconds after registration. If 1,000 RPS passes, a bounded extension at 1,250, 1,500 and 2,000 RPS stops at the first failure to locate a breaking point. This is a bounded capacity observation, not a long soak or Fly shared-CPU guarantee.", "",
+             "The fixture uses real ServeClient publishers, production host routing, HTTP admission, transport and bandwidth limits. Each publisher authenticates with a fixture-signed JWT and a distinct free account through production registration and durable public web sharing. Account lookup, plan quota admission, per-chunk charging, completion, usage recording and account-page export share the production on-disk SQLite connection (WAL, normal production synchronous setting). Accounts are seeded before the idle baseline. These are not 1,000 tunnels on one account. All per-owner and bandwidth limits remain enabled. Login and authenticated account rendering use the production handlers; the probed account owns the first traffic tunnel. Account probes reject unavailable usage, and successful visitors require a metering request ID. Per-step registration shape and the first owner’s cumulative ledger export are retained in capacity.json. External OAuth/email delivery, remote networks and HTTP/3 are excluded. No product limits or deployment configuration are changed.", "",
+             "Failure criteria declared before the run: RSS above the budget; incomplete publisher registration; visitor error rate above 1%; or scheduled-arrival full-body p99 above 500 ms. Login and authenticated account probes arrive independently at five requests/second each, including during overload. Page responsiveness requires zero errors and p99 at most 1,000 ms. A dispatcher p99 lag above 100 ms invalidates a traffic step as generator-limited. Percentiles use nearest rank and include errors/timeouts as attempt durations. Timed-out full-body completion latencies are right-censored at the recorded deadline, not successful completions; traffic latency includes scheduling lag, avoiding completion-paced coordinated omission. An idle step has no visitor requests, so its p99 and error rate are N/A. RSS is process-only, sampled every 50 ms (shorter peaks may be missed); CPU is process CPU seconds divided by step wall time.", "",
+             "| Stage | Publishers / RPS | RSS peak MiB | Attempt p99 ms | Error % | Completed RPS | Relay CPU cores | Login p99 ms / errors | Account p99 ms / errors | Result |",
+             "|---|---:|---:|---:|---:|---:|---:|---|---|---|"]
+    for row in data['steps']:
+        load = row.get('load', {})
+        traffic = load.get('traffic', {})
+        page = lambda name: (f"{load[name]['p99_ms']:.2f} / {load[name]['errors']}" if name in load else "N/A")
+        lines.append(f"| {row['stage']} | {row['target']} | {row['rss_peak_mib']:.2f} | " +
+                     (f"{traffic['p99_ms']:.2f} | {100*traffic['error_rate']:.3f}" if traffic else "N/A | N/A") +
+                     f" | {load.get('completed_rps', 0):.2f} | {row['cpu_cores']:.2f} | {page('login')} | {page('account')} | {row['failure'] or ('functional pass; timing warning: '+row['timing_warning'] if row.get('timing_warning') else 'pass')} |")
+    idle = [r for r in data['steps'] if r['stage'] == 'idle' and not r['failure']]
+    memory = "not enough successful idle steps to estimate"
+    if len(idle) >= 2:
+        low, high = idle[0], idle[-1]
+        slope = (high['rss_end_mib'] - low['rss_end_mib']) * 1024 / (high['target'] - low['target'])
+        memory = f"{slope:.2f} KiB per additional idle tunnel ({low['target']}→{high['target']}, ending RSS {low['rss_end_mib']:.2f}→{high['rss_end_mib']:.2f} MiB). This endpoint slope includes gRPC/TLS connections, maps, allocator retention and GC; it is not a constant heap allocation."
+    lines += ["", "Memory per idle tunnel: " + memory, "", "First failure: " + (json.dumps(data['first_failure']) if data['first_failure'] else "none observed through the requested ramp; the breaking point is above this tested envelope, not measured here."), "",
+              "Machine/provenance and exact invocation:", "", "```json", json.dumps({k: v for k, v in data.items() if k != 'steps'}, indent=2), "```", "",
+              "Per-step summaries are in capacity.json; compressed individual visitor observations are in traffic-*.json.gz under artifact_directory (recorded above). Driver source, overlay, build log, readiness handshakes and child logs are retained with the evidence. Failed HTTP status, body length and deadlines remain errors; no successful latency is substituted.", ""]
+    good = [r for r in data['steps'] if r['stage'] == 'traffic' and not r['failure'] and r['pages_responsive']]
+    bad = [r for r in data['steps'] if r['stage'] == 'traffic' and not r['pages_responsive']]
+    failed = [r for r in data['steps'] if r['stage'] == 'traffic' and r['failure']]
+    if failed:
+        first = failed[0]
+        lines += [f"Failure mode at {first['target']} offered RPS: {first['failure']}; relay CPU {first['cpu_cores']:.2f} core(s), peak RSS {first['rss_peak_mib']:.2f} MiB versus {data['rss_budget_mib']} MiB budget. " + ("RSS stayed below budget and the relay remained alive: no OOM was observed. Latency/deadline failures are consistent with request or ledger queueing; this experiment does not isolate CPU scheduling from SQLite contention or storage latency." if first['rss_peak_mib'] < data['rss_budget_mib'] else "RSS reached the budget."), ""]
+    lines += ["Login and account pages: " + (f"responsive at all {len(good)} passing traffic steps; " if good else "no fully passing traffic step; ") + (f"not responsive at {', '.join(str(r['target']) for r in bad)} offered RPS." if bad else "no page responsiveness failure observed during the traffic ramp."), ""]
+    if data["self_test"]:
+        lines.append("Recommendation: use the full capacity stage for sizing; this tiny ramp checks HTTP correctness and failure reporting only. Timing spikes remain visible as warnings; HTTP, body and process failures still fail the self-test.")
+    elif good:
+        best = max([r for r in good if r['cpu_cores'] <= .8 * data['cpus']] or good, key=lambda r: r['target'])
+        lines.append(f"Recommendation: stay at this size for this measured workload up to {best['target']} offered RPS on {data['traffic_tunnels']} tunnels (p99 {best['load']['traffic']['p99_ms']:.2f} ms, peak RSS {best['rss_peak_mib']:.2f} MiB, {data['rss_budget_mib']-best['rss_peak_mib']:.2f} MiB RSS headroom, {100*max(0, 1-best['cpu_cores']/data['cpus']):.1f}% measured CPU headroom). Treat the first failing step as outside the supported envelope; no larger machine's headroom is claimed without measurement.")
+    else:
+        lines.append("Recommendation: this size has no demonstrated passing traffic envelope in this run; do not infer a CPU or memory upgrade's headroom without measuring it.")
+    (output / 'CAPACITY.md').write_text('\n'.join(lines) + '\n')
+
+
+def capacity(args, repo, work, output, start):
+    if not sys.platform.startswith('linux'):
+        raise RuntimeError('capacity requires Linux taskset and /proc')
+    cpus = sorted(os.sched_getaffinity(0))
+    if len(cpus) < args.capacity_cpus + 1:
+        raise RuntimeError('capacity requires separate allowed CPU(s) for the load generator')
+    relay_cpus = cpus[:args.capacity_cpus]
+    other_cpus = cpus[args.capacity_cpus:]
+    source = Path(__file__).with_name('capacity-driver.go.txt')
+    (work / 'capacity-driver.go').write_bytes(source.read_bytes())
+    overlay = {'Replace': {str(repo / 'internal/host/relay_capacity_generated_test.go'): str(work / 'capacity-driver.go')}}
+    (work / 'overlay.json').write_text(json.dumps(overlay))
+    binary = work / 'relay-capacity.test'
+    env = {k: v for k, v in os.environ.items() if not k.startswith(('TUNN_', 'RC_', 'RB_'))}
+    (work / 'tmp').mkdir(exist_ok=True)
+    env.update(TMPDIR=str(work / 'tmp'), GOTMPDIR=str(work / 'tmp'), RC_WORK=str(work), RC_BODY=str(args.capacity_body), GOMAXPROCS='4')
+    with (work / 'build.log').open('w') as log:
+        subprocess.run(['go', 'test', '-p', '2', '-overlay', str(work / 'overlay.json'), '-c', '-o', str(binary), './internal/host'], cwd=repo, env=env, stdout=log, stderr=subprocess.STDOUT, check=True, timeout=300)
+    data = {'version': 1, 'head': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=repo, text=True).strip(),
+            'cpus': args.capacity_cpus, 'relay_affinity': relay_cpus, 'other_affinity': other_cpus,
+            'gomemlimit': args.capacity_gomemlimit, 'rss_budget_mib': args.capacity_rss_mib,
+            'body_bytes': args.capacity_body, 'traffic_tunnels': 2 if args.capacity_self_test else 20,
+            'step_seconds': 1 if args.capacity_self_test else args.capacity_seconds,
+            'machine': {'hostname': platform.node(), 'platform': platform.platform(), 'cpu': next((line.split(':', 1)[1].strip() for line in Path('/proc/cpuinfo').read_text().splitlines() if line.startswith('model name')), 'unknown'), 'go': subprocess.check_output(['go', 'version'], text=True).strip(), 'loadavg': Path('/proc/loadavg').read_text().strip()},
+            'niceness': os.getpriority(os.PRIO_PROCESS, 0), 'command': shlex.join(['nice', '-n', '10', sys.executable, *sys.argv]), 'artifact_directory': str(output), 'steps': [], 'first_failure': None,
+            'self_test': args.capacity_self_test, 'forced_failure': args.capacity_force_failure}
+    children, logs = [], []
+    stopped = threading.Event()
+    memory_exceeded = threading.Event()
+    rss_samples = []
+    ticks = os.sysconf('SC_CLK_TCK')
+
+    def process_stats(pid):
+        status = Path(f'/proc/{pid}/status').read_text()
+        rss = next((int(line.split()[1]) / 1024 for line in status.splitlines() if line.startswith('VmRSS:')), 0)
+        stat = Path(f'/proc/{pid}/stat').read_text().rsplit(')', 1)[1].split()
+        return rss, (int(stat[11]) + int(stat[12])) / ticks
+
+    def launch(role, affinity, extra=None):
+        child_env = dict(env, RC_ROLE=role, **(extra or {}))
+        path = output / f'{role}-{len(children)}.log'
+        log = path.open('w'); logs.append(log)
+        child = subprocess.Popen(['taskset', '-c', ','.join(map(str, affinity)), str(binary), '-test.run=^TestRelayCapacityDriver$', '-test.v', '-test.timeout=40m'], cwd=repo, env=child_env, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT)
+        children.append(child)
+        return child
+
+    def ready(name, process):
+        path = work / f'{name}-ready.json'
+        # Each run gets a new work directory; never accept an old handshake.
+        deadline = time.monotonic() + 60
+        while time.monotonic() < deadline:
+            if process.poll() is not None:
+                raise RuntimeError(f'{name} exited {process.returncode}; see child log')
+            if path.exists():
+                try:
+                    return json.loads(path.read_text())
+                except json.JSONDecodeError:
+                    pass
+            time.sleep(.05)
+        raise RuntimeError(f'{name} startup timeout')
+
+    def get(url):
+        with urllib.request.urlopen(url, timeout=5) as response:
+            return response.read()
+
+    def record(row):
+        if row['failure'] and data['first_failure'] is None:
+            data['first_failure'] = {'stage': row['stage'], 'target': row['target'], 'mode': row['failure']}
+        data['steps'].append(row)
+        print(json.dumps({k:v for k,v in row.items() if k != 'load'}), flush=True)
+        (output / 'capacity.json').write_text(json.dumps(data, indent=2) + '\n')
+
+    try:
+        relay = launch('relay', relay_cpus, {'RC_OWNERS': '6' if args.capacity_self_test else '1000', 'GOMEMLIMIT': args.capacity_gomemlimit, 'GOMAXPROCS': str(args.capacity_cpus)})
+        relay_ready = ready('relay', relay)
+        data['database'] = {k: relay_ready[k] for k in ('journal_mode', 'synchronous', 'owners')}
+        if data['database']['journal_mode'] != 'wal':
+            raise RuntimeError('production WAL database required')
+        data['relay_pid'] = relay.pid
+        data['relay_affinity_observed'] = sorted(os.sched_getaffinity(relay.pid))
+        data['relay_niceness'] = os.getpriority(os.PRIO_PROCESS, relay.pid)
+        if data['relay_affinity_observed'] != relay_cpus:
+            raise RuntimeError('taskset affinity did not take effect')
+
+        def monitor():
+            while not stopped.is_set():
+                try:
+                    rss, _ = process_stats(relay.pid)
+                    rss_samples.append(rss)
+                    if rss > args.capacity_rss_mib:
+                        memory_exceeded.set(); relay.terminate(); return
+                except (OSError, ValueError):
+                    return
+                stopped.wait(.05)
+        watcher = threading.Thread(target=monitor, daemon=True); watcher.start()
+        publishers = launch('publishers', other_cpus, {'RC_GRPC': relay_ready['grpc'], 'RC_BROKEN': '1' if args.capacity_force_failure else '0'})
+        pub_ready = ready('publishers', publishers)
+
+        def set_tunnels(n):
+            get(pub_ready['admin'] + f'/?n={n}')
+            deadline = time.monotonic() + 90
+            while time.monotonic() < deadline:
+                if relay.poll() is not None:
+                    raise RuntimeError('RSS budget exceeded' if memory_exceeded.is_set() else 'relay exited')
+                state = json.loads(get(relay_ready['admin']))
+                if state['tunnels'] == n:
+                    if not (state['account_backed'] == n and state['quota_exempt'] == 0 and state['shared'] == n and state['metering'] and state['account_plans']):
+                        raise RuntimeError(f'production account/metering shape missing: {state}')
+                    return state
+                time.sleep(.1)
+            raise RuntimeError(f'publisher registration failed to reach {n}')
+
+        for n in ([2, 6] if args.capacity_self_test else [10, 50, 100, 200, 400, 600, 800, 1000]):
+            at = len(rss_samples); before = process_stats(relay.pid)[1]; begin = time.monotonic()
+            failure, state = None, None
+            try:
+                state = set_tunnels(n); time.sleep(.1 if args.capacity_self_test else 3)
+            except (OSError, RuntimeError) as exc:
+                failure = str(exc)
+            rss, cpu = process_stats(relay.pid) if relay.poll() is None else (0, before)
+            record({'stage': 'idle', 'target': n, 'registration': state, 'rss_peak_mib': max(rss_samples[at:] or [rss]), 'rss_end_mib': rss, 'cpu_cores': (cpu-before)/(time.monotonic()-begin), 'failure': failure})
+            if failure:
+                break
+        if relay.poll() is None and not data['first_failure']:
+            traffic_registration = set_tunnels(data['traffic_tunnels'])
+            time.sleep(.1 if args.capacity_self_test else 3)
+            for rate in ([2, 5] if args.capacity_self_test else [10, 50, 100, 200, 400, 600, 800, 1000, 1250, 1500, 2000]):
+                if rate > 1000 and data['first_failure']:
+                    break
+                at = len(rss_samples); before = process_stats(relay.pid)[1]; begin = time.monotonic()
+                child = launch('load', other_cpus, {'RC_INGRESS': relay_ready['ingress'], 'RC_COOKIE': relay_ready['cookie'], 'RC_RPS': str(rate), 'RC_SECONDS': str(data['step_seconds']), 'RC_TUNNELS': str(data['traffic_tunnels'])})
+                code = child.wait(timeout=data['step_seconds'] + 30)
+                if code or relay.poll() is not None:
+                    raise RuntimeError('RSS budget exceeded' if memory_exceeded.is_set() else f'load process failed: {code}')
+                load = json.loads((work / 'load-result.json').read_text())
+                with gzip.open(output / f'traffic-{rate}.json.gz', 'wt') as compressed:
+                    json.dump(load.pop('samples'), compressed)
+                usage = json.loads(get(relay_ready['admin'] + '/usage'))
+                traffic = load['traffic']
+                failure = ('generator queueing (invalid measurement)' if traffic.get('generator_errors', 0) or traffic['dispatch_lag_p99_ms'] > 100 else
+                           'errors' if traffic['error_rate'] > .01 else 'queueing' if traffic['p99_ms'] > 500 else None)
+                pages_responsive = all(load[k]['errors'] == 0 and load[k]['p99_ms'] <= 1000 for k in ('login', 'account'))
+                if not pages_responsive and failure is None:
+                    failure = 'control-plane errors or queueing'
+                timing_warning = None
+                if args.capacity_self_test:
+                    # A one-second fragment proves HTTP correctness, not a stable
+                    # capacity percentile on a shared host. Keep timing visible.
+                    errors = traffic['errors'] + sum(load[k]['errors'] for k in ('login', 'account'))
+                    timing_warning = failure if not errors else None
+                    failure = 'errors' if errors else None
+                rss, cpu = process_stats(relay.pid)
+                record({'stage': 'traffic', 'target': rate, 'registration': traffic_registration, 'ledger_export': usage, 'rss_peak_mib': max(rss_samples[at:] or [rss]), 'rss_end_mib': rss, 'cpu_cores': (cpu-before)/(time.monotonic()-begin), 'load': load,
+                        'pages_responsive': pages_responsive, 'timing_warning': timing_warning, 'failure': failure})
+        if args.capacity_force_failure and data['first_failure'] is None:
+            raise RuntimeError('forced failure was not detected')
+    except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
+        data['harness_error'] = str(exc)
+        if data['first_failure'] is None:
+            data['first_failure'] = {'stage': 'harness', 'mode': str(exc)}
+    finally:
+        stopped.set()
+        for child in reversed(children):
+            if child.poll() is None:
+                child.terminate()
+        for child in children:
+            try:
+                child.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                child.kill(); child.wait()
+        for log in logs:
+            log.close()
+    for name in ('capacity-driver.go', 'overlay.json', 'build.log', 'relay-ready.json', 'publishers-ready.json'):
+        if (work / name).exists():
+            shutil.copyfile(work / name, output / name)
+    data['elapsed_seconds'] = time.monotonic() - start
+    if data['elapsed_seconds'] >= 2700:
+        data['harness_error'] = 'exceeded 45 minute runtime budget'
+    (output / 'capacity.json').write_text(json.dumps(data, indent=2) + '\n')
+    capacity_report(data, output)
+    print(f"Wrote {output / 'CAPACITY.md'} in {data['elapsed_seconds']:.1f}s; first failure: {data['first_failure']}", flush=True)
+    return int(bool(data.get('harness_error')) or any('generator' in (r['failure'] or '') for r in data['steps']) or args.capacity_force_failure or (args.capacity_self_test and bool(data['first_failure'])))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--work-dir", type=Path, required=True, help="scratch directory outside checkout")
     parser.add_argument("--output", type=Path, required=True, help="evidence directory outside checkout")
     parser.add_argument("--self-test-broken-origin", action="store_true")
+    parser.add_argument("--capacity", action="store_true", help="bounded single-relay capacity stage; no frp download")
+    parser.add_argument("--capacity-self-test", action="store_true", help="tiny six-publisher idle ramp and two-tunnel traffic ramp")
+    parser.add_argument("--capacity-force-failure", action="store_true", help="truncated origin; must report failure and exit nonzero")
+    parser.add_argument("--capacity-cpus", type=int, choices=(1, 2), default=1)
+    parser.add_argument("--capacity-gomemlimit", default="400MiB")
+    parser.add_argument("--capacity-rss-mib", type=int, default=512)
+    parser.add_argument("--capacity-body", type=int, default=256*1024)
+    parser.add_argument("--capacity-seconds", type=int, default=15)
     args = parser.parse_args()
+    if args.capacity and args.self_test_broken_origin:
+        parser.error("use --capacity-force-failure for capacity")
+    if not (1 <= args.capacity_seconds <= 60 and 1 <= args.capacity_body <= 1048576 and 64 <= args.capacity_rss_mib <= 1024):
+        parser.error("capacity requires 1..60 seconds, 1..1048576 body bytes, and 64..1024 MiB RSS budget")
+    if (args.capacity_self_test or args.capacity_force_failure) and not args.capacity:
+        parser.error("capacity test switches require --capacity")
     start = time.monotonic()
     if os.getpriority(os.PRIO_PROCESS, 0) < 10:
         os.nice(10 - os.getpriority(os.PRIO_PROCESS, 0))
@@ -352,6 +594,11 @@ def main():
         if path == repo or repo in path.parents:
             parser.error("work and evidence directories must be outside the checkout")
         path.mkdir(parents=True, exist_ok=True)
+    if args.capacity:
+        # Refuse stale ready files or overwriting a measurement; use a fresh path.
+        if (work / 'relay-ready.json').exists() or (output / 'capacity.json').exists():
+            parser.error("capacity work/output already used; choose fresh directories")
+        return capacity(args, repo, work, output, start)
     (work / "driver_test.go").write_text(DRIVER)
     overlay = {"Replace": {str(repo / "internal/host/relay_bench_generated_test.go"): str(work / "driver_test.go")}}
     (work / "overlay.json").write_text(json.dumps(overlay))

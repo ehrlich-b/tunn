@@ -1,0 +1,350 @@
+// Compiled only via relay-bench.py's overlay into package host.
+package host
+
+import (
+	"bytes"
+	"context"
+	"crypto/tls"
+	"encoding/json"
+	"fmt"
+	"io"
+	"math"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/ehrlich-b/tunn/internal/client"
+	"github.com/ehrlich-b/tunn/internal/common"
+	"github.com/ehrlich-b/tunn/internal/metering"
+	"github.com/ehrlich-b/tunn/internal/storage"
+	"github.com/ehrlich-b/tunn/internal/store"
+	meterpb "github.com/ehrlich-b/tunn/pkg/proto/meteringv1"
+	pb "github.com/ehrlich-b/tunn/pkg/proto/tunnelv1"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+)
+
+func rcWrite(t *testing.T, name string, value any) {
+	t.Helper()
+	b, e := json.Marshal(value)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if e = os.WriteFile(filepath.Join(os.Getenv("RC_WORK"), name), b, 0600); e != nil {
+		t.Fatal(e)
+	}
+}
+func rcInt(key string) int {
+	n, e := strconv.Atoi(os.Getenv(key))
+	if e != nil {
+		panic(e)
+	}
+	return n
+}
+func rcServer(t *testing.T, h http.Handler) *httptest.Server {
+	t.Helper()
+	s := httptest.NewServer(h)
+	t.Cleanup(s.Close)
+	return s
+}
+func rcClient() *http.Client {
+	return &http.Client{Timeout: 2 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		Transport: &http.Transport{Proxy: nil, TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, MaxIdleConns: 8192, MaxIdleConnsPerHost: 8192, MaxConnsPerHost: 8192, DisableCompression: true}}
+}
+func TestRelayCapacityDriver(t *testing.T) {
+	common.SetLogLevel(common.LogLevelError)
+	switch os.Getenv("RC_ROLE") {
+	case "relay":
+		rcRelay(t)
+	case "publishers":
+		rcPublishers(t)
+	case "load":
+		rcLoad(t)
+	default:
+		t.Fatal("RC_ROLE must be relay, publishers or load")
+	}
+}
+func rcRelay(t *testing.T) {
+	// Share the production on-disk SQLite connection between account storage,
+	// admission, chunk charging, completion and account-page usage export.
+	db, e := store.InitDB(filepath.Join(os.Getenv("RC_WORK"), "capacity.sqlite"))
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer db.Close()
+	local := storage.NewLocalStorage(db)
+	p := securityProxy(local)
+	p.config.LoginNode, p.isLoginNode, p.planMeter = true, true, true
+	ledger, e := metering.New(db, metering.WithAccountPlans(), metering.WithOwnerBudgets(p.config.OwnerMonthlyRequests, p.config.OwnerMonthlyBytes))
+	if e != nil {
+		t.Fatal(e)
+	}
+	p.meter = ledger
+	p.tunnelServer = NewTunnelServer(p.config, nil, local.AccountStore(), local)
+	p.tunnelServer.SetSharingBackend(ledger)
+	// One free account per publisher keeps the existing owner limits active.
+	// Seed before the baseline so idle slope excludes account creation.
+	owners := make([]string, rcInt("RC_OWNERS"))
+	tokens := make([]string, len(owners))
+	for id := range owners {
+		email := fmt.Sprintf("capacity-%04d@example.test", id)
+		account, err := local.FindOrCreateByEmails(context.Background(), []string{email}, "fixture")
+		if err != nil {
+			t.Fatal(err)
+		}
+		owners[id] = account.ID
+		tokens[id] = relayJWT(t, p, email)
+	}
+	certSource := httptest.NewTLSServer(http.NotFoundHandler())
+	cert := certSource.TLS.Certificates[0]
+	certSource.Close()
+	l, e := net.Listen("tcp", "127.0.0.1:0")
+	if e != nil {
+		t.Fatal(e)
+	}
+	gs := grpc.NewServer(grpc.Creds(credentials.NewTLS(&tls.Config{Certificates: []tls.Certificate{cert}})))
+	pb.RegisterTunnelServiceServer(gs, p.tunnelServer)
+	go func() { _ = gs.Serve(l) }()
+	defer gs.Stop()
+	ingress := httptest.NewTLSServer(p.createHandler())
+	defer ingress.Close()
+	done := make(chan struct{})
+	admin := rcServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/stop" {
+			close(done)
+			return
+		}
+		if r.URL.Path == "/usage" {
+			export, err := ledger.Export(r.Context(), &meterpb.ExportRequest{Owner: owners[0], Month: time.Now().UTC().Format("2006-01")})
+			if err != nil {
+				http.Error(w, err.Error(), 503)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"owner_usage": export.OwnerUsage, "usage": export.Usage, "audit_truncated": export.AuditTruncated})
+			return
+		}
+		p.tunnelServer.mu.RLock()
+		n, backed, exempt, shared := len(p.tunnelServer.tunnels), 0, 0, 0
+		for _, tunnel := range p.tunnelServer.tunnels {
+			if tunnel.AccountID != "" {
+				backed++
+			}
+			if tunnel.accountQuotaExempt {
+				exempt++
+			}
+			if tunnel.ResourceID != "" {
+				shared++
+			}
+		}
+		p.tunnelServer.mu.RUnlock()
+		_ = json.NewEncoder(w).Encode(map[string]any{"tunnels": n, "account_backed": backed, "quota_exempt": exempt, "shared": shared, "metering": p.meter != nil, "account_plans": p.planMeter})
+	}))
+	var journal string
+	var synchronous int
+	if e := db.QueryRow("PRAGMA journal_mode").Scan(&journal); e != nil {
+		t.Fatal(e)
+	}
+	if e := db.QueryRow("PRAGMA synchronous").Scan(&synchronous); e != nil {
+		t.Fatal(e)
+	}
+	rcWrite(t, "relay-ready.json", map[string]any{"grpc": l.Addr().String(), "ingress": ingress.URL, "admin": admin.URL, "cookie": relayJWT(t, p, "capacity-0000@example.test"), "tokens": tokens, "tunnel_key": p.config.WellKnownKey, "journal_mode": journal, "synchronous": synchronous, "owners": len(owners)})
+	<-done
+}
+func rcPublishers(t *testing.T) {
+	var registration struct {
+		Tokens    []string `json:"tokens"`
+		TunnelKey string   `json:"tunnel_key"`
+	}
+	data, err := os.ReadFile(filepath.Join(os.Getenv("RC_WORK"), "relay-ready.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(data, &registration); err != nil {
+		t.Fatal(err)
+	}
+	payload := bytes.Repeat([]byte("c"), rcInt("RC_BODY"))
+	origin := rcServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", strconv.Itoa(len(payload)))
+		if os.Getenv("RC_BROKEN") == "1" {
+			return
+		}
+		_, _ = w.Write(payload)
+	}))
+	var mu sync.Mutex
+	var cancels []context.CancelFunc
+	var wg sync.WaitGroup
+	defer func() {
+		for _, cancel := range cancels {
+			cancel()
+		}
+		wg.Wait()
+	}()
+	done := make(chan struct{})
+	admin := rcServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		if r.URL.Path == "/stop" {
+			close(done)
+			return
+		}
+		n, e := strconv.Atoi(r.URL.Query().Get("n"))
+		if e != nil || n < 0 || n > len(registration.Tokens) {
+			http.Error(w, "n", 400)
+			return
+		}
+		for len(cancels) > n {
+			last := len(cancels) - 1
+			cancels[last]()
+			cancels = cancels[:last]
+		}
+		for len(cancels) < n {
+			id := len(cancels)
+			ctx, cancel := context.WithCancel(context.Background())
+			cancels = append(cancels, cancel)
+			pub := &client.ServeClient{TunnelID: fmt.Sprintf("capacity-%04d", id), TargetURL: origin.URL, ServerAddr: os.Getenv("RC_GRPC"), Insecure: true, Quiet: true, AuthToken: registration.Tokens[id], TunnelKey: registration.TunnelKey, RequireSharing: true, Public: true}
+			wg.Add(1)
+			go func() { defer wg.Done(); _ = pub.Run(ctx) }()
+		}
+		_, _ = fmt.Fprint(w, n)
+	}))
+	rcWrite(t, "publishers-ready.json", map[string]string{"admin": admin.URL})
+	<-done
+}
+
+type rcSample struct {
+	MS    float64 `json:"ms"` // scheduled arrival to full-body completion or error
+	LagMS float64 `json:"lag_ms"`
+	Error string  `json:"error,omitempty"`
+}
+type rcStats struct {
+	Count           int     `json:"count"`
+	Errors          int     `json:"errors"`
+	P99             float64 `json:"p99_ms"`
+	LagP99          float64 `json:"dispatch_lag_p99_ms"`
+	ErrorRate       float64 `json:"error_rate"`
+	FirstError      string  `json:"first_error,omitempty"`
+	GeneratorErrors int     `json:"generator_errors"`
+}
+
+func rcSummary(samples []rcSample) rcStats {
+	out := rcStats{Count: len(samples)}
+	var ms, lag []float64
+	for _, s := range samples {
+		ms = append(ms, s.MS)
+		lag = append(lag, s.LagMS)
+		if s.Error != "" {
+			out.Errors++
+			if s.Error == "load generator outstanding bound reached" {
+				out.GeneratorErrors++
+			}
+			if out.FirstError == "" {
+				out.FirstError = s.Error
+			}
+		}
+	}
+	if len(ms) > 0 {
+		sort.Float64s(ms)
+		sort.Float64s(lag)
+		rank := int(math.Ceil(.99*float64(len(ms)))) - 1
+		out.P99 = ms[rank]
+		out.LagP99 = lag[rank]
+		out.ErrorRate = float64(out.Errors) / float64(len(ms))
+	}
+	return out
+}
+func rcRequest(c *http.Client, path, host, cookie string, size int, scheduled time.Time) rcSample {
+	s := rcSample{LagMS: float64(time.Since(scheduled)) / float64(time.Millisecond)}
+	req, e := http.NewRequest("GET", os.Getenv("RC_INGRESS")+path, nil)
+	if e != nil {
+		panic(e)
+	}
+	req.Host = host
+	if cookie != "" {
+		req.AddCookie(&http.Cookie{Name: "tunn_auth", Value: cookie})
+	}
+	r, e := c.Do(req)
+	if e == nil {
+		var n int64
+		if path == "/account" {
+			var page []byte
+			page, e = io.ReadAll(r.Body)
+			n = int64(len(page))
+			if e == nil && (bytes.Contains(page, []byte("Can't load usage right now.")) || !bytes.Contains(page, []byte(`aria-label="Request usage"`))) {
+				e = fmt.Errorf("account usage unavailable or account page missing")
+			}
+		} else {
+			n, e = io.Copy(io.Discard, r.Body)
+		}
+		if e == nil && path == "/" && r.StatusCode == 200 && r.Header.Get("Tunn-Request-ID") == "" {
+			e = fmt.Errorf("visitor admission missing metering request ID")
+		}
+		r.Body.Close()
+		if e == nil && (r.StatusCode != 200 || n == 0 || size > 0 && n != int64(size)) {
+			e = fmt.Errorf("status=%d bytes=%d want=%d", r.StatusCode, n, size)
+		}
+	}
+	s.MS = float64(time.Since(scheduled)) / float64(time.Millisecond)
+	if e != nil {
+		s.Error = e.Error()
+	}
+	return s
+}
+func rcLoad(t *testing.T) {
+	c := rcClient()
+	defer c.CloseIdleConnections()
+	rate, seconds, body := rcInt("RC_RPS"), rcInt("RC_SECONDS"), rcInt("RC_BODY")
+	count := rate * seconds
+	samples := make([]rcSample, count)
+	var pages [2][]rcSample
+	var wg sync.WaitGroup
+	// Scheduled open-loop arrivals include dispatcher lag; no completion-paced
+	// workers that hide queueing. Bound outstanding requests above the maximum two-second arrival window.
+	slots := make(chan struct{}, 8192)
+	start := time.Now().Add(50 * time.Millisecond)
+	for page, path := range []string{"/login", "/account"} {
+		pages[page] = make([]rcSample, seconds*5)
+		wg.Add(1)
+		go func(page int, path string) {
+			defer wg.Done()
+			pc := rcClient()
+			defer pc.CloseIdleConnections()
+			var probes sync.WaitGroup
+			for i := 0; i < seconds*5; i++ {
+				at := start.Add(time.Duration(i) * 200 * time.Millisecond)
+				time.Sleep(time.Until(at))
+				probes.Add(1)
+				go func(i int, at time.Time) {
+					defer probes.Done()
+					pages[page][i] = rcRequest(pc, path, "tunn.test", os.Getenv("RC_COOKIE"), 0, at)
+				}(i, at)
+			}
+			probes.Wait()
+		}(page, path)
+	}
+	for i := 0; i < count; i++ {
+		at := start.Add(time.Duration(float64(i) * float64(time.Second) / float64(rate)))
+		time.Sleep(time.Until(at))
+		select {
+		case slots <- struct{}{}:
+			wg.Add(1)
+			go func(i int, at time.Time) {
+				defer wg.Done()
+				defer func() { <-slots }()
+				samples[i] = rcRequest(c, "/", fmt.Sprintf("capacity-%04d.tunn.test", i%rcInt("RC_TUNNELS")), "", body, at)
+			}(i, at)
+		default:
+			samples[i] = rcSample{MS: float64(time.Since(at)) / float64(time.Millisecond), Error: "load generator outstanding bound reached"}
+		}
+	}
+	wg.Wait()
+	elapsed := time.Since(start).Seconds()
+	summary := rcSummary(samples)
+	rcWrite(t, "load-result.json", map[string]any{"traffic": summary, "login": rcSummary(pages[0]), "account": rcSummary(pages[1]), "seconds": elapsed, "offered_rps": rate, "completed_rps": float64(summary.Count-summary.Errors) / elapsed, "samples": samples})
+}

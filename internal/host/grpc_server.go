@@ -68,15 +68,16 @@ func isValidDNSLabel(tunnelID string) bool {
 type TunnelServer struct {
 	pb.UnimplementedTunnelServiceServer
 
-	sharing    metering.SharingBackend
-	hosts      *store.HostStore
-	mu         sync.RWMutex
-	tunnels    map[string]*TunnelConnection
-	cfg        *config.Config
-	userTokens map[string]string   // email -> token from users.yaml
-	accounts   *store.AccountStore // Account storage for subdomain reservations
-	storage    storage.Storage     // Unified storage for tunnel registration/limits
-	now        func() time.Time
+	sharing         metering.SharingBackend
+	hosts           *store.HostStore
+	mu              sync.RWMutex
+	tunnels         map[string]*TunnelConnection
+	pendingReleases map[registrationRelease]struct{} // removed routes awaiting confirmed session release
+	cfg             *config.Config
+	userTokens      map[string]string   // email -> token from users.yaml
+	accounts        *store.AccountStore // Account storage for subdomain reservations
+	storage         storage.Storage     // Unified storage for tunnel registration/limits
+	now             func() time.Time
 }
 
 // Bandwidth limits are defined in limits.go
@@ -120,6 +121,11 @@ type TunnelConnection struct {
 	// Process-local metadata belongs to this connection, not its DNS name.
 	inspectorMu sync.Mutex
 	inspector   *inspection.History
+
+	// Coalesce overlapping liveness checks without caching a completed result.
+	livenessMu       sync.Mutex
+	liveness         *publisherLivenessProbe
+	livenessSequence int64
 
 	// HTTP request tracking
 	pendingMu       sync.RWMutex
@@ -609,13 +615,18 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 
 	// Check if tunnel exists locally first
 	s.mu.Lock()
-	if _, exists := s.tunnels[tunnelID]; exists {
+	if active, exists := s.tunnels[tunnelID]; exists {
+		code := ""
+		if accountID != "" && active.AccountID == accountID && regClient.PreviousSession != "" && active.alertSession == regClient.PreviousSession {
+			code = common.PublisherSessionPending
+		}
 		s.mu.Unlock()
 		respMsg := &pb.TunnelMessage{
 			Message: &pb.TunnelMessage_RegisterResponse{
 				RegisterResponse: &pb.RegisterResponse{
 					Success:      false,
 					ErrorMessage: "tunnel ID already in use",
+					ErrorCode:    code,
 				},
 			},
 		}
@@ -626,15 +637,50 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 
 	// Register tunnel and check limits (cross-node if available)
 	var registeredWithStorage bool
+	sessions, sessionStorage := s.storage.(storage.TunnelSessions)
+	unregisterStorage := func(ctx context.Context) error {
+		if sessionStorage {
+			return s.releaseRegistration(ctx, sessions, registrationRelease{tunnelID, conn.alertSession})
+		}
+		return s.storage.UnregisterTunnel(ctx, tunnelID)
+	}
 	var notice, noticeCode string
 	if s.storage != nil && accountID != "" {
 		// Cross-node: register with login node (includes duplicate and limit checks)
-		reg, err := s.storage.RegisterTunnel(stream.Context(), tunnelID, accountID, s.cfg.Domain)
+		var reg *storage.TunnelRegistration
+		var err error
+		if sessionStorage {
+			// Only obligations from removed local routes are eligible. Never
+			// turn an arbitrary shared name conflict into a release or retry.
+			if err := s.releasePendingRegistrations(stream.Context(), tunnelID); err != nil {
+				return rejectTunnelRegistration(stream, "Tunnel ownership could not be verified. Please try again later.")
+			}
+			if recovery, ok := s.storage.(storage.TunnelSessionRecovery); ok {
+				reg, err = recovery.RegisterTunnelSessionAfter(stream.Context(), tunnelID, accountID, s.cfg.Domain, conn.alertSession, regClient.PreviousSession)
+			} else {
+				reg, err = sessions.RegisterTunnelSession(stream.Context(), tunnelID, accountID, s.cfg.Domain, conn.alertSession)
+			}
+		} else {
+			reg, err = s.storage.RegisterTunnel(stream.Context(), tunnelID, accountID, s.cfg.Domain)
+		}
 		if err != nil {
 			common.LogError("failed to register tunnel with login node", "tunnel_id", tunnelID, "error", err)
+			// An RPC error does not prove admission failed: the login node may
+			// have committed, or may still be processing this session. Retire
+			// only this generation, independently of publisher cancellation.
+			if sessionStorage {
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				if cleanupErr := unregisterStorage(ctx); cleanupErr != nil {
+					common.LogError("failed to release ambiguous tunnel admission", "tunnel_id", tunnelID, "error", cleanupErr)
+				}
+			}
 			return rejectTunnelRegistration(stream, "Tunnel ownership could not be verified. Please try again later.")
 		} else if !reg.Allowed {
 			reason, code := reg.Reason, ""
+			if reg.Reason == common.PublisherSessionPending {
+				reason, code = "Previous publisher session is still active.", common.PublisherSessionPending
+			}
 			if reg.Reason == "tunnel limit reached" {
 				reason = tunnelLimitMessage(plan, int(reg.CurrentCount), int(reg.MaxAllowed))
 				code = "tunnel_limit"
@@ -720,7 +766,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 				if registeredWithStorage {
 					ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 					defer cancel()
-					_ = s.storage.UnregisterTunnel(ctx, tunnelID)
+					_ = unregisterStorage(ctx)
 				}
 				if ineffective {
 					return rejectTunnelRegistration(stream, err.Error())
@@ -740,7 +786,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 			if registeredWithStorage {
 				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 				defer cancel()
-				_ = s.storage.UnregisterTunnel(ctx, tunnelID)
+				_ = unregisterStorage(ctx)
 			}
 			return rejectTunnelRegistration(stream, policyRegistrationFailure(err, "Endpoint policy"))
 		}
@@ -749,13 +795,17 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 
 	// Add to local map (re-check for race condition)
 	s.mu.Lock()
-	if _, exists := s.tunnels[tunnelID]; exists {
+	if active, exists := s.tunnels[tunnelID]; exists {
+		code := ""
+		if accountID != "" && active.AccountID == accountID && regClient.PreviousSession != "" && active.alertSession == regClient.PreviousSession {
+			code = common.PublisherSessionPending
+		}
 		s.mu.Unlock()
 		// Unregister from storage if we registered
 		if registeredWithStorage && s.storage != nil {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			if err := s.storage.UnregisterTunnel(ctx, tunnelID); err != nil {
+			if err := unregisterStorage(ctx); err != nil {
 				common.LogError("failed to unregister duplicate tunnel", "tunnel_id", tunnelID, "error", err)
 			}
 		}
@@ -764,6 +814,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 				RegisterResponse: &pb.RegisterResponse{
 					Success:      false,
 					ErrorMessage: "tunnel ID already in use",
+					ErrorCode:    code,
 				},
 			},
 		}
@@ -785,7 +836,7 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 			if registeredWithStorage {
 				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 				defer cancel()
-				_ = s.storage.UnregisterTunnel(ctx, tunnelID)
+				_ = unregisterStorage(ctx)
 			}
 			_ = stream.Send(&pb.TunnelMessage{Message: &pb.TunnelMessage_RegisterResponse{RegisterResponse: &pb.RegisterResponse{Success: false, ErrorMessage: "name reservation could not be verified"}}})
 			return fmt.Errorf("name reservation could not be verified")
@@ -810,30 +861,45 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 		s.hostSeen(conn)
 		conn.closePendingConnections()
 		s.mu.Lock()
-		delete(s.tunnels, tunnelID)
+		if s.tunnels[tunnelID] == conn {
+			delete(s.tunnels, tunnelID)
+		}
+		if registeredWithStorage && sessionStorage {
+			// Publish the release obligation before another admission can
+			// observe the removed route, even if storage is unavailable.
+			s.rememberRegistrationReleaseLocked(registrationRelease{tunnelID, conn.alertSession})
+		}
 		s.mu.Unlock()
-		// Local teardown must not wait for a heartbeat RPC to a hung login
-		// node. Join it before the final report so it cannot revive this session.
+		// Release and reporting share the existing ten-second cleanup budget.
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cleanupCancel()
+		// Release the removed route before reporting or joining a slow heartbeat.
+		// The admission generation fences any in-flight old report, including
+		// the interval before a replacement sends its first up report.
+		if registeredWithStorage && sessionStorage {
+			if err := unregisterStorage(cleanupCtx); err != nil {
+				common.LogError("failed to unregister tunnel from login node", "tunnel_id", tunnelID, "error", err)
+			}
+		}
+		// Join before the final report, so this worker cannot overwrite it.
 		if alertCancel != nil {
 			<-alertDone
 		}
 
-		// Unregister from login node if we registered
-		if registeredWithStorage && s.storage != nil && s.storage.Available() {
-			unregister := true
+		if registeredWithStorage && s.storage != nil && (sessionStorage || s.storage.Available()) {
+			unregister := !sessionStorage
 			if alertCancel != nil {
 				ended := conn.stop.Load()
 				operation, lastError := "down", ended.detail
 				if ended.reason == publisherClientStop {
 					operation, lastError = "graceful", ""
 				}
-				// A login node may have been rolled back during this session.
-				unregister = status.Code(s.reportAvailability(conn, operation, lastError)) == codes.Unimplemented
+				reportErr := s.reportAvailabilityContext(cleanupCtx, conn, operation, lastError)
+				// Preserve legacy cleanup when availability RPCs are unsupported.
+				unregister = !sessionStorage && status.Code(reportErr) == codes.Unimplemented
 			}
 			if unregister {
-				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-				defer cancel()
-				if err := s.storage.UnregisterTunnel(ctx, tunnelID); err != nil {
+				if err := unregisterStorage(cleanupCtx); err != nil {
 					common.LogError("failed to unregister tunnel from login node", "tunnel_id", tunnelID, "error", err)
 				}
 			}
@@ -847,11 +913,12 @@ func (s *TunnelServer) EstablishTunnel(stream pb.TunnelService_EstablishTunnelSe
 	respMsg := &pb.TunnelMessage{
 		Message: &pb.TunnelMessage_RegisterResponse{
 			RegisterResponse: &pb.RegisterResponse{
-				Success:      true,
-				Notice:       notice,
-				NoticeCode:   noticeCode,
-				PublicUrl:    publicURL,
-				Capabilities: []string{common.CapabilityHTTPStreamV1, common.CapabilityConnectionStreamV1, common.CapabilityWebSocketV1, common.CapabilityHTTPResponseTrailersV1, common.CapabilityHTTPRequestHeadersV1, deviceReauthCapability, "web-sharing-v1", webhook.Capability, common.CapabilityGracefulStopV1, common.CapabilityFailureStopV1},
+				Success:          true,
+				PublisherSession: conn.alertSession,
+				Notice:           notice,
+				NoticeCode:       noticeCode,
+				PublicUrl:        publicURL,
+				Capabilities:     []string{common.CapabilityHTTPStreamV1, common.CapabilityConnectionStreamV1, common.CapabilityWebSocketV1, common.CapabilityHTTPResponseTrailersV1, common.CapabilityHTTPRequestHeadersV1, deviceReauthCapability, "web-sharing-v1", webhook.Capability, common.CapabilityGracefulStopV1, common.CapabilityFailureStopV1},
 			},
 		},
 	}
@@ -944,6 +1011,9 @@ func (s *TunnelServer) processTunnelMessages(conn *TunnelConnection, stream pb.T
 		case *pb.TunnelMessage_HealthCheck:
 			// Respond to health check (use conn.SendMessage for thread safety)
 			s.handleHealthCheck(conn, m.HealthCheck)
+
+		case *pb.TunnelMessage_HealthCheckResponse:
+			conn.acknowledgeLiveness(m.HealthCheckResponse.Timestamp)
 
 		case *pb.TunnelMessage_HttpResponse:
 			// HTTP response from client - route to waiting request

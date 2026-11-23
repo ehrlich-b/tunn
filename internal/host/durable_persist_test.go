@@ -44,6 +44,9 @@ type persistRelay struct {
 	// sleeping) and drops the connection before the client sees the response.
 	loseResponse atomic.Int64
 	midRequest   func()
+	// Optional synchronization/trace for the first-renewal settle diagnostic.
+	events      chan persistRenewalEvent
+	refreshGate <-chan struct{}
 }
 
 func (r *persistRelay) start() {
@@ -74,6 +77,14 @@ func (r *persistRelay) start() {
 				return
 			}
 			r.refresh.Add(1)
+			r.event("refresh-start")
+			if r.refreshGate != nil {
+				select {
+				case <-r.refreshGate:
+				case <-req.Context().Done():
+					return
+				}
+			}
 			if r.loseResponse.Load() > 0 {
 				r.loseResponse.Add(-1)
 				routes.ServeHTTP(httptest.NewRecorder(), req)
@@ -82,6 +93,9 @@ func (r *persistRelay) start() {
 			}
 		}
 		routes.ServeHTTP(w, req)
+		if req.URL.Path == "/api/device/refresh" {
+			r.event("refresh-return")
+		}
 	})))
 	server.EnableHTTP2 = true
 	server.StartTLS()
@@ -115,6 +129,17 @@ func (r *persistRelay) dial(ctx context.Context, network, _ string) (net.Conn, e
 	return d.DialContext(ctx, network, addr)
 }
 
+type persistRenewalEvent struct {
+	Kind  string
+	Clock time.Time
+}
+
+func (r *persistRelay) event(kind string) {
+	if r.events != nil {
+		r.events <- persistRenewalEvent{kind, r.clock()}
+	}
+}
+
 type persistWatchedStream struct {
 	grpc.ServerStream
 	relay *persistRelay
@@ -124,11 +149,16 @@ type persistWatchedStream struct {
 // the next RecvMsg marks the previous token as applied.
 func (s *persistWatchedStream) RecvMsg(m any) error {
 	if token, _ := s.relay.pending.Load().(string); token != "" {
+		previous, _ := s.relay.applied.Load().(string)
 		s.relay.applied.Store(token)
+		if previous != token {
+			s.relay.event("register-applied")
+		}
 	}
 	err := s.ServerStream.RecvMsg(m)
 	if msg, ok := m.(*pb.TunnelMessage); err == nil && ok && msg.GetRegisterClient() != nil {
 		s.relay.pending.Store(msg.GetRegisterClient().AuthToken)
+		s.relay.event("register-received")
 	}
 	return err
 }

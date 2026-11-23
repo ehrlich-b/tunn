@@ -468,9 +468,11 @@ type RegisterClient struct {
 	ClientVersion string `protobuf:"bytes,15,opt,name=client_version,json=clientVersion,proto3" json:"client_version,omitempty"`
 	ClientHost    string `protobuf:"bytes,16,opt,name=client_host,json=clientHost,proto3" json:"client_host,omitempty"` // coarse OS/architecture label, e.g. linux/amd64
 	// Disable the default hostname-derived favicon fallback.
-	NoFavicon     bool `protobuf:"varint,17,opt,name=no_favicon,json=noFavicon,proto3" json:"no_favicon,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	NoFavicon bool `protobuf:"varint,17,opt,name=no_favicon,json=noFavicon,proto3" json:"no_favicon,omitempty"`
+	// Last successful session in this publisher run; never authorizes takeover.
+	PreviousSession string `protobuf:"bytes,18,opt,name=previous_session,json=previousSession,proto3" json:"previous_session,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *RegisterClient) Reset() {
@@ -608,6 +610,13 @@ func (x *RegisterClient) GetNoFavicon() bool {
 	return false
 }
 
+func (x *RegisterClient) GetPreviousSession() string {
+	if x != nil {
+		return x.PreviousSession
+	}
+	return ""
+}
+
 // RegisterResponse is sent by the server to acknowledge tunnel registration.
 type RegisterResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -622,10 +631,12 @@ type RegisterResponse struct {
 	// Stable machine-readable refusal code; error_message remains readable by older clients.
 	ErrorCode string `protobuf:"bytes,5,opt,name=error_code,json=errorCode,proto3" json:"error_code,omitempty"`
 	// Non-fatal admission guidance. A notice never prevents the tunnel from running.
-	Notice        string `protobuf:"bytes,6,opt,name=notice,proto3" json:"notice,omitempty"`
-	NoticeCode    string `protobuf:"bytes,7,opt,name=notice_code,json=noticeCode,proto3" json:"notice_code,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Notice     string `protobuf:"bytes,6,opt,name=notice,proto3" json:"notice,omitempty"`
+	NoticeCode string `protobuf:"bytes,7,opt,name=notice_code,json=noticeCode,proto3" json:"notice_code,omitempty"`
+	// Relay generation retained by the publisher only for reconnect classification.
+	PublisherSession string `protobuf:"bytes,8,opt,name=publisher_session,json=publisherSession,proto3" json:"publisher_session,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *RegisterResponse) Reset() {
@@ -703,6 +714,13 @@ func (x *RegisterResponse) GetNotice() string {
 func (x *RegisterResponse) GetNoticeCode() string {
 	if x != nil {
 		return x.NoticeCode
+	}
+	return ""
+}
+
+func (x *RegisterResponse) GetPublisherSession() string {
+	if x != nil {
+		return x.PublisherSession
 	}
 	return ""
 }
@@ -1932,7 +1950,7 @@ const file_proto_tunnel_proto_rawDesc = "" +
 	"\amessage\"\x0e\n" +
 	"\fGracefulStop\"%\n" +
 	"\vFailureStop\x12\x16\n" +
-	"\x06reason\x18\x01 \x01(\tR\x06reason\"\xd9\x04\n" +
+	"\x06reason\x18\x01 \x01(\tR\x06reason\"\x84\x05\n" +
 	"\x0eRegisterClient\x12\x1b\n" +
 	"\ttunnel_id\x18\x01 \x01(\tR\btunnelId\x12\x1d\n" +
 	"\n" +
@@ -1954,7 +1972,8 @@ const file_proto_tunnel_proto_rawDesc = "" +
 	"\vclient_host\x18\x10 \x01(\tR\n" +
 	"clientHost\x12\x1d\n" +
 	"\n" +
-	"no_favicon\x18\x11 \x01(\bR\tnoFaviconJ\x04\b\a\x10\bJ\x04\b\b\x10\t\"\xec\x01\n" +
+	"no_favicon\x18\x11 \x01(\bR\tnoFavicon\x12)\n" +
+	"\x10previous_session\x18\x12 \x01(\tR\x0fpreviousSessionJ\x04\b\a\x10\bJ\x04\b\b\x10\t\"\x99\x02\n" +
 	"\x10RegisterResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12#\n" +
 	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\x12\x1d\n" +
@@ -1965,7 +1984,8 @@ const file_proto_tunnel_proto_rawDesc = "" +
 	"error_code\x18\x05 \x01(\tR\terrorCode\x12\x16\n" +
 	"\x06notice\x18\x06 \x01(\tR\x06notice\x12\x1f\n" +
 	"\vnotice_code\x18\a \x01(\tR\n" +
-	"noticeCode\"Z\n" +
+	"noticeCode\x12+\n" +
+	"\x11publisher_session\x18\b \x01(\tR\x10publisherSession\"Z\n" +
 	"\fProxyRequest\x12#\n" +
 	"\rconnection_id\x18\x01 \x01(\tR\fconnectionId\x12%\n" +
 	"\x0esource_address\x18\x02 \x01(\tR\rsourceAddress\"s\n" +

@@ -40,6 +40,23 @@ func (s *LocalStorage) TunnelAlert(ctx context.Context, r *pb.TunnelAlertRequest
 	owner := account.ID
 	s.activeTunnelsMu.Lock()
 	defer s.activeTunnelsMu.Unlock()
+	generation := s.activeSessions[r.Tunnel]
+	switch r.Operation {
+	case "up", "heartbeat", "down", "graceful":
+		// Keep the last versioned generation after release so a delayed heartbeat
+		// cannot recreate its claim. A subsequent admission replaces this fence.
+		if generation != "" {
+			if generation != r.Session || s.activeTunnels[r.Tunnel] == "" && (r.Operation == "up" || r.Operation == "heartbeat") {
+				return &pb.TunnelAlertResponse{}, nil
+			}
+			if id := s.activeTunnels[r.Tunnel]; id != "" {
+				active, err := s.accounts.GetByIDContext(ctx, id)
+				if err != nil || active.ID != owner {
+					return nil, fmt.Errorf("publisher owner does not match registration")
+				}
+			}
+		}
+	}
 	if r.Operation == "up" {
 		active, err := s.accounts.GetByIDContext(ctx, s.activeTunnels[r.Tunnel])
 		if err != nil || active.ID != owner {
@@ -53,10 +70,12 @@ func (s *LocalStorage) TunnelAlert(ctx context.Context, r *pb.TunnelAlertRequest
 	}
 	err = alerts.Report(ctx, owner, r.Tunnel, r.Session, r.Operation, r.LastError, s.currentTime())
 	if err == nil {
-		if (r.Operation == "down" || r.Operation == "graceful") && (session == "" || session == r.Session) {
+		// Versioned admission is released only by UnregisterTunnelSession after
+		// the relay confirms route removal. Reports describe availability only.
+		if generation == "" && (r.Operation == "down" || r.Operation == "graceful") && (session == "" || session == r.Session) {
 			delete(s.activeTunnels, r.Tunnel)
 		}
-		if r.Operation == "heartbeat" && session != "" && session == r.Session {
+		if generation == "" && r.Operation == "heartbeat" && session != "" && session == r.Session {
 			s.activeTunnels[r.Tunnel] = owner
 		}
 	}
@@ -72,7 +91,11 @@ func (s *LocalStorage) ClaimTunnelAlerts(ctx context.Context) ([]store.TunnelAle
 		return nil, err
 	}
 	for _, tunnel := range expired {
-		delete(s.activeTunnels, tunnel)
+		// The heartbeat lease is an availability signal, not proof that a
+		// relay removed its route. Keep versioned admission until release.
+		if s.activeSessions[tunnel] == "" {
+			delete(s.activeTunnels, tunnel)
+		}
 	}
 	return alerts.Claim(ctx, s.currentTime())
 }

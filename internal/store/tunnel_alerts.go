@@ -232,8 +232,9 @@ func (s *TunnelAlertStore) Claim(ctx context.Context, now time.Time) ([]TunnelAl
 	return alerts, nil
 }
 
-// Expire also returns names whose in-memory admission must be released after
-// a relay crash. The local storage authority serializes this with registration.
+// Expire marks stale availability offline and returns the affected names.
+// Missing heartbeats do not prove route removal and cannot release versioned
+// admission; that requires the relay's explicit, generation-conditional release.
 func (s *TunnelAlertStore) Expire(ctx context.Context, now time.Time) ([]string, error) {
 	rows, err := s.db.QueryContext(ctx, `UPDATE tunnel_availability SET online=0,offline_since=seen_at+?,graceful=0,last_error='Relay heartbeat lost' WHERE online=1 AND seen_at+?<=? RETURNING tunnel`, int64(TunnelHeartbeatLease/time.Second), int64(TunnelHeartbeatLease/time.Second), now.Unix())
 	if err != nil {

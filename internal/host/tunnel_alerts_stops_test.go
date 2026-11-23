@@ -333,7 +333,7 @@ func TestTunnelAlertsTerminalFailuresAndRecovery(t *testing.T) {
 				f.clock.Add(1)
 				f.sweep(1)
 				f.sweep(1)
-				f.register("failed-stop", "replacement")
+				f.registerSession("failed-stop", "replacement")
 				f.sweep(1)
 				f.clock.Add(3600)
 				f.report("failed-stop", "replacement", "heartbeat", "")
@@ -447,7 +447,7 @@ func TestTunnelAlertsHTTP2StopReasons(t *testing.T) {
 					if kind == "transport loss" || modern && kind != "graceful" {
 						f.sweep(1)
 						f.sweep(1)
-						f.register("http2-stop", "replacement")
+						f.registerSession("http2-stop", "replacement")
 						f.clock.Add(3600)
 						f.report("http2-stop", "replacement", "heartbeat", "")
 						f.sweep(2)

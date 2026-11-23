@@ -1,6 +1,8 @@
 package common
 
 const (
+	// CapabilityPublisherLivenessV1 supports relay-initiated health checks.
+	CapabilityPublisherLivenessV1 = "publisher-liveness-v1"
 	// CapabilityGracefulStopV1 requires an explicit owner shutdown message.
 	CapabilityGracefulStopV1 = "graceful-stop-v1"
 	CapabilityFailureStopV1  = "failure-stop-v1"

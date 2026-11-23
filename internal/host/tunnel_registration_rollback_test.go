@@ -51,7 +51,7 @@ func TestTunnelRegistrationRollbackAfterPublisherCancellation(t *testing.T) {
 			// connection so a canceled RPC cannot mutate storage directly.
 			unregisters := make(chan string, 1)
 			login := grpc.NewServer(grpc.UnaryInterceptor(func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-				if info.FullMethod == internalpb.LoginNodeDB_UnregisterTunnel_FullMethodName {
+				if info.FullMethod == internalpb.LoginNodeDB_UnregisterTunnelSession_FullMethodName {
 					unregisters <- req.(*internalpb.UnregisterTunnelRequest).TunnelId
 				}
 				return handler(ctx, req)
@@ -66,7 +66,7 @@ func TestTunnelRegistrationRollbackAfterPublisherCancellation(t *testing.T) {
 				grpc.WithTransportCredentials(insecure.NewCredentials()),
 				grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }),
 				grpc.WithUnaryInterceptor(func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoke grpc.UnaryInvoker, opts ...grpc.CallOption) error {
-					if method == internalpb.LoginNodeDB_UnregisterTunnel_FullMethodName {
+					if method == internalpb.LoginNodeDB_UnregisterTunnelSession_FullMethodName {
 						rollbackAttempts++
 						if ctx.Err() != nil {
 							t.Errorf("rollback started with canceled context: %v", ctx.Err())
@@ -76,7 +76,7 @@ func TestTunnelRegistrationRollbackAfterPublisherCancellation(t *testing.T) {
 						}
 					}
 					err := invoke(ctx, method, req, reply, cc, opts...)
-					if method == internalpb.LoginNodeDB_RegisterTunnel_FullMethodName && err == nil && reply.(*internalpb.RegisterTunnelResponse).Allowed {
+					if method == internalpb.LoginNodeDB_RegisterTunnelSession_FullMethodName && err == nil && reply.(*internalpb.RegisterTunnelResponse).Allowed {
 						accepted++
 						if path == "duplicate-race" && accepted == 1 {
 							// Another local publisher wins the race after the first
@@ -140,7 +140,7 @@ func TestTunnelRegistrationRollbackAfterPublisherCancellation(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			retry, err := remote.RegisterTunnel(checkCtx, name, account.ID, cfg.Domain)
+			retry, err := remote.RegisterTunnelSession(checkCtx, name, account.ID, cfg.Domain, "retry")
 			if err != nil {
 				t.Fatal(err)
 			}

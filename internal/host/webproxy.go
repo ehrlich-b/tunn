@@ -192,7 +192,7 @@ func (p *ProxyServer) handleWebProxy(w http.ResponseWriter, r *http.Request) {
 func (p *ProxyServer) proxyToLocal(w http.ResponseWriter, r *http.Request, tunnelID string) error {
 	w = protectResponse(w)
 	tunnel, exists := p.tunnelServer.GetTunnel(tunnelID)
-	if !exists {
+	if !exists || !tunnel.publisherLive(r.Context()) {
 		http.Error(w, "Tunnel offline", http.StatusServiceUnavailable)
 		return nil
 	}

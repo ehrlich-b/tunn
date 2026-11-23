@@ -22,8 +22,12 @@ type LocalStorage struct {
 
 	// Active tunnels tracked in memory
 	// Maps tunnel_id -> account_id
-	activeTunnels   map[string]string
-	activeTunnelsMu sync.RWMutex
+	activeTunnels  map[string]string
+	activeSessions map[string]string
+	// Released sessions fence admission even when release precedes a pending
+	// registration RPC. Keep them for the lifetime of these in-memory claims.
+	releasedSessions map[string]map[string]struct{}
+	activeTunnelsMu  sync.RWMutex
 
 	// Magic link rate limiting
 	// Maps email -> list of request times
@@ -53,6 +57,7 @@ func NewLocalStorage(db *sql.DB) *LocalStorage {
 		accounts:          store.NewAccountStore(db),
 		db:                db,
 		activeTunnels:     make(map[string]string),
+		activeSessions:    make(map[string]string),
 		magicLinkRequests: make(map[string][]time.Time),
 		now:               time.Now,
 	}
@@ -202,6 +207,21 @@ func (s *LocalStorage) GetMonthlyUsage(ctx context.Context, accountID string) (i
 
 // RegisterTunnel registers an active tunnel and checks limits.
 func (s *LocalStorage) RegisterTunnel(ctx context.Context, tunnelID, accountID, nodeAddress string) (*TunnelRegistration, error) {
+	return s.registerTunnel(ctx, tunnelID, accountID, nodeAddress, "", "")
+}
+
+func (s *LocalStorage) RegisterTunnelSession(ctx context.Context, tunnelID, accountID, nodeAddress, session string) (*TunnelRegistration, error) {
+	return s.RegisterTunnelSessionAfter(ctx, tunnelID, accountID, nodeAddress, session, "")
+}
+
+func (s *LocalStorage) RegisterTunnelSessionAfter(ctx context.Context, tunnelID, accountID, nodeAddress, session, previous string) (*TunnelRegistration, error) {
+	if session == "" || len(session) > 128 || len(previous) > 128 {
+		return nil, fmt.Errorf("invalid publisher generation")
+	}
+	return s.registerTunnel(ctx, tunnelID, accountID, nodeAddress, session, previous)
+}
+
+func (s *LocalStorage) registerTunnel(ctx context.Context, tunnelID, accountID, nodeAddress, session, previous string) (*TunnelRegistration, error) {
 	s.activeTunnelsMu.Lock()
 	defer s.activeTunnelsMu.Unlock()
 	acc, err := s.accounts.GetByIDContext(ctx, accountID)
@@ -234,8 +254,27 @@ func (s *LocalStorage) RegisterTunnel(ctx context.Context, tunnelID, accountID, 
 		return &TunnelRegistration{Allowed: false, Reason: "subdomain is reserved by another user"}, nil
 	}
 
+	// Once a name has used generation fencing, an unversioned admission cannot
+	// discard that fence: its delayed reports could otherwise delete a replacement
+	// before the replacement sends its first up report.
+	if session == "" && (s.activeSessions[tunnelID] != "" || len(s.releasedSessions[tunnelID]) != 0) {
+		return &TunnelRegistration{Allowed: false, Reason: "publisher generation required"}, nil
+	}
+	if _, released := s.releasedSessions[tunnelID][session]; released {
+		return &TunnelRegistration{Allowed: false, Reason: "publisher generation retired"}, nil
+	}
+
 	// Check if tunnel ID already exists (cross-node duplicate check)
-	if _, exists := s.activeTunnels[tunnelID]; exists {
+	if activeOwner, exists := s.activeTunnels[tunnelID]; exists {
+		active, err := s.accounts.GetByIDContext(ctx, activeOwner)
+		if err != nil {
+			return nil, err
+		}
+		if previous != "" && session != "" && previous == s.activeSessions[tunnelID] && active.ID == accountID {
+			// Classification only: the original relay must still prove removal
+			// through conditional release. No new route may be installed yet.
+			return &TunnelRegistration{Reason: common.PublisherSessionPending}, nil
+		}
 		return &TunnelRegistration{
 			Allowed: false,
 			Reason:  "tunnel ID already in use",
@@ -288,6 +327,10 @@ func (s *LocalStorage) RegisterTunnel(ctx context.Context, tunnelID, accountID, 
 
 	// Register the tunnel
 	s.activeTunnels[tunnelID] = accountID
+	if s.activeSessions == nil {
+		s.activeSessions = make(map[string]string)
+	}
+	s.activeSessions[tunnelID] = session
 
 	return &TunnelRegistration{
 		Allowed:      true,
@@ -302,7 +345,33 @@ func (s *LocalStorage) RegisterTunnel(ctx context.Context, tunnelID, accountID, 
 func (s *LocalStorage) UnregisterTunnel(ctx context.Context, tunnelID string) error {
 	s.activeTunnelsMu.Lock()
 	defer s.activeTunnelsMu.Unlock()
+	// An unversioned delayed cleanup cannot erase a versioned publisher.
+	if s.activeSessions[tunnelID] != "" && s.activeTunnels[tunnelID] != "" {
+		return fmt.Errorf("publisher generation required for cleanup")
+	}
 	delete(s.activeTunnels, tunnelID)
+	return nil
+}
+
+func (s *LocalStorage) UnregisterTunnelSession(ctx context.Context, tunnelID, session string) error {
+	if session == "" || len(session) > 128 {
+		return fmt.Errorf("invalid publisher generation")
+	}
+	s.activeTunnelsMu.Lock()
+	defer s.activeTunnelsMu.Unlock()
+	// Absence now does not prove an admission RPC cannot commit later. Retain
+	// the release under the same lock as admission, without changing any other
+	// active generation or its durable ownership.
+	if s.releasedSessions == nil {
+		s.releasedSessions = make(map[string]map[string]struct{})
+	}
+	if s.releasedSessions[tunnelID] == nil {
+		s.releasedSessions[tunnelID] = make(map[string]struct{})
+	}
+	s.releasedSessions[tunnelID][session] = struct{}{}
+	if s.activeSessions[tunnelID] == session {
+		delete(s.activeTunnels, tunnelID)
+	}
 	return nil
 }
 

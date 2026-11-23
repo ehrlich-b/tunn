@@ -210,7 +210,13 @@ func (s *LoginNodeDBServer) UpdatePlan(ctx context.Context, req *internalv1.Upda
 
 // RegisterTunnel registers an active tunnel and checks limits
 func (s *LoginNodeDBServer) RegisterTunnel(ctx context.Context, req *internalv1.RegisterTunnelRequest) (*internalv1.RegisterTunnelResponse, error) {
-	reg, err := s.storage.RegisterTunnel(ctx, req.TunnelId, req.AccountId, req.NodeAddress)
+	var reg *storage.TunnelRegistration
+	var err error
+	if req.Session != "" {
+		reg, err = s.storage.RegisterTunnelSessionAfter(ctx, req.TunnelId, req.AccountId, req.NodeAddress, req.Session, req.PreviousSession)
+	} else {
+		reg, err = s.storage.RegisterTunnel(ctx, req.TunnelId, req.AccountId, req.NodeAddress)
+	}
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to register tunnel: %v", err)
 	}
@@ -221,15 +227,22 @@ func (s *LoginNodeDBServer) RegisterTunnel(ctx context.Context, req *internalv1.
 		MaxAllowed:   reg.MaxAllowed,
 		Notice:       reg.Notice,
 		NoticeCode:   reg.NoticeCode,
+		Session:      req.Session,
 	}, nil
 }
 
 // UnregisterTunnel removes an active tunnel
 func (s *LoginNodeDBServer) UnregisterTunnel(ctx context.Context, req *internalv1.UnregisterTunnelRequest) (*internalv1.UnregisterTunnelResponse, error) {
-	if err := s.storage.UnregisterTunnel(ctx, req.TunnelId); err != nil {
+	var err error
+	if req.Session != "" {
+		err = s.storage.UnregisterTunnelSession(ctx, req.TunnelId, req.Session)
+	} else {
+		err = s.storage.UnregisterTunnel(ctx, req.TunnelId)
+	}
+	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to unregister tunnel: %v", err)
 	}
-	return &internalv1.UnregisterTunnelResponse{}, nil
+	return &internalv1.UnregisterTunnelResponse{Session: req.Session}, nil
 }
 
 // GetTunnelCount returns the number of active tunnels for an account
@@ -347,4 +360,19 @@ func (s *LoginNodeDBServer) RevokeBrowserSessions(ctx context.Context, r *intern
 		return nil, status.Error(codes.Unavailable, "Logout not committed")
 	}
 	return &internalv1.RevokeBrowserSessionsResponse{}, nil
+}
+
+// RegisterTunnelSession requires generation-aware admission without a legacy fallback.
+func (s *LoginNodeDBServer) RegisterTunnelSession(ctx context.Context, req *internalv1.RegisterTunnelRequest) (*internalv1.RegisterTunnelResponse, error) {
+	if req.Session == "" {
+		return nil, status.Error(codes.InvalidArgument, "missing publisher generation")
+	}
+	return s.RegisterTunnel(ctx, req)
+}
+
+func (s *LoginNodeDBServer) UnregisterTunnelSession(ctx context.Context, req *internalv1.UnregisterTunnelRequest) (*internalv1.UnregisterTunnelResponse, error) {
+	if req.Session == "" {
+		return nil, status.Error(codes.InvalidArgument, "missing publisher generation")
+	}
+	return s.UnregisterTunnel(ctx, req)
 }

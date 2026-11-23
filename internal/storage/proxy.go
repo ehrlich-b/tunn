@@ -252,17 +252,38 @@ func (s *ProxyStorage) GetMonthlyUsage(ctx context.Context, accountID string) (i
 
 // RegisterTunnel registers an active tunnel and checks limits.
 func (s *ProxyStorage) RegisterTunnel(ctx context.Context, tunnelID, accountID, nodeAddress string) (*TunnelRegistration, error) {
+	return s.registerTunnel(ctx, tunnelID, accountID, nodeAddress, "", "")
+}
+
+func (s *ProxyStorage) RegisterTunnelSession(ctx context.Context, tunnelID, accountID, nodeAddress, session string) (*TunnelRegistration, error) {
+	return s.RegisterTunnelSessionAfter(ctx, tunnelID, accountID, nodeAddress, session, "")
+}
+
+func (s *ProxyStorage) RegisterTunnelSessionAfter(ctx context.Context, tunnelID, accountID, nodeAddress, session, previous string) (*TunnelRegistration, error) {
+	if session == "" || len(session) > 128 || len(previous) > 128 {
+		return nil, fmt.Errorf("invalid publisher generation")
+	}
+	return s.registerTunnel(ctx, tunnelID, accountID, nodeAddress, session, previous)
+}
+
+func (s *ProxyStorage) registerTunnel(ctx context.Context, tunnelID, accountID, nodeAddress, session, previous string) (*TunnelRegistration, error) {
 	client := s.getClient()
 	if client == nil {
 		return nil, ErrNotAvailable
 	}
-	resp, err := client.RegisterTunnel(ctx, &internalv1.RegisterTunnelRequest{
-		TunnelId:    tunnelID,
-		AccountId:   accountID,
-		NodeAddress: nodeAddress,
-	})
+	req := &internalv1.RegisterTunnelRequest{TunnelId: tunnelID, AccountId: accountID, NodeAddress: nodeAddress, Session: session, PreviousSession: previous}
+	var resp *internalv1.RegisterTunnelResponse
+	var err error
+	if session != "" {
+		resp, err = client.RegisterTunnelSession(ctx, req)
+	} else {
+		resp, err = client.RegisterTunnel(ctx, req)
+	}
 	if err != nil {
 		return nil, err
+	}
+	if resp.Allowed && resp.Session != session {
+		return nil, fmt.Errorf("login node does not support publisher generations")
 	}
 	return &TunnelRegistration{
 		Allowed:      resp.Allowed,
@@ -282,6 +303,24 @@ func (s *ProxyStorage) UnregisterTunnel(ctx context.Context, tunnelID string) er
 	}
 	_, err := client.UnregisterTunnel(ctx, &internalv1.UnregisterTunnelRequest{TunnelId: tunnelID})
 	return err
+}
+
+func (s *ProxyStorage) UnregisterTunnelSession(ctx context.Context, tunnelID, session string) error {
+	if session == "" {
+		return fmt.Errorf("missing publisher generation")
+	}
+	client := s.getClient()
+	if client == nil {
+		return ErrNotAvailable
+	}
+	resp, err := client.UnregisterTunnelSession(ctx, &internalv1.UnregisterTunnelRequest{TunnelId: tunnelID, Session: session})
+	if err != nil {
+		return err
+	}
+	if resp.Session != session {
+		return fmt.Errorf("login node did not confirm conditional cleanup")
+	}
+	return nil
 }
 
 // GetTunnelCount returns the number of active tunnels for an account.

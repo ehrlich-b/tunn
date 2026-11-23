@@ -44,6 +44,28 @@ func TestReconnectBackoffBounds(t *testing.T) {
 	}
 }
 
+func TestReconnectDefaultRecoveryBudget(t *testing.T) {
+	// Initialize the real Run defaults without opening a network connection.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	publisher := &ServeClient{}
+	if err := publisher.Run(ctx); err != context.Canceled {
+		t.Fatalf("canceled publisher: %v", err)
+	}
+	for _, attempt := range []int{0, 1, 4, 8, 64, 1000000} {
+		for _, sample := range []float64{0, .5, 1} {
+			// Repeated short connections must not leave a 15–30s retry
+			// pending when the relay returns. Also cover standalone defaults.
+			for _, maximum := range []time.Duration{publisher.MaxReconnectDelay, 0} {
+				delay := reconnectDelay(publisher.InitialDelay, maximum, attempt, sample)
+				if delay <= 0 || delay > 10*time.Second {
+					t.Fatalf("attempt %d sample %v: retry %s exceeds the recovery budget", attempt, sample, delay)
+				}
+			}
+		}
+	}
+}
+
 type hostEOFStream struct{ mockEstablishTunnelClient }
 
 func (*hostEOFStream) Recv() (*pb.TunnelMessage, error) { return nil, io.EOF }

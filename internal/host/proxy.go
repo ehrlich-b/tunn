@@ -727,6 +727,9 @@ func (p *ProxyServer) Run(ctx context.Context) error {
 		go func() { defer wg.Done(); p.usageFlushLoop(ctx) }()
 	}
 
+	wg.Add(1)
+	go func() { defer wg.Done(); p.tunnelServer.registrationReleaseLoop(ctx) }()
+
 	// Wait for either an error or context cancellation
 	if p.isLoginNode {
 		wg.Add(1)
@@ -762,7 +765,13 @@ func (p *ProxyServer) startHTTP2Server(ctx context.Context, handler http.Handler
 	}
 
 	// Enable HTTP/2
-	if err := http2.ConfigureServer(srv, &http2.Server{}); err != nil {
+	// gRPC is served through net/http below, so grpc.KeepaliveParams does
+	// not drive this connection's pings. Detect sleeping publishers here too,
+	// otherwise their routes remain online until the TCP stack notices loss.
+	if err := http2.ConfigureServer(srv, &http2.Server{
+		ReadIdleTimeout: 10 * time.Second,
+		PingTimeout:     5 * time.Second,
+	}); err != nil {
 		return fmt.Errorf("configure HTTP/2 server: %w", err)
 	}
 

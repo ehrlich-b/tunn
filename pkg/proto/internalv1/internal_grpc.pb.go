@@ -251,6 +251,8 @@ const (
 	LoginNodeDB_UpdatePlan_FullMethodName              = "/internal.LoginNodeDB/UpdatePlan"
 	LoginNodeDB_RegisterTunnel_FullMethodName          = "/internal.LoginNodeDB/RegisterTunnel"
 	LoginNodeDB_UnregisterTunnel_FullMethodName        = "/internal.LoginNodeDB/UnregisterTunnel"
+	LoginNodeDB_RegisterTunnelSession_FullMethodName   = "/internal.LoginNodeDB/RegisterTunnelSession"
+	LoginNodeDB_UnregisterTunnelSession_FullMethodName = "/internal.LoginNodeDB/UnregisterTunnelSession"
 	LoginNodeDB_GetTunnelCount_FullMethodName          = "/internal.LoginNodeDB/GetTunnelCount"
 	LoginNodeDB_MarkMagicTokenUsed_FullMethodName      = "/internal.LoginNodeDB/MarkMagicTokenUsed"
 	LoginNodeDB_CheckMagicLinkRateLimit_FullMethodName = "/internal.LoginNodeDB/CheckMagicLinkRateLimit"
@@ -288,6 +290,9 @@ type LoginNodeDBClient interface {
 	// Active tunnel tracking (cross-node)
 	RegisterTunnel(ctx context.Context, in *RegisterTunnelRequest, opts ...grpc.CallOption) (*RegisterTunnelResponse, error)
 	UnregisterTunnel(ctx context.Context, in *UnregisterTunnelRequest, opts ...grpc.CallOption) (*UnregisterTunnelResponse, error)
+	// Separate methods fail closed on login nodes predating publisher generations.
+	RegisterTunnelSession(ctx context.Context, in *RegisterTunnelRequest, opts ...grpc.CallOption) (*RegisterTunnelResponse, error)
+	UnregisterTunnelSession(ctx context.Context, in *UnregisterTunnelRequest, opts ...grpc.CallOption) (*UnregisterTunnelResponse, error)
 	GetTunnelCount(ctx context.Context, in *GetTunnelCountRequest, opts ...grpc.CallOption) (*GetTunnelCountResponse, error)
 	// Magic link replay protection (cross-node)
 	MarkMagicTokenUsed(ctx context.Context, in *MarkMagicTokenUsedRequest, opts ...grpc.CallOption) (*MarkMagicTokenUsedResponse, error)
@@ -470,6 +475,26 @@ func (c *loginNodeDBClient) UnregisterTunnel(ctx context.Context, in *Unregister
 	return out, nil
 }
 
+func (c *loginNodeDBClient) RegisterTunnelSession(ctx context.Context, in *RegisterTunnelRequest, opts ...grpc.CallOption) (*RegisterTunnelResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RegisterTunnelResponse)
+	err := c.cc.Invoke(ctx, LoginNodeDB_RegisterTunnelSession_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *loginNodeDBClient) UnregisterTunnelSession(ctx context.Context, in *UnregisterTunnelRequest, opts ...grpc.CallOption) (*UnregisterTunnelResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UnregisterTunnelResponse)
+	err := c.cc.Invoke(ctx, LoginNodeDB_UnregisterTunnelSession_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *loginNodeDBClient) GetTunnelCount(ctx context.Context, in *GetTunnelCountRequest, opts ...grpc.CallOption) (*GetTunnelCountResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetTunnelCountResponse)
@@ -577,6 +602,9 @@ type LoginNodeDBServer interface {
 	// Active tunnel tracking (cross-node)
 	RegisterTunnel(context.Context, *RegisterTunnelRequest) (*RegisterTunnelResponse, error)
 	UnregisterTunnel(context.Context, *UnregisterTunnelRequest) (*UnregisterTunnelResponse, error)
+	// Separate methods fail closed on login nodes predating publisher generations.
+	RegisterTunnelSession(context.Context, *RegisterTunnelRequest) (*RegisterTunnelResponse, error)
+	UnregisterTunnelSession(context.Context, *UnregisterTunnelRequest) (*UnregisterTunnelResponse, error)
 	GetTunnelCount(context.Context, *GetTunnelCountRequest) (*GetTunnelCountResponse, error)
 	// Magic link replay protection (cross-node)
 	MarkMagicTokenUsed(context.Context, *MarkMagicTokenUsedRequest) (*MarkMagicTokenUsedResponse, error)
@@ -646,6 +674,12 @@ func (UnimplementedLoginNodeDBServer) RegisterTunnel(context.Context, *RegisterT
 }
 func (UnimplementedLoginNodeDBServer) UnregisterTunnel(context.Context, *UnregisterTunnelRequest) (*UnregisterTunnelResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method UnregisterTunnel not implemented")
+}
+func (UnimplementedLoginNodeDBServer) RegisterTunnelSession(context.Context, *RegisterTunnelRequest) (*RegisterTunnelResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RegisterTunnelSession not implemented")
+}
+func (UnimplementedLoginNodeDBServer) UnregisterTunnelSession(context.Context, *UnregisterTunnelRequest) (*UnregisterTunnelResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method UnregisterTunnelSession not implemented")
 }
 func (UnimplementedLoginNodeDBServer) GetTunnelCount(context.Context, *GetTunnelCountRequest) (*GetTunnelCountResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetTunnelCount not implemented")
@@ -980,6 +1014,42 @@ func _LoginNodeDB_UnregisterTunnel_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _LoginNodeDB_RegisterTunnelSession_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RegisterTunnelRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LoginNodeDBServer).RegisterTunnelSession(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LoginNodeDB_RegisterTunnelSession_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LoginNodeDBServer).RegisterTunnelSession(ctx, req.(*RegisterTunnelRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LoginNodeDB_UnregisterTunnelSession_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UnregisterTunnelRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LoginNodeDBServer).UnregisterTunnelSession(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LoginNodeDB_UnregisterTunnelSession_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LoginNodeDBServer).UnregisterTunnelSession(ctx, req.(*UnregisterTunnelRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _LoginNodeDB_GetTunnelCount_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetTunnelCountRequest)
 	if err := dec(in); err != nil {
@@ -1194,6 +1264,14 @@ var LoginNodeDB_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "UnregisterTunnel",
 			Handler:    _LoginNodeDB_UnregisterTunnel_Handler,
+		},
+		{
+			MethodName: "RegisterTunnelSession",
+			Handler:    _LoginNodeDB_RegisterTunnelSession_Handler,
+		},
+		{
+			MethodName: "UnregisterTunnelSession",
+			Handler:    _LoginNodeDB_UnregisterTunnelSession_Handler,
 		},
 		{
 			MethodName: "GetTunnelCount",

@@ -36,7 +36,7 @@ func TestTunnelTeardownWithHungLoginNode(t *testing.T) {
 			login := grpc.NewServer(grpc.UnaryInterceptor(func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 				alert, _ := req.(*internalpb.TunnelAlertRequest)
 				availabilityCleanup := info.FullMethod == internalpb.LoginNodeDB_TunnelAlert_FullMethodName && alert != nil && (alert.Operation == "down" || alert.Operation == "graceful")
-				if info.FullMethod == internalpb.LoginNodeDB_UnregisterTunnel_FullMethodName || availabilityCleanup {
+				if info.FullMethod == internalpb.LoginNodeDB_UnregisterTunnel_FullMethodName || info.FullMethod == internalpb.LoginNodeDB_UnregisterTunnelSession_FullMethodName || availabilityCleanup {
 					entered <- ctx
 					<-ctx.Done()
 					canceled <- ctx.Err()

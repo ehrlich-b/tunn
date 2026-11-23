@@ -59,6 +59,22 @@ type Storage interface {
 	Available() bool
 }
 
+// TunnelSessions binds admission and release to one relay connection generation.
+// Release must be conditional even before the first availability report arrives.
+// A confirmed release must also prevent later admission of that same session,
+// including an admission still in flight when its RPC returned an error.
+// Older embedded backends may retain the legacy Storage interface.
+type TunnelSessions interface {
+	RegisterTunnelSession(context.Context, string, string, string, string) (*TunnelRegistration, error)
+	UnregisterTunnelSession(context.Context, string, string) error
+}
+
+// TunnelSessionRecovery classifies reconnects without replacing an active session.
+// Only the same canonical owner and exact previous generation may wait for release.
+type TunnelSessionRecovery interface {
+	RegisterTunnelSessionAfter(context.Context, string, string, string, string, string) (*TunnelRegistration, error)
+}
+
 // DeviceCode represents a pending device authorization
 type DeviceCode struct {
 	Code       string

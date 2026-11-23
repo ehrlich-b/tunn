@@ -83,11 +83,15 @@ func (conn *TunnelConnection) endRegistration(err error) {
 }
 
 func (s *TunnelServer) reportAvailability(conn *TunnelConnection, operation, lastError string) error {
+	return s.reportAvailabilityContext(context.Background(), conn, operation, lastError)
+}
+
+func (s *TunnelServer) reportAvailabilityContext(parent context.Context, conn *TunnelConnection, operation, lastError string) error {
 	backend, ok := s.storage.(storage.TunnelAlerts)
 	if !ok || conn.AccountID == "" {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(parent, 5*time.Second)
 	defer cancel()
 	_, err := backend.TunnelAlert(ctx, &internalpb.TunnelAlertRequest{Operation: operation, AccountId: conn.AccountID, Tunnel: conn.TunnelID, Session: conn.alertSession, LastError: lastError})
 	if err != nil {

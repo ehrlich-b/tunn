@@ -37,6 +37,9 @@ service LoginNodeDB {
   // Active tunnel tracking (cross-node)
   rpc RegisterTunnel(RegisterTunnelRequest) returns (RegisterTunnelResponse);
   rpc UnregisterTunnel(UnregisterTunnelRequest) returns (UnregisterTunnelResponse);
+  // Separate methods fail closed on login nodes predating publisher generations.
+  rpc RegisterTunnelSession(RegisterTunnelRequest) returns (RegisterTunnelResponse);
+  rpc UnregisterTunnelSession(UnregisterTunnelRequest) returns (UnregisterTunnelResponse);
   rpc GetTunnelCount(GetTunnelCountRequest) returns (GetTunnelCountResponse);
 
   // Magic link replay protection (cross-node)
@@ -222,6 +225,8 @@ message RegisterTunnelRequest {
   string tunnel_id = 1;
   string account_id = 2;
   string node_address = 3;
+  string session = 4;
+  string previous_session = 5; // Classifies an exact same-owner continuation; never releases it.
 }
 
 message RegisterTunnelResponse {
@@ -231,13 +236,17 @@ message RegisterTunnelResponse {
   int32 max_allowed = 4;
   string notice = 5;
   string notice_code = 6;
+  string session = 7; // Echo confirms generation-aware registration support.
 }
 
 message UnregisterTunnelRequest {
   string tunnel_id = 1;
+  string session = 2;
 }
 
-message UnregisterTunnelResponse {}
+message UnregisterTunnelResponse {
+  string session = 1; // Echo confirms conditional cleanup was applied.
+}
 
 message GetTunnelCountRequest {
   string account_id = 1;

@@ -89,6 +89,8 @@ message RegisterClient {
   string client_host = 16; // coarse OS/architecture label, e.g. linux/amd64
   // Disable the default hostname-derived favicon fallback.
   bool no_favicon = 17;
+  // Last successful session in this publisher run; never authorizes takeover.
+  string previous_session = 18;
 
 }
 
@@ -107,6 +109,8 @@ message RegisterResponse {
   // Non-fatal admission guidance. A notice never prevents the tunnel from running.
   string notice = 6;
   string notice_code = 7;
+  // Relay generation retained by the publisher only for reconnect classification.
+  string publisher_session = 8;
 }
 
 // ProxyRequest is sent by the server to instruct the client to open a new

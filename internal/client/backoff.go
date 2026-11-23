@@ -5,6 +5,9 @@ import (
 	"time"
 )
 
+// Leave five seconds of the recovery budget for dialing and registration.
+const defaultMaxReconnectDelay = 10 * time.Second
+
 // ReconnectDelay uses equal jitter, bounded by half the exponential cap and
 // the cap itself. Saturation avoids overflow even after days offline.
 func ReconnectDelay(initial, maximum time.Duration, attempt int) time.Duration {
@@ -16,7 +19,7 @@ func reconnectDelay(initial, maximum time.Duration, attempt int, sample float64)
 		initial = time.Second
 	}
 	if maximum <= 0 {
-		maximum = 30 * time.Second
+		maximum = defaultMaxReconnectDelay
 	}
 	cap := min(initial, maximum)
 	for i := 0; i < attempt && cap < maximum; i++ {

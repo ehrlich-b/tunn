@@ -113,7 +113,7 @@ type ServeClient struct {
 	OnNotice          func(code, message string)
 
 	// Reconnection settings
-	MaxReconnectDelay time.Duration // Maximum delay between reconnects (default: 30s)
+	MaxReconnectDelay time.Duration // Maximum delay between reconnects (default: 10s)
 	InitialDelay      time.Duration // Initial delay for exponential backoff (default: 1s)
 	ReconnectLimit    *int          // nil keeps CLI retries unlimited; otherwise bounds retries
 	RenewInterval     time.Duration // How often a live publisher checks its device login (default: 30s)
@@ -128,11 +128,13 @@ type ServeClient struct {
 	// ResponseTrailers is negotiated by Run. Embedded ServeMessages callers
 	// may enable it only when their receiving peer supports the terminal contract.
 	ResponseTrailers bool
+	publisherSession string // Last admitted generation in this Run, never persisted.
 }
 
 // Run establishes a gRPC tunnel with automatic reconnection on failure.
 // It will retry with exponential backoff until the context is canceled.
 func (s *ServeClient) Run(ctx context.Context) error {
+	s.publisherSession = ""
 	ctx, closePool := s.withOriginPool(ctx)
 	defer closePool()
 
@@ -141,7 +143,7 @@ func (s *ServeClient) Run(ctx context.Context) error {
 		s.InitialDelay = 1 * time.Second
 	}
 	if s.MaxReconnectDelay == 0 {
-		s.MaxReconnectDelay = 30 * time.Second
+		s.MaxReconnectDelay = defaultMaxReconnectDelay
 	}
 
 	authRetried := false
@@ -237,6 +239,9 @@ func (s *ServeClient) renewInterval() time.Duration {
 func transientRegistration(err *permanentTunnelError) bool {
 	if err.kind != FailureRegistration {
 		return false
+	}
+	if err.code == common.PublisherSessionPending {
+		return true
 	}
 	message := err.Error()
 	for _, retry := range []string{
@@ -373,6 +378,7 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 	regMsg := &pb.TunnelMessage{
 		Message: &pb.TunnelMessage_RegisterClient{
 			RegisterClient: &pb.RegisterClient{
+				PreviousSession:   s.publisherSession,
 				ExposureVersion:   exposureVersion,
 				ClientVersion:     s.registrationVersion(),
 				ClientHost:        runtime.GOOS + "/" + runtime.GOARCH,
@@ -387,6 +393,7 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 				TunnelKey:         s.TunnelKey,
 				AccessTokenSha256: accessTokenDigest,
 				Capabilities: []string{
+					common.CapabilityPublisherLivenessV1,
 					common.CapabilityGracefulStopV1,
 					common.CapabilityFailureStopV1,
 					common.CapabilityHTTPStreamV1,
@@ -421,6 +428,10 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 	}
 
 	if !regResp.Success {
+		// A first attempt cannot claim continuation, even if a peer sends the code.
+		if regResp.ErrorCode == common.PublisherSessionPending && s.publisherSession == "" {
+			regResp.ErrorCode = ""
+		}
 		return &permanentTunnelError{err: fmt.Errorf("registration failed: %s", regResp.ErrorMessage), kind: FailureRegistration, code: regResp.ErrorCode}
 	}
 	if webhookConfig != nil && !containsString(regResp.Capabilities, webhook.Capability) {
@@ -434,6 +445,7 @@ func (s *ServeClient) runOnce(ctx context.Context) error {
 			return &permanentTunnelError{err: err, kind: FailureProtocol}
 		}
 	}
+	s.publisherSession = regResp.PublisherSession
 	s.ResponseTrailers = containsString(regResp.Capabilities, common.CapabilityHTTPResponseTrailersV1)
 	if connectTimer != nil {
 		connectTimer.Stop()
@@ -712,6 +724,15 @@ func (s *ServeClient) processMessagesOwned(ctx context.Context, stream MessageSt
 			case <-ctx.Done():
 				s.log(slog.LevelInfo, "context canceled while waiting for semaphore")
 				return ctx.Err()
+			}
+
+		case *pb.TunnelMessage_HealthCheck:
+			if err := sender.Send(&pb.TunnelMessage{Message: &pb.TunnelMessage_HealthCheckResponse{
+				HealthCheckResponse: &pb.HealthCheckResponse{
+					Timestamp: m.HealthCheck.Timestamp, ResponseTimestamp: time.Now().UnixMilli(),
+				},
+			}}); err != nil {
+				return fmt.Errorf("publisher health response: %w", err)
 			}
 
 		case *pb.TunnelMessage_HealthCheckResponse:

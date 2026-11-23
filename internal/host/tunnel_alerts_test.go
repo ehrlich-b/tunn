@@ -204,6 +204,18 @@ func (f *tunnelAlertFixture) register(name, session string) {
 	}
 	f.report(name, session, "up", "")
 }
+
+// registerSession mirrors the production host's atomic session admission.
+// register remains a legacy-backend control for the existing lifecycle tests.
+func (f *tunnelAlertFixture) registerSession(name, session string) {
+	f.t.Helper()
+	r, err := f.backend.(storage.TunnelSessions).RegisterTunnelSession(context.Background(), name, f.owner.ID, "replica.test", session)
+	if err != nil || !r.Allowed {
+		f.t.Fatalf("register session: %v %v", r, err)
+	}
+	f.report(name, session, "up", "")
+}
+
 func (f *tunnelAlertFixture) sweep(want int) {
 	f.t.Helper()
 	if err := f.p.deliverTunnelAlerts(context.Background()); err != nil {

@@ -52,7 +52,8 @@ func (p *ProxyServer) handleTunnelLogin(w http.ResponseWriter, r *http.Request) 
 	}
 	_, authenticated := p.getAuthFromCookie(r)
 	if !authenticated || session["aud"] != nil && session["aud"] != "" {
-		http.Redirect(w, r, "/auth/login?return_to="+url.QueryEscape("https://"+p.loginAuthority()+r.URL.RequestURI()), 302)
+		params := url.Values{"return_to": {"https://" + p.loginAuthority() + r.URL.RequestURI()}, "tunnel": {extractTunnelID(host, p.Domain)}}
+		http.Redirect(w, r, "/auth/login?"+params.Encode(), 302)
 		return true
 	}
 	if session["type"] != "org_session" {

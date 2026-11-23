@@ -10,7 +10,7 @@ import (
 )
 
 var funnelBrowserEntries = []string{
-	"/", "/about", "/privacy", "/terms", "/pricing", "/ngrok-alternative",
+	"/", "/about", "/privacy", "/terms", "/pricing", "/ngrok-alternative", "/cloudflare-quick-tunnel-alternative", "/tailscale-funnel-alternative",
 	"/docs", "/docs/", "/docs/status", "/docs/docker", "/docs/mcp-to-claude",
 	"/docs/webhook-verification", "/docs/ip-restrictions",
 	"/client-previews", "/mcp-to-claude", "/share-dev-server-oauth",
@@ -24,11 +24,7 @@ func assertFunnelSessionCookie(t *testing.T, p *ProxyServer, host string, respon
 		if c.Name != authCookieName {
 			continue
 		}
-		wantDomain := ""
-		if requestHostname(host) == p.config.Domain {
-			wantDomain = p.config.Domain
-		}
-		if c.Domain != wantDomain || !c.Secure || !c.HttpOnly || c.SameSite != http.SameSiteLaxMode || c.Path != "/" {
+		if c.Domain != "" || !c.Secure || !c.HttpOnly || c.SameSite != http.SameSiteLaxMode || c.Path != "/" {
 			t.Fatalf("session scope at %s: %+v", host, c)
 		}
 		if clearing && (c.MaxAge != -1 || c.Value != "") || !clearing && (c.MaxAge != int(authCookieLifetime.Seconds()) || c.Value == "") {

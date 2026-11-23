@@ -26,16 +26,27 @@ func TestRecipientDiscovery(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if login.Query().Get("return_to") != destination || login.Query().Get("tunnel") != "api" {
-			t.Fatal(login)
+		claims, valid := p.parseDomainToken(login.Query().Get("request"), "domain_login_request")
+		if !valid || login.Path != "/auth/domain" || claims["host"] != "api.tunn.test" || claims["path"] != "/preview?token=secret&email=recipient@example.com" {
+			t.Fatal("signed handoff lost destination")
+		}
+		handoffURL := login.String()
+		w = httptest.NewRecorder()
+		p.createHandler().ServeHTTP(w, httptest.NewRequest("GET", handoffURL, nil))
+		if w.Code != http.StatusFound {
+			t.Fatalf("handoff: %d", w.Code)
+		}
+		login, err = url.Parse(w.Header().Get("Location"))
+		if err != nil || login.Query().Get("tunnel") != "api" || login.Query().Get("return_to") != handoffURL {
+			t.Fatal("login did not retain signed handoff and tunnel label")
 		}
 		w = httptest.NewRecorder()
-		p.createHandler().ServeHTTP(w, httptest.NewRequest("GET", login.String(), nil))
+		p.createHandler().ServeHTTP(w, httptest.NewRequest("GET", "https://tunn.test"+login.String(), nil))
 		body := w.Body.String()
 		if w.Code != 200 || strings.Count(body, discovery) != 1 {
 			t.Fatalf("missing discovery: %d", w.Code)
 		}
-		primary := `/auth/github?return_to=` + url.QueryEscape(destination)
+		primary := `/auth/github?return_to=` + url.QueryEscape(login.Query().Get("return_to"))
 		if strings.Index(body, primary) < 0 || strings.Index(body, primary) > strings.Index(body, discovery) {
 			t.Fatal("sign-in/return destination must remain first")
 		}

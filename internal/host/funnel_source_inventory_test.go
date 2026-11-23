@@ -6,6 +6,7 @@ import (
 	"go/token"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"testing"
 )
@@ -151,8 +152,20 @@ func TestFunnelSourcePublisherJarIsolation(t *testing.T) {
 			t.Fatal(err)
 		}
 		response.Body.Close()
-		if len(response.Cookies()) != 0 || response.Header.Get("Location") != "" {
-			t.Fatal("publisher received platform state", path)
+		for _, c := range response.Cookies() {
+			if c.Name != appNonceCookie || c.Domain != "" || !c.Secure || !c.HttpOnly {
+				t.Fatalf("publisher received platform state %s: %s", path, c.Name)
+			}
+		}
+		if location := response.Header.Get("Location"); location != "" {
+			u, err := url.Parse(location)
+			if err != nil || u.Host != "tunn.test" || u.Path != "/auth/domain" {
+				t.Fatalf("unexpected publisher redirect %s: %s", path, location)
+			}
+			claims, ok := p.parseDomainToken(u.Query().Get("request"), "domain_login_request")
+			if !ok || claims["host"] != "tools.tunn.test" || claims["path"] != path {
+				t.Fatalf("invalid publisher handoff %s", path)
+			}
 		}
 	}
 }

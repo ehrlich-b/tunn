@@ -187,10 +187,10 @@ func testPlanLimitCLI(t *testing.T, binary string, released bool) {
 				t.Run(name, func(t *testing.T) {
 					out, err := run("sixth-project", jsonOutput)
 					save(name, out)
-					if err == nil {
-						t.Error("sixth tunnel succeeded")
-					}
 					if released {
+						if err == nil {
+							t.Error("released client did not exit on refusal")
+						}
 						if strings.Contains(out, "https://tunn.to/pricing") {
 							t.Error("v0.1.5 unexpectedly displays upgrade guidance; revisit compatibility claim")
 						}
@@ -198,6 +198,12 @@ func testPlanLimitCLI(t *testing.T, binary string, released bool) {
 							t.Error("released client did not display a refusal")
 						}
 						return
+					}
+					if err != nil || !strings.Contains(out, "Tunnel stopped") || !strings.Contains(out, "Retrying in") || strings.Contains(out, "Cannot reach tunn") {
+						t.Errorf("refused client did not wait until expiry: %v\n%s", err, out)
+					}
+					if _, ok := relay.GetTunnel("sixth-project"); ok || strings.Contains(out, "sixth-project.tunn.to") {
+						t.Error("sixth tunnel admitted while still Free")
 					}
 					for _, want := range []string{"Free", "5/5", "https://tunn.to/pricing"} {
 						if !strings.Contains(out, want) {

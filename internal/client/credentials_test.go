@@ -477,6 +477,9 @@ func TestLoginRequiredClassification(t *testing.T) {
 		{&permanentTunnelError{err: fmt.Errorf("registration failed: Account could not be verified. Run 'tunn login' again."), kind: FailureRegistration}, true, false},
 		{&permanentTunnelError{err: fmt.Errorf("registration failed: Account suspended or status unavailable."), kind: FailureRegistration}, false, false},
 		{&permanentTunnelError{err: fmt.Errorf("registration failed: tunnel ID already in use"), kind: FailureRegistration}, false, false},
+		{&permanentTunnelError{err: fmt.Errorf("registration refused"), kind: FailureRegistration, code: "tunnel_limit"}, false, true},
+		{&permanentTunnelError{err: fmt.Errorf("registration refused"), kind: FailureProtocol, code: "tunnel_limit"}, false, false},
+		{&permanentTunnelError{err: fmt.Errorf("registration failed: tunnel limit reached"), kind: FailureRegistration}, false, false},
 		{&permanentTunnelError{err: fmt.Errorf("relay lacks durable publisher renewal; update the relay")}, false, false},
 	}
 	for _, c := range cases {

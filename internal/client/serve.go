@@ -234,13 +234,13 @@ func (s *ServeClient) renewInterval() time.Duration {
 	return 30 * time.Second
 }
 
-// transientRegistration reports relay rejections that ask the publisher to
-// retry, including outages of account, login and policy authorities.
+// transientRegistration reports rejections that can recover without a new
+// login, including a tunnel limit that payment or stopping a tunnel can free.
 func transientRegistration(err *permanentTunnelError) bool {
 	if err.kind != FailureRegistration {
 		return false
 	}
-	if err.code == common.PublisherSessionPending {
+	if err.code == common.PublisherSessionPending || err.code == "tunnel_limit" {
 		return true
 	}
 	message := err.Error()

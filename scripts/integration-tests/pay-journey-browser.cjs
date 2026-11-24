@@ -81,6 +81,29 @@ const run = `${period}-${width}`;
     await page.getByRole('button',{name:'Pay fixture',exact:true}).click();
     await page.getByRole('heading',{name:'Fixture payment received',exact:true}).waitFor();
     await capture('signed-webhook',{http_status:200,state:'reconciled',receipt:run+'-webhook.json'});
+    const limit = await page.evaluate(async () => {
+      const response = await fetch('/_fixture/limit');
+      if (response.status !== 200) throw new Error('limit evidence failed');
+      return response.json();
+    });
+    assert.equal(limit.before_count,5);
+    assert.equal(limit.before_limit,5);
+    assert.match(limit.before_refusal,/Free tunnel limit reached: 5\/5/);
+    assert.equal(limit.after_count,6);
+    assert.equal(limit.sixth_registered,true);
+    assert.equal(limit.sixth_http_status,200);
+    assert.equal(limit.persistent_publishers,5);
+    assert.equal(limit.publisher_restarts,0);
+    assert.equal(limit.new_logins,0);
+    assert.equal(limit.serve_client_run_calls,6);
+    assert.equal(limit.sixth_run_calls,1);
+    assert.equal(limit.automatic_registration_retry,true);
+    assert.equal(limit.sixth_refused_while_running,true);
+    assert.equal(limit.sixth_running_after_activation,true);
+    assert.equal(limit.credential_sha256_before,limit.credential_sha256_after);
+    assert.equal(limit.publisher_pid_before,limit.publisher_pid_after);
+    assert.ok(limit.seconds_from_signed_webhook_to_usable_limit>0);
+    await capture('usable-limit',limit);
     await page.getByRole('link',{name:'Return to account',exact:true}).click();
     await page.waitForURL('**/account?billing=return');
     assert.equal((await page.locator('.who .plan-pro').innerText()).trim(),'pro');
@@ -102,6 +125,6 @@ const run = `${period}-${width}`;
     fs.writeFileSync(path.join(output,run+'-browser.json'),JSON.stringify({result:'PASS',period,width,steps,
       checkout_redirects:checkoutRedirects,blocked_external_requests:blocked,browser_errors:errors,responses},null,2)+'\n');
     await context.close();
-    console.log(`PASS ${run}: pricing → sign-in → fixture checkout → signed webhook → account Pro`);
+    console.log(`PASS ${run}: pricing → sign-in → fixture checkout → signed webhook → sixth tunnel usable → account Pro`);
   } finally { await browser.close(); }
 })().catch(error=>{console.error(error);process.exitCode=1;});

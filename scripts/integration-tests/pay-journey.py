@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """Walk both Pro offers through real HTTPS handlers and an in-memory provider.
 
+Hold five publishers through checkout and prove the refused sixth becomes usable
+through one ServeClient.Run call with the same credential. Measure from sending
+the signed webhook to the sixth tunnel's first successful HTTP response, using
+Go's monotonic clock.
+
 Needs Node, npm's cached playwright@1.64.1 and its cached Chromium. Reuses a
 Playwright module on Node's module path, or prepares the pinned test dependency
 offline in .scratch/pay-journey/node, following the integration clients' scratch
@@ -12,9 +17,11 @@ TUNN_PAY_JOURNEY_EVIDENCE defaults to ../evidence (outside the checkout).
 PLAYWRIGHT_BROWSERS_PATH defaults to /work/cache/ms-playwright.
 """
 import argparse
+from datetime import datetime
 import hashlib
 import hmac
 import json
+import math
 import os
 from pathlib import Path
 import subprocess
@@ -22,7 +29,7 @@ import struct
 
 ROOT = Path(__file__).resolve().parents[2]
 STEPS = ['pricing', 'go-pro-sign-in', 'sign-in-link-sent', 'fixture-checkout',
-         'signed-webhook', 'return-account-pro']
+         'signed-webhook', 'usable-limit', 'return-account-pro']
 
 
 def verify(report_path):
@@ -43,6 +50,27 @@ def verify(report_path):
         assert authority['provider_reads'] == authority['mappings'] == authority['automatic_audits'] == 1
         assert authority['webhook_status'] == 200 and authority['webhook_state'] == 'reconciled'
         assert authority['period_seconds'] == (30 if period == 'monthly' else 365) * 24 * 3600
+        limit = authority['limit']
+        assert limit['before_count'] == limit['before_limit'] == 5
+        assert limit['before_error_code'] == 'tunnel_limit'
+        assert 'Free tunnel limit reached: 5/5' in limit['before_refusal']
+        assert limit['after_count'] == 6 and limit['after_limit'] == 25
+        assert limit['sixth_registered'] is True and limit['sixth_http_status'] == 200
+        assert limit['persistent_publishers'] == 5
+        assert limit['publisher_restarts'] == limit['new_logins'] == 0
+        assert limit['serve_client_run_calls'] == 6 and limit['sixth_run_calls'] == 1
+        assert limit['automatic_registration_retry'] is True
+        assert limit['sixth_refused_while_running'] is True
+        assert limit['sixth_running_after_activation'] is True
+        assert limit['publisher_pid_before'] == limit['publisher_pid_after'] > 0
+        assert len(limit['credential_sha256_before']) == 64
+        assert limit['credential_sha256_before'] == limit['credential_sha256_after']
+        seconds = limit['seconds_from_signed_webhook_to_usable_limit']
+        assert math.isfinite(seconds) and 0 < seconds < 60
+        elapsed = (datetime.fromisoformat(limit['sixth_usable_at'].replace('Z', '+00:00')) -
+                   datetime.fromisoformat(limit['signed_webhook_sent_at'].replace('Z', '+00:00'))).total_seconds()
+        assert abs(elapsed - seconds) < 0.00001
+        assert all(case['steps'][5][key] == value for key, value in limit.items())
         for step in case['steps']:
             image = report_path.parent / step['screenshot']
             raw = image.read_bytes()
@@ -57,9 +85,10 @@ def verify(report_path):
         digest = hmac.new(b'whsec_first_fixture', signed.encode(), hashlib.sha256).hexdigest()
         assert hmac.compare_digest(digest, signature[3:]), 'fixture webhook signature differs'
         assert json.loads(receipt['body'])['type'] == 'checkout.session.completed'
+        assert receipt['limit'] == limit
         final = case['steps'][-1]
         assert final['expected_plan'] == final['actual_plan'] == 'pro' and final['state'] == 'active'
-    print('PASS: four complete journeys, 24 correctly sized screenshots and four signed webhook receipts')
+    print('PASS: four complete journeys, 28 correctly sized screenshots, four live limit increases and four signed webhook receipts')
 
 
 def playwright_module():

@@ -52,6 +52,7 @@ func payJourneyBrowser(t *testing.T, evidence, period string, width int) {
 	p.emailSender = mail
 	provider := newFirstCustomerStripeFixture("price_" + period)
 	p.storage = autoStripeStorage{local, store.NewStripeAutomation("sk_test_fixture", []string{"price_" + period}, provider.transport(t))}
+	publishers := newPayJourneyPublishers(t, p, db)
 	handler := p.createHandler()
 	var server *httptest.Server
 	var webhookStatus int
@@ -61,6 +62,9 @@ func payJourneyBrowser(t *testing.T, evidence, period string, width int) {
 	fixture := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Both permitted browser hostnames resolve to this loopback fixture.
 		switch r.URL.Path {
+		case "/_fixture/limit":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(publishers.facts)
 		case "/_fixture/mail":
 			if mail.calls != 1 || mail.link == "" {
 				http.Error(w, "missing fixture delivery", 500)
@@ -83,6 +87,10 @@ func payJourneyBrowser(t *testing.T, evidence, period string, width int) {
 			checkoutAccount, beforePlan = a.ID, a.Plan
 			if a.Plan != "free" {
 				http.Error(w, "buyer was already Pro", 500)
+				return
+			}
+			if err := publishers.beforePayment(a); err != nil {
+				http.Error(w, "before-payment limit: "+err.Error(), 500)
 				return
 			}
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -128,6 +136,7 @@ func payJourneyBrowser(t *testing.T, evidence, period string, width int) {
 			req.Header.Set("Content-Type", "application/json")
 			signature := signedStripeFixture(body, p.config.StripeWebhookSecret, time.Now().Unix())
 			req.Header.Set("Stripe-Signature", signature)
+			signedWebhookSent := time.Now()
 			resp, err := server.Client().Do(req)
 			if err != nil {
 				http.Error(w, err.Error(), 500)
@@ -140,8 +149,12 @@ func payJourneyBrowser(t *testing.T, evidence, period string, width int) {
 				http.Error(w, "signed webhook failed: "+string(raw), 500)
 				return
 			}
+			if err := publishers.afterPayment(signedWebhookSent); err != nil {
+				http.Error(w, "after-payment limit: "+err.Error(), 500)
+				return
+			}
 			run := fmt.Sprintf("%s-%d", period, width)
-			writePayJSON(t, filepath.Join(evidence, run+"-webhook.json"), map[string]any{"body": body, "signature": signature, "http_status": webhookStatus, "result": webhookResult})
+			writePayJSON(t, filepath.Join(evidence, run+"-webhook.json"), map[string]any{"body": body, "signature": signature, "http_status": webhookStatus, "result": webhookResult, "limit": publishers.facts})
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			fmt.Fprint(w, `<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"><title>Fixture payment received</title></head><body><h1>Fixture payment received</h1><p>Signed webhook: reconciled</p><a href="/account?billing=return">Return to account</a></body></html>`)
 		default:
@@ -175,7 +188,7 @@ func payJourneyBrowser(t *testing.T, evidence, period string, width int) {
 	if err := db.QueryRow(`SELECT (SELECT count(*) FROM ops_billing_mappings WHERE account_id=?),(SELECT count(*) FROM ops_billing_events WHERE actor='system:stripe')`, a.ID).Scan(&mappings, &audits); err != nil || mappings != 1 || audits != 1 {
 		t.Fatal("missing durable billing ownership", mappings, audits, err)
 	}
-	writePayJSON(t, filepath.Join(evidence, run+"-authority.json"), map[string]any{"before_plan": beforePlan, "after_plan": a.Plan, "provider_reads": provider.reads, "provider_transport": "firstCustomerStripeFixture: in-memory, no socket", "mappings": mappings, "automatic_audits": audits, "webhook_status": webhookStatus, "webhook_state": webhookResult.State, "period_seconds": provider.end - provider.start - 10, "width": width})
+	writePayJSON(t, filepath.Join(evidence, run+"-authority.json"), map[string]any{"before_plan": beforePlan, "after_plan": a.Plan, "provider_reads": provider.reads, "provider_transport": "firstCustomerStripeFixture: in-memory, no socket", "mappings": mappings, "automatic_audits": audits, "webhook_status": webhookStatus, "webhook_state": webhookResult.State, "period_seconds": provider.end - provider.start - 10, "width": width, "limit": publishers.facts})
 }
 
 func writePayJSON(t *testing.T, path string, value any) {

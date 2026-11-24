@@ -370,11 +370,15 @@ func attachCLI(ctx context.Context, s *client.ServeClient, o *terminal.Output, v
 		case client.StateReconnecting:
 			c.ready = false
 			if !c.retryAdvice {
-				detail := relayCause(e.Err) + ". " + relayRecovery(e.Err) + "; tunn retries automatically."
-				if !c.lastRequest.IsZero() {
-					detail += " Last request " + c.lastRequest.Local().Format("15:04:05")
+				if code := client.RegistrationCode(e.Err); code == "tunnel_limit" {
+					o.PlanMessage("error", code, e.Err.Error())
+				} else {
+					detail := relayCause(e.Err) + ". " + relayRecovery(e.Err) + "; tunn retries automatically."
+					if !c.lastRequest.IsZero() {
+						detail += " Last request " + c.lastRequest.Local().Format("15:04:05")
+					}
+					o.State("offline", "Cannot reach tunn", detail, relayCheck(s.ServerAddr), 0)
 				}
-				o.State("offline", "Cannot reach tunn", detail, relayCheck(s.ServerAddr), 0)
 				c.retryAdvice = true
 			}
 			o.State("reconnecting", fmt.Sprintf("Retrying in %.1f s", e.RetryDelay.Seconds()), "", "", e.RetryDelay)

@@ -106,7 +106,7 @@ const run = `${period}-${width}`;
     await capture('usable-limit',limit);
     await page.getByRole('link',{name:'Return to account',exact:true}).click();
     await page.waitForURL('**/account?billing=return');
-    assert.equal((await page.locator('.who .plan-pro').innerText()).trim(),'pro');
+    assert.equal((await page.locator('.who .plan-pro').innerText()).trim(),'Plan · pro');
     assert.match((await page.locator('#billing-status').innerText()).trim(),/^Pro is on\./);
     const status = await page.evaluate(async () => {
       const response = await fetch('/api/billing/status');
